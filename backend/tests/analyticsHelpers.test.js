@@ -55,8 +55,8 @@ describe('analyticsHelpers — constantes', () => {
   });
 
   describe('ALERT_TYPES', () => {
-    it('debe tener exactamente 7 tipos de alerta', () => {
-      expect(Object.keys(ALERT_TYPES)).toHaveLength(7);
+    it('debe tener 13 tipos de alerta (T-941: 6 originales + 7 nuevos)', () => {
+      expect(Object.keys(ALERT_TYPES)).toHaveLength(13);
     });
 
     it('cada tipo debe tener label y thresholds', () => {
@@ -65,6 +65,22 @@ describe('analyticsHelpers — constantes', () => {
         expect(config).toHaveProperty('thresholds');
         expect(typeof config.label).toBe('string');
         expect(typeof config.thresholds).toBe('object');
+      }
+    });
+
+    it('incluye los detectores nuevos T-941 (plateau ya operativo + Secuencia + meta)', () => {
+      const keys = Object.keys(ALERT_TYPES);
+      const expectedNew = [
+        'plateau_detected',
+        'engagement_drop',
+        'recovery_after_drop',
+        'mastery_milestone',
+        'mechanic_specific_struggle',
+        'sequence_stagnation',
+        'sequence_order_errors'
+      ];
+      for (const k of expectedNew) {
+        expect(keys).toContain(k);
       }
     });
   });

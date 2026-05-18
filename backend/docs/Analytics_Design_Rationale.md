@@ -206,7 +206,9 @@ El **plateau point** (`plateauAt`) indica el número de partida tras el cual la 
 
 ---
 
-### 2.5. Sistema de Alertas Inteligentes (Endpoints E15-E16)
+### 2.5. Sistema de Alertas Inteligentes (T-941, ADR-161)
+
+> **Actualizado en T-941**: el motor pasa de cálculo on-the-fly a **persistencia con ciclo de vida formal** (`SmartAlert`). Se mantienen los detectores originales y se añaden 7 más (incluido `plateau_detected` que en versiones anteriores estaba declarado pero no implementado). Catálogo de tipos: ver `backend/src/config/alerts.js`.
 
 #### Fundamento pedagógico
 
@@ -220,24 +222,50 @@ Los profesores **no tienen tiempo** de revisar gráficos a diario para cada alum
 
 | Tipo | Umbral | Severidad | Justificación |
 |------|--------|-----------|---------------|
-| `declining_performance` | Bajada >10% en 7 días | warning (10-20%), critical (>20%) | <10% es fluctuación normal día a día. >10% sostenido en 7 días indica tendencia real, no ruido |
+| `declining_performance` | Bajada >10% en 7 días | warning (10-20%), critical (>20%) | <10% es fluctuación normal día a día. >10% sostenido en 7 días indica tendencia real, no ruido. **Filtra `previousAvg > 0` para evitar Infinity %** (BUG-T941-1) |
 | `inactivity` | >7 días sin jugar | info (7-14d), warning (>14d) | 7 días = más de una semana lectiva completa. Si un alumno no juega en todo ese tiempo, algo ha cambiado |
-| `sudden_score_drop` | Score >30 puntos bajo la media del alumno | warning | 30 puntos en una escala de 0-100 es una desviación de ~2σ. Indica una partida anómala que merece revisión |
+| `sudden_score_drop` | Score >30 puntos bajo la media del alumno | warning | 30 puntos en una escala 0-100 es una desviación de ~2σ. Indica una partida anómala que merece revisión |
 | `consistent_timeout` | Tasa de timeout >30% en últimas 5 partidas | warning | Los timeouts no son errores de conocimiento, son señales de confusión o desatención. 30% sostenido en 5 partidas no es accidental |
 | `improving_fast` | Mejora >15% en 7 días | info (positiva) | Alerta positiva para que el profesor refuerce el progreso del alumno. El reconocimiento es crucial en educación infantil |
-| `plateau_detected` | Sin mejora significativa en periodo configurable | info | Reutiliza la lógica de E03. El profesor puede decidir cambiar de estímulo |
-| `high_abandonment` | Tasa de abandono >25% en 7 días | warning | 1 de cada 4 juegos abandonados indica un problema sistemático, no un incidente aislado |
+| `plateau_detected` | stdDev(score) ≤ 5 en ≥ 5 partidas | info | T-941 cierra el TODO histórico. Indica contenido demasiado fácil o difícil; el profesor decide cambiar de estímulo |
+| `high_abandonment` | Tasa de abandono >25% en 7 días | warning | 1 de cada 4 juegos abandonados indica un problema sistemático |
+| `engagement_drop` | Caída >25% en `engagementScore` (30d vs 60-30d) | warning | Reusa cache de `engagementService` (TTL 600s). Detecta desmotivación antes que `inactivity` |
+| `recovery_after_drop` | `sudden_score_drop`/`declining_performance` resuelta en los últimos 30 días | info (positiva) | Refuerzo positivo durante 7 días tras la recuperación. Convierte el sistema en algo que el docente *quiere* abrir |
+| `mastery_milestone` | ≥80% accuracy sostenido en ≥5 partidas en un contexto | info (positiva) | Hito celebratorio por contexto temático. Dedup nivel detector por `data.contextId` (no encaja en el unique index BD) |
+| `mechanic_specific_struggle` | Gap ≥30 puntos entre mecánica fuerte y débil, débil <50, ≥3 partidas en cada mecánica | warning | Lectura pedagógica única en el proyecto. Sugiere intervención específica por mecánica |
+| `sequence_stagnation` | `maxSequenceLengthAchieved` no supera el mismo valor en 5 partidas Secuencia | warning | T-923 lo dejó pendiente "post-T-941". Identifica techo cognitivo en Secuencia |
+| `sequence_order_errors` | `partialReproductions / totalAttempts ≥ 0.4` en últimas partidas Secuencia | warning | T-923 lo dejó pendiente "post-T-941". Distingue problema de orden vs memoria pura |
 
-#### Decisión técnica: computación on-the-fly vs almacenamiento
+Todos los umbrales viven en `backend/src/config/alerts.js` (única fuente de verdad). Aplicables por env vars para tuning sin redeploy.
 
-Las alertas se **computan en tiempo real** (con cache de 10 minutos) en vez de almacenarse en base de datos:
+#### Persistencia y ciclo de vida (T-941)
 
-- **Ventaja**: los datos siempre están frescos y no hay riesgo de inconsistencia
-- **Ventaja**: no requiere migraciones ni modelo de datos nuevo
-- **Trade-off**: cada consulta ejecuta múltiples queries en paralelo (6-7 queries ligeras)
-- **Mitigación**: cache de 600 segundos + queries optimizadas que usan `User.studentMetrics` (datos pre-agregados) cuando es posible
+Las alertas viven en MongoDB (`smartalerts`) con estados `active | resolved | dismissed | snoozed`:
 
-Se genera un ID estable para cada alerta (`hash(type + studentId + fecha)`) para que el frontend pueda trackear el estado de "leído/no leído" en localStorage sin necesidad de persistencia server-side.
+- **Insert** cuando un detector retorna finding nuevo (sin alerta activa para `(studentId, type)`).
+- **Update** `lastSeenAt + occurrencesCount + severity` cuando el finding se re-detecta. Severity escalation automática: `warning` con `daysActive ≥ 7` y `occurrencesCount ≥ 3` → `critical`. Trazado en `severityHistory[]`.
+- **Auto-resolve** tras 2 corridas consecutivas sin reaparecer (`autoResolveAfterMissedRuns`).
+- **Dismiss/Resolve/Snooze** manuales por el docente vía endpoints `PATCH /api/analytics/alerts/:id/{dismiss|resolve|snooze}`. Dismiss soporta `reason` (`false_positive | already_addressed | irrelevant | other`).
+- **Pinning** (máx 3 por docente).
+- **Auto-reapertura** de dismissed críticas que reaparecen tras 60 días (configurable, evita el caso "descarté hace 4 meses, ahora el alumno está mucho peor").
+- **Hard-delete** de resolved/dismissed > 365 días vía cron `data-retention` (integrado, sin queue nueva).
+
+#### Worker BullMQ
+
+Cron `*/15 * * * *` (env `ALERT_DETECTION_CRON`) ejecuta `alertDetectionService.runForAllTeachers()`. Worker en proceso separado `worker.js` (no acopla al HTTP backend). Idempotente vía `jobId` fijo.
+
+#### Notificación realtime
+
+Cuando aparece una alerta `critical` nueva o una existente se promueve a `critical` por escalation, el servicio emite `notificationService.notify({ type: 'student_at_risk', priority: 'critical' })`. Reusa la infraestructura T-955 (dedup window 60s, room `user_${teacherId}`). El frontend dispara `window.dispatchEvent(new CustomEvent('smartalert:created'))` para refrescar el Dashboard sin reload.
+
+#### RGPD
+
+- `loadActiveStudentsForTeacher` excluye estudiantes con `consent.withdrawnAt` (Art. 7 RGPD). Defensa en profundidad: el orquestador también descarta findings cuyo `studentId` no esté en el conjunto cargado.
+- Cada SmartAlert lleva `studentPseudoId` (sha256 truncado, determinista). Los logs Pino solo usan pseudo IDs — nunca `studentId` plano.
+
+#### Cache
+
+Namespace dedicado `cache:alerts` con TTL 60 s, invalidación granular por teacher vía `cacheInvalidatePattern('cache:alerts', 'teacher:{tid}:*')` (utilidad nueva en `cacheHelper.js`). Cada acción lifecycle invalida.
 
 ---
 

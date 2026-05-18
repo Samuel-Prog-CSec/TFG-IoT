@@ -459,6 +459,19 @@ const startServer = async () => {
           error: cronErr.message
         });
       }
+
+      // T-941: programar el cron de detección de alertas inteligentes vía
+      // BullMQ. El job se procesa en `worker.js` (proceso separado); el
+      // scheduling vive en el backend para que esté garantizado mientras la
+      // API esté arriba. Idempotente por jobId.
+      try {
+        const { scheduleAlertDetectionCron } = require('./queues');
+        await scheduleAlertDetectionCron();
+      } catch (cronErr) {
+        logger.warn('queues: no se pudo programar el cron de alertas', {
+          error: cronErr.message
+        });
+      }
     } catch (redisError) {
       // En desarrollo, continuar sin Redis con warning
       if (process.env.NODE_ENV === 'production') {

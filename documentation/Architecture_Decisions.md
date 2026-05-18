@@ -8349,3 +8349,191 @@ Para que estos workflows realmente bloqueen merges, configurar en repo Settings 
 - Procedimiento local con `docker run ghcr.io/zaproxy/zaproxy:stable zap-baseline.py` documentado en SECURITY.md §16.3.
 
 **Detalle completo:** `documentation/SECURITY.md` §16.3.
+
+---
+
+## ADR-158: Telemetría comandos Upstash + LRU memoria + pipeline helper [Backend, Performance]
+
+**Contexto:** T-907 Fase D (PROP-123). Upstash free tier limita a 10K comandos/día. Sin telemetría por categoría era imposible saber qué namespace consumía más ni anticipar picos en demos al tribunal con 30-40 alumnos concurrentes. Cada request autenticada generaba 3-5 comandos (`isTokenRevoked` + `checkSecurityFlag` + `auth:user GET` + opcional `SETEX` + rate-limit), y en microbursts del mismo usuario (refrescos rápidos, polling Sentry) se duplicaban innecesariamente.
+
+**Decisión:**
+
+1. **`backend/src/utils/redisCommandTracker.js`**: counter en memoria por categoría (`auth`, `blacklist`, `refresh`, `security`, `cache-mechanic`, `cache-context`, `cache-analytics`, `play`, `card`, `ratelimit`, `ws`, `bullmq`, `lua`, `pipeline`, `other`). `categoryForNamespace()` mapea automáticamente. `getSnapshot()` devuelve `total`, `byCategory`, `estimatedDaily` (extrapolación lineal desde uptime).
+
+2. **Instrumentación de `redisService.js`**: cada método operacional (`get`, `set`, `setWithTTL`, `setIfNotExists`, `exists`, `del`, `expire`, `incr`, `ttl`, `hset`, `hgetall`, `hget`, `hdel`, `sadd`, `smembers`, `sismember`, `srem`) registra 1 comando tras `recordSuccess()`. Métodos batch (`setMany`, `delMany`, `existsMany`, `hgetallMany`, `expireManyIfValueMatches`) registran N comandos (longitud del array). Lua wrappers (`reserveCardsAtomic`, `releaseCardsAtomic`, `renewLeaseAtomic`) registran 1 comando bajo categoría `lua`. `scanByNamespace` cuenta iteraciones de cursor.
+
+3. **`backend/src/utils/inMemoryCache.js`**: clase `InMemoryCache` LRU+TTL ligera (sin dependencias externas, implementación ~130 líneas). Instancias singleton:
+   - `authUserCache` (TTL 30s, max 500 entradas).
+   - `mechanicCache` (TTL 60s, max 50).
+   - `contextCache` (TTL 60s, max 100).
+   TTLs y tamaños configurables via env. Cada instancia expone `stats()` con `hits/misses/evictions/hitRatePercent`.
+
+4. **Integración en `middlewares/auth.js → fetchUserForAuth`**: lookup order `memoria → Redis → Mongo`. Hit en LRU local (caso común en microbursts) ahorra 1 GET Upstash por request autenticada. `invalidateUserCache(userId)` limpia ambas capas (memoria + Redis).
+
+5. **`backend/src/utils/runtimeMetrics.js`**: `getSnapshot()` enriquecido con `redis.commandsTotal`, `redis.commandsByCategory`, `redis.commandsEstimatedDaily`, `redis.inMemoryCache.{authUser,mechanic,context}`. WebSocket: nuevos contadores `websocket.{authRevalidationCacheHits/Misses, playOwnershipCacheHits/Misses}`. Helper functions `recordSocketRevalidationCache(hit/miss)` y `recordPlayOwnershipCache(hit/miss)`.
+
+6. **`socketHandlers.js`**: `getAuthCacheEntry` y `getOwnershipCacheEntry` invocan los nuevos contadores. Permite ver en `/api/metrics` la tasa de hit/miss de las caches en memoria del proceso (no Redis) que ya existían (TTL 30s y 5s respectivamente).
+
+7. **`runPipeline(buildFn, namespace='pipeline')`**: nuevo helper exportado en `redisService` que expone el cliente ioredis nativo dentro de un pipeline gestionado. Permite a callers (futuros) agrupar lecturas heterogéneas en un solo round-trip a Upstash y se contabiliza automáticamente en la categoría `pipeline` (o cualquier otra que pasen).
+
+8. **SCAN con `COUNT 100`**: ya existía en `scanByNamespace`; se documenta la decisión en este ADR. Reduce iteraciones de cursor en namespaces grandes (`cache:analytics:*`) ~10×.
+
+**Consecuencias:**
+- `/api/metrics` muestra ahora consumo Upstash en tiempo real → operador detecta tempranamente si la tasa actual rompería el budget diario antes de tocarlo.
+- LRU memoria reduce ~33% de los comandos por request autenticada en hit caliente (3 cmds → 2 cmds: blacklist + security + cero auth:user). En microbursts >1 req/s del mismo usuario, ahorro mayor.
+- LRU añade ventana de staleness ≤30s en cambios de rol/status cross-instance (single-instance no aplica). `invalidateUserCache` limpia la capa local pero NO la de otras instancias — documentado como deuda menor, mitigable con pub/sub `cache:invalidate` futuro si se escala horizontalmente.
+- Instrumentación añade overhead despreciable (incremento de Map + Number.isFinite + try/catch).
+- Compatibilidad: ningún cambio de contrato público en `redisService`. Tests existentes siguen verdes.
+
+**Alternativas descartadas:**
+- `lru-cache` npm package (mantenido por isaacs, ~5KB). Descartado para evitar nueva dependencia con tan poca lógica involucrada.
+- Pipeline forzado en `middlewares/auth.authenticate` combinando `blacklist + security + auth:user` en 1 round-trip: invasivo para `verifyAccessToken` y rompería tests que mockean los métodos individualmente. Beneficio (1 round-trip vs 3) es solo latencia, no comandos; con LRU memoria ya se logra el ahorro principal de comandos. Se deja `runPipeline` disponible para iteración futura.
+- Reset diario del contador con cron: actual `getSnapshot()` extrapola desde uptime, lo que basta para monitoreo. Reset queda como acción manual via `redisCommandTracker.reset()` si se necesita.
+
+---
+
+## ADR-159: Bundle frontend reduction (Recharts lazy + Sentry dynamic + Brotli + visualizer + sourcemap hidden) [Frontend, Performance]
+
+**Contexto:** T-907 Fase B (PROP-121). Bundle inicial frontend sin auditar tras Sprint 4. Sentry SDK (~30-40 KB gzipped) cargado síncrono pre-render bloqueando FCP. Recharts (~85 KB gzipped) cargado eager al entrar en Dashboard (la página post-login). Sin pre-compresión Brotli/Gzip — Cloudflare debía comprimir on-the-fly por cada respuesta. Sin tooling de análisis (`rollup-plugin-visualizer`). `sourcemap: true` en build de prod inflaba assets servidos al navegador con maps que Sentry ya consume server-side.
+
+**Decisión:**
+
+1. **`vite.config.js`**:
+   - Añadir `rollup-plugin-visualizer` (devDep) activado condicionalmente por `BUILD_ANALYZE=true npm run build` → genera `dist/stats.html` con treemap por chunk + gzip/brotli sizes.
+   - Añadir `vite-plugin-compression2` (devDep) en mode `production` para emitir `<asset>.br` + `<asset>.gz` junto al original. Cloudflare Pages y la mayoría de CDN sirven la variante adecuada por `Accept-Encoding` sin coste runtime. Reducción ~20-30% del peso transferido.
+   - `sourcemap: 'hidden'` en prod (antes `true`). Los stack traces siguen simbolicándose vía `sentryVitePlugin` (que sube los maps a Sentry) sin enlazarlos en el bundle navegador. Ahorra ~15-25% del peso transferido.
+   - `manualChunks` extiende: nuevos chunks `sentry` (`@sentry/*`) y `qrcode` (`qrcode.react`) para asegurar split independiente.
+
+2. **`main.jsx`**: `initSentry()` ahora se invoca tras `requestIdleCallback` (fallback `setTimeout 200ms`) con dynamic `import('./lib/sentry')`. El SDK queda en su propio chunk `sentry` que se descarga después del paint inicial. Errores de los primeros ~200ms son raros (módulos ya validados) y `window.onerror` nativo los recoge antes de que Sentry se anexe.
+
+3. **`Dashboard.jsx`**: lazificación de `StudentProgressChart`, `ClassroomOverview`, `DifficultyHeatmap` y `ActivityHeatmap` con `lazy()` + `Suspense fallback={<SkeletonChart />}`. KPIs hero y header se renderizan antes de que el chunk `charts` esté disponible.
+
+4. **`MfaSetup.jsx`**: lazy `QRCodeSVG` (chunk `qrcode`). Solo se descarga al entrar en el paso `Step.QR` del wizard MFA.
+
+5. **`index.html`**: `<link rel="preload" as="style" ...>` para la hoja CSS de Google Fonts. Mantiene `preconnect` previo. Combinado con `display=swap` evita FOIT sin bloquear render.
+
+**Consecuencias:**
+- Bundle crítico inicial reducido sin perder componentes ni animaciones. Recharts pasa a cargarse solo cuando el usuario entra a vistas que lo necesitan (Dashboard, analytics). En Dashboard, los KPIs aparecen antes de que el chart vendor termine de descargarse.
+- Sentry queda fuera del path crítico → FCP mejora cuando el navegador no tiene cacheado el SDK.
+- Cloudflare sirve `.br` directamente para clientes Brotli-capable (>97% del tráfico web) → menos CPU edge, menor latencia.
+- Hidden source maps siguen permitiendo debugging server-side (Sentry) pero no exponen código original al navegador.
+- `BUILD_ANALYZE=true` permite QA periódico de regresiones de bundle sin coste en builds normales.
+- Riesgos mitigados:
+  - `vite-plugin-compression2`: añade variantes que CDN reconoce, no rompe deploy.
+  - Dynamic Sentry: ventana de ~200ms sin capturar errores; aceptable porque los módulos importados ya están validados y el SDK añade overhead similar.
+
+**Alternativas descartadas:**
+- **LazyMotion (`<LazyMotion features={domAnimation} strict>`)**: aportaría ~25-30 KB de reducción pero requiere migrar ~100 archivos con `import { motion }` a `import { m }` y `motion.X` a `m.X`. Sin la migración global y con `strict={false}`, Framer Motion sigue cargando el bundle completo dinámicamente — beneficio nulo. Riesgo alto de romper animaciones en QA. Diferido como tarea independiente.
+- **Sustituir Recharts por librería más ligera (visx, lightweight-charts)**: cambio masivo, alto riesgo de regresión visual en 11 charts diferentes. Fuera de scope.
+- **Inline critical CSS**: ya cubre Tailwind v4 con `@theme inline`; manual inline no aporta.
+
+**Métricas (registradas en `Frontend_Chunking_Vite_Optimization.md` Iteración E)**:
+- Comparativa antes/después se documenta tras correr `BUILD_ANALYZE=true npm run build` en el commit de cierre.
+
+---
+
+## ADR-160: Estrategia Cloudflare cache + WAF + rate-limit edge [Full-stack, DevOps, Security]
+
+**Contexto:** T-907 Fase A (PROP-120). Frontend desplegado en Cloudflare Pages y backend Koyeb tras Cloudflare proxy, pero sin reglas de cache configuradas, sin WAF activo y sin rate-limit edge. El backend asumía toda la carga de filtrado HTTP/abuso, consumiendo recursos del free tier (Koyeb 1 instancia + Upstash 10K cmds/día) que podrían ahorrarse atajando tráfico evidentemente malicioso o repetido en el edge.
+
+**Decisión:**
+
+Configurar manualmente en el panel Cloudflare (free tier basta):
+
+1. **Cache estáticos** (Cache Rules o Page Rules):
+   - `*/assets/*` (regex `\.(js|css|woff2|...)$`) → `Cache Everything, Edge TTL 1h, Browser TTL 1h`.
+   - `/index.html` y `/` → `Bypass cache` (SPA shell debe ir fresco tras deploy).
+   - `/api/*` → `Bypass cache` (datos personales de menores no se cachean en edge, RGPD Art. 25).
+
+2. **WAF Managed Rules**: OWASP Core Ruleset (free) con sensitivity `Medium`. Action `Block` para Critical/High, `Log only` para Medium/Low durante la primera semana en prod (escalar a Block si no hay false positives).
+
+3. **Rate Limiting edge**: 1 regla disponible en free tier → `/api/*` 30 req/10s por IP, action `Block 10s`. Complementa rate-limiters del backend (`config/security.js`, ADR-068) que siguen siendo la fuente de verdad por usuario autenticado.
+
+4. **Bot Fight Mode**: activado (free). Bloquea User-Agents conocidos. Whitelistear UptimeRobot.
+
+5. **SSL/TLS Full (strict) + Always Use HTTPS + HTTP/3 (QUIC)**: verificación, no cambios.
+
+6. **Procedimientos operativos**: verificación curl (`CF-Cache-Status`, `cf-mitigated`), rollback plan (pause WAF rule, edge limit relajado, pausa global de Cloudflare por sitio), bitácora para auditoría.
+
+**Consecuencias:**
+- Carga del backend reducida: estáticos servidos desde edge sin tocar Koyeb. Filtrado de scrapers/bots/payloads maliciosos antes de consumir 1 segundo de CPU backend.
+- Cache estática 1h equilibra frescura tras deploy y eficiencia (los assets hash-versionados son inmutables, pero TTL alto en SPA podría confundir si manifiesto cambia rápido).
+- WAF en `Log only` durante 1 semana evita false positives en flujos como upload de assets (multipart) que podrían disparar reglas OWASP.
+- Rate limit edge 30 req/10s es lo bastante generoso para uso normal de un docente (~3 req/s sostenido) y atajará abuso obvio antes de tocar el backend.
+- Aplicación es manual: la guía documenta cada paso con verificación, lo que evita dependencia de credenciales en repo o pipelines IaC complejos para este TFG.
+
+**Alternativas descartadas:**
+- **API Cloudflare + script automatizado**: requiere `CLOUDFLARE_API_TOKEN` y `ZONE_ID` en repo/secret manager y cambios accidentales son irrecuperables. Para frecuencia de modificación baja (1 setup + ajustes ocasionales) la guía paso a paso es preferible.
+- **WAF Pro Ruleset**: requiere upgrade de plan, fuera de free tier.
+- **Argo Smart Routing**: $5/mes, no justificado para volumen TFG.
+
+**Pendientes documentados (no se hace en este sprint):**
+- Cloudflare Workers para edge-render SSR (no aplica al stack SPA actual).
+- Cloudflare Access SSO Google para `/admin/*` (MFA local cubierto en T-905).
+
+---
+
+## ADR-161: Persistencia de alertas inteligentes con ciclo de vida y motor por detectores [Full-stack, Backend, Frontend, Security]
+
+**Contexto:** T-941 (Sprint 6, P1, XL) + ampliación profunda solicitada. Antes de esta tarea, `analyticsService` derivaba alertas **on-the-fly** desde `GamePlay` + `User.studentMetrics` cada vez que un docente abría `/analytics/insights` o el widget del Dashboard. Deuda detectada en QA 2026-04-22 (PROP-78):
+
+- Sin persistencia → 6 pipelines MongoDB por cada lectura (~200–500 ms Atlas M0); sin cache dedicada.
+- `createdAt = now` para todas → la UI mostraba "Hace 7 min" aunque la condición llevase 4 días vigente.
+- Sin lifecycle (dismiss/resolve/snooze); sin trazabilidad ni audit.
+- Sin notificación realtime al docente cuando aparecía una `critical`.
+- `plateau_detected` figuraba en `ALERT_TYPES` pero **nunca se implementó** (TODO abierto).
+- `detectDecliningPerformance` dividía por `previousAvg` sin validar `> 0` → falsa alerta crítica con `Infinity %` (BUG-T941-1).
+- `alertsService.getAlerts()` **no filtraba `consent.withdrawnAt`** → exposición potencial RGPD de menores con consentimiento retirado.
+- T-923 dejó `sequence_stagnation` y `sequence_order_errors` como criterio "post-T-941" → pendientes hasta esta tarea.
+- Duplicación frontend: `AlertsHub` y `AlertsPanel` mantenían `SEVERITY_STYLES`/`ALERT_TYPE_*` por separado (~80 líneas DRY).
+- 0 tests Vitest para componentes/hooks de alertas y notificaciones.
+
+**Decisión:** reescritura completa sin código legacy ni feature flag (pre-deploy). 15 decisiones de diseño:
+
+1. **Modelo `SmartAlert`** (`backend/src/models/SmartAlert.js`, colección `smartalerts`). Estados `active | resolved | dismissed | snoozed`. Campos: `detectedAt` (estable), `lastSeenAt`, `occurrencesCount`, `missedRuns`, `resolvedAt + resolvedAutomatically`, `dismissedAt + dismissedBy + dismissReason`, `snoozedUntil/At/By`, `severityHistory[]`, `gamePlayId`, `notificationId`, `pinned + pinnedAt`, `studentPseudoId` (sha256 truncado). Virtuals `daysActive`, `isEscalated`.
+2. **Índices**: `{ teacherId, status, pinned: -1, detectedAt: -1 }`, `{ teacherId, severity, status }`, `{ status, snoozedUntil }` partial, **`{ studentId, type, status='active' }` unique partial → dedup BD**, `{ status, updatedAt }` partial (hard-delete), `{ studentId, detectedAt: -1 }`.
+3. **Strategy pattern** — `AlertDetector` base + 1 archivo por tipo. Registro en `detectors/index.js`. Los detectores **no escriben en BD**, solo retornan findings.
+4. **13 detectores activos** (6 migrados + 7 nuevos): `decliningPerformance` (con fix div/0), `inactivity`, `suddenScoreDrop`, `consistentTimeout`, `improvingFast`, `highAbandonment`, **`plateauDetected`** (cierra TODO), **`engagementDrop`**, **`recoveryAfterDrop`** (positivo), **`masteryMilestone`** (positivo, dedup nivel detector por contextId), **`mechanicSpecificStruggle`** (cross-mecánica), **`sequenceStagnation`** (cierra T-923), **`sequenceOrderErrors`** (cierra T-923).
+5. **`alertDetectionService.runForTeacher`**: carga students activos con consent vigente; ejecuta 13 detectores en `Promise.allSettled`; defensa en profundidad descartando findings fuera del conjunto cargado; reconcilia (insert/update + escalation); auto-resolve tras 2 corridas sin reaparecer; reactiva snoozed expirados; reabre dismissed críticas que reaparecen tras 60 d.
+6. **Severity escalation**: `warning` con `daysActive ≥ 7` y `occurrencesCount ≥ 3` → `critical`. Trazado en `severityHistory` con `reason='escalation'`.
+7. **Worker BullMQ** `alertDetectionWorker.js` (proceso `worker.js` separado) + queue `alert-detection`. Cron `*/15 * * * *` (env `ALERT_DETECTION_CRON`). Idempotente vía `jobId` fijo.
+8. **Notificación realtime SOLO para `critical` nuevas/recién escaladas** (`type='student_at_risk'`). Reusa `notificationService.notify` con dedup 60 s. Enlace `/students/:id?alertId=X`. Frontend dispara `window.dispatchEvent(new CustomEvent('smartalert:created'))` para refrescar sin reload.
+9. **Endpoints REST** (controller dedicado `alertsController.js`): `GET /alerts` (filtros status/severity/type/studentId/cursor/limit), `GET /alerts/summary`, `GET /alerts/effectiveness`, `GET /alerts/:id`, `GET /alerts/:id/history`, `PATCH /alerts/:id/{dismiss|resolve|snooze|pin|unpin}`, `POST /alerts/bulk-action` (hasta 100, 207 Multi-Status si parcial).
+10. **Pinning** (H.1): máx 3 por docente; ordenación `pinned -1` antes que `detectedAt -1`. 400 si excede.
+11. **Audit log** (H.2): timeline cronológica `created → reseen → escalated → snoozed → reactivated → dismissed → resolved`. Frontend `<AlertHistoryModal />`.
+12. **Dashboard eficacia interna** (H.3): `effectivenessForTeacher` con totalGenerated, activeNow, resolvedAuto/Manual, dismissed, snoozed, averageDaysToResolve, topTypes, falsePositiveRate. Frontend `<AlertsEffectivenessPanel />`.
+13. **Hard-delete cron** (H.4): `deleteOldSmartAlerts` integrado en `dataRetentionService.runDataRetention` (reusa queue `data-retention`). Default 365 d vía env `SMART_ALERT_RETENTION_DAYS`.
+14. **Auto-reabrir dismissed críticas** (H.5): si reaparece `critical` para `(studentId, type)` dismissed desde hace > `SMART_ALERT_REOPEN_AFTER_DAYS` (default 60), reapertura con `severityHistory.reason='reopened'`.
+15. **Cache Redis** namespace `cache:alerts` TTL 60 s con invalidación granular por teacher (`cacheInvalidatePattern`, nueva utilidad en `cacheHelper.js`). Cada acción lifecycle invalida.
+
+**Mejoras de seguridad/RGPD incluidas:**
+- Fix divide-by-zero en `decliningPerformance` + test de regresión dedicado.
+- Filtro `consent.withdrawnAt` en `loadActiveStudentsForTeacher` (RGPD Art. 7).
+- Defensa en profundidad descartando findings fuera del conjunto cargado.
+- `studentPseudoId` obligatorio; logs Pino solo usan pseudo IDs.
+
+**Mejoras frontend (anti-AI-slop):**
+- `constants/alertTypes.js` unifica iconos, etiquetas, estilos severidad/estado, motivos dismiss, presets snooze.
+- Filtros por estado con pills (`<AlertStatusFilter />`).
+- Menú kebab (`<AlertActionsMenu />`); dismiss con undo toast 5 s vía `sonner`.
+- Barra flotante bulk (`<AlertBulkBar />`) con spring.
+- Badge "Lleva N d" + Flame si escalada (`<EscalationBadge />`).
+- Pinning con borde dorado.
+- Modal historial; panel eficacia (H.3) integrado en `InsightsReports > Alertas`.
+- `aria-live="polite"` en `AlertsHub`.
+- Dashboard refetcha vía listener `smartalert:created`.
+
+**Consecuencias:**
+- Latencia GET /alerts: <50 ms tras primera corrida del worker vs 200–500 ms del cálculo on-the-fly.
+- Carga MongoDB Atlas M0 reducida ~95 % si docentes refrescan Insights varias veces.
+- Volumen acotado por: dedup unique partial index + auto-resolve + hard-delete cron 365 d.
+- Refuerzo positivo (`mastery_milestone`, `recovery_after_drop`) convierte el sistema en algo que el docente quiere abrir.
+- Cobertura: 1293/1293 backend (+24) y 455/455 frontend (+16).
+
+**Alternativas descartadas:**
+- **`alertsService` legacy como fachada con feature flag**: complejidad sin beneficio en pre-deploy.
+- **TeacherAlertConfig (umbrales por docente)**: scope desproporcionado; diferido. Umbrales en `config/alerts.js` admiten override por env.
+- **Reusar `Notification` para alertas**: semánticas distintas (Notification = transitoria TTL 90 d; SmartAlert = persistente sin TTL).
+- **Carpeta `backend/src/jobs/`**: el sprint la sugería, pero la convención del repo usa `backend/src/workers/`.
+
+**Backfill:** `npm run migrate:alerts-backfill` (idempotente). 4 pasadas con `referenceDate` retrocedido 30 d cada una para reconstruir historial verosímil para la demo del tribunal.

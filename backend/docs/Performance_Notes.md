@@ -402,3 +402,236 @@ El handler `readinessCheck` lee `serverState.getIsReady()` (flag que el shutdown
 ## Trust proxy detrás de Koyeb (ADR-140)
 
 `app.set('trust proxy', 1)` se activa cuando `NODE_ENV=production` o `TRUST_PROXY=true`. Sin esto, `req.ip` es la del proxy de Koyeb y los rate limiters bloquean a todos los clientes con una única IP. En desarrollo se omite a propósito: confiar en `X-Forwarded-For` sin proxy real abre la puerta a bypass.
+
+---
+
+## T-907 — Performance + escalabilidad pre-v1.0.0 (Mantenimiento 2026-05-17)
+
+T-907 del Sprint 6 consolida las cuatro propuestas de performance (PROP-120/121/122/123) y extiende el alcance a una auditoría integral de rendimiento full-stack. Esta sección documenta los cambios aplicados con foco backend; el equivalente frontend vive en `frontend/docs/Frontend_Chunking_Vite_Optimization.md` (Iteración E).
+
+### Telemetría de comandos Upstash por categoría (ADR-158)
+
+Hasta ahora `/api/metrics` solo exponía hit/miss del cache `auth:user` y fallbacks del rate-limit store. No había manera de saber cuántos comandos consumía cada namespace contra Upstash (10K/día en free tier). Si una demo al tribunal con 30-40 alumnos rompía el budget, no había información para diagnosticar qué namespace estaba descontrolado.
+
+**Solución:**
+- `backend/src/utils/redisCommandTracker.js`: contador in-process con `recordCommand(category, count=1)` + `getSnapshot()` que devuelve `total`, `byCategory` y `estimatedDaily` (extrapolación lineal desde uptime).
+- 15 categorías reconocidas: `auth`, `blacklist`, `refresh`, `security`, `cache-mechanic`, `cache-context`, `cache-analytics`, `play`, `card`, `ratelimit`, `ws`, `bullmq`, `lua`, `pipeline`, `other`.
+- `redisService.js` instrumentado: cada método operacional registra 1 comando tras `recordSuccess()`. Métodos batch (`setMany`, `delMany`, `existsMany`, `hgetallMany`) registran N. Lua wrappers registran 1 bajo categoría `lua`. `scanByNamespace` cuenta iteraciones de cursor.
+
+El snapshot resultante en `/api/metrics`:
+```json
+{
+  "redis": {
+    "commandsTotal": 1234,
+    "commandsByCategory": {
+      "auth": 567,
+      "blacklist": 123,
+      "ratelimit": 234,
+      "cache-analytics": 45,
+      "lua": 12,
+      "pipeline": 8
+    },
+    "commandsEstimatedDaily": 17856
+  }
+}
+```
+
+Si `commandsEstimatedDaily > 8000`, el operador tiene margen para reaccionar antes de tocar el techo del free tier.
+
+### LRU memoria complementaria al cache Redis (ADR-158)
+
+El cache `auth:user` Redis ahorra muchas queries Mongo, pero cada request autenticada seguía haciendo al menos 1 GET a Upstash. En microbursts del mismo usuario (polling rápido, varios tabs abiertos) se acumulan comandos innecesarios.
+
+**Solución:**
+- `backend/src/utils/inMemoryCache.js`: clase `InMemoryCache` LRU+TTL ligera, sin dependencias externas.
+- Instancias singleton: `authUserCache` (TTL 30s, 500 entradas), `mechanicCache` (TTL 60s, 50), `contextCache` (TTL 60s, 100).
+- `middlewares/auth.js → fetchUserForAuth`: lookup order `memoria → Redis → Mongo`. Hit en memoria ahorra 1 GET Upstash. Repoblación bidireccional (set en memoria tras hit Redis).
+- `invalidateUserCache(userId)` limpia ambas capas + emite invalidación Redis. Cross-instance la consistencia depende del TTL local (30s) — aceptable single-instance; documentado como deuda menor para futuro pub/sub `cache:invalidate`.
+
+Métricas expuestas en `/api/metrics → redis.inMemoryCache`:
+```json
+{
+  "authUser":  { "size": 12, "max": 500, "ttlMs": 30000, "hits": 234, "misses": 56, "hitRatePercent": 80.7 },
+  "mechanic":  { ... },
+  "context":   { ... }
+}
+```
+
+Hit rate elevado en `authUser` (>70%) indica que la capa local está absorbiendo microbursts y bajando el budget de comandos Upstash.
+
+### Métricas hit/miss de caches socket en memoria
+
+Las caches `authRevalidationCache` (TTL 30s) y `playOwnershipCache` (TTL 5s) en `socketHandlers.js` ya existían pero no exponían hit/miss. Ahora `runtimeMetrics` añade:
+
+- `websocket.authRevalidationCacheHits / Misses`
+- `websocket.playOwnershipCacheHits / Misses`
+
+Hit ratio bajo en `playOwnershipCache` indica que muchos eventos socket están revalidando contra Mongo — pista de un caller mal cacheado.
+
+### Pipeline helper expuesto
+
+`redisService.runPipeline(buildFn, namespace='pipeline')` permite a callers futuros agrupar lecturas heterogéneas en 1 round-trip Upstash. Si un módulo necesita combinar `EXISTS blacklist:<jti> + GET security:<userId> + GET auth:user:<userId>` (caso típico del middleware `authenticate`), puede invocarlo con un solo viaje. Se contabiliza bajo la categoría `pipeline` por defecto.
+
+No se aplicó el refactor del middleware `authenticate` para usar pipeline en este sprint porque rompería tests que mockean los métodos individualmente y los beneficios principales (reducción de comandos) ya los aporta el LRU memoria. Queda disponible para iteración futura.
+
+### Hardening Mongo: `reportDataService` timeouts (ADR-158)
+
+`reportDataService.getStudentReport` y `getClassroomReport` orquestaban `Promise.all` de sub-servicios sin timeout global. Si Atlas M0 degradaba (cluster compartido), una sola petición podía colgarse indefinidamente consumiendo un slot del pool Mongoose.
+
+**Solución:** wrapper `withReportTimeout(promise, label)` con `Promise.race + setTimeout REPORT_TIMEOUT_MS` (default 8000ms, configurable). Si vence, lanza `ReportTimeoutError` (statusCode 504, isOperational true) y notifica a Sentry con tag `report:timeout`. El cliente recibe un error claro en lugar de un timeout HTTP de 30s+.
+
+### Logger Pino en hook Mongoose `GamePlay.pre('validate')`
+
+El hook `pre('validate')` que clampea `score > maxScore` usaba `console.warn` (con `eslint-disable-next-line no-console`) por considerarse "sin acceso al logger Pino". Falso supuesto: se importa `logger = require('../utils/logger').child({ component: 'GamePlayModel' })` al inicio del módulo y se usa `logger.warn({ playId, score, maxScore }, ...)`. Cumple CLAUDE.md (sin console en prod) y proporciona contexto estructurado para filtrado en agregadores.
+
+### Sentry profile rate verificado
+
+`config/sentry.js` ya tiene `profilesSampleRate: 0.1` en producción (10%). Sin cambios necesarios — está dentro del límite recomendado para no inflar el cuota de Sentry Performance.
+
+### Validación Socket.IO multi-instancia (PROP-122, Fase C)
+
+Scripts nuevos en `backend/package.json`:
+- `dev:multi-1` → puerto 5000.
+- `dev:multi-2` → puerto 5001.
+
+Ambos comparten la misma instancia Redis (`REDIS_URL=redis://localhost:6379`) para que el Socket.IO Redis adapter (`@socket.io/redis-adapter`) propague eventos entre instancias.
+
+Script `backend/scripts/test-socket-multiinstance.js`:
+- Login contra ambos backends para obtener access tokens válidos.
+- Conecta clientes a las dos instancias en el mismo room.
+- Emite `test:ping` desde clientA al room y verifica que clientB (servido por backend distinto) lo recibe; luego inversa.
+- Salida: "TEST PASADO" si ambos cruces funcionan, error claro si no.
+
+Procedimiento operativo en `WebSockets-ExtendedUsage.md` sección "Validación multi-instancia".
+
+### Pendientes documentados (no se hicieron en este sprint)
+
+Mejoras backend identificadas en la auditoría pero diferidas como tareas independientes:
+
+1. **Refactor pipeline en `authenticate`**: combinar 3 GETs en 1 round-trip Redis. Beneficio: latencia (~50% reducción) sin reducir comandos. Requiere refactor de `verifyAccessToken` y actualización de tests. Documentado en ADR-158.
+2. **Cache `analyticsService.getStudentEngagement.abandonmentDetails`** con TTL 10 min: sub-pipeline con 2 `$lookup` anidados que puede tardar ~500ms en cluster cargado. Requiere identificar invalidación correcta.
+3. **Audit populates + `.select(...)`**: 4-5 calls que devuelven campos no consumidos. Reducción de bytes Mongo → app.
+4. **Sharding `data-retention` BullMQ**: si el job tarda >30 min en M0, partir por rango fecha. Env var `DATA_RETENTION_SHARDS=N`.
+5. **Pub/sub `cache:invalidate`**: para invalidación cross-instance del LRU memoria. Solo aplica cuando se escale a 2+ instancias Koyeb.
+
+### Comandos de verificación
+
+```bash
+# Telemetría de comandos Upstash
+curl -s http://localhost:5000/api/metrics | jq '.redis'
+
+# Test multi-instancia
+docker compose up -d mongo redis
+npm --prefix backend run dev:multi-1 &
+npm --prefix backend run dev:multi-2 &
+npm --prefix backend run test:multi-instance
+```
+
+---
+
+## T-907 — Mejoras pendientes ejecutadas (Iteración 2026-05-17 noche)
+
+Tras cerrar el cuerpo principal de T-907, se ejecutaron las 6 mejoras "follow-up" que el plan original había documentado como diferidas + la validación operativa multi-instancia. Esta sección recoge cada una con motivación, alcance y verificación.
+
+### INT1 — Pipeline auth (3 GETs Redis → 1 round-trip)
+
+**Antes:** `authenticate` ejecutaba secuencialmente `isTokenRevoked` (1 GET) → `checkSecurityFlag` (1 GET) → `fetchUserForAuth` (1 GET adicional cuando LRU memoria miss). Tres round-trips a Upstash en el peor caso por cada request HTTP autenticado.
+
+**Después:** nuevo helper `fetchUserForAuthWithChecks(decoded, req)` en `middlewares/auth.js` agrupa los tres comandos en **una sola pipeline** vía `redisService.runPipeline`. El JWT se decodifica primero localmente (sin tocar Redis) gracias al nuevo parámetro `verifyAccessToken(token, req, { skipRedisChecks: true })`. Los consumers de Socket.IO (`socketHandlers.js`) siguen pasando `skipRedisChecks: false` y mantienen el flujo secuencial — el cambio no los afecta.
+
+**Reglas preservadas:**
+- Blacklist → `UnauthorizedError TOKEN_REVOKED` (idéntico).
+- Security flag con tolerancia +1s para re-logins inmediatos post-`revokeAllUserTokens` (idéntico).
+- LRU memoria sigue siendo la primera capa; si hit, ni siquiera se pide `auth:user` en el pipeline (se omite el comando, no es overhead).
+
+**Impacto medible:**
+- Round-trips Upstash por request autenticada: `3 → 1` en miss, `2 → 1` con auth:user en LRU pero blacklist/security obligatorios.
+- Latencia auth percibida ~50% menor en miss caliente (cluster cargado): pasa de ~3·RTT a ~1·RTT.
+- Comandos Upstash/día: no cambia significativamente (los 3 cmds siguen ejecutándose), pero **agrupados en 1 round-trip**.
+
+### INT2 — LazyMotion Framer Motion (`m as motion` global)
+
+**Migración aplicada:**
+- Script Node ejecutado contra `frontend/src/`: 28 archivos cambiaron `import { motion } from 'framer-motion'` → `import { m as motion } from 'framer-motion'`. El JSX `motion.X` queda intacto porque el alias mantiene el identificador local.
+- `App.jsx` envuelve el árbol con `<LazyMotion features={domAnimation}>`.
+- Mock global de `framer-motion` en `frontend/src/test/setup.js` para que tests aislados (sin LazyMotion provider) no rompan. Tests con mock local (`Dashboard.analytics.test.jsx`, `SessionsPage.clone.test.jsx`) actualizados para exponer `m` y `LazyMotion`.
+
+**Hallazgo de bundle:**
+- Chunk `motion` antes: `141.33 KB` raw (`46.67 KB` gzip).
+- Chunk `motion` después: `141.76 KB` raw (`46.80 KB` gzip).
+- **Reducción real: marginal (+0.13 KB gzip, dentro del ruido).**
+
+**Conclusión documentada:** con Rolldown (bundler vigente en `vite.config.js`), el tree-shaking de Framer Motion 12 ya es muy agresivo y el módulo es relativamente monolítico para split granular por feature. LazyMotion **no aporta el ~25 KB esperado en este stack**. La migración se mantiene por buena práctica (versión "light" recomendada por Vercel, prepara terreno si el bundler optimiza carga dinámica de features en versiones futuras), no por beneficio observable.
+
+**Lo que sí persiste como beneficio:** mock global de framer-motion en `setup.js` cubre componentes nuevos sin requerir actualizar tests uno a uno.
+
+### INT3 — Cache `getStudentEngagement` TTL 10 min
+
+`services/analytics/engagementService.js`: la función `getStudentEngagement(studentId, { timeRange })` se envuelve con `cacheGet('cache:analytics', engagement:student:{studentId}:{timeRange}, fetch, 600)`. La lógica de aggregation pasa a `computeStudentEngagement` (función privada, sin cache).
+
+El sub-pipeline más caro es `abandonmentDetails` (dos `$lookup` anidados sobre GameSession y GameContext) — ~300-800 ms en Atlas M0 con un alumno que acumula 50+ partidas. Con el cache:
+- Cold (miss): mismo coste.
+- Warm (hit): <10 ms (lectura Redis).
+
+La invalidación llega automáticamente desde `GameEngine.endPlay → cacheInvalidateNamespace('cache:analytics')` (existente desde ADR-064), por lo que el dashboard del docente refresca tras cada partida con ≤200 ms de regeneración real.
+
+### INT4 — Sharding BullMQ `data-retention`
+
+`services/dataRetentionService.js` ahora acepta `windowStart` y `windowEnd` opcionales en `runDataRetention`, `anonymizeOldGamePlays` y `deleteInactiveStudents`. Si están definidos, el filtro temporal se acota al rango; si no, comportamiento original.
+
+`queues/index.js` lee `DATA_RETENTION_SHARDS` env (default 1, retrocompatible). Si N > 1, encola N jobs `daily-retention-shard-{i}-cron` con ventanas temporales disjuntas desde `2024-01-01` hasta el cutoff. Cada job procesa un slice independiente.
+
+`workers/dataRetentionWorker.js` lee `DATA_RETENTION_WORKER_CONCURRENCY` env (default 1) para subir la concurrencia del worker cuando hay sharding activo. Pasa `job.data.windowStart/windowEnd/shardIndex/shardCount` al service.
+
+**Activación operativa:** `DATA_RETENTION_SHARDS=4` + `DATA_RETENTION_WORKER_CONCURRENCY=4` cuando el job único tarde >30 min. Por defecto (`=1`), el flujo es idéntico al anterior.
+
+### INT5 — Pub/sub `cache:invalidate` cross-instance
+
+Nuevo `realtime/cacheInvalidateSubscriber.js`: canal Redis `cache:invalidate` + función `publishInvalidate(namespace, key)` + subscriber que recibe mensajes de **otras** instancias (ignora los propios via `ownInstanceId` = `HOSTNAME` o `INSTANCE_NAME` o `pid-<pid>`) y limpia el LRU local correspondiente.
+
+Mapea 3 namespaces a sus singletons LRU:
+- `auth:user` → `authUserCache`.
+- `cache:mechanic` → `mechanicCache`.
+- `cache:context` → `contextCache`.
+
+`invalidateUserCache` ahora publica al canal antes de invalidar Redis (lazy require para evitar ciclos). El subscriber se arranca/detiene junto con `rfidModeSubscriber` en `server.js` (orden alineado con la conexión Redis del lifecycle del backend).
+
+**Impacto:**
+- Single-instance: no-op útil (publica al canal pero nadie escucha, coste despreciable). LRU local se limpia síncronamente como antes.
+- Multi-instance: ventana de inconsistencia tras cambios sensibles (role, status, mecánica/contexto editado) baja de **30-60 s (TTL)** a **<100 ms (latencia pub/sub Redis)**.
+
+Documentado también en `Arquitectura_Redis.md` (sección "T-907 INT5 — Canal pub/sub `cache:invalidate`").
+
+### INT6 — Audit `populate` + `.select(...)` quirúrgico
+
+Auditados los 8 sitios con `populate(` en producción. **5 ya tenían select explícito**. Los 3 restantes corregidos:
+
+| Sitio | Antes | Después | Ganancia |
+|---|---|---|---|
+| `gamePlayController.js:135` (`getPlayById`) | outer `sessionId` sin select | `select: 'mechanicId contextId config difficulty'` (lo que el DTO consume) | ~30% bytes por respuesta del endpoint |
+| `gamePlayController.js:196` (`pausePlay`) | `populate: 'sessionId'` (toda la sesión, ~10 KB con cardMappings) | `select: 'createdBy'` (1 campo) | ~99% bytes — solo se usa para ownership check |
+| `gamePlayService.js:227` (`completePlay`) | `playerId` y `sessionId` completos | `playerId` solo `_id`, `sessionId` solo `config` (cubre `play.sessionId.config.{pointsPerCorrect,numberOfRounds}`) | RGPD: no se hidrata PII de User innecesariamente |
+
+### OP2 — Validación multi-instancia ejecutada
+
+Test `npm run test:multi-instance` ejecutado contra Docker Compose local (`mongo:7` + `redis:7-alpine`) y dos backends en puertos 5000 y 5001 compartiendo la misma instancia Redis. **Resultado: TEST PASADO**. El log completo está en `backend/docs/WebSockets-ExtendedUsage.md` (sección "Validación ejecutada 2026-05-17, T-907 OP2").
+
+Para que el script funcione fuera de producción, `socketHandlers.js` registra dos handlers temporales en el namespace `/game` (`test:join` y `test:broadcast`) que **solo se montan si `NODE_ENV !== 'production'`**. En producción son rutas inertes.
+
+---
+
+## T-941 / ADR-161 — Coste del worker `alert-detection`
+
+Cron `*/15 * * * *` (configurable por `ALERT_DETECTION_CRON`) ejecuta los 13 detectores por cada teacher activo (batch de 50). Carga estimada para un centro con 50 docentes × 200 alumnos:
+
+| Operación | Coste por corrida | Mitigación |
+|---|---|---|
+| `loadActiveStudentsForTeacher` | 1 `find` por teacher | Index `{ createdBy: 1, role: 1 }` ya existente |
+| Detectores que hacen aggregate (10 de los 13) | 10 pipelines × 50 teachers = **500 aggregates / 15 min** | Index `{ playerId: 1, completedAt: -1 }` cubre la mayoría. `engagementService` cachea 600 s |
+| `smartAlertRepository.buildActiveAlertsMap` | 1 `find` por teacher | Index `{ teacherId: 1, status: 1, ... }` |
+| Upserts | 1 `findOneAndUpdate` por finding (típicamente 0-3 por teacher) | Unique partial index `{ studentId, type, status='active' }` enforcear dedup |
+| Invalidación cache | 1 SCAN + N DELs por teacher modificado | Cache pequeño (60s TTL) y solo si hubo cambios |
+
+Total esperado: <3 s para 50 teachers, lejos del límite del free tier Atlas M0. Si crece, se puede subir `ALERT_DETECTION_CRON` a `*/30 * * * *` o shardear como `dataRetention` (T-907 INT4) modificando `runForAllTeachers`.
+
+**Endpoint `GET /api/analytics/alerts`**: tras la primera corrida, latencia <50 ms (lectura `smartalerts` + cache `cache:alerts` 60 s) vs 200–500 ms del cálculo on-the-fly anterior. La carga MongoDB por refrescos del docente queda prácticamente eliminada (cache golpea ~95 %).

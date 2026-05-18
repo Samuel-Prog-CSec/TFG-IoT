@@ -8,7 +8,7 @@ const router = express.Router();
 const analyticsController = require('../controllers/analyticsController');
 const { authenticate, requireRole } = require('../middlewares/auth');
 const { analyticsRateLimiter } = require('../config/security');
-const { validateParams, validateQuery } = require('../middlewares/validation');
+const { validateParams, validateQuery, validateBody } = require('../middlewares/validation');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const {
   analyticsStudentParamsSchema,
@@ -34,12 +34,21 @@ const {
   contentEffectivenessQuerySchema,
   cardDifficultyQuerySchema,
   learningCurvesQuerySchema,
-  alertsQuerySchema,
   reportQuerySchema,
   reportExportQuerySchema
 } = require('../validators/analyticsValidator');
+const {
+  alertIdParamsSchema,
+  listAlertsQuerySchema,
+  alertsSummaryQuerySchema,
+  alertsEffectivenessQuerySchema,
+  dismissAlertBodySchema,
+  snoozeAlertBodySchema,
+  bulkAlertActionBodySchema
+} = require('../validators/alertsValidator');
 const asyncHandler = require('../utils/asyncHandler');
 const analyticsAdvancedController = require('../controllers/analyticsAdvancedController');
+const alertsController = require('../controllers/alertsController');
 
 // Todas las rutas requieren estar autenticado como profesor o super admin
 router.use(authenticate, requireRole('teacher', 'super_admin'), analyticsRateLimiter);
@@ -331,28 +340,121 @@ router.get(
   asyncHandler(analyticsAdvancedController.getLearningCurves)
 );
 
-// — Alertas inteligentes (E15-E16) —
+// ──────────── Alertas inteligentes persistidas (T-941) ────────────
+//
+// Sustituye el sistema legacy de alertsService.getAlerts() on-the-fly por
+// SmartAlerts con ciclo de vida (active|resolved|dismissed|snoozed),
+// historial, pinning, audit y dashboard de eficacia. ADR-169.
 
 /**
  * @route   GET /api/analytics/alerts
- * @desc    Alertas inteligentes computadas server-side (E15)
- * @access  Private (Teacher/Super Admin)
+ * @desc    Listado paginado de alertas con filtros por estado/severidad/tipo
  */
-router.get(
-  '/alerts',
-  validateQuery(alertsQuerySchema),
-  asyncHandler(analyticsAdvancedController.getAlerts)
-);
+router.get('/alerts', validateQuery(listAlertsQuerySchema), asyncHandler(alertsController.list));
 
 /**
  * @route   GET /api/analytics/alerts/summary
- * @desc    Resumen de alertas (conteos) para badges del sidebar (E16)
- * @access  Private (Teacher/Super Admin)
+ * @desc    Conteos para badges (por severidad, estado y tipo)
  */
 router.get(
   '/alerts/summary',
-  validateQuery(emptyObjectSchema),
-  asyncHandler(analyticsAdvancedController.getAlertsSummary)
+  validateQuery(alertsSummaryQuerySchema),
+  asyncHandler(alertsController.summary)
+);
+
+/**
+ * @route   GET /api/analytics/alerts/effectiveness
+ * @desc    Dashboard interno del sistema de alertas (H.3)
+ */
+router.get(
+  '/alerts/effectiveness',
+  validateQuery(alertsEffectivenessQuerySchema),
+  asyncHandler(alertsController.effectiveness)
+);
+
+/**
+ * @route   GET /api/analytics/alerts/:id
+ * @desc    Detalle individual de una alerta
+ */
+router.get(
+  '/alerts/:id',
+  validateParams(alertIdParamsSchema),
+  asyncHandler(alertsController.getById)
+);
+
+/**
+ * @route   GET /api/analytics/alerts/:id/history
+ * @desc    Audit log / timeline lifecycle (H.2)
+ */
+router.get(
+  '/alerts/:id/history',
+  validateParams(alertIdParamsSchema),
+  asyncHandler(alertsController.history)
+);
+
+/**
+ * @route   PATCH /api/analytics/alerts/:id/dismiss
+ * @desc    Marca como descartada con motivo
+ */
+router.patch(
+  '/alerts/:id/dismiss',
+  validateParams(alertIdParamsSchema),
+  validateBody(dismissAlertBodySchema),
+  asyncHandler(alertsController.dismiss)
+);
+
+/**
+ * @route   PATCH /api/analytics/alerts/:id/resolve
+ * @desc    Marca manualmente como resuelta
+ */
+router.patch(
+  '/alerts/:id/resolve',
+  validateParams(alertIdParamsSchema),
+  validateBody(emptyObjectSchema),
+  asyncHandler(alertsController.resolve)
+);
+
+/**
+ * @route   PATCH /api/analytics/alerts/:id/snooze
+ * @desc    Pausa hasta una fecha futura (días o ISO)
+ */
+router.patch(
+  '/alerts/:id/snooze',
+  validateParams(alertIdParamsSchema),
+  validateBody(snoozeAlertBodySchema),
+  asyncHandler(alertsController.snooze)
+);
+
+/**
+ * @route   PATCH /api/analytics/alerts/:id/pin
+ * @desc    Fija al principio (límite 3 por teacher)
+ */
+router.patch(
+  '/alerts/:id/pin',
+  validateParams(alertIdParamsSchema),
+  validateBody(emptyObjectSchema),
+  asyncHandler(alertsController.pin)
+);
+
+/**
+ * @route   PATCH /api/analytics/alerts/:id/unpin
+ * @desc    Quita la fijación
+ */
+router.patch(
+  '/alerts/:id/unpin',
+  validateParams(alertIdParamsSchema),
+  validateBody(emptyObjectSchema),
+  asyncHandler(alertsController.unpin)
+);
+
+/**
+ * @route   POST /api/analytics/alerts/bulk-action
+ * @desc    Acciones lifecycle en lote (dismiss/resolve/snooze)
+ */
+router.post(
+  '/alerts/bulk-action',
+  validateBody(bulkAlertActionBodySchema),
+  asyncHandler(alertsController.bulkAction)
 );
 
 // — Reportes y exportación (E17-E19) —

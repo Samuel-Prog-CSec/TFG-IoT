@@ -33,19 +33,39 @@ const monthsAgo = months => {
  * @param {Object} options
  * @param {boolean} [options.dryRun] - Si true, solo cuenta candidatos.
  * @param {Object} [options.logger] - Logger custom (default: módulo).
+ * @param {Date} [options.windowStart] - Sharding T-907 INT4: limita el rango
+ *   inferior. Solo procesa documentos cuyo `completedAt`/`updatedAt` >= este
+ *   valor. Si null, no hay límite inferior (comportamiento original).
+ * @param {Date} [options.windowEnd] - Sharding T-907 INT4: limita el rango
+ *   superior. Si null, usa el cutoff por defecto (months ago).
  * @returns {Promise<{ anonymized: number, candidates: number }>}
  */
-const anonymizeOldGamePlays = async ({ dryRun = false, logger = baseLogger } = {}) => {
-  const cutoffDate = monthsAgo(GAMEPLAY_ANONYMIZATION_MONTHS);
+const anonymizeOldGamePlays = async ({
+  dryRun = false,
+  logger = baseLogger,
+  windowStart = null,
+  windowEnd = null
+} = {}) => {
+  const cutoffDate = windowEnd || monthsAgo(GAMEPLAY_ANONYMIZATION_MONTHS);
   const db = mongoose.connection.db;
   const gameplaysCollection = db.collection('gameplays');
 
+  // T-907 INT4: si hay windowStart, el rango se acota; si no, queda
+  // `< cutoffDate` igual que antes. Permite que N shards procesen rangos
+  // disjuntos en paralelo sin pisarse (cada uno con su windowStart/windowEnd).
+  const completedAtFilter = windowStart
+    ? { $gte: windowStart, $lt: cutoffDate }
+    : { $lt: cutoffDate };
+  const updatedAtFilter = windowStart
+    ? { $gte: windowStart, $lt: cutoffDate }
+    : { $lt: cutoffDate };
+
   const filter = {
     $or: [
-      { completedAt: { $lt: cutoffDate } },
+      { completedAt: completedAtFilter },
       {
         completedAt: null,
-        updatedAt: { $lt: cutoffDate },
+        updatedAt: updatedAtFilter,
         status: { $in: ['completed', 'abandoned'] }
       }
     ],
@@ -86,14 +106,24 @@ const anonymizeOldGamePlays = async ({ dryRun = false, logger = baseLogger } = {
  * @param {Object} [options.logger]
  * @returns {Promise<{ studentsDeleted: number, gamePlaysDeleted: number, candidates: number }>}
  */
-const deleteInactiveStudents = async ({ dryRun = false, logger = baseLogger } = {}) => {
-  const cutoffDate = monthsAgo(INACTIVE_STUDENT_DELETION_MONTHS);
+const deleteInactiveStudents = async ({
+  dryRun = false,
+  logger = baseLogger,
+  windowStart = null,
+  windowEnd = null
+} = {}) => {
+  const cutoffDate = windowEnd || monthsAgo(INACTIVE_STUDENT_DELETION_MONTHS);
   const db = mongoose.connection.db;
   const usersCollection = db.collection('users');
   const gameplaysCollection = db.collection('gameplays');
 
+  // T-907 INT4: window filter para sharding (ver anonymizeOldGamePlays).
+  const updatedAtFilter = windowStart
+    ? { $gte: windowStart, $lt: cutoffDate }
+    : { $lt: cutoffDate };
+
   const candidatesDocs = await usersCollection
-    .find({ role: 'student', status: 'inactive', updatedAt: { $lt: cutoffDate } })
+    .find({ role: 'student', status: 'inactive', updatedAt: updatedAtFilter })
     .project({ _id: 1 })
     .toArray();
 
@@ -136,28 +166,103 @@ const deleteInactiveStudents = async ({ dryRun = false, logger = baseLogger } = 
  * @param {Object} [options.logger]
  * @returns {Promise<Object>} Resumen.
  */
-const runDataRetention = async ({ dryRun = false, logger = baseLogger } = {}) => {
+const runDataRetention = async ({
+  dryRun = false,
+  logger = baseLogger,
+  windowStart = null,
+  windowEnd = null,
+  shardIndex = null,
+  shardCount = null
+} = {}) => {
   const startedAt = Date.now();
-  logger.info('Política de retención iniciada', { dryRun });
+  logger.info('Política de retención iniciada', {
+    dryRun,
+    shardIndex,
+    shardCount,
+    windowStart,
+    windowEnd
+  });
 
-  const anonymizationResult = await anonymizeOldGamePlays({ dryRun, logger });
-  const deletionResult = await deleteInactiveStudents({ dryRun, logger });
+  const anonymizationResult = await anonymizeOldGamePlays({
+    dryRun,
+    logger,
+    windowStart,
+    windowEnd
+  });
+  const deletionResult = await deleteInactiveStudents({
+    dryRun,
+    logger,
+    windowStart,
+    windowEnd
+  });
+  const smartAlertsResult = await deleteOldSmartAlerts({ dryRun, logger });
 
   const summary = {
     startedAt: new Date(startedAt).toISOString(),
     finishedAt: new Date().toISOString(),
     durationMs: Date.now() - startedAt,
     dryRun,
+    shardIndex,
+    shardCount,
+    windowStart: windowStart?.toISOString() || null,
+    windowEnd: windowEnd?.toISOString() || null,
     anonymization: anonymizationResult,
-    deletion: deletionResult
+    deletion: deletionResult,
+    smartAlerts: smartAlertsResult
   };
 
   logger.info('Política de retención completada', summary);
   return summary;
 };
 
+/**
+ * Hard-delete de SmartAlerts resolved/dismissed más antiguos que N días (H.4 / T-941).
+ *
+ * Usa el índice partial `hard_delete_candidates` del modelo SmartAlert para
+ * no escanear la colección entera. Si Redis/cron está parado, esta limpieza
+ * sigue funcionando en la próxima corrida del job `data-retention`.
+ *
+ * @param {Object} options
+ * @param {boolean} [options.dryRun]
+ * @param {Object} [options.logger]
+ * @returns {Promise<{ deleted: number, candidates: number, olderThanDays: number }>}
+ */
+const deleteOldSmartAlerts = async ({ dryRun = false, logger = baseLogger } = {}) => {
+  // Cargamos config en runtime para evitar dependencias circulares al require el módulo.
+  const { DETECTION_CONFIG } = require('../config/alerts');
+  const olderThanDays = DETECTION_CONFIG.hardDeleteAfterDays;
+  const cutoff = new Date(Date.now() - olderThanDays * 86400000);
+
+  const db = mongoose.connection.db;
+  const collection = db.collection('smartalerts');
+  const filter = {
+    status: { $in: ['resolved', 'dismissed'] },
+    updatedAt: { $lt: cutoff }
+  };
+
+  const candidates = await collection.countDocuments(filter);
+  if (dryRun || candidates === 0) {
+    logger.info('dataRetention.smartAlerts.dryRun', {
+      candidates,
+      olderThanDays,
+      cutoff: cutoff.toISOString()
+    });
+    return { deleted: 0, candidates, olderThanDays };
+  }
+
+  const result = await collection.deleteMany(filter);
+  logger.info('dataRetention.smartAlerts.deleted', {
+    deleted: result.deletedCount || 0,
+    candidates,
+    olderThanDays,
+    cutoff: cutoff.toISOString()
+  });
+  return { deleted: result.deletedCount || 0, candidates, olderThanDays };
+};
+
 module.exports = {
   anonymizeOldGamePlays,
   deleteInactiveStudents,
+  deleteOldSmartAlerts,
   runDataRetention
 };

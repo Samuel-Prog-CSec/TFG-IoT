@@ -548,7 +548,21 @@ abordados en la propia sesion — ver `memory/project_qa_2026_04_22.md`.
 
 ---
 
-## PROP-78: Persistencia real de alertas inteligentes con createdAt historico
+## PROP-78: Persistencia real de alertas inteligentes con createdAt historico ✅ IMPLEMENTADA (T-941, ADR-161)
+
+**Estado:** Cerrada en Sprint 6 vía T-941 con ampliación profunda. Implementación entrega no solo la persistencia básica (`SmartAlert` con lifecycle active/resolved/dismissed/snoozed) sino también:
+
+- 7 detectores nuevos (incluye `plateau_detected` que arrastraba TODO, `sequence_stagnation`/`sequence_order_errors` que cerraron criterio pendiente de T-923, y un detector cross-mecánica único en el proyecto).
+- Pinning, audit log endpoint, dashboard interno de eficacia, hard-delete cron, auto-reapertura de dismissed.
+- Notificación realtime al docente cuando aparece critical.
+- Fix de seguridad RGPD (filtro `consent.withdrawnAt`) + fix de bug crítico (divide-by-zero en `decliningPerformance`).
+- Eliminación completa del código legacy (no fachada, no flag).
+
+Ver detalles completos en `documentation/Architecture_Decisions.md` ADR-161.
+
+---
+
+### Descripción original (histórica)
 
 **Descripcion:** Hoy las alertas que muestra `AlertsHub.jsx` y
 `AlertsPanel.jsx` provienen de `getClassroomAlerts` en
@@ -1531,7 +1545,7 @@ ruidosamente cuando se rompe. Evidencia de DR real para memoria TFG.
 
 ---
 
-## PROP-120 [ALTA]: Cloudflare rules (cache + WAF + DDoS + rate limit)
+## PROP-120 [ALTA]: Cloudflare rules (cache + WAF + DDoS + rate limit) ✅ CERRADA (T-907 / ADR-160, 2026-05-17)
 
 **Descripcion:** Cloudflare Pages incluye proxy Cloudflare por defecto.
 Configurar reglas: **cache** (estaticos con TTL largo, HTML always
@@ -1550,13 +1564,12 @@ del backend sin coste, ahorra queries al free tier Upstash.
 - Security → WAF → Managed Rules → OWASP Core Ruleset (free).
 - Security → Rate limiting: 30 req/10s por IP a `/api/*`.
 - Bot Fight Mode activado.
-- Documentacion en `documentation/Cloudflare_Setup.md`.
 
 **Esfuerzo:** S (1 dia).
 
 ---
 
-## PROP-121 [MEDIA]: Bundle analysis + tree-shaking final frontend
+## PROP-121 [MEDIA]: Bundle analysis + tree-shaking final frontend ✅ CERRADA (T-907 / ADR-159, 2026-05-17)
 
 **Descripcion:** Auditar el bundle final de produccion con
 `rollup-plugin-visualizer`. Identificar deps grandes (Recharts, Framer
@@ -1581,7 +1594,7 @@ pre-release. Los findings son documentables en memoria TFG como
 
 ---
 
-## PROP-122 [ALTA]: Validar Socket.IO adapter con multiples instancias Koyeb
+## PROP-122 [ALTA]: Validar Socket.IO adapter con multiples instancias Koyeb ✅ CERRADA (T-907, 2026-05-17 — scripts `dev:multi-1/2` + `test:multi-instance` + doc en `WebSockets-ExtendedUsage.md`)
 
 **Descripcion:** Aunque Koyeb free solo permite 1 instancia always-on
 por app, validar que el **Socket.IO Redis adapter** (ya integrado)
@@ -1607,7 +1620,7 @@ para la memoria TFG.
 
 ---
 
-## PROP-123 [ALTA]: Optimizacion command budget Upstash
+## PROP-123 [ALTA]: Optimizacion command budget Upstash ✅ CERRADA (T-907 / ADR-158, 2026-05-17 — telemetría comandos por categoría + LRU memoria slim-user / mechanic / context. Sub-tareas refactor pipeline auth y `runPipeline` adopción quedan documentadas como follow-up)
 
 **Descripcion:** Medir commands/dia consumidos en staging durante 1
 semana. Si se acercan a 10K/dia, aplicar optimizaciones: pipelining

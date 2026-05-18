@@ -355,31 +355,88 @@ const analyticsService = {
     return extractData(response);
   },
 
-  // ──────────────── Alerts ────────────────
+  // ──────────────── Alerts (T-941) ────────────────
 
   /**
-   * Obtiene alertas inteligentes computadas server-side.
-   * Tipos: declining_performance, inactivity, sudden_score_drop,
-   *        consistent_timeout, improving_fast, plateau_detected, high_abandonment
-   * @param {Object} [params] - Query params: severity, type, limit
+   * Obtiene alertas inteligentes persistidas.
+   * Estados: active | resolved | dismissed | snoozed (default: active)
+   * 13 tipos catalogados — ver `constants/alertTypes.js`.
+   *
+   * @param {Object} [params] - Query params: status, severity, type, studentId, cursor, limit
    * @param {Object} [config] - Configuracion de Axios
-   * @returns {Promise<Object>} Alertas activas con severidad e interpretacion
+   * @returns {Promise<{ items: object[], nextCursor: string|null }>}
    */
   getAlerts: async (params = {}, config = {}) => {
-    const response = await api.get('/analytics/alerts', {
-      params,
-      ...config
-    });
+    const response = await api.get('/analytics/alerts', { params, ...config });
     return extractData(response);
   },
 
   /**
-   * Obtiene resumen de alertas (conteos) para badges del sidebar.
-   * @param {Object} [config] - Configuracion de Axios
-   * @returns {Promise<Object>} Conteos de alertas por severidad y tipo
+   * Conteos por severidad/estado/tipo para badges.
    */
   getAlertsSummary: async (config = {}) => {
     const response = await api.get('/analytics/alerts/summary', config);
+    return extractData(response);
+  },
+
+  /**
+   * Dashboard interno del sistema (H.3).
+   */
+  getAlertsEffectiveness: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/alerts/effectiveness', { params, ...config });
+    return extractData(response);
+  },
+
+  /**
+   * Detalle individual.
+   */
+  getAlertById: async (id, config = {}) => {
+    const response = await api.get(`/analytics/alerts/${id}`, config);
+    return extractData(response);
+  },
+
+  /**
+   * Audit log de una alerta (H.2).
+   */
+  getAlertHistory: async (id, config = {}) => {
+    const response = await api.get(`/analytics/alerts/${id}/history`, config);
+    return extractData(response);
+  },
+
+  dismissAlert: async (id, { reason } = {}, config = {}) => {
+    const response = await api.patch(`/analytics/alerts/${id}/dismiss`, { reason }, config);
+    return extractData(response);
+  },
+
+  resolveAlert: async (id, config = {}) => {
+    const response = await api.patch(`/analytics/alerts/${id}/resolve`, {}, config);
+    return extractData(response);
+  },
+
+  snoozeAlert: async (id, { untilDays, untilDate } = {}, config = {}) => {
+    const body = {};
+    if (untilDate) body.untilDate = untilDate;
+    if (untilDays) body.untilDays = untilDays;
+    const response = await api.patch(`/analytics/alerts/${id}/snooze`, body, config);
+    return extractData(response);
+  },
+
+  pinAlert: async (id, config = {}) => {
+    const response = await api.patch(`/analytics/alerts/${id}/pin`, {}, config);
+    return extractData(response);
+  },
+
+  unpinAlert: async (id, config = {}) => {
+    const response = await api.patch(`/analytics/alerts/${id}/unpin`, {}, config);
+    return extractData(response);
+  },
+
+  bulkAlertAction: async ({ ids, action, reason, untilDays, untilDate } = {}, config = {}) => {
+    const body = { ids, action };
+    if (reason) body.reason = reason;
+    if (untilDays) body.untilDays = untilDays;
+    if (untilDate) body.untilDate = untilDate;
+    const response = await api.post('/analytics/alerts/bulk-action', body, config);
     return extractData(response);
   },
 

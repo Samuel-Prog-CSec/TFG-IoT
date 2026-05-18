@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, CalendarClock, Layers, ChevronRight, Target, Clock, UserCheck, CheckCircle2, Sparkles } from 'lucide-react';
@@ -18,15 +18,21 @@ import { ROUTES } from '../constants/routes';
 // El onboarding se monta a nivel de AppLayout para cubrir teacher y
 // super_admin desde cualquier ruta autenticada (T-951 Fase 4).
 import StatCard from '../components/dashboard/StatCard';
-import StudentProgressChart from '../components/dashboard/StudentProgressChart';
-import ClassroomOverview from '../components/dashboard/ClassroomOverview';
 import AlertsPanel from '../components/dashboard/AlertsPanel';
-import DifficultyHeatmap from '../components/dashboard/DifficultyHeatmap';
 import StudentsList from '../components/dashboard/StudentsList';
-import ActivityHeatmap from '../components/analytics/ActivityHeatmap';
 import SkeletonShimmer, { SkeletonCard, SkeletonStatCard, SkeletonChart } from '../components/ui/SkeletonShimmer';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
+
+// T-907 Fase B: charts y heatmaps pesados (Recharts/canvas) se cargan via lazy
+// con Suspense para que KPIs, alertas y header del Dashboard se rendericen
+// antes de que el chunk `charts` esté disponible. El SkeletonChart cubre el
+// hueco hasta que el chart se monta. Solo aplica al Dashboard porque es la
+// primera página post-login y se beneficia más del FCP rápido.
+const StudentProgressChart = lazy(() => import('../components/dashboard/StudentProgressChart'));
+const ClassroomOverview = lazy(() => import('../components/dashboard/ClassroomOverview'));
+const DifficultyHeatmap = lazy(() => import('../components/dashboard/DifficultyHeatmap'));
+const ActivityHeatmap = lazy(() => import('../components/analytics/ActivityHeatmap'));
 
 // eslint-disable-next-line sonarjs/cyclomatic-complexity -- dashboard principal con multiples widgets, filtros y estados de carga
 export default function Dashboard() {
@@ -153,6 +159,21 @@ export default function Dashboard() {
     hasError: Boolean(error)
   });
 
+  // T-941: refrescar alertas en tiempo real cuando llega una nueva critical.
+  // El evento lo dispara `useNotifications` al recibir `notification:created`
+  // con type='student_at_risk'.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = () => {
+      analyticsService
+        .getAlerts({ limit: 5 })
+        .then(setAlertsData)
+        .catch(() => null);
+    };
+    window.addEventListener('smartalert:created', handler);
+    return () => window.removeEventListener('smartalert:created', handler);
+  }, []);
+
   // Extraer el cambio porcentual de un KPI por nombre.
   // PROP-88: si el KPI no tiene baseline (`previous` ausente, null o 0),
   // devolvemos "—" para que StatCard pinte el pill neutro en lugar de la
@@ -203,10 +224,11 @@ export default function Dashboard() {
 
   const totalStudents = studentsData?.students?.length || 0;
 
-  // Alertas inteligentes del backend (reemplaza la derivacion client-side)
+  // Alertas inteligentes del backend (T-941: shape `{ items, nextCursor }`).
   const backendAlerts = useMemo(() => {
-    if (!alertsData?.alerts) return [];
-    return alertsData.alerts;
+    if (!alertsData) return [];
+    // Compat: alertsData.items (T-941) | alertsData.alerts (legacy snapshot).
+    return alertsData.items || alertsData.alerts || [];
   }, [alertsData]);
 
   // Prevenir Layout Shifts (CLS) renderizando una estructura idéntica durante la carga
@@ -431,19 +453,25 @@ export default function Dashboard() {
                   (QA 2026-04-29). */}
               <div className="xl:col-span-2 flex flex-col gap-6 lg:gap-8">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <StudentProgressChart
-                    data={progressData}
-                    period={timeRange}
-                    onPeriodChange={setTimeRange}
-                    omitPeriodSelector
-                  />
+                  <Suspense fallback={<SkeletonChart height={320} />}>
+                    <StudentProgressChart
+                      data={progressData}
+                      period={timeRange}
+                      onPeriodChange={setTimeRange}
+                      omitPeriodSelector
+                    />
+                  </Suspense>
                 </motion.div>
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <DifficultyHeatmap data={difficulties} />
+                  <Suspense fallback={<SkeletonChart height={260} />}>
+                    <DifficultyHeatmap data={difficulties} />
+                  </Suspense>
                 </motion.div>
                 {heatmapData && (
                   <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                    <ActivityHeatmap data={heatmapData} />
+                    <Suspense fallback={<SkeletonChart height={220} />}>
+                      <ActivityHeatmap data={heatmapData} />
+                    </Suspense>
                   </motion.div>
                 )}
                 {studentsData?.students?.length > 0 && (
@@ -456,7 +484,9 @@ export default function Dashboard() {
               {/* Columna Lateral (1/3 de ancho) */}
               <aside className="flex flex-col gap-6 lg:gap-8">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <ClassroomOverview summary={summary} distribution={distributionData} />
+                  <Suspense fallback={<SkeletonChart height={280} />}>
+                    <ClassroomOverview summary={summary} distribution={distributionData} />
+                  </Suspense>
                 </motion.div>
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <AlertsPanel alerts={backendAlerts} />

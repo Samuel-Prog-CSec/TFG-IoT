@@ -24,6 +24,7 @@ import SkeletonShimmer, { SkeletonChart } from '../components/ui/SkeletonShimmer
 import ErrorState from '../components/ui/ErrorState';
 import ContentEffectivenessMatrix from '../components/analytics/ContentEffectivenessMatrix';
 import AlertsHub from '../components/analytics/AlertsHub';
+import AlertsEffectivenessPanel from '../components/analytics/AlertsEffectivenessPanel';
 import ReportGenerator from '../components/analytics/ReportGenerator';
 import { useChartMotion } from '../components/analytics/ChartsTheme';
 
@@ -328,11 +329,14 @@ export default function InsightsReports() {
           analyticsService.getAlertsSummary({ signal: controller.signal }),
         ]);
 
-        const alertList = alerts?.alerts || alerts || [];
+        // T-941: shape `{ items, nextCursor }`. Compat con snapshot legacy.
+        const alertList = alerts?.items || alerts?.alerts || alerts || [];
         setAlertsData(alertList);
 
-        const total = summary?.total ?? (
-          (summary?.critical || 0) + (summary?.warning || 0) + (summary?.info || 0)
+        const total = summary?.activeTotal ?? summary?.total ?? (
+          (summary?.bySeverity?.critical || summary?.critical || 0) +
+          (summary?.bySeverity?.warning || summary?.warning || 0) +
+          (summary?.bySeverity?.info || summary?.info || 0)
         );
         setAlertsCount(Array.isArray(alertList) ? alertList.length : total || 0);
       } catch (err) {
@@ -375,8 +379,10 @@ export default function InsightsReports() {
     const fetchCount = async () => {
       try {
         const summary = await analyticsService.getAlertsSummary({ signal: controller.signal });
-        const total = summary?.total ?? (
-          (summary?.critical || 0) + (summary?.warning || 0) + (summary?.info || 0)
+        const total = summary?.activeTotal ?? summary?.total ?? (
+          (summary?.bySeverity?.critical || summary?.critical || 0) +
+          (summary?.bySeverity?.warning || summary?.warning || 0) +
+          (summary?.bySeverity?.info || summary?.info || 0)
         );
         setAlertsCount(total || 0);
       } catch (err) {
@@ -549,7 +555,7 @@ export default function InsightsReports() {
             transition={{ duration: DURATION.stateChange, ease: EASING.outQuart }}
           >
             <AlertsTabContent
-              alerts={alertsData}
+              initialAlerts={alertsData}
               loading={alertsLoading}
               error={alertsError}
               onRetry={fetchAlerts}
@@ -616,12 +622,54 @@ function EffectivenessTabContent({ effectivenessData, learningCurvesData, loadin
 }
 
 /**
- * Contenido del tab de Alertas.
+ * Contenido del tab de Alertas (T-941).
+ *
+ * Maneja statusFilter local + refetch per estado. Incluye el panel de
+ * eficacia del propio sistema de alertas (H.3).
  */
-function AlertsTabContent({ alerts, loading, error, onRetry }) {
+function AlertsTabContent({ initialAlerts, loading: initialLoading, error, onRetry }) {
+  const [statusFilter, setStatusFilter] = useState('active');
+  const [alerts, setAlerts] = useState(initialAlerts || []);
+  const [statusCounts, setStatusCounts] = useState({});
+  const [loading, setLoading] = useState(initialLoading);
+
+  const fetchForStatus = useCallback(async (status) => {
+    setLoading(true);
+    try {
+      const [data, summary] = await Promise.all([
+        analyticsService.getAlerts({ status, limit: 100 }),
+        analyticsService.getAlertsSummary()
+      ]);
+      const list = data?.items || data?.alerts || data || [];
+      setAlerts(Array.isArray(list) ? list : []);
+      setStatusCounts(summary?.byStatus || {});
+    } catch {
+      // ErrorState arriba ya maneja error inicial
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Cuando el statusFilter cambia (o se monta con un status distinto del default), refetch
+    fetchForStatus(statusFilter);
+  }, [statusFilter, fetchForStatus]);
+
   if (error) {
     return <ErrorState title="Error al cargar alertas" message={error} onRetry={onRetry} />;
   }
 
-  return <AlertsHub alerts={alerts || []} loading={loading} />;
+  return (
+    <div className="space-y-6">
+      <AlertsHub
+        alerts={alerts}
+        loading={loading}
+        statusFilter={statusFilter}
+        onStatusChange={setStatusFilter}
+        statusCounts={statusCounts}
+        onRefetch={() => fetchForStatus(statusFilter)}
+      />
+      <AlertsEffectivenessPanel days={30} />
+    </div>
+  );
 }

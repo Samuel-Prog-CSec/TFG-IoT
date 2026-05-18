@@ -968,6 +968,83 @@ const toNotificationDTOV1 = doc => {
   };
 };
 
+/**
+ * DTO para alertas inteligentes persistidas (T-941).
+ *
+ * Incluye virtuals `daysActive` e `isEscalated` para la UI. Expone
+ * `studentId` solo a docentes con ownership (ya filtrado en controller).
+ * `studentPseudoId` se usa en logs/exports; `studentName` lo añade el
+ * service tras hidratar desde el catálogo del docente.
+ *
+ * @param {object} doc - Documento Mongoose o POJO `.lean()`.
+ * @param {object} [opts]
+ * @param {string} [opts.studentName] - Nombre humano (no en BD).
+ * @param {string} [opts.dismissedByName] - Nombre del docente que descartó.
+ * @returns {object|null}
+ */
+const toSmartAlertDTOV1 = (doc, opts = {}) => {
+  if (!doc) {
+    return null;
+  }
+  const data = toPlainObject(doc);
+  const detectedAt = data.detectedAt ? new Date(data.detectedAt) : null;
+  const reference =
+    data.status === 'resolved' && data.resolvedAt ? new Date(data.resolvedAt) : new Date();
+  const daysActive = detectedAt ? Math.floor((reference - detectedAt) / 86400000) : 0;
+  const isEscalated = Array.isArray(data.severityHistory)
+    ? data.severityHistory.some(s => s.reason === 'escalation')
+    : false;
+
+  return {
+    id: toId(data),
+    type: data.type,
+    severity: data.severity,
+    status: data.status,
+
+    studentId: toId(data.studentId),
+    studentPseudoId: data.studentPseudoId,
+    studentName: opts.studentName || null,
+
+    description: data.description,
+    recommendation: data.recommendation || null,
+    data: data.data && typeof data.data === 'object' ? { ...data.data } : {},
+
+    detectedAt: data.detectedAt || null,
+    lastSeenAt: data.lastSeenAt || null,
+    occurrencesCount: data.occurrencesCount ?? 1,
+
+    resolvedAt: data.resolvedAt || null,
+    resolvedAutomatically: !!data.resolvedAutomatically,
+
+    dismissedAt: data.dismissedAt || null,
+    dismissedBy: toId(data.dismissedBy) || null,
+    dismissedByName: opts.dismissedByName || null,
+    dismissReason: data.dismissReason || null,
+
+    snoozedUntil: data.snoozedUntil || null,
+    snoozedAt: data.snoozedAt || null,
+
+    pinned: !!data.pinned,
+    pinnedAt: data.pinnedAt || null,
+
+    gamePlayId: toId(data.gamePlayId) || null,
+    notificationId: toId(data.notificationId) || null,
+    severityHistory: Array.isArray(data.severityHistory)
+      ? data.severityHistory.map(s => ({
+          severity: s.severity,
+          changedAt: s.changedAt,
+          reason: s.reason
+        }))
+      : [],
+
+    daysActive,
+    isEscalated,
+
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt
+  };
+};
+
 module.exports = {
   // Users
   toUserDTOV1,
@@ -1016,5 +1093,8 @@ module.exports = {
   toStudentIdentityDTOV1,
 
   // Notifications (T-955)
-  toNotificationDTOV1
+  toNotificationDTOV1,
+
+  // SmartAlert (T-941)
+  toSmartAlertDTOV1
 };

@@ -717,4 +717,45 @@ OWASP API Security Top 10 (2023):
 
 ---
 
-**Última actualización:** T-905 cierre (2026-05-17).
+## 21. Sistema de alertas inteligentes (T-941 / ADR-161)
+
+### 21.1 RGPD: filtrado de consentimiento
+
+El servicio `alertDetectionService.loadActiveStudentsForTeacher` excluye estudiantes con `consent.withdrawnAt` antes de pasarlos a los detectores (RGPD Art. 7 — derecho a retirar el consentimiento). Filtro aplicado en código (no solo en query Mongo) para evitar ambigüedades de paths anidados nullable.
+
+```js
+const students = await userRepository.find({
+  createdBy: toObjectId(teacherId),
+  role: 'student',
+  status: 'active'
+}, { select: 'name studentMetrics profile.classroom consent', lean: true });
+return students.filter(s => !s.consent?.withdrawnAt);
+```
+
+Defensa en profundidad: el orquestador `runForTeacher` también descarta findings cuyo `studentId` no esté en el conjunto cargado, por si un detector retorna findings de un alumno excluido (línea ~218 de `alertDetectionService.js`).
+
+### 21.2 Pseudonimización (Art. 25 RGPD — protección por diseño)
+
+Cada `SmartAlert` lleva un campo `studentPseudoId` calculado como `sha256(studentId|teacherId).slice(0, 8)` (utilidad `utils/pseudonymize.js`):
+
+- Determinista — el mismo estudiante produce el mismo pseudo ID, permitiendo correlación entre logs sin exponer PII.
+- Resoluble solo desde el sistema (no requiere salt externo).
+- Logs Pino estructurados (`alertLifecycle.dismissed`, `alertDetection.runForTeacher.completed`) **NUNCA** incluyen `studentId` plano, solo `studentPseudoId` o conteos agregados por `teacherId`.
+
+Verificación: `grep -E "logger\\.(info|warn|debug).*studentId" backend/src/services/analytics/alertDetectionService.js` debe devolver 0 resultados (solo `studentPseudoId`).
+
+### 21.3 Autorización por ownership
+
+Todos los endpoints `/api/analytics/alerts/*` aplican `requireRole('teacher','super_admin')` a nivel router, y dentro del servicio `getOwnedAlert` valida `alert.teacherId === req.user._id` (o `isSuperAdmin`). Tests de IDOR cubren el caso "teacher B intenta dismiss alerta del teacher A → 403/ForbiddenError" en `tests/services/analytics/alertDetectionService.test.js`.
+
+### 21.4 Hard-delete RGPD-compliant
+
+`dataRetentionService.deleteOldSmartAlerts` borra SmartAlerts en estado `resolved` o `dismissed` con `updatedAt < now - 365d` (env `SMART_ALERT_RETENTION_DAYS`). Integrado en la queue `data-retention` existente sin queue nueva. Cubre Art. 5.1.e RGPD (limitación de conservación).
+
+### 21.5 Notificación realtime: contenido sin PII
+
+El evento Socket.IO `notification:created` con `type='student_at_risk'` incluye `studentName` (necesario para que el docente identifique al alumno en su UI) y `alertId` en metadata, pero la transmisión va exclusivamente al `room user_${teacherId}` (autenticado en handshake). Ningún broadcast global. Verificado en `tests/security/idorCrossTeacher.test.js`.
+
+---
+
+**Última actualización:** T-941 cierre (2026-05-18).

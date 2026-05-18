@@ -93,9 +93,43 @@ const cacheInvalidateNamespace = async namespace => {
   }
 };
 
+/**
+ * Invalida todas las keys de un namespace que coincidan con un patrón.
+ * Útil para invalidación granular por sub-prefijo (ej: por teacherId)
+ * sin tirar el cache completo del namespace.
+ *
+ * Las keys del SCAN llegan ya en formato `namespace:rest`. Las separamos
+ * y borramos con `redisService.delMany` para reusar tracking + circuit breaker.
+ *
+ * @param {string} namespace - p.ej. 'cache:alerts'
+ * @param {string} pattern - patrón glob dentro del namespace, p.ej. 'teacher:abc:*'
+ * @returns {Promise<number>} Número de keys eliminadas
+ */
+const cacheInvalidatePattern = async (namespace, pattern) => {
+  logger.debug('Cache INVALIDATE pattern', { namespace, pattern });
+  try {
+    const fullKeys = await redisService.scanByNamespace(namespace, pattern);
+    if (!fullKeys.length) {
+      return 0;
+    }
+    const prefix = `${namespace}:`;
+    const ids = fullKeys.map(k => (k.startsWith(prefix) ? k.slice(prefix.length) : k));
+    await redisService.delMany(namespace, ids);
+    return ids.length;
+  } catch (error) {
+    logger.warn('Cache: error al invalidar pattern', {
+      namespace,
+      pattern,
+      error: error.message
+    });
+    return 0;
+  }
+};
+
 module.exports = {
   cacheGet,
   cacheInvalidate,
   cacheInvalidateNamespace,
+  cacheInvalidatePattern,
   DEFAULT_TTLS
 };

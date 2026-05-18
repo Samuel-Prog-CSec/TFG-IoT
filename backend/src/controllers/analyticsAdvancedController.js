@@ -14,39 +14,14 @@ const userRepository = require('../repositories/userRepository');
 const consentService = require('../services/consentService');
 
 // Sub-servicios de analytics
-const alertsService = require('../services/analytics/alertsService');
+// NOTA (T-941): los endpoints de alertas viven ahora en `alertsController.js`
+// con `alertDetectionService` y SmartAlerts persistidas. El antiguo
+// `alertsService` (cálculo on-the-fly) fue eliminado.
 const studentTrajectoryService = require('../services/analytics/studentTrajectoryService');
 const sessionAnalysisService = require('../services/analytics/sessionAnalysisService');
 const engagementService = require('../services/analytics/engagementService');
 const contentEffectivenessService = require('../services/analytics/contentEffectivenessService');
 const reportDataService = require('../services/analytics/reportDataService');
-
-// ══════════════════════════════════════════════════════════════════════
-// Alertas inteligentes (E15, E16)
-// ══════════════════════════════════════════════════════════════════════
-
-/**
- * Obtiene alertas activas para los alumnos del profesor.
- * @route GET /api/analytics/alerts
- */
-exports.getAlerts = async (req, res) => {
-  const teacherId = req.user._id.toString();
-  const { severity, type, limit } = req.query;
-
-  // El `limit` forma parte de la cache key porque la respuesta lo aplica a la
-  // lista de alertas; sin él, el dashboard (que pide ?limit=5) y el panel de
-  // Insights (sin limit) compartían entrada de caché y se contaminaban entre sí
-  // (BUG-3 QA pre-release v0.5.0: el badge mostraba 5 cuando había 7).
-  const limitKey = limit ? String(limit) : 'all';
-  const data = await cacheGet(
-    'cache:analytics',
-    `alerts:${teacherId}:${severity || 'all'}:${type || 'all'}:${limitKey}`,
-    async () => alertsService.getAlerts(teacherId, { severity, type, limit }),
-    600
-  );
-
-  sendSuccess(res, data);
-};
 
 // ══════════════════════════════════════════════════════════════════════
 // Trayectoria de aprendizaje (E01-E04)
@@ -381,19 +356,4 @@ exports.getClassroomExport = async (req, res) => {
   sendSuccess(res, data);
 };
 
-/**
- * Obtiene resumen de alertas (conteos por severidad y tipo).
- * @route GET /api/analytics/alerts/summary
- */
-exports.getAlertsSummary = async (req, res) => {
-  const teacherId = req.user._id.toString();
-
-  const data = await cacheGet(
-    'cache:analytics',
-    `alertsSummary:${teacherId}`,
-    async () => alertsService.getAlertsSummary(teacherId),
-    600
-  );
-
-  sendSuccess(res, data);
-};
+// (Alerts moved to alertsController.js — T-941)
