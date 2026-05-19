@@ -78,7 +78,10 @@ function startSequenceMemorizingPhase(engine, playId) {
     sequence: challenge.sequence,
     length: challenge.length,
     displaySeconds: challenge.displaySeconds,
-    score: playState.playDoc.score
+    score: playState.playDoc.score,
+    // Contexto canónico de mecánica para la mascota viva (ADR-D) y
+    // handlers genéricos. Simetría con sequence_card_result/round_result.
+    mechanicType: 'sequence'
   });
 
   logger.debug('Fase memorizing iniciada', {
@@ -189,7 +192,10 @@ function enterSequenceReproducingPhase(engine, playId) {
     // countdown 2400ms ("Reproduce la secuencia"). Le comunicamos el grace
     // para que postponga `awaitingResponse=true` (TimerBar congelada
     // durante el overlay) y para sincronizarse con el `roundTimer` real.
-    gracePeriodMs: SEQUENCE_REPRODUCE_GRACE_MS
+    gracePeriodMs: SEQUENCE_REPRODUCE_GRACE_MS,
+    // Contexto canónico para la mascota viva (ADR-D). Simetría con el resto
+    // de eventos de la mecánica Secuencia.
+    mechanicType: 'sequence'
   });
 
   logger.debug('Fase reproducing iniciada', {

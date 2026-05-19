@@ -1855,3 +1855,38 @@ El Sprint 6 se considera completado cuando:
 - **Mecánica Secuencia como cierre de alcance:** tras esta release el TFG entrega las tres mecánicas anunciadas (Asociación + Memoria + Secuencia). No se planifican más mecánicas para v1.0.0.
 - **Backlog post-v1.0.0:** este sprint absorbe el 100% de las propuestas pendientes. Si el sprint corta antes de completar P3, las tareas pendientes pasan a un nuevo `propuestas-mejora.md` post-v1.0.0 (o se cierran como descartadas).
 - **No puedo hacer merge ni commit:** esas acciones siguen reservadas para desarrolladores humanos. Mi rol queda en redacción, implementación y verificación con `npm test` / `npm run lint`.
+
+---
+
+## Post-cierre — Auditoría 2026-05-19 (ADR-163)
+
+Tras cerrar las tareas T-921/T-922/T-923/T-901/T-902/T-903/T-909/T-905/T-907/T-951/T-952/T-953/T-954/T-955 (Sprint 6), una sesión de auditoría con 3 agentes Explore en paralelo + verificación manual detectó 8 findings reales y 5 mejoras adicionales aplicadas en la misma sesión sobre la rama `feature/cloud-foundation-and-cd`. Sin abrir ramas paralelas. Detalle completo en **ADR-163**.
+
+### Fixes aplicados (P0)
+
+| Tarea | Fix | Archivos |
+|---|---|---|
+| **T-921** | `sequence_phase_memorizing`/`sequence_phase_reproducing` emiten `mechanicType:'sequence'` (simetría con card_result/round_result) | `backend/src/services/gameEngine/sequenceFlow.js` |
+| **T-922** | `PhaseTransitionOverlay` countdown sincronizado con `gracePeriodMs` del backend (prop `durationMs`) | `frontend/src/components/game/sequence/PhaseTransitionOverlay.jsx`, `SequenceBoard.jsx`, `SequenceGameplayPanel.jsx`, `pages/GameSession.jsx` |
+| **T-922 criterio 7** | Columna "Mejor Secuencia" en StudentsAnalytics + `maxSequenceLengthAchieved`/`sequencesCompleted` en `getClassroomStudents` | `backend/src/services/analyticsService.js`, `frontend/src/pages/StudentsAnalytics.jsx` |
+| **T-951 criterio `/`** | Atajo `/` enfoca búsqueda global (Slack/GitHub) + `data-global-search` en 4 inputs | `frontend/src/components/system/GlobalShortcuts.jsx`, `pages/{CardDecksPage,admin/StudentManagement,ContextsPage,StudentsAnalytics}.jsx` |
+| **T-951** | `ThemeContext.toggleTheme` con `MIN_LOCK_MS=350` + timer seguridad 650ms (anti-triple-tap) | `frontend/src/context/ThemeContext.jsx` |
+| **T-952** | `StudentProgressChart` envuelto con `memo()` (re-render Dashboard) | `frontend/src/components/dashboard/StudentProgressChart.jsx` |
+| **T-909** | OpenAPI spec completa: 9 schemas reutilizables + anotaciones `@openapi` en 9 routers (≥40 ops) | `backend/src/config/swagger.js`, `backend/src/routes/{users,mechanics,contexts,sessions,plays,decks,notifications,analytics,admin}.js` |
+
+### Mejoras P1 aplicadas
+
+- **`envValidator.validateRedisKeyPrefixForEnv()`** — warning si `APP_ENV` definido y `REDIS_KEY_PREFIX` no contiene el nombre del entorno (evita data contamination en Upstash compartido).
+- **`.env.example`** — bloque explícito documentando `eduplay:staging:` vs `eduplay:prod:` con porqué.
+- **Runbook playbook 16** — preview deploys desde PR (workflow ya existía, ahora documentado).
+- **OnboardingOverlay `measure()`** — debounce 120ms + RAF + listeners passive (jank en tablets eliminado).
+
+### Diferidos a Sprint 7
+
+- **`InlineEditableText` grouped props refactor** (14 props → `editorProps`/`uiProps`). Riesgo medio.
+- **Test integración SIGTERM** (`backend/tests/integration/gracefulShutdown.test.js`). Spy `process.exit` + verificar orden cierre.
+- **Extracción opcional `useChartMotion` a `frontend/src/hooks/`** (hoy vive en `ChartsTheme.jsx`).
+
+### Falsos positivos descartados (no actuados, ver ADR-163)
+
+`useInlineSuccess` en DeckEditPage, hero transition `layoutId` en DeckCard, scroll parallax en AppLayout, endpoint `/api/openapi.json`, `commonAxisProps`/`commonGridProps` en ChartsTheme — todos verificados ya implementados.

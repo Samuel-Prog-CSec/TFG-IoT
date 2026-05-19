@@ -25,6 +25,7 @@
 | 13 | [Verificar integridad de backups Atlas](#13-verificar-integridad-de-backups-atlas) | Baja (programada) |
 | 14 | [Levantar entorno de test desde cero](#14-levantar-entorno-de-test-desde-cero) | Baja (onboarding) |
 | 15 | [Aplicar parche de seguridad urgente](#15-aplicar-parche-de-seguridad-urgente) | Alta (incidente) |
+| 16 | [Crear preview deploy desde un Pull Request](#16-crear-preview-deploy-desde-un-pull-request) | Baja (QA) |
 
 ---
 
@@ -499,6 +500,40 @@ cd backend && npm audit --omit=dev
 ```
 
 **Rollback:** Rollback del tag de hotfix → `koyeb services rollback api-prod`. Documentar en Sentry/Slack qué CVE no pudo aplicarse.
+
+---
+
+## 16. Crear preview deploy desde un Pull Request
+
+**Síntoma:** Un PR cambia código relevante para QA visual o flujos críticos (RFID, gameplay, analytics) y se quiere probar la build real antes de mergear a `Maintenance`.
+
+**Cómo funciona:**
+
+El workflow `.github/workflows/preview-deploy.yml` se dispara automáticamente con `on: pull_request` (eventos `opened`, `synchronize`, `closed`). Crea una app efímera `api-pr-<num>` en Koyeb apuntando al commit del PR y comparte la DB Atlas + Upstash de staging. Cloudflare Pages levanta su propio preview del frontend en paralelo. Cuando se cierra el PR, las apps se destruyen automáticamente.
+
+**Pasos:**
+
+1. Abrir el PR (o pushear nuevos commits a la rama del PR).
+2. El bot de GitHub publica un comentario con la URL del preview tras ~2-3 min:
+   - `https://api-pr-<num>-<org>.koyeb.app`
+   - `https://pr-<num>.eduplay-frontend.pages.dev`
+3. Login con cualquier usuario del seeder (`maria@test.com / Test1234!`).
+4. Validar el flujo afectado. **Importante:** los preview deploys escriben en la DB de staging, así que cualquier dato creado durante el QA será visible para otros previews.
+5. Para forzar un redeploy sin nuevos commits: pulsar "Synchronize" en el panel del PR (re-dispara el workflow).
+6. Al cerrar/mergear el PR, esperar el comentario `Preview cleaned up`.
+
+**Limitaciones:**
+
+- Solo PRs del propio repo (no forks) — el workflow no expone los secrets a forks.
+- Backend de preview no recibe deploys de prod ni se promociona automáticamente.
+- Si el commit rompe el boot, el preview falla y aparece `pending` en el panel Koyeb. Revisar logs con `koyeb logs api-pr-<num> --tail 200`.
+
+**Verificación:**
+
+- `gh pr view <num>` muestra el check `preview-deploy` en verde.
+- `curl https://api-pr-<num>-<org>.koyeb.app/health/live` → 200.
+
+**Rollback:** No aplica — el preview es efímero, se destruye al cerrar el PR.
 
 ---
 

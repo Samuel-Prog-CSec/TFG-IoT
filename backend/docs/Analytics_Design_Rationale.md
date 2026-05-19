@@ -620,3 +620,9 @@ Pipeline `$facet` con un nuevo branch `sequenceStats` que filtra por `mechanic.n
 | `hintsUsed` | — | — | ✅ |
 
 Los `—` significan que el campo no aplica y queda `undefined` en el documento (no `0`); el DTO los omite del payload público.
+
+### 5.5. Exposición en `getClassroomStudents` y vista comparativa (ADR-163)
+
+Tras la auditoría post-cierre de Sprint 6 (P0-3 del plan), `analyticsService.getClassroomStudents` añade `studentMetrics.maxSequenceLengthAchieved` y `studentMetrics.sequencesCompleted` al payload de cada alumno. El frontend (`pages/StudentsAnalytics.jsx`) normaliza el primer campo al nivel raíz y lo expone como columna ordenable **"Mejor Secuencia"** con icono `ListOrdered` ámbar y tooltip explicativo. Empty state `—` cuando el alumno no ha jugado partidas Secuencia. La columna entra también en el export CSV.
+
+Esto cierra el criterio 7 de T-922 ("vista comparativa con columna Mejor Secuencia"): permite que el docente compare retención visoespacial entre alumnos del aula con un único barrido visual, complementando la vista granular de `StudentProfile` (que sigue mostrando el `SequenceProgressChart` con la evolución temporal).

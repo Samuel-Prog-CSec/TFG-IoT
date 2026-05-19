@@ -237,6 +237,12 @@ function validateEnv() {
     validateSeedOnBoot();
   }
 
+  // P1 plan auditoría Sprint 6 (#9): si APP_ENV está definido y Upstash se
+  // comparte entre staging y prod, el prefix debería contener el nombre del
+  // entorno para evitar colisiones. Warning no bloqueante — operativa
+  // documentada en .env.example y Secrets_Rotation.md.
+  validateRedisKeyPrefixForEnv();
+
   // Warnings para recomendadas
   if (warnings.length > 0) {
     logger.warn('Variables de entorno recomendadas no configuradas (usando defaults):', warnings);
@@ -483,6 +489,40 @@ function validateAppEnv() {
     );
   }
   process.env.APP_ENV = appEnv;
+}
+
+/**
+ * Avisa (no bloquea) si `REDIS_KEY_PREFIX` no incluye el nombre del entorno
+ * cuando `APP_ENV` está definido. Caso real: en cloud free tier puede
+ * compartirse una sola DB Upstash entre staging y prod (Secrets_Rotation.md
+ * §Redis). Sin un prefix distinto por entorno se mezclarían sessions y
+ * caches — equivale a data contamination silenciosa.
+ *
+ * No tiramos el boot (`logger.warn`, no `throw`) porque hay setups legítimos
+ * con DB Upstash separada por entorno donde el prefix no necesita codificar
+ * el nombre. La señal sirve para descubrir misconfiguraciones operativas.
+ */
+function validateRedisKeyPrefixForEnv() {
+  const appEnv = process.env.APP_ENV;
+  if (!appEnv) {
+    return; // Local dev sin APP_ENV — no aplica
+  }
+  if (appEnv === 'development') {
+    return;
+  }
+
+  const prefix = (process.env.REDIS_KEY_PREFIX || '').toLowerCase();
+  if (!prefix) {
+    return; // No prefix configurado — otro warning lo cubre en redis.js
+  }
+
+  if (!prefix.includes(appEnv)) {
+    logger.warn(
+      `REDIS_KEY_PREFIX="${process.env.REDIS_KEY_PREFIX}" no incluye "${appEnv}". ` +
+        'Si Upstash se comparte entre staging y prod, esto puede causar ' +
+        `colisiones de keys. Recomendado: REDIS_KEY_PREFIX="eduplay:${appEnv}:".`
+    );
+  }
 }
 
 /**

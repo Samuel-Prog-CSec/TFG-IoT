@@ -1,4 +1,4 @@
-import { useMemo } from 'react';
+import { memo, useMemo } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import ChartSection from './ChartSection';
 import EmptyState from '../ui/EmptyState';
@@ -16,7 +16,7 @@ const PERIOD_OPTIONS = [
 
 const hasValue = v => v !== null && v !== undefined;
 
-export default function StudentProgressChart({ data, period = '7d', onPeriodChange, omitPeriodSelector = false }) {
+function StudentProgressChart({ data, period = '7d', onPeriodChange, omitPeriodSelector = false }) {
   // Cuando el rango ya esta controlado por un toolbar global (Dashboard),
   // omitimos el selector interno para evitar duplicar el control
   // ("Ultimos 7 dias" mostrado dos veces — bug PROP-37 / fix PROP-43).
@@ -163,3 +163,8 @@ export default function StudentProgressChart({ data, period = '7d', onPeriodChan
     </ChartSection>
   );
 }
+
+// P0-6 plan auditoría Sprint 6: el chart es pesado (AreaChart Recharts) y el
+// padre (Dashboard) re-renderiza por filtros y otros cambios no relacionados.
+// memo evita repintar cuando data/period/onPeriodChange no han cambiado.
+export default memo(StudentProgressChart);

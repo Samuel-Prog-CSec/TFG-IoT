@@ -107,6 +107,142 @@ const definition = {
         description: 'Cookie HttpOnly con el JWT (preferida sobre Authorization header)'
       }
     },
+    schemas: {
+      // P0-8 plan auditoría Sprint 6 — schemas reutilizables que documentan
+      // los recursos principales. No pretenden ser exhaustivos: incluyen los
+      // campos públicos más relevantes para clientes generados desde la
+      // spec. Detalles específicos por endpoint se mantienen inline en cada
+      // operación.
+      ApiError: {
+        type: 'object',
+        properties: {
+          success: { type: 'boolean', example: false },
+          error: {
+            type: 'object',
+            properties: {
+              code: { type: 'string', example: 'BAD_REQUEST' },
+              message: { type: 'string' }
+            }
+          }
+        }
+      },
+      Pagination: {
+        type: 'object',
+        properties: {
+          page: { type: 'integer', minimum: 1 },
+          limit: { type: 'integer', minimum: 1, maximum: 100 },
+          total: { type: 'integer' },
+          totalPages: { type: 'integer' }
+        }
+      },
+      User: {
+        type: 'object',
+        properties: {
+          _id: { type: 'string' },
+          email: { type: 'string', format: 'email' },
+          firstName: { type: 'string' },
+          lastName: { type: 'string' },
+          role: { type: 'string', enum: ['teacher', 'student', 'super_admin'] },
+          status: { type: 'string', enum: ['pending', 'active', 'rejected', 'inactive'] },
+          createdAt: { type: 'string', format: 'date-time' }
+        }
+      },
+      Card: {
+        type: 'object',
+        properties: {
+          _id: { type: 'string' },
+          name: { type: 'string' },
+          value: { type: 'string' },
+          context: { type: 'string', description: 'ID del contexto al que pertenece la carta' },
+          imageUrl: { type: 'string', format: 'uri', nullable: true },
+          audioUrl: { type: 'string', format: 'uri', nullable: true }
+        }
+      },
+      Mechanic: {
+        type: 'object',
+        properties: {
+          _id: { type: 'string' },
+          name: { type: 'string' },
+          slug: { type: 'string', enum: ['association', 'memory', 'sequence'] },
+          description: { type: 'string' },
+          isActive: { type: 'boolean' }
+        }
+      },
+      Context: {
+        type: 'object',
+        properties: {
+          _id: { type: 'string' },
+          name: { type: 'string' },
+          slug: { type: 'string' },
+          ownerType: { type: 'string', enum: ['system', 'teacher'] },
+          createdBy: { type: 'string', nullable: true }
+        }
+      },
+      Deck: {
+        type: 'object',
+        properties: {
+          _id: { type: 'string' },
+          name: { type: 'string' },
+          context: { type: 'string' },
+          mechanic: { type: 'string' },
+          cards: {
+            type: 'array',
+            items: { type: 'string' },
+            description: 'IDs de cartas asignadas'
+          },
+          createdBy: { type: 'string' },
+          createdAt: { type: 'string', format: 'date-time' }
+        }
+      },
+      GameSession: {
+        type: 'object',
+        properties: {
+          _id: { type: 'string' },
+          name: { type: 'string' },
+          mechanicType: { type: 'string', enum: ['association', 'memory', 'sequence'] },
+          deck: { type: 'string', description: 'ID del mazo' },
+          assignedStudents: { type: 'array', items: { type: 'string' } },
+          status: { type: 'string', enum: ['created', 'active', 'completed', 'archived'] },
+          config: {
+            type: 'object',
+            description:
+              'Configuración específica de la mecánica (rondas, tiempo, longitud secuencia, etc.)'
+          },
+          createdAt: { type: 'string', format: 'date-time' }
+        }
+      },
+      GamePlay: {
+        type: 'object',
+        properties: {
+          _id: { type: 'string' },
+          session: { type: 'string' },
+          student: { type: 'string' },
+          status: { type: 'string', enum: ['active', 'paused', 'completed', 'abandoned'] },
+          score: { type: 'number' },
+          currentRound: { type: 'integer' },
+          metrics: {
+            type: 'object',
+            description:
+              'Métricas agregadas (correctAttempts, errorAttempts, sequencesCompleted, etc.)'
+          },
+          startedAt: { type: 'string', format: 'date-time' },
+          endedAt: { type: 'string', format: 'date-time', nullable: true }
+        }
+      },
+      Notification: {
+        type: 'object',
+        properties: {
+          _id: { type: 'string' },
+          userId: { type: 'string' },
+          type: { type: 'string', example: 'student_completed_game' },
+          title: { type: 'string' },
+          body: { type: 'string' },
+          link: { type: 'string', nullable: true },
+          read: { type: 'boolean' },
+          createdAt: { type: 'string', format: 'date-time' }
+        }
+      }
+    },
     responses: {
       UnauthorizedError: {
         description: 'Token ausente, inválido o expirado',
@@ -155,6 +291,22 @@ const definition = {
           'Retry-After': {
             schema: { type: 'integer' },
             description: 'Segundos hasta la próxima ventana'
+          }
+        }
+      },
+      NotFoundError: {
+        description: 'Recurso no encontrado',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ApiError' }
+          }
+        }
+      },
+      ForbiddenError: {
+        description: 'El usuario autenticado no tiene permiso sobre este recurso',
+        content: {
+          'application/json': {
+            schema: { $ref: '#/components/schemas/ApiError' }
           }
         }
       }

@@ -707,6 +707,7 @@ export default function StudentManagement() {
             onChange={(e) => setSearchQuery(e.target.value)}
             icon={<Search size={20} className={cn(searchQuery !== deferredSearch && "animate-pulse")} />}
             className="h-full"
+            data-global-search="true"
           />
         </div>
 

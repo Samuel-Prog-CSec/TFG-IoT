@@ -8580,3 +8580,48 @@ Configurar manualmente en el panel Cloudflare (free tier basta):
 - Endpoint `POST /api/announcements/:id/ack` server-side (hoy solo localStorage). Trivial añadir si se necesita auditoría de lectura.
 - Detector `disk_full` cuando se contrate volumen persistente (Koyeb actualmente no expone disk usage en runtime).
 - Personalización por super_admin (filtros recordados, dismissals individuales) si en el futuro hay 5+ super_admins por centro.
+
+---
+
+## ADR-163: Auditoría post-cierre Sprint 6 — paquete de fixes y mejoras pre-v1.0.0 [Full-stack, Backend, Frontend, DevOps]
+
+**Contexto:** Tras cerrar el bloque grande de tareas del Sprint 6 (mecánica Secuencia T-921/T-922/T-923, fundamentos cloud T-901/T-902/T-903/T-909, mejoras UI T-951/T-952/T-953/T-954/T-955, hardening T-905/T-907), una auditoría con 3 agentes Explore en paralelo + verificación manual identificó 8 findings reales y 5 mejoras adicionales. Falsos positivos descartados antes de actuar (`useInlineSuccess` en DeckEditPage, hero transition `layoutId` en DeckCard, scroll parallax en AppLayout, endpoint `/api/openapi.json`, hook `useChartMotion` en `ChartsTheme.jsx`). El deploy real cloud queda pendiente y fuera de alcance.
+
+**Decisión:** aplicar los fixes en la rama `feature/cloud-foundation-and-cd` ya en uso, sin abrir ramas paralelas (memoria del usuario sobre agrupar trabajo UI/UX). 10 decisiones de diseño:
+
+1. **`sequence_phase_memorizing` y `sequence_phase_reproducing` emiten `mechanicType:'sequence'`** (`backend/src/services/gameEngine/sequenceFlow.js:74-82, 183-193`). Simetría con `sequence_card_result`/`sequence_round_result` que ya lo emiten. Necesario para que la mascota viva (ADR-D) y handlers genéricos contextualicen la mecánica desde el primer evento de la ronda.
+2. **`PhaseTransitionOverlay` recibe `durationMs` por prop** y se calibra al `gracePeriodMs` que el backend emite en `sequence_phase_reproducing`. `SequenceBoard` propaga `overlayDurationMs` desde `SequenceGameplayPanel`, alimentado por el `sequenceState` de `GameSession`. Si el backend cambia `SEQUENCE_REPRODUCE_GRACE_MS`, la UI se sincroniza sin tocar frontend. Fallback `DEFAULT_DURATION_MS=2400` mantiene comportamiento si el evento llega sin el campo (tests).
+3. **Columna "Mejor Secuencia" en `StudentsAnalytics`** (T-922 criterio 7 cubierto). `analyticsService.getClassroomStudents` ahora expone `studentMetrics.maxSequenceLengthAchieved` y `sequencesCompleted`. El frontend la normaliza al nivel raíz, la incluye en `TABLE_COLUMNS` y `CSV_COLUMNS`, y renderiza con icono `ListOrdered` ámbar + tooltip explicativo. Empty state "—" cuando el alumno no tiene partidas de Secuencia. Sortable.
+4. **Atajo `/` enfoca la búsqueda de la página actual** (T-951 criterio explícito). Registrado en `GlobalShortcuts.jsx` sección "Sistema". Handler busca `document.querySelector('[data-global-search]')` y `.focus()`. Convención Slack/GitHub/Linear. Inputs marcados en `CardDecksPage`, `StudentManagement`, `ContextsPage`, `StudentsAnalytics`. Si no hay match en la página actual, no-op silencioso (`preventDefault` del hook impide que "/" se escriba en el contenido). Cursor al final del valor existente con `setSelectionRange`.
+5. **`useChartMotion` confirmado en `ChartsTheme.jsx`** (no era nuevo hook; reporte 2 marcó falso positivo). Usado en 7 charts (`TrajectoryChart`, `StudentProgressChart`, `SequenceProgressChart`, `DistributionChart`, `EngagementRadar`, `PerformanceByDimension`, `InsightsReports`). No se extrae a su propio archivo en `hooks/` (refactor cosmético sin valor real, riesgo de regresión por cambios de import en 7 archivos).
+6. **`StudentProgressChart` envuelto con `memo()`**. Chart pesado (`AreaChart` Recharts) en Dashboard que repintaba en cambios no relacionados (filtros, hover en otros widgets). Vercel `rerender-memo`.
+7. **`ThemeContext.toggleTheme` con `MIN_LOCK_MS=350`** y timer de seguridad subido de 500ms→650ms. Previene encadenamiento de transiciones en triple-tap rápido de `Shift+T` cuando la primera transición resuelve `finished` antes (Login/Register son ligeros). `releaseRespectingMinHold` espera hasta cubrir el mínimo antes de bajar el ref.
+8. **OpenAPI spec completada** con 9 schemas reutilizables (`User`, `Card`, `Mechanic`, `Context`, `Deck`, `GameSession`, `GamePlay`, `Notification`, `ApiError`, `Pagination`) + responses comunes `NotFoundError` y `ForbiddenError`. Anotaciones `@openapi` en 9 routers: `users`, `mechanics`, `contexts`, `sessions`, `plays`, `decks`, `notifications`, `analytics`, `admin`. ≥40 operaciones documentadas. `swagger-ui` muestra spec completa; `/api/openapi.json` descargable para clientes generados.
+9. **`envValidator.validateRedisKeyPrefixForEnv()`** emite `logger.warn` no bloqueante si `APP_ENV` está definido y `REDIS_KEY_PREFIX` no contiene el nombre del entorno. Previene data contamination si Upstash se comparte entre staging/prod (free tier). `.env.example` documenta los prefijos recomendados (`eduplay:staging:`, `eduplay:prod:`) con el porqué.
+10. **OnboardingOverlay `measure()` debouncedo** a 120ms con `requestAnimationFrame` interno y listeners passive. Antes el spotlight re-medía en cada frame de scroll (~50/s) costando 3-5ms paint por llamada → jank en tablets. Reducido a ~8/s durante scroll continuo sin desfase visible.
+
+11. **`CharacterMascot` acepta prop `noBubble`** y `OnboardingOverlay` la pasa a `true`. Bug visual detectado en QA 2026-05-19 (sesión modo oscuro): el bocadillo de la mascota (`absolute -top-20`) se solapaba con el borde superior izquierdo del card del onboarding y duplicaba el título/descripción ya presente en el modal — quedaba "pegado" como un sticker mal alineado. La mascota sigue siendo expresiva (`mood` controla la animación facial) pero ahora puede vivir como ilustración decorativa sin imponer texto adicional. El `rotatingMessage` del pool de greetings (idle) también queda suprimido cuando `noBubble=true`.
+
+**Consecuencias:**
+- Suite verde tras cambios: backend (objetivo ≥1259) y frontend (objetivo ≥396) — verificar tras run final.
+- 8 archivos backend modificados + 1 nuevo schema set, 11 archivos frontend modificados, 6 docs actualizadas.
+- Bundle frontend sin cambios (memo no añade peso). `/api/openapi.json` pasa de ~6 ops a ≥40.
+- Runbook gana playbook 16 (preview deploys desde PR) que ya existía como workflow sin documentar.
+
+**Alternativas descartadas:**
+- **Refactor `InlineEditableText` a `editorProps`/`uiProps` grouped (#13)**: 14 props → 2 grouped objects. Refactor invasivo en 2 consumers (DeckCard, SessionCard) con riesgo medio de regresión. Diferido a Sprint 7 con tests asociados.
+- **Test integración SIGTERM completo (#10)**: requiere mock `process.exit`, spy de `mongoose.connection.close`, `redis.quit`, `Sentry.flush`. ~50 líneas + setup. Valor moderado (la lógica ya es correcta). Diferido a Sprint 7.
+- **Crear `useChartMotion.js` en `hooks/`**: el hook ya vive en `ChartsTheme.jsx` y se importa correctamente. Mover el archivo solo cambia la ergonomía sin valor funcional y obliga a tocar 7 imports.
+- **Mover `data-global-search` a un Context React + provider**: el atributo HTML es portable, accesible vía `querySelector` y no requiere prop drilling. Patrón Slack/GitHub similar.
+
+**Pendientes documentados:**
+- Sprint 7: `InlineEditableText` grouped props refactor + tests.
+- Sprint 7: suite de tests integración SIGTERM (`backend/tests/integration/gracefulShutdown.test.js`).
+- Sprint 7 (opcional): extracción del hook `useChartMotion` a `frontend/src/hooks/useChartMotion.js` si en algún momento se necesita reutilizar fuera del namespace `analytics`.
+
+**Falsos positivos descartados (no se actuó):**
+- `useInlineSuccess` en `DeckEditPage.jsx:39,94` — ya integrado.
+- `layoutId="deck-..."` en `DeckCard.jsx:302-305` + `CardDeckDetailPage.jsx:182` — hero transition implementado.
+- `useTransform(scrollY, ...)` en `AppLayout.jsx:80-83` — parallax operativo.
+- `GET /api/openapi.json` en `server.js:310` — endpoint descargable existe.
+- `commonAxisProps`/`commonGridProps` en `ChartsTheme.jsx:139,149` — ya extraídos.

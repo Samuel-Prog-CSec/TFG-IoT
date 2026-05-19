@@ -12,6 +12,7 @@ import {
   ArrowUp,
   ArrowDown,
   GraduationCap,
+  ListOrdered,
 } from "lucide-react";
 import { getMechanicTheme, MECHANIC_KEYS } from "../lib/mechanicTheme";
 import {
@@ -213,6 +214,7 @@ const CSV_COLUMNS = [
   { key: "averageScore", label: "Puntuación" },
   { key: "accuracyRate", label: "Tasa Acierto" },
   { key: "avgResponseTime", label: "Tiempo Respuesta" },
+  { key: "maxSequenceLengthAchieved", label: "Mejor Secuencia" },
   { key: "lastPlayedAt", label: "Última Actividad" },
   { key: "tier", label: "Nivel" },
 ];
@@ -236,6 +238,9 @@ const TABLE_COLUMNS = [
   { key: "averageScore", label: "Score", sortable: true },
   { key: "accuracyRate", label: "Tasa Acierto", sortable: true },
   { key: "avgResponseTime", label: "Tiempo Resp", sortable: true },
+  // T-922 criterio 7: vista comparativa con "Mejor Secuencia". Tooltip
+  // explica que es la longitud máxima de secuencia reproducida correctamente.
+  { key: "maxSequenceLengthAchieved", label: "Mejor Secuencia", sortable: true },
   { key: "lastPlayedAt", label: "Última Actividad", sortable: true },
   { key: "tier", label: "Nivel", sortable: true },
 ];
@@ -345,6 +350,10 @@ export default function StudentsAnalytics() {
       lastPlayedAt: s.lastPlayedAt ?? s.studentMetrics?.lastPlayedAt ?? null,
       avgResponseTime:
         s.avgResponseTime ?? s.studentMetrics?.averageResponseTime ?? null,
+      maxSequenceLengthAchieved:
+        s.maxSequenceLengthAchieved ??
+        s.studentMetrics?.maxSequenceLengthAchieved ??
+        0,
     }));
 
     // Apply search filter
@@ -696,6 +705,7 @@ export default function StudentsAnalytics() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Buscar alumno por nombre..."
                     aria-label="Buscar alumno por nombre"
+                    data-global-search="true"
                     className="w-full h-11 pl-10 pr-4 rounded-xl bg-background-elevated/80 backdrop-blur-sm border border-border-default text-text-primary placeholder:text-text-muted text-sm transition-colors duration-300 focus:outline-none focus:border-brand-base/50 focus:ring-2 focus:ring-brand-base/20 hover:border-border-strong"
                   />
                 </div>
@@ -891,6 +901,25 @@ function StudentRow({ student, navigate }) {
       {/* Response time */}
       <td className="px-4 py-3 text-text-secondary text-center whitespace-nowrap">
         {formatResponseTime(student.avgResponseTime)}
+      </td>
+
+      {/* Mejor Secuencia (T-922 criterio 7) — longitud máxima reproducida */}
+      <td
+        className="px-4 py-3 text-center whitespace-nowrap"
+        title={
+          student.maxSequenceLengthAchieved > 0
+            ? `Longitud máxima reproducida: ${student.maxSequenceLengthAchieved} cartas`
+            : "Sin partidas de Secuencia"
+        }
+      >
+        {student.maxSequenceLengthAchieved > 0 ? (
+          <span className="inline-flex items-center gap-1.5 text-accent-amber font-semibold">
+            <ListOrdered size={14} aria-hidden="true" />
+            {student.maxSequenceLengthAchieved}
+          </span>
+        ) : (
+          <span className="text-text-muted">—</span>
+        )}
       </td>
 
       {/* Last activity */}

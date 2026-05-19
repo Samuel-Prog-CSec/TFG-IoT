@@ -246,6 +246,7 @@ export default function ContextsPage() {
             onChange={e => setSearchTerm(e.target.value)}
             icon={<Search size={18} />}
             className="md:w-96"
+            data-global-search="true"
           />
         </div>
       </motion.div>

@@ -30,6 +30,34 @@ router.use(authenticate, requireRole('super_admin'));
  * @access  Private (super_admin)
  * @validation query: paginationSchema
  */
+
+/**
+ * @openapi
+ * /admin/pending:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Profesores en estado `pending`
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, minimum: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 100 }
+ *     responses:
+ *       200:
+ *         description: Lista paginada
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: array, items: { $ref: '#/components/schemas/User' } }
+ *                 pagination: { $ref: '#/components/schemas/Pagination' }
+ *       403: { $ref: '#/components/responses/ForbiddenError' }
+ */
 router.get('/pending', validateQuery(paginationSchema), asyncHandler(getPendingTeachers));
 
 /**
@@ -37,6 +65,24 @@ router.get('/pending', validateQuery(paginationSchema), asyncHandler(getPendingT
  * @desc    Aprobar un profesor pendiente
  * @access  Private (super_admin)
  * @validation params: userIdParamsSchema | query: emptyObjectSchema
+ */
+
+/**
+ * @openapi
+ * /admin/users/{id}/approve:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Aprobar profesor pendiente (super_admin)
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Profesor activado }
+ *       403: { $ref: '#/components/responses/ForbiddenError' }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
  */
 router.post(
   '/users/:id/approve',
@@ -51,6 +97,23 @@ router.post(
  * @access  Private (super_admin)
  * @validation params: userIdParamsSchema | query: emptyObjectSchema
  */
+
+/**
+ * @openapi
+ * /admin/users/{id}/reject:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Rechazar profesor pendiente
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Profesor rechazado y notificado }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
+ */
 router.post(
   '/users/:id/reject',
   validateParams(userIdParamsSchema),
@@ -63,6 +126,29 @@ router.post(
  * @desc    Desbloquea manualmente una cuenta bloqueada por intentos fallidos.
  * @access  Private (super_admin). Cuando MFA esté operativo (B7), añadir `requireMfa`.
  * @validation body: unlockEmailSchema
+ */
+
+/**
+ * @openapi
+ * /admin/lockouts/unlock:
+ *   post:
+ *     tags: [Admin]
+ *     summary: Desbloquear cuenta bloqueada por intentos fallidos (requiere MFA reciente)
+ *     description: T-905 B7 — opera sobre el lockout per-user (no IP). Genera entrada en el audit log.
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [email]
+ *             properties:
+ *               email: { type: string, format: email }
+ *     responses:
+ *       200: { description: Cuenta desbloqueada }
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       403: { $ref: '#/components/responses/ForbiddenError' }
  */
 router.post(
   '/lockouts/unlock',

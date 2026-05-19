@@ -69,6 +69,32 @@ router.get(
   asyncHandler(analyticsController.getStudentDifficulties)
 );
 
+/**
+ * @openapi
+ * /analytics/classroom/summary:
+ *   get:
+ *     tags: [Analytics]
+ *     summary: KPIs agregados del aula del profesor autenticado
+ *     description: Devuelve totalStudents, averageScore, studentsInRisk y métricas globales.
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: Resumen del aula
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalStudents: { type: integer }
+ *                     averageScore: { type: number }
+ *                     studentsInRisk: { type: integer }
+ *                     activeStudents: { type: integer }
+ *       401: { $ref: '#/components/responses/UnauthorizedError' }
+ */
 // Rutas de clase (profesor)
 router.get(
   '/classroom/summary',
@@ -93,6 +119,49 @@ router.get(
  * @desc    Lista de estudiantes con métricas agregadas, filtrable por tier y classroom
  * @access  Private (Teacher/Super Admin)
  */
+
+/**
+ * @openapi
+ * /analytics/classroom/students:
+ *   get:
+ *     tags: [Analytics]
+ *     summary: Estudiantes del aula con métricas agregadas
+ *     description: Incluye `studentMetrics.maxSequenceLengthAchieved` (T-922) para la columna comparativa "Mejor Secuencia".
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: tier
+ *         schema: { type: string, enum: [excellent, good, average, risk] }
+ *       - in: query
+ *         name: classroom
+ *         schema: { type: string }
+ *       - in: query
+ *         name: sort
+ *         schema: { type: string, enum: [name, score, lastPlayed, accuracy] }
+ *     responses:
+ *       200:
+ *         description: Lista con métricas
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     allOf:
+ *                       - $ref: '#/components/schemas/User'
+ *                       - type: object
+ *                         properties:
+ *                           studentMetrics:
+ *                             type: object
+ *                             properties:
+ *                               maxSequenceLengthAchieved: { type: integer }
+ *                               sequencesCompleted: { type: integer }
+ *                               averageScore: { type: number }
+ *       401: { $ref: '#/components/responses/UnauthorizedError' }
+ */
 router.get(
   '/classroom/students',
   validateQuery(classroomStudentsQuerySchema),
@@ -103,6 +172,32 @@ router.get(
  * @route   GET /api/analytics/classroom/distribution
  * @desc    Distribución de rendimiento en 4 rangos (riesgo, promedio, bueno, excelente)
  * @access  Private (Teacher/Super Admin)
+ */
+
+/**
+ * @openapi
+ * /analytics/classroom/distribution:
+ *   get:
+ *     tags: [Analytics]
+ *     summary: Distribución de rendimiento en 4 tiers
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: 4 buckets con count y porcentaje
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       range: { type: string }
+ *                       count: { type: integer }
+ *                       percentage: { type: number }
  */
 router.get(
   '/classroom/distribution',
@@ -147,6 +242,36 @@ router.get(
  * @route   GET /api/analytics/student/:id/summary
  * @desc    Resumen completo de un estudiante (últimas partidas, rendimiento, comparativa)
  * @access  Private (Teacher/Super Admin)
+ */
+
+/**
+ * @openapi
+ * /analytics/student/{id}/summary:
+ *   get:
+ *     tags: [Analytics]
+ *     summary: Resumen completo de un alumno con métricas por mecánica
+ *     description: Incluye desglose por mecánica (memoria, asociación, secuencia con `maxSequenceLengthAchieved` y `sequencesCompleted`).
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: timeRange
+ *         schema: { type: string, enum: ['7d', '30d', '90d'] }
+ *     responses:
+ *       200:
+ *         description: Resumen del alumno
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object, description: 'Resumen complejo con KPIs y serie temporal' }
+ *       403: { $ref: '#/components/responses/ForbiddenError' }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
  */
 router.get(
   '/student/:id/summary',

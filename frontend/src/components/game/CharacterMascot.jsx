@@ -113,6 +113,7 @@ function CharacterMascot({
   position = 'left',
   mechanicType = null,
   isFirstAppearance = false,
+  noBubble = false,
   className
 }) {
   const { shouldReduceMotion } = useReducedMotion();
@@ -151,7 +152,11 @@ function CharacterMascot({
     return greetingPool[idx];
   }, [mood]);
 
-  const displayMessage = message || rotatingMessage;
+  // `noBubble` permite usar la mascota como ilustración decorativa sin
+  // bocadillo (OnboardingOverlay, EmptyState, etc. — sitios donde el mensaje
+  // principal ya está en el contenedor padre y la burbuja generaría
+  // redundancia visual + solape con el layout del padre). ADR-163.
+  const displayMessage = noBubble ? null : (message || rotatingMessage);
 
   return (
     <div className={cn(
@@ -311,6 +316,10 @@ CharacterMascot.propTypes = {
   mechanicType: PropTypes.oneOf(['memory', 'association', 'sequence', null]),
   // Slide-in lateral en el primer mount (T-953 Fase 2.2).
   isFirstAppearance: PropTypes.bool,
+  // Suprime el bocadillo aunque haya `message` o `rotatingMessage`. Útil
+  // cuando la mascota se usa como ilustración decorativa (OnboardingOverlay,
+  // EmptyState) y el texto principal ya vive en el contenedor padre.
+  noBubble: PropTypes.bool,
   className: PropTypes.string
 };
 

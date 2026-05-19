@@ -51,7 +51,8 @@ function SequenceGameplayPanel({
     displaySeconds = 3,
     roundNumber = 1,
     hint = null,
-    isCollecting = false
+    isCollecting = false,
+    overlayDurationMs
   } = sequenceState || {};
 
   // Highlight numerado 1, 2, 3... durante memorizing.
@@ -124,6 +125,7 @@ function SequenceGameplayPanel({
         totalRounds={totalRounds}
         reduceMotion={shouldReduceMotion}
         isCollecting={isCollecting}
+        overlayDurationMs={overlayDurationMs}
         onCardTap={!rfidConnected && phase === SEQUENCE_PHASES.REPRODUCING ? handleCardTap : null}
       />
 

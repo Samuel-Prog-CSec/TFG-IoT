@@ -641,7 +641,12 @@ async function getClassroomStudents(
         totalCorrectAnswers: metrics.totalCorrectAnswers || 0,
         totalErrors: metrics.totalErrors || 0,
         averageResponseTime: metrics.averageResponseTime || 0,
-        lastPlayedAt: metrics.lastPlayedAt || null
+        lastPlayedAt: metrics.lastPlayedAt || null,
+        // Métricas específicas de Secuencia (T-922 criterio 7 — columna
+        // comparativa "Mejor Secuencia" en StudentsAnalytics). 0/null si
+        // el alumno aún no ha jugado partidas de esta mecánica.
+        maxSequenceLengthAchieved: metrics.maxSequenceLengthAchieved || 0,
+        sequencesCompleted: metrics.sequencesCompleted || 0
       }
     };
   });

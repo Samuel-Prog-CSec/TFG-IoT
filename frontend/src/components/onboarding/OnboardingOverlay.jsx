@@ -88,15 +88,35 @@ function useTargetRect(dataTour, isVisible) {
     };
 
     measure();
-    const onResize = () => measure();
-    window.addEventListener('resize', onResize);
-    window.addEventListener('scroll', onResize, true);
+    // P1 plan auditoría Sprint 6 (#12): debounce de resize/scroll. Sin esto
+    // `measure()` se llama en cada frame de scroll (~50/s) y un Dashboard con
+    // ~30 widgets visibles cuesta 3-5ms paint por llamada → jank en mobile y
+    // tablets. 120ms es suficiente para que el spotlight reposicione sin
+    // sentir desfase y reduce las llamadas a ~8/s durante un scroll continuo.
+    // Listeners passive en scroll (capture=true) — solo lectura.
+    let rafScheduled = false;
+    let debounceTimer = null;
+    const DEBOUNCE_MS = 120;
+    const onResize = () => {
+      if (debounceTimer) clearTimeout(debounceTimer);
+      debounceTimer = setTimeout(() => {
+        if (rafScheduled) return;
+        rafScheduled = true;
+        requestAnimationFrame(() => {
+          rafScheduled = false;
+          measure();
+        });
+      }, DEBOUNCE_MS);
+    };
+    window.addEventListener('resize', onResize, { passive: true });
+    window.addEventListener('scroll', onResize, { capture: true, passive: true });
     // Reintenta tras 200ms por si el elemento se monta tras lazy-load.
     const retryTimer = setTimeout(measure, 200);
 
     return () => {
       window.removeEventListener('resize', onResize);
-      window.removeEventListener('scroll', onResize, true);
+      window.removeEventListener('scroll', onResize, { capture: true });
+      if (debounceTimer) clearTimeout(debounceTimer);
       clearTimeout(retryTimer);
     };
   }, [dataTour, isVisible]);
@@ -312,7 +332,10 @@ function ModalStep({ step, currentStep, totalSteps, isFirstStep, isLastStep, onP
               del card. NO compite con el StepIcon hero porque vive
               fuera del flow vertical principal y a tamaño reducido.
               `aria-hidden` para que VoiceOver no anuncie dos veces el
-              mismo título (la mascota repite con la burbuja). */}
+              mismo título (la mascota repite con la burbuja).
+              `noBubble`: el modal del paso ya muestra título+descripción,
+              añadir burbuja duplicaba el texto y se veía "pegada" al borde
+              superior izquierdo del card (ADR-163, QA 2026-05-19). */}
           <div
             aria-hidden="true"
             className="absolute -left-2 -bottom-4 sm:-left-6 sm:-bottom-8 pointer-events-none"
@@ -320,9 +343,9 @@ function ModalStep({ step, currentStep, totalSteps, isFirstStep, isLastStep, onP
             <div className="scale-75 sm:scale-90 origin-bottom-left">
               <CharacterMascot
                 mood={mascotConfig.mood}
-                message={mascotConfig.message}
                 position="left"
                 isFirstAppearance={mascotConfig.isFirstAppearance}
+                noBubble
               />
             </div>
           </div>

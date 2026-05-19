@@ -697,11 +697,19 @@ export default function GameSession() {
   }, [setTimeLeft, clearAnnouncedThresholds]);
 
   const handleSequencePhaseReproducing = useCallback(payload => {
+    // Sincronizar `overlayDurationMs` con el `gracePeriodMs` del backend para
+    // que PhaseTransitionOverlay y el setTimeout interno de SequenceBoard usen
+    // exactamente la misma duración. Si el evento no trae el campo (test o
+    // backend antiguo), SequenceBoard/Overlay caen al fallback (2400ms).
+    const gracePeriodMsForOverlay = Number(payload?.gracePeriodMs);
     setSequenceState(prev => ({
       ...prev,
       phase: 'reproducing',
       cursor: 0,
-      length: typeof payload?.length === 'number' ? payload.length : prev.length
+      length: typeof payload?.length === 'number' ? payload.length : prev.length,
+      overlayDurationMs: Number.isFinite(gracePeriodMsForOverlay) && gracePeriodMsForOverlay > 0
+        ? gracePeriodMsForOverlay
+        : prev.overlayDurationMs
     }));
 
     // Reiniciar la barra a la duración real de esta ronda. El backend acaba
