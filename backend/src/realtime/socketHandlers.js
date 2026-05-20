@@ -1166,61 +1166,74 @@ const ensureRfidSensorConsistency = (socket, modeState, payload) => {
   return true;
 };
 
-const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, logger) => {
-  if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'rfid_scan_from_client')) {
-    return;
-  }
+const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, logger) =>
+  // T-904 Fase A: span manual para todo el procesamiento del scan
+  // (HMAC, mode lookup, validación de owner, ingest). Atributos básicos sin PII.
+  Sentry.startSpan(
+    {
+      name: 'rfid_scan_from_client',
+      op: 'rfid.scan',
+      attributes: {
+        'user.id': socket.data?.userId?.toString(),
+        'rfid.sensorId': data?.sensorId,
+        'rfid.hasHmac': Boolean(data?.hmac)
+      }
+    },
+    async () => {
+      if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'rfid_scan_from_client')) {
+        return;
+      }
 
-  if (!isRfidClientSourceEnabled(socket)) {
-    return;
-  }
+      if (!isRfidClientSourceEnabled(socket)) {
+        return;
+      }
 
-  const payload = parseRfidClientPayload(socket, data);
-  if (!payload) {
-    return;
-  }
+      const payload = parseRfidClientPayload(socket, data);
+      if (!payload) {
+        return;
+      }
 
-  // T-905 B8: validación HMAC + counter anti-replay (gated por RFID_HMAC_ENABLED).
-  // Si la flag está off, retorna `valid:true` siempre — coexisten firmware
-  // viejo y nuevo durante la migración.
-  const hmacResult = await rfidHmacValidator.validate(payload);
-  if (!hmacResult.valid) {
-    logSecurityEvent('SECURITY_RFID_EVENT_INVALID', {
-      userId: socket.data?.userId,
-      reason: hmacResult.reason,
-      sensorId: payload.sensorId,
-      uid: payload.uid
-    });
-    socket.emit('rfid_scan_error', {
-      code: 'RFID_HMAC_INVALID',
-      reason: hmacResult.reason
-    });
-    return;
-  }
+      // T-905 B8: validación HMAC + counter anti-replay (gated por RFID_HMAC_ENABLED).
+      // Si la flag está off, retorna `valid:true` siempre — coexisten firmware
+      // viejo y nuevo durante la migración.
+      const hmacResult = await rfidHmacValidator.validate(payload);
+      if (!hmacResult.valid) {
+        logSecurityEvent('SECURITY_RFID_EVENT_INVALID', {
+          userId: socket.data?.userId,
+          reason: hmacResult.reason,
+          sensorId: payload.sensorId,
+          uid: payload.uid
+        });
+        socket.emit('rfid_scan_error', {
+          code: 'RFID_HMAC_INVALID',
+          reason: hmacResult.reason
+        });
+        return;
+      }
 
-  const { modeState, state } = await getRfidStateForSocket(socket, logger);
-  if (!validateRfidStateForRead(socket, modeState, state)) {
-    return;
-  }
+      const { modeState, state } = await getRfidStateForSocket(socket, logger);
+      if (!validateRfidStateForRead(socket, modeState, state)) {
+        return;
+      }
 
-  if (!validateRfidSensorAuthorization(socket, modeState, payload, gameEngine)) {
-    return;
-  }
+      if (!validateRfidSensorAuthorization(socket, modeState, payload, gameEngine)) {
+        return;
+      }
 
-  if (!ensureRfidSensorConsistency(socket, modeState, payload)) {
-    return;
-  }
+      if (!ensureRfidSensorConsistency(socket, modeState, payload)) {
+        return;
+      }
 
-  // Refrescar el watchdog: actividad legítima del modo RFID.
-  refreshRfidModeActivity(socket.data.userId, modeState.socketId || socket.id);
+      // Refrescar el watchdog: actividad legítima del modo RFID.
+      refreshRfidModeActivity(socket.data.userId, modeState.socketId || socket.id);
 
-  rfidService.ingestEvent({
-    event: 'card_detected',
-    mode: modeState.mode,
-    ...payload
-  });
-};
-
+      rfidService.ingestEvent({
+        event: 'card_detected',
+        mode: modeState.mode,
+        ...payload
+      });
+    }
+  );
 /**
  * Crea middleware de autenticación reutilizable para namespaces Socket.IO.
  * Valida token JWT, origen, estado del usuario y límite de conexiones.

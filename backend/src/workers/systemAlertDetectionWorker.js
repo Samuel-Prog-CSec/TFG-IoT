@@ -8,6 +8,7 @@ const { Worker } = require('bullmq');
 const { QUEUE_NAMES, connection } = require('../queues');
 const systemAlertDetectionService = require('../services/analytics/systemAlertDetectionService');
 const { SYSTEM_DETECTION_CONFIG } = require('../config/systemAlerts');
+const { withJobSpan } = require('./jobSpan');
 const logger = require('../utils/logger').child({ component: 'systemAlertDetectionWorker' });
 
 const KEY_PREFIX = process.env.REDIS_KEY_PREFIX || 'rfid-games:';
@@ -21,18 +22,19 @@ const startSystemAlertDetectionWorker = () => {
 
   worker = new Worker(
     QUEUE_NAMES.SYSTEM_ALERT_DETECTION,
-    async job => {
-      logger.info('worker.systemAlertDetection.start', {
-        jobId: job.id,
-        name: job.name,
-        attempts: job.attemptsMade
-      });
-      const result = await systemAlertDetectionService.runDetection({
-        dryRun: !!job.data?.dryRun
-      });
-      logger.info('worker.systemAlertDetection.end', { jobId: job.id, result });
-      return result;
-    },
+    job =>
+      withJobSpan(
+        job,
+        async log => {
+          log.info('worker.systemAlertDetection.start');
+          const result = await systemAlertDetectionService.runDetection({
+            dryRun: !!job.data?.dryRun
+          });
+          log.info('worker.systemAlertDetection.end', { result });
+          return result;
+        },
+        { queueName: QUEUE_NAMES.SYSTEM_ALERT_DETECTION }
+      ),
     {
       connection,
       prefix: `${KEY_PREFIX}bull`,

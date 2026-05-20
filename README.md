@@ -237,8 +237,17 @@ TFG-IoT/
 
 - **Backend** ([`backend/docs/`](backend/docs/)): arquitectura Redis, WebSockets, RFID, performance, logging, seguridad JWT.
 - **Frontend** ([`frontend/docs/`](frontend/docs/)): patrones de diseño, gameplay realtime, mazos, optimización Vite.
-- **Decisiones arquitectónicas**: [`documentation/Architecture_Decisions.md`](documentation/Architecture_Decisions.md) (146 ADRs documentados).
+- **Decisiones arquitectónicas**: [`documentation/Architecture_Decisions.md`](documentation/Architecture_Decisions.md) (166 ADRs documentados).
 - **OpenAPI 3.1**: en staging accesible públicamente en `/api/docs`; en producción requiere super admin.
+
+---
+
+## Operational status
+
+- **Status page pública**: https://stats.uptimerobot.com/eduplay-rfid — estado en tiempo real de API y frontend (prod + staging). _URL definitiva confirmada al activarla en T-904 Bloque 8.3._
+- **Hub observabilidad**: [`documentation/Operational_Dashboard.md`](documentation/Operational_Dashboard.md) — Atlas, Upstash, Koyeb, Cloudflare, Sentry, Grafana Cloud Loki, UptimeRobot. Saved queries LogQL incluidas.
+- **Playbooks ante incidente**: [`documentation/Runbook_Operacional.md`](documentation/Runbook_Operacional.md) — 18 procedimientos (deploys, rollbacks, alertas Sentry y UptimeRobot, RGPD, slow queries).
+- **Observabilidad técnica**: traces en Sentry Performance (`op:gameplay`, `op:rfid.scan`, `op:analytics`); logs estructurados en Grafana Cloud Loki con retención 14 días (ADR-165, ADR-166).
 
 ---
 

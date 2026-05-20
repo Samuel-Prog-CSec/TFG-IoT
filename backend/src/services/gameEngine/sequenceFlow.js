@@ -8,6 +8,7 @@
  * @module services/gameEngine/sequenceFlow
  */
 
+const Sentry = require('@sentry/node');
 const logger = require('../../utils/logger').child({ component: 'sequenceFlow' });
 const { SEQUENCE_PHASE } = require('../../constants/enums');
 
@@ -230,6 +231,22 @@ function enterSequenceReproducingPhase(engine, playId) {
  * @param {Object} scannedCardMapping
  */
 async function processSequenceScan(engine, playId, playState, scannedCardMapping) {
+  // T-904 Fase A: span por escaneo de Secuencia. Atributos básicos (sin PII).
+  return Sentry.startSpan(
+    {
+      name: 'gameplay.sequence.processScan',
+      op: 'gameplay.sequence',
+      attributes: {
+        'play.id': playId,
+        'round.number': playState?.playDoc?.currentRound,
+        'card.uid': scannedCardMapping?.uid
+      }
+    },
+    () => _processSequenceScanImpl(engine, playId, playState, scannedCardMapping)
+  );
+}
+
+async function _processSequenceScanImpl(engine, playId, playState, scannedCardMapping) {
   const result = playState.mechanicStrategy.processScan({
     scannedCard: scannedCardMapping,
     sessionDoc: playState.sessionDoc,
@@ -290,15 +307,26 @@ async function processSequenceScan(engine, playId, playState, scannedCardMapping
  * Cierra la ronda actual al expirar el `roundTimer` de la fase reproducing.
  */
 async function handleSequenceRoundTimeout(engine, playId) {
-  const playState = engine.activePlays.get(playId);
-  if (!playState || playState.mechanicName !== 'sequence') {
-    return;
-  }
-  if (playState.paused) {
-    return;
-  }
+  return Sentry.startSpan(
+    {
+      name: 'gameplay.sequence.roundTimeout',
+      op: 'gameplay.sequence',
+      attributes: {
+        'play.id': playId
+      }
+    },
+    async () => {
+      const playState = engine.activePlays.get(playId);
+      if (!playState || playState.mechanicName !== 'sequence') {
+        return;
+      }
+      if (playState.paused) {
+        return;
+      }
 
-  await finalizeSequenceRound(engine, playId, { timedOut: true });
+      await finalizeSequenceRound(engine, playId, { timedOut: true });
+    }
+  );
 }
 
 /**

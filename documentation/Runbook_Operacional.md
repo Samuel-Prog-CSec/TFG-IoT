@@ -537,13 +537,126 @@ El workflow `.github/workflows/preview-deploy.yml` se dispara automáticamente c
 
 ---
 
+## 17. Responder alerta Sentry Performance (degradación de p95)
+
+**Síntoma:** Sentry envía email por una de las 4 alertas de T-904:
+17.1 Prod error rate >5% in 5min · 17.2 Nuevo tipo de error en prod ·
+17.3 Auth failures spike · 17.4 Rate-limit fallback regression.
+
+### 17.1 Error rate >5% in 5 min
+
+**Diagnóstico:**
+
+1. Abre el dashboard Sentry → Performance → filtra `environment:production`.
+2. Identifica qué `op` está disparando: ¿`gameplay.endPlay`? ¿`analytics.classroomSummary`? ¿`rfid.scan`?
+3. Comprueba si correlaciona con el último deploy (Sentry release tag).
+
+**Pasos:**
+
+- Si correlaciona con el último tag de release: aplicar [playbook 3](#3-rollback-manual-de-producción).
+- Si NO correlaciona y el `op` afecta a `analytics.*`: [playbook 11](#11-slow-queries-en-mongodb-atlas) — probablemente Atlas M0 saturada.
+- Si afecta a `rfid.scan` o `gameplay.*`: revisa [playbook 12](#12-picos-de-comandos-en-upstash) — el lock distribuido puede estar contended.
+
+**Verificación:** Sentry rate baja a <1% en 15 min. Confirma con LogQL en Loki: `rate({app="eduplay-rfid", env="production"} | json | level="error" [5m])`.
+
+### 17.2 Nuevo tipo de error en prod
+
+**Diagnóstico:**
+
+1. Sentry → Issues → New (último 1h). Abre el issue.
+2. Lee stack trace + breadcrumbs (incluyen `playId`, `userId` si aplica).
+
+**Pasos:**
+
+- Si es un error de validación legítimo (input malformado): añadir caso al validador Zod correspondiente.
+- Si es bug funcional: crear issue GitHub con stack trace + breadcrumb relevante, priorizar según severidad.
+- Si es regresión post-deploy: rollback inmediato + crear hotfix branch.
+
+**Verificación:** Issue marcado `Resolved` en Sentry; rate del fingerprint vuelve a 0.
+
+### 17.3 Auth failures spike >20/min
+
+**Diagnóstico:**
+
+1. LogQL en Loki: `sum by (req_ip) (rate({app="eduplay-rfid", env="production"} | json | msg=~"(?i)auth fail" [5m]))`.
+2. Identifica si es UNA IP (probable bot/credential stuffing) o múltiples IPs (ataque distribuido o problema real).
+
+**Pasos:**
+
+- IP única > 30 fails/min: bloquear en Cloudflare → Security → IP Access Rules → Block.
+- IPs múltiples: verificar que `account-lockout` está activo (`LOG_LEVEL=info` debería mostrar "account locked" tras 5 fails); si no, escalar a Sentry como bug.
+- Si correlaciona con un email específico: contactar al usuario, posible cuenta comprometida.
+
+**Verificación:** Rate baja a <5/min. Si el ataque persiste, considerar activar Cloudflare Bot Fight Mode (Bloque 7.4 de la guía de deploy).
+
+### 17.4 Rate-limit fallback regression
+
+**Síntoma:** Sentry envía issue por mensaje `"rate-limit store fallback"` con count > 0.
+
+**Diagnóstico:** este log indica que el rate limiter dejó de usar Redis y cayó a MemoryStore local. Eso significa que la protección distribuida ya NO funciona: dos instancias api-prod tendrán cada una su propio contador, doblando la cuota efectiva por IP.
+
+**Pasos:**
+
+1. Revisar estado Upstash en la consola (memory usage, command rate). Si Upstash está caído → escalar.
+2. Logs Koyeb del servicio api-prod: buscar `"Redis: Fallo al conectar"` o `"circuit breaker open"`. Si hay, [playbook 12](#12-picos-de-comandos-en-upstash).
+3. Si Upstash está OK pero el contador del fallback sigue subiendo, reiniciar api-prod desde Koyeb (`koyeb service redeploy api-prod`).
+
+**Verificación:** `runtimeMetrics.redis.rateLimitStoreFallbackCount` vuelve a 0 vía endpoint `/api/metrics` (super_admin).
+
+**Rollback:** No aplica — es síntoma, no causa.
+
+---
+
+## 18. Responder alerta UptimeRobot
+
+**Síntoma:** UptimeRobot envía email "Monitor is DOWN" para uno de los 4 monitores (API prod / API staging / Frontend prod / Frontend staging).
+
+### 18.1 API prod / staging DOWN (apunta a `/health/live`)
+
+**Diagnóstico:**
+
+1. `curl -i $KOYEB_PROD_URL/health/live` desde tu máquina. ¿Devuelve 200 o timeout?
+2. Si timeout: Koyeb dashboard → api-prod → status. ¿Pending, deploying, failed?
+3. Si 200: posiblemente UptimeRobot tiene un problema de DNS o tu IP está bloqueada en Cloudflare Bot Fight Mode.
+
+**Pasos:**
+
+- Si Koyeb dice "deploying" tras un deploy nuevo: esperar ~2 min más, el deploy puede tardar.
+- Si "failed": logs Koyeb → leer primer error. Comúnmente envvars mal o Redis/Mongo caídos. Aplicar playbook correspondiente.
+- Si la IP de UptimeRobot está bloqueada por Bot Fight Mode: whitelistear en Cloudflare → IP Access Rules → Allow.
+
+**Verificación:** UptimeRobot marca "UP" en el siguiente ping (5 min).
+
+### 18.2 Frontend prod DOWN (Cloudflare Pages)
+
+**Diagnóstico:**
+
+1. Cloudflare Dashboard → Pages → `eduplay-frontend` → último deploy. ¿Está "active" o "failed"?
+2. `curl -I https://eduplay-frontend.pages.dev` → ¿código 200? ¿Cloudflare headers presentes?
+
+**Pasos:**
+
+- Deploy fallido: revisar log del build en Cloudflare Pages. Comúnmente: `npm run build` falla por un error de tipos/lint.
+- 5xx con headers Cloudflare: incidente Cloudflare global — verificar https://www.cloudflarestatus.com/.
+- 200 pero contenido roto: investigar deploy → archivos build esperados (`dist/index.html`).
+
+**Verificación:** UptimeRobot "UP" + curl manual devuelve `200 OK`.
+
+**Rollback:** Cloudflare Pages → Deployments → Rollback al deploy anterior.
+
+---
+
 ## Referencias
 
 - **ADR-139..146** en [`Architecture_Decisions.md`](Architecture_Decisions.md): decisiones de stack y CD.
+- **ADR-165, ADR-166**: Sentry Performance + Log shipping Loki (T-904).
 - **[`Deploy_Koyeb.md`](Deploy_Koyeb.md)**: aprovisionamiento inicial.
+- **[`Operational_Dashboard.md`](Operational_Dashboard.md)**: hub de las 6 consolas + saved queries LogQL.
 - **[`Secrets_Rotation.md`](Secrets_Rotation.md)**: política rotación completa.
 - **[`Proteccion_Datos_Menores.md`](Proteccion_Datos_Menores.md)**: política RGPD detallada.
 - **Sentry**: https://sentry.io (login con cuenta del proyecto).
+- **Grafana Cloud**: https://grafana.com (Loki + alertas LogQL).
+- **UptimeRobot**: https://uptimerobot.com.
 - **Koyeb**: https://koyeb.com.
 - **Atlas**: https://cloud.mongodb.com.
 - **Upstash**: https://upstash.com.

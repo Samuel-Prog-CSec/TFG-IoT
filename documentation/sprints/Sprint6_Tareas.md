@@ -282,7 +282,39 @@ Automatizar el ciclo completo de despliegue: cada push a `Maintenance` despliega
 
 ---
 
-### T-904: ☁️ Observabilidad producción (Sentry Performance + log shipping + alerting + dashboard ops) 📋
+### T-904: ☁️ Observabilidad producción (Sentry Performance + log shipping + alerting + dashboard ops) ✅ DONE
+
+**Cierre:** 2026-05-20. Implementado en alcance completo (4 fases originales + workflow Sentry sourcemaps opcional + ampliación de la guía operativa personal). Decisión PROP-110: Grafana Cloud Loki vía `pino-loki`. ADR-165 (Sentry Performance) + ADR-166 (Log shipping Loki).
+
+| Fase | Implementación | Verificación |
+|---|---|---|
+| A — Sentry Performance | `Sentry.startSpan` en 10 puntos: `startPlay`, `endPlay`, `pausePlay`, `resumePlay`, `gameplay.sequence.processScan`, `gameplay.sequence.roundTimeout`, `analytics.classroomSummary`, `analytics.studentSummary`, `rfid_scan_from_client`, `queue.job` (workers BullMQ vía helper `withJobSpan`). `APP_ENV` + `SENTRY_TRACES_SAMPLE_RATE` env vars con defaults 0.1 prod / 0.5 staging / 1.0 dev. Frontend alineado vía `VITE_APP_ENV`. | 4 tests adversariales en `backend/tests/sentrySpans.test.js` (4/4 verde) + smoke en config con env vars distintos confirma sampling per-env. |
+| B — Log shipping | `pino-loki` integrado como target opcional del multistream Pino en `backend/src/utils/logger.js`. Helper `withPlayContext({playId, sessionId, userId, mechanic})` en `loggerContext.js` para child loggers correlables. `worker.js` setea `LOG_SERVICE_LABEL=worker` para separar service en Loki. Degradación silenciosa si `LOG_SHIPPING_ENABLED!=true` o faltan credenciales. | `backend/tests/loggerTransport.test.js` cubre 5 escenarios del switch (8/8 verde). `backend/tests/loggerContext.test.js` cubre 6 escenarios del helper (6/6 verde). Smoke: `LOG_SHIPPING_ENABLED=true` sin token degrada con warning + boot OK. |
+| C — Alerting externo | Tabla de 4 alertas Sentry documentada en `Operational_Dashboard.md` §5.1 + Runbook playbook 17 con sub-procedimientos 17.1/17.2/17.3/17.4. Tabla de 4 monitors UptimeRobot en `Operational_Dashboard.md` §5.2 + Runbook playbook 18.1/18.2. Apuntan a `/health/live` (no `/health/ready`) para evitar gastar commands Upstash y falsos positivos por circuit breaker abierto. | Setup operativo manual documentado paso a paso en `development/DEPLOY_GUIA_COMPLETA.md` Bloques 9 (Sentry) y 10 (UptimeRobot/smoke). |
+| D — Dashboard operativo | `documentation/Operational_Dashboard.md` nuevo con: tabla de las 6 consolas + status page pública `https://stats.uptimerobot.com/eduplay-rfid` + saved queries LogQL (5 ejemplos) + verificación post-deploy (6 pasos) + onboarding rápido + rotación credenciales. | Enlazado desde `README.md` sección "Operational status" y desde `CLAUDE.md` catalog. |
+| Extras | Workflow opcional `.github/workflows/sentry-release.yml` (`workflow_dispatch` por defecto) para subir sourcemaps frontend al release Sentry. Activación opt-in vía repo variable `SENTRY_RELEASE_ENABLED=true`. | Documentado en Bloque 2.3 de la guía personal con instrucciones de generación de `SENTRY_AUTH_TOKEN`. |
+
+**Tests post-cierre:** 1357 tests backend (incluye 18 nuevos en `loggerContext`, `loggerTransport`, `sentrySpans`) + 546 frontend. Lint backend + frontend 0 errores. Build frontend `index.js` 60.67 KB gzipped.
+
+**Documentación afectada (cierre 2026-05-20):**
+- **Nuevos:** `documentation/Operational_Dashboard.md`, `.github/workflows/sentry-release.yml`, `backend/src/utils/loggerContext.js`, `backend/src/workers/jobSpan.js`, `backend/tests/loggerContext.test.js`, `backend/tests/loggerTransport.test.js`, `backend/tests/sentrySpans.test.js`.
+- **Modificados código:** `backend/src/config/sentry.js`, `backend/src/utils/logger.js`, `backend/src/services/gameEngine/GameEngine.js`, `backend/src/services/gameEngine/sequenceFlow.js`, `backend/src/services/analyticsService.js`, `backend/src/realtime/socketHandlers.js`, `backend/worker.js`, `backend/src/workers/dataRetentionWorker.js`, `backend/src/workers/alertDetectionWorker.js`, `backend/src/workers/systemAlertDetectionWorker.js`, `frontend/src/lib/sentry.js`, `.env.example`, `backend/package.json` (+ `pino-loki`).
+- **Modificados docs:** `documentation/Architecture_Decisions.md` (+ADRs 165/166 + actualizar índice), `backend/docs/Logging_Strategy.md` (sección §10 nueva sobre log shipping Loki), `documentation/Runbook_Operacional.md` (playbooks 17 y 18 + tabla referencias), `CLAUDE.md` (catalog), `README.md` (sección "Operational status"), `development/DEPLOY_GUIA_COMPLETA.md` (12 cambios: pre-flight ítem nuevo, Bloque 2.3 ampliado, Bloque 2.7 nuevo Grafana Loki, Bloque 2.6 env vars, Bloque 2.7→2.8, Bloque 3 secrets opcionales, Bloque 8.3 reemplazado, Bloques 9 y 10 nuevos, troubleshooting +5 filas, resumen visual +2 bloques, "¿Atascado?" +1 punto).
+
+**Pasos manuales pendientes** (operativos, no de código — documentados en `development/DEPLOY_GUIA_COMPLETA.md` Bloques 2.3 / 2.7 / 8.3 / 9 / 10):
+1. Crear cuenta Grafana Cloud + obtener `LOG_SHIPPING_HOST/USER/TOKEN`.
+2. Crear proyecto Sentry "EduPlay v1.0.0" + DSN backend/frontend + (opcional) `SENTRY_AUTH_TOKEN` + `SENTRY_ORG_SLUG`.
+3. Cargar secrets en Koyeb (incluyendo `LOG_SHIPPING_ENABLED=true` en prod).
+4. Configurar 4 alertas Sentry en UI.
+5. Crear 4 monitors UptimeRobot + status page pública.
+6. Smoke test end-to-end (Bloque 10): partida en staging + verificar Sentry Performance + Grafana Loki + UptimeRobot status page.
+
+**Diferidos a follow-up (no bloquean v1.0.0):**
+- Custom metrics `runtimeMetrics` → Sentry — sin proyecto Sentry activo no se puede dimensionar; el endpoint `/api/metrics` + LogQL en Loki cubren el caso actual.
+- LogQL alerts en Grafana Cloud Loki (complementarías a Sentry Alerts). Las 4 Sentry Alerts cubren el 80% de casos críticos para v1.0.0.
+- Slack integration en Sentry — email suficiente para un super_admin único.
+
+**ADRs:** ADR-165 (Sentry Performance instrumentación + sampling per-env), ADR-166 (Log shipping centralizado con Grafana Cloud Loki + pino-loki).
 
 **Consolida:** PROP-109 + PROP-110 + PROP-111 + PROP-112
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-901, T-902

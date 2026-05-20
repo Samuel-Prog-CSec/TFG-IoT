@@ -23,12 +23,24 @@
 
 require('dotenv').config();
 
+// T-904 Fase B: identifica este proceso como `worker` en los labels Loki
+// (vs el backend HTTP que es `backend`). DEBE setearse antes de cargar el
+// logger, porque buildLogger() se ejecuta al require y lee este valor.
+process.env.LOG_SERVICE_LABEL = process.env.LOG_SERVICE_LABEL || 'worker';
+
+const { randomUUID } = require('node:crypto');
+
 const { connectDB, disconnectDB } = require('./src/config/database');
 const { connectRedis, disconnectRedis } = require('./src/config/redis');
 const { startAllWorkers, stopAllWorkers } = require('./src/workers');
 const { closeAllQueues } = require('./src/queues');
 const { initSentry } = require('./src/config/sentry');
-const logger = require('./src/utils/logger').child({ component: 'worker.js' });
+const logger = require('./src/utils/logger').child({
+  component: 'worker.js',
+  // Correlation id sintético del proceso worker; sirve para hilar todos los
+  // logs producidos por esta instancia desde el boot hasta el shutdown.
+  workerInstanceId: randomUUID()
+});
 
 const SHUTDOWN_TIMEOUT_MS = Number.parseInt(process.env.SHUTDOWN_TIMEOUT_MS, 10) || 25000;
 const SENTRY_FLUSH_MS = 2000;

@@ -1,0 +1,113 @@
+name: Sentry Release (sourcemaps)
+
+# T-904 Fase A — Sube los sourcemaps del frontend a Sentry para que las
+# trazas de errores en producción muestren código fuente legible en lugar
+# del bundle minificado.
+#
+# Trigger: workflow_dispatch (manual) por defecto, para que puedas activarlo
+# sólo cuando Sentry esté listo y `SENTRY_AUTH_TOKEN` + `SENTRY_ORG_SLUG`
+# estén en GitHub Secrets. Cuando todo esté operativo, descomentar el
+# trigger `on.push.tags` para que dispare automáticamente con cada release.
+#
+# Pre-requisitos en GitHub Secrets (Bloque 3 + Bloque 2.3 de la guía):
+# - SENTRY_AUTH_TOKEN (scope project:releases)
+# - SENTRY_ORG_SLUG
+#
+# Frontend YA emite sourcemaps en modo `hidden` (ver `frontend/vite.config.js`,
+# T-907 ADR-159) — Sentry los consume sin que se expongan al cliente.
+
+on:
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag de release (ej. v1.0.0). Si vacío, usa el último tag."
+        required: false
+        type: string
+  # Descomentar tras el primer smoke test manual:
+  # push:
+  #   tags: ["v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentry-release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  upload-sourcemaps:
+    name: Build + upload sourcemaps a Sentry
+    runs-on: ubuntu-latest
+    # Salta el workflow si los secrets aún no están configurados — evita
+    # fallar runs antes de que el operador haya completado Bloque 9 de la guía.
+    if: ${{ vars.SENTRY_RELEASE_ENABLED == 'true' }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+
+      - name: Determinar versión a publicar
+        id: version
+        run: |
+          if [ -n "${{ github.event.inputs.tag }}" ]; then
+            echo "version=${{ github.event.inputs.tag }}" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=${GITHUB_REF#refs/tags/}" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup Node
+        uses: actions/setup-node@v5
+        with:
+          node-version: "24"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Install frontend deps
+        working-directory: frontend
+        run: npm ci
+
+      - name: Build frontend (con sourcemaps hidden)
+        working-directory: frontend
+        env:
+          # Build de production igual que el deploy real.
+          VITE_APP_ENV: production
+        run: npm run build
+
+      - name: Crear release Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG_SLUG }}
+          SENTRY_PROJECT: eduplay-frontend
+        run: |
+          npx @sentry/cli@^2 releases new "${{ steps.version.outputs.version }}"
+          npx @sentry/cli@^2 releases set-commits "${{ steps.version.outputs.version }}" --auto
+
+      - name: Upload sourcemaps frontend
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG_SLUG }}
+          SENTRY_PROJECT: eduplay-frontend
+        run: |
+          npx @sentry/cli@^2 releases files "${{ steps.version.outputs.version }}" \
+            upload-sourcemaps frontend/dist \
+            --rewrite \
+            --url-prefix '~/'
+
+      - name: Finalizar release Sentry
+        env:
+          SENTRY_AUTH_TOKEN: ${{ secrets.SENTRY_AUTH_TOKEN }}
+          SENTRY_ORG: ${{ secrets.SENTRY_ORG_SLUG }}
+          SENTRY_PROJECT: eduplay-frontend
+        run: |
+          npx @sentry/cli@^2 releases finalize "${{ steps.version.outputs.version }}"
+
+      - name: Borrar sourcemaps locales tras subida
+        # Higiene: los sourcemaps están en `frontend/dist/` con extensión `.map`
+        # y NO deben servirse desde Cloudflare Pages (config `sourcemap: 'hidden'`
+        # ya impide referenciarlos desde el bundle, pero los archivos físicos
+        # podrían quedar accesibles si Pages los publica). Borrarlos tras la
+        # subida cierra la puerta a curiosos.
+        run: |
+          find frontend/dist -name '*.map' -delete || true

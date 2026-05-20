@@ -4,6 +4,7 @@
  */
 
 const mongoose = require('mongoose');
+const Sentry = require('@sentry/node');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 
 /**
@@ -155,6 +156,22 @@ async function getStudentDifficulties(studentId) {
  * @returns {Promise<Object>} KPIs calculados
  */
 async function getClassroomSummary(teacherId) {
+  // T-904 Fase A: span manual sobre el agregado completo (lookup+facet pueden
+  // ser caros en datasets grandes; visibilidad de p95 imprescindible para
+  // detectar regresiones de Mongo Atlas M0).
+  return Sentry.startSpan(
+    {
+      name: 'analytics.classroomSummary',
+      op: 'analytics',
+      attributes: {
+        'teacher.id': teacherId?.toString()
+      }
+    },
+    () => _getClassroomSummaryImpl(teacherId)
+  );
+}
+
+async function _getClassroomSummaryImpl(teacherId) {
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
   const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
   const teacherOid = new mongoose.Types.ObjectId(teacherId);
@@ -913,6 +930,22 @@ async function getClassroomTrends(teacherId, timeRange = '7d') {
  * @returns {Promise<Object>} Resumen con últimas partidas, rendimiento por contexto/mecánica y comparativa
  */
 async function getStudentSummary(studentId, timeRange = '30d') {
+  // T-904 Fase A: span manual sobre el resumen del alumno (cyclomatic 46 según
+  // T-907, beneficio alto de observabilidad de p95 para detectar consultas lentas).
+  return Sentry.startSpan(
+    {
+      name: 'analytics.studentSummary',
+      op: 'analytics',
+      attributes: {
+        'student.id': studentId?.toString(),
+        'analytics.timeRange': timeRange
+      }
+    },
+    () => _getStudentSummaryImpl(studentId, timeRange)
+  );
+}
+
+async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
   const { currentStart } = getDateRange(timeRange);
   const studentOid = new mongoose.Types.ObjectId(studentId);
 

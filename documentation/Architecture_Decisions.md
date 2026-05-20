@@ -73,6 +73,9 @@ Cada ADR indica su alcance: **[Backend]**, **[Frontend]**, **[Full-stack]** o **
 | ADR-086 | Decisiones SonarCloud post-release v0.4.0 — supresiones y resolución de hallazgos | DevOps |
 | ADR-087 | Paquete fixes QA senior pre-release v0.5.0 (bloqueantes y visibles) | Full-stack |
 | ADR-088 | Paquete fixes QA cierre Sprint 5 / pre-release v0.5.0 (gameplay, contextos, analytics) | Full-stack |
+| ADR-089..164 | Hardening seguridad T-905, performance T-907, observabilidad parcial, motion signature y QA acumulada Sprint 5/6 (ver cuerpo) | Varios |
+| ADR-165 | Sentry Performance — instrumentación manual de transacciones críticas + sampling per-env (T-904 Fase A) | Backend, Frontend, DevOps |
+| ADR-166 | Log shipping centralizado con Grafana Cloud Loki + `pino-loki` (T-904 Fase B) | Backend, DevOps |
 
 **Leyenda de alcance:**
 - **Backend**: Cambios exclusivamente en el servidor (Node.js/Express)
@@ -8687,3 +8690,104 @@ Sprint 0 ejecuta el bloque crítico/alto sin tocar las páginas grandes del fron
 - Sprint 1 ya programado con su backlog (ver arriba).
 - 13 warnings de `dispatch` en deps de `useCallback` en `GameSession.jsx` — cosméticos, dispatch de `useReducer` es estable por contrato React. Se limpian naturalmente cuando se complete el refactor Container/View.
 - QA E2E final: levantar Docker + Playwright + `__rfidSim` (sensor físico roto desde mayo 2026), jugar las 3 mecánicas con `timeLimit ≥90-120s` por ronda, verificar estadísticas cruzadas (Dashboard + Analytics + InsightsReports + StudentProfile), sanity checks de C1/A4/A5/M7/M3 documentados en el plan file de la sesión.
+
+---
+
+## ADR-165: Sentry Performance — instrumentación manual de transacciones críticas + sampling per-env [Backend, Frontend, DevOps]
+
+### Contexto (ADR-165)
+
+Sentry estaba inicializado con `tracesSampleRate: 0.1` constante en backend y `0.2` en frontend, pero la auto-instrumentación de OpenTelemetry (v10) sólo emite spans HTTP/Express genéricos. Los flujos críticos del producto — arranque y cierre de partida, scan RFID, agregados de analytics — quedaban como un único span HTTP grueso sin atributos de negocio, lo que impide responder preguntas operativas básicas:
+
+- ¿Cuánto tarda `endPlay` en p95? ¿La persistencia es lo lento o el lock distribuido?
+- ¿Qué partida disparó la regresión post-deploy?
+- ¿Qué teacher ejecutó la query lenta de analytics?
+
+Además, con un único `sampleRate=0.1` global, staging perdía señal proporcionalmente a producción justo cuando más se necesita en QA pre-release. Y `environment: process.env.NODE_ENV` confundía staging y producción cloud (ambos `NODE_ENV=production` en Koyeb), de modo que el dashboard Sentry no podía filtrarlos.
+
+### Decisión (ADR-165)
+
+1. **Spans manuales con `Sentry.startSpan` en 5 puntos críticos:**
+   - `gameplay.startPlay` y `gameplay.endPlay` en `GameEngine.js` (cubren lock distribuido + persistencia + métricas).
+   - `gameplay.pausePlay` y `gameplay.resumePlay` (más cortos pero útiles para detectar latencia anómala).
+   - `gameplay.sequence.processScan` y `gameplay.sequence.roundTimeout` en `sequenceFlow.js`.
+   - `analytics.classroomSummary` y `analytics.studentSummary` en `analyticsService.js`.
+   - `rfid.scan` en el handler `handleRfidScanFromClient` de `socketHandlers.js`.
+   - `queue.job` en los workers BullMQ mediante helper `withJobSpan(job, handler)` (workers/jobSpan.js).
+2. **Atributos estandarizados** (sin PII): `play.id`, `session.id`, `user.id`, `mechanic.code`, `round.number`, `card.uid` (hex), `teacher.id`, `analytics.timeRange`, `queue.name`, `queue.job.id`.
+3. **Sampling per-environment** controlado por `APP_ENV` (no `NODE_ENV`) y override opcional con `SENTRY_TRACES_SAMPLE_RATE` / `SENTRY_PROFILES_SAMPLE_RATE`:
+   - `production` → 0.1
+   - `staging` → 0.5
+   - resto (dev/test) → 1.0
+4. **Frontend alineado**: `frontend/src/lib/sentry.js` lee `VITE_APP_ENV` para distinguir preview Cloudflare Pages (staging) de production, aplicando los mismos sample rates.
+5. **Tests adversariales** (`backend/tests/sentrySpans.test.js`) que mockean `@sentry/node` y verifican que cada span se llama con el `op`/`name`/`attributes` esperado. 4 escenarios actuales (sequence timeout, sequence scan, classroom summary, student summary); ampliable a startPlay/endPlay cuando convenga.
+
+### Posibles Impactos / Consecuencias
+
+**Positivos:**
+- Visibilidad real de p95 por flujo de negocio en Sentry Performance — pivot directo sobre `op:gameplay` o `op:rfid.scan`.
+- Trazas correlacionables: atributo `play.id` permite reconstruir todos los spans de una partida concreta sin grep manual de logs.
+- Staging genera 5× más señal que producción sin saturar la cuota free (10K/mes Sentry).
+- Coste cognitivo bajo: `Sentry.startSpan(opts, fn)` es transparente cuando Sentry está deshabilitado, así que el código sigue funcionando idéntico en dev sin DSN.
+
+**Negativos / Mitigaciones:**
+- ~+150 spans/h en producción si el centro alcanza picos de 20 partidas concurrentes. Bajo el 10% sampling, son ~15 spans/h enviados — dentro de la cuota free con holgura 60×.
+- Lectura del codebase añade `Sentry.startSpan(...)` en sitios calientes. Mitigado con helpers (`withJobSpan` para workers) y comentarios `// T-904 Fase A` para que el lector vea la motivación inmediata.
+- Si `SENTRY_TRACES_SAMPLE_RATE` se setea con valor inválido (`foo`), el backend cae al default por entorno y emite warning. Cubierto por `resolveSampleRate()` en `config/sentry.js`.
+
+### Estado Futuro
+
+- Si el centro escala a >5 docentes activos simultáneos, considerar exportar runtimeMetrics como custom metrics Sentry (descartado en T-904 por scope).
+- LazyMotion del frontend (~30 KB) descartado en T-907; cuando se haga, los spans de navegación se reducirán y la cuota dará más margen.
+- Migración del wrapper de `@sentry/node` a `@sentry/opentelemetry-node` cuando Sentry deprique el SDK v10 (no se prevé antes de 2027).
+
+---
+
+## ADR-166: Log shipping centralizado con Grafana Cloud Loki + `pino-loki` [Backend, DevOps]
+
+### Contexto (ADR-166)
+
+En Koyeb el log retention del free tier es ~72 horas. Sin un destino externo:
+
+- Los incidentes que se reportan más de 3 días después del deploy son imposibles de diagnosticar.
+- No hay forensics para auditorías RGPD posteriores (Art. 33 obliga a notificar brechas con detalles, sin logs no hay detalles).
+- Los logs JSON estructurados que el backend ya emite (Pino + redacción PII) se desperdician sin un colector que indexe los campos `requestId`, `userId`, `playId`, etc.
+
+PROP-110 dejó abierta la decisión entre Grafana Cloud Loki, BetterStack Logtail y Axiom. Comparativa:
+
+| Provider | Free quota | LogQL | Retención free | UI |
+|---|---|---|---|---|
+| **Grafana Cloud Loki** | 50 GB/mes | Sí (potente) | 14 días | Avanzada (Grafana) |
+| BetterStack Logtail | 5 GB/mes | No (filtros propios) | 3 días | Muy amigable |
+| Axiom | 500 MB/mes | APL propio | 30 días | Limpia |
+
+50 GB/mes con LogQL ricos es decisivo para un proyecto académico con picos puntuales (días de QA intensiva) sin presupuesto previsible para escalar.
+
+### Decisión (ADR-166)
+
+1. **Adoptar Grafana Cloud Loki** vía `pino-loki` (transport oficial, batch interno, retry/backoff).
+2. **Multistream Pino opt-in**: `LOG_SHIPPING_ENABLED=true` activa un segundo target además de stdout. Si faltan `LOG_SHIPPING_HOST`/`LOG_SHIPPING_TOKEN` o `pino-loki` no está instalado, degrada silenciosamente a stdout-only con warning en `stderr` — el proceso nunca falla por esto. Verificado por `backend/tests/loggerTransport.test.js`.
+3. **Labels Loki canónicos**: `app=eduplay-rfid`, `env=<APP_ENV>`, `service=backend|worker`, `version=<pkg.version>` + `component` promocionado dinámicamente vía `propsToLabels`.
+4. **Helper de contexto estructurado** `withPlayContext(parentLogger, { playId, sessionId, userId, mechanic })` en `backend/src/utils/loggerContext.js`: produce child loggers con esos campos como bindings → quedan disponibles en LogQL con `| json | playId="..."`.
+5. **Worker.js diferenciado**: setea `process.env.LOG_SERVICE_LABEL = 'worker'` antes de cargar `logger.js` para que sus logs vayan a Loki con `service=worker` (filtrable independientemente del backend HTTP).
+6. **Labels Sentry alineados**: los mismos `play.id` / `session.id` / `user.id` están como atributos de span Sentry (ADR-165), permitiendo correlación bidireccional.
+7. **Saved queries documentadas** en `backend/docs/Logging_Strategy.md` §10: errores 5xx por endpoint, slow queries, auth fails spike, rate-limit hits.
+
+### Posibles Impactos / Consecuencias
+
+**Positivos:**
+- Forensics 14 días en lugar de 72 horas (cuota free Grafana Cloud).
+- Búsqueda por `playId`/`userId`/`sessionId` para reconstruir todo el ciclo de vida de una partida concreta — clave para investigar reportes de docentes.
+- LogQL alerts disponibles a futuro sin migrar provider.
+- Cero coste si se mantiene <50 GB/mes (estimación realista para el centro objetivo: ~150 MB/mes incluso en QA intensiva).
+
+**Negativos / Mitigaciones:**
+- Latencia añadida en el path de logs: batch de 5 segundos. No bloquea procesos (transport en worker thread Pino). Si Loki cae, los logs se acumulan en buffer y luego se envían; si el buffer se llena, descarta y emite warning a stderr.
+- Una nueva cuenta cloud que mantener + token que rotar anualmente. Documentado en `documentation/Secrets_Rotation.md`.
+- Si el código emite logs con `userInput` no sanitizado, los chars de control podrían inflar artefactos en Loki. Mitigado por `CONTROL_CHARS_REGEX` en `logger.js` (sanitiza U+0000-U+001F y U+007F antes de serializar).
+
+### Estado Futuro
+
+- Si el centro escala >5 docentes y el volumen sube a 5 GB/mes sostenidos, considerar bajar `LOG_SHIPPING_LEVEL` a `warn` para reducir verbosidad info.
+- LogQL alerts ("error rate > 5%/min") podrían sustituir parte de las Sentry Alerts cuando el equipo gane familiaridad con Grafana — diferido a un sprint post-v1.0.0.
+- Migración futura a Grafana on-premise (autohosted) si las condiciones cambian; `pino-loki` apunta a cualquier endpoint compatible.

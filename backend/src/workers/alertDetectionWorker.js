@@ -16,6 +16,7 @@
 const { Worker } = require('bullmq');
 const { QUEUE_NAMES, connection } = require('../queues');
 const alertDetectionService = require('../services/analytics/alertDetectionService');
+const { withJobSpan } = require('./jobSpan');
 const logger = require('../utils/logger').child({ component: 'alertDetectionWorker' });
 
 const KEY_PREFIX = process.env.REDIS_KEY_PREFIX || 'rfid-games:';
@@ -34,32 +35,29 @@ const startAlertDetectionWorker = () => {
 
   worker = new Worker(
     QUEUE_NAMES.ALERT_DETECTION,
-    async job => {
-      logger.info('worker.alertDetection.start', {
-        jobId: job.id,
-        name: job.name,
-        attempts: job.attemptsMade
-      });
+    job =>
+      withJobSpan(
+        job,
+        async log => {
+          log.info('worker.alertDetection.start');
 
-      // Job estándar: detectar para todos los teachers. Si en el futuro se
-      // quisieran lanzar jobs ad-hoc por teacher (ej. desde un endpoint admin),
-      // este worker los soporta inspeccionando `job.data.teacherId`.
-      const targetTeacher = job.data?.teacherId || null;
-      const result = targetTeacher
-        ? await alertDetectionService.runForTeacher(targetTeacher, {
-            dryRun: !!job.data?.dryRun
-          })
-        : await alertDetectionService.runForAllTeachers({
-            dryRun: !!job.data?.dryRun
-          });
+          // Job estándar: detectar para todos los teachers. Si en el futuro se
+          // quisieran lanzar jobs ad-hoc por teacher (ej. desde un endpoint admin),
+          // este worker los soporta inspeccionando `job.data.teacherId`.
+          const targetTeacher = job.data?.teacherId || null;
+          const result = targetTeacher
+            ? await alertDetectionService.runForTeacher(targetTeacher, {
+                dryRun: !!job.data?.dryRun
+              })
+            : await alertDetectionService.runForAllTeachers({
+                dryRun: !!job.data?.dryRun
+              });
 
-      logger.info('worker.alertDetection.end', {
-        jobId: job.id,
-        targetTeacher,
-        result
-      });
-      return result;
-    },
+          log.info('worker.alertDetection.end', { targetTeacher, result });
+          return result;
+        },
+        { queueName: QUEUE_NAMES.ALERT_DETECTION }
+      ),
     {
       connection,
       prefix: `${KEY_PREFIX}bull`,
