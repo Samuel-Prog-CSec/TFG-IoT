@@ -215,6 +215,11 @@ export default function SelectPremium({
         aria-haspopup="listbox"
         aria-controls={listboxId}
         aria-labelledby={label ? labelId : undefined}
+        // BUG-A11Y-SELECT-NAME-A (QA Sprint 0 post-v0.5.0): si no hay label, el
+        // combobox quedaba sin nombre accesible (axe critical button-name).
+        // Caemos al placeholder como nombre — los usos legacy lo describen
+        // ("Selecciona un profesor", "Filtrar por contexto…").
+        aria-label={!label ? placeholder : undefined}
         aria-activedescendant={isOpen ? activeDescendantId : undefined}
         onClick={() => isOpen ? setIsOpen(false) : openDropdown()}
         onKeyDown={handleKeyDown}

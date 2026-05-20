@@ -1167,3 +1167,30 @@ El sistema de alertas inteligentes (SmartAlert) emite notificaciones realtime al
 **Frontend**: el hook `useNotifications` (`frontend/src/hooks/useNotifications.js`) escucha `notification:created` y, cuando `type === 'student_at_risk'`, dispara `window.dispatchEvent(new CustomEvent('smartalert:created', { detail: { alertId, payload } }))`. Dashboard y AlertsHub escuchan ese evento DOM y refetchan sin reload.
 
 **Solo critical**: las alertas `warning` e `info` actualizan contadores y la lista en el siguiente refresco (cache 60 s + acción del docente), pero NO emiten notificación para evitar fatiga.
+
+## Sprint 0 pre-v1.0.0 — Timeout duro en mutex RFID y nuevo evento `rfid_mode_error` (ADR-164)
+
+### `rfid_mode_error` (server → client)
+Emitido al room `user_${userId}` cuando una operación dentro de `executeWithRfidLock` excede `RFID_OPERATION_TIMEOUT_MS` (default 10s).
+
+```json
+{
+  "code": "RFID_LOCK_TIMEOUT",
+  "message": "La operación RFID tardó demasiado y se ha cancelado. Vuelve a intentarlo."
+}
+```
+
+El frontend ya tenía SOCKET_ERROR_MESSAGES con códigos similares (`RFID_MODE_INVALID`, `RFID_SENSOR_*`), por lo que añadir `RFID_LOCK_TIMEOUT` al diccionario es trivial. El comportamiento esperado del cliente: mostrar toast warning con `id='socket-error'` (dedupe automático) o banner si retryAfterMs estuviese presente (no aplica aquí — timeout es one-shot).
+
+### Métricas + alertas
+- `runtimeMetrics.websocket.rfidLockTimeouts` incrementa por cada timeout.
+- `securityLogger.RFID_LOCK_TIMEOUT` con threshold Sentry 3/min — alerta tras 3 incidentes en una ventana de 60s. Ver `documentation/SECURITY.md §13.5` para el pipeline completo.
+
+### Tests adversariales
+Para validar el flujo manualmente sin sensor físico:
+```js
+// En consola del browser durante una partida
+window.__rfidSim?.detect('AABBCCDD'); // scan normal
+// Para forzar el timeout (solo si el simulador soporta retrasos):
+// (requiere modificar test/script o usar Playwright para inyectar setTimeout en operation)
+```

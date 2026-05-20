@@ -47,7 +47,11 @@ export default function AlertsPanel({ alerts }) {
           <button
             type="button"
             onClick={() => navigate('/analytics/insights')}
-            className="text-xs text-brand-light hover:text-brand-base transition-colors font-medium"
+            // BUG-A11Y-TARGET-A (QA Sprint 0 post-v0.5.0): target size mínimo
+            // de WCAG 2.2 AA (2.5.8) son 24×24 CSS px. Antes era 50×16, fallaba
+            // la pauta. Añadido padding e inline-flex con min-h para subir
+            // el target sin cambiar la jerarquía tipográfica.
+            className="inline-flex items-center min-h-[24px] px-2 py-1 -mr-2 rounded-md text-xs text-brand-base hover:text-brand-dark hover:bg-brand-base/10 focus-visible:bg-brand-base/10 transition-colors font-medium"
           >
             Ver todas
           </button>
@@ -128,7 +132,7 @@ export default function AlertsPanel({ alerts }) {
                     {alert.description || alert.message}
                   </p>
                   {detectedAt && (
-                    <p className="text-[10px] text-text-disabled mt-1">
+                    <p className="text-[10px] text-text-muted mt-1">
                       {formatRelativeTime(detectedAt)}
                       {alert.daysActive > 7 && (
                         <span className="ml-2 text-warning-base font-medium">

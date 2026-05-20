@@ -5,7 +5,7 @@
  */
 
 const { z } = require('zod');
-const { objectIdSchema, paginationSchema } = require('./commonValidator');
+const { objectIdSchema, paginationSchema, sanitizedString } = require('./commonValidator');
 
 // Zod 4 cambió la semántica de `z.preprocess(fn, schema.optional())`: el
 // preprocess se invoca incluso cuando el valor entrante es `undefined` y
@@ -57,17 +57,9 @@ const assetSchema = z
         'La clave solo puede contener letras minúsculas, números, guiones y guiones bajos'
       ),
 
-    display: z
-      .string()
-      .min(1, 'El display del asset es requerido')
-      .max(200, 'El display no puede exceder 200 caracteres')
-      .trim(),
+    display: sanitizedString({ min: 1, max: 200, label: 'El display del asset' }),
 
-    value: z
-      .string()
-      .min(1, 'El valor del asset es requerido')
-      .max(200, 'El valor no puede exceder 200 caracteres')
-      .trim(),
+    value: sanitizedString({ min: 1, max: 200, label: 'El valor del asset' }),
 
     audioUrl: z.string().url({ message: 'La URL del audio debe ser válida' }).trim().optional(),
 
@@ -125,11 +117,7 @@ const createGameContextSchema = z
   .object({
     contextId: contextIdSchema,
 
-    name: z
-      .string()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres')
-      .trim(),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }),
 
     assets: z
       .array(assetSchema)
@@ -160,7 +148,7 @@ const updateGameContextSchema = z
   .object({
     contextId: contextIdSchema.optional(),
 
-    name: z.string().min(2).max(100).trim().optional(),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }).optional(),
 
     assets: z.array(assetSchema).min(0).max(30).optional()
   })

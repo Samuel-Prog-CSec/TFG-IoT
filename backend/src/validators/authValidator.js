@@ -4,7 +4,7 @@
  */
 
 const { z } = require('zod');
-const { emptyObjectSchema } = require('./commonValidator');
+const { emptyObjectSchema, sanitizedString } = require('./commonValidator');
 const { passwordSchema } = require('./userValidator');
 
 /**
@@ -12,7 +12,7 @@ const { passwordSchema } = require('./userValidator');
  */
 const updateProfileSchema = z
   .object({
-    name: z.string().trim().min(2).max(100).optional(),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }).optional(),
     profile: z
       .object({
         avatar: z.string().url('URL de avatar inválida').optional(),

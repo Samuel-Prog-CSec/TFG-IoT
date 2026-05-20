@@ -401,7 +401,10 @@ export default function PrivacyPage() {
                 {/* Caja de datos NO recogidos — borde amber */}
                 <div className="rounded-xl border-l-4 border-warning-base bg-warning-base/5 p-4">
                   <p className="text-sm text-text-secondary leading-relaxed">
-                    <span className="font-semibold text-warning-base">
+                    {/* BUG-A11Y-CONTRAST-PRIVACY-WARN (QA Sprint 0):
+                        text-warning-base sobre warning-tint daba 3.72 light.
+                        light:text-warning-dark cumple AA. */}
+                    <span className="font-semibold text-warning-on-alpha">
                       {NOT_COLLECTED_TEXT.slice(0, 14)}
                     </span>
                     {NOT_COLLECTED_TEXT.slice(14)}
@@ -587,7 +590,7 @@ export default function PrivacyPage() {
                       href="https://www.aepd.es"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-brand-light hover:text-brand-base underline underline-offset-2 transition-colors"
+                      className="text-brand-on-alpha hover:text-brand-base underline underline-offset-2 transition-colors"
                     >
                       www.aepd.es
                     </a>
@@ -607,7 +610,9 @@ export default function PrivacyPage() {
           <p className="text-text-muted text-sm font-medium">
             EduPlay · Plataforma de Juegos Educativos con RFID
           </p>
-          <p className="text-text-muted/60 text-xs">
+          {/* BUG-A11Y-CONTRAST-PRIVACY-FOOT (QA Sprint 0 post-v0.5.0):
+              text-text-muted/60 daba 3.27:1 sobre bg dark. Sin alpha cumple AA. */}
+          <p className="text-text-muted text-xs">
             Politica de privacidad &middot; Version 1.0 &middot; Actualizada el
             8 de abril de 2026
           </p>

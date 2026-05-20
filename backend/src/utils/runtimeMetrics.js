@@ -48,6 +48,11 @@ const state = {
     authRevalidationCacheMisses: 0,
     playOwnershipCacheHits: 0,
     playOwnershipCacheMisses: 0,
+    // C1 (pre-v1.0.0): `executeWithRfidLock` cubre operación con
+    // `Promise.race(timeout)`. Si la operación supera el umbral, contamos
+    // el incidente, liberamos el lock y emitimos `rfid_mode_error` al
+    // cliente. Espiga aquí → query Mongo lenta o Redis bloqueado.
+    rfidLockTimeouts: 0,
     byEvent: {},
     lastEventAt: null
   },
@@ -173,6 +178,16 @@ function recordPlayOwnershipCache(outcome) {
 }
 
 /**
+ * Incrementa el contador de timeouts del lock RFID (C1 pre-v1.0.0).
+ * Espiga aquí indica que `executeWithRfidLock` tuvo que matar una operación
+ * que excedió `RFID_OPERATION_TIMEOUT_MS`. Investigar logs para correlacionar
+ * con queries lentas, Redis bloqueado o deadlocks.
+ */
+function recordRfidLockTimeout() {
+  state.websocket.rfidLockTimeouts += 1;
+}
+
+/**
  * Incrementa el contador de fallback a MemoryStore del rate limiter HTTP.
  * @param {string} [prefix] - Nombre del limiter que hizo fallback (para logging)
  */
@@ -265,6 +280,7 @@ function reset() {
   state.websocket.authRevalidationCacheMisses = 0;
   state.websocket.playOwnershipCacheHits = 0;
   state.websocket.playOwnershipCacheMisses = 0;
+  state.websocket.rfidLockTimeouts = 0;
   state.websocket.byEvent = {};
   state.websocket.lastEventAt = null;
 
@@ -293,6 +309,7 @@ module.exports = {
   recordSocketAuthCache,
   recordSocketRevalidationCache,
   recordPlayOwnershipCache,
+  recordRfidLockTimeout,
   recordRateLimitStoreFallback,
   recordAuthUserCache,
   getSnapshot,

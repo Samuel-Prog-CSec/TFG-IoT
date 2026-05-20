@@ -27,6 +27,7 @@ import AlertsHub from '../components/analytics/AlertsHub';
 import AlertsEffectivenessPanel from '../components/analytics/AlertsEffectivenessPanel';
 import ReportGenerator from '../components/analytics/ReportGenerator';
 import { useChartMotion } from '../components/analytics/ChartsTheme';
+import ThemedChartContainer from '../components/analytics/ThemedChartContainer';
 
 /**
  * Definicion de tabs disponibles.
@@ -143,22 +144,35 @@ function LearningCurvesSection({ data, loading }) {
     );
   }
 
+  // Resumen accesible para lectores de pantalla: anuncia el número de
+  // curvas y el rango de intentos visualizados, sin tener que recorrer
+  // cada punto del AreaChart.
+  const accessibleSummary = (() => {
+    if (curveNames.length === 0) return 'Curvas de aprendizaje sin datos.';
+    const intentos = chartData.length;
+    const curvasLabel = curveNames.length === 1 ? '1 curva' : `${curveNames.length} curvas`;
+    return `${curvasLabel} de aprendizaje a lo largo de ${intentos} intento${intentos === 1 ? '' : 's'}. Mejora del rendimiento con la repetición.`;
+  })();
+
+  // Tabla sr-only: por cada curva, el valor en el último intento (insight
+  // útil para lector de pantalla sin recorrer todos los puntos).
+  const dataTable = curveNames.map(name => {
+    const ultimoPunto = chartData[chartData.length - 1];
+    const valor = ultimoPunto?.[name];
+    return {
+      label: name,
+      value: typeof valor === 'number' ? `${Math.round(valor)}% en intento ${ultimoPunto?.attempt ?? '—'}` : 'Sin datos'
+    };
+  });
+
   return (
     <GlassCard variant="default" padding="none" className="p-5">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 rounded-lg bg-brand-base/10">
-          <TrendingUp size={20} className="text-brand-base" aria-hidden="true" />
-        </div>
-        <div>
-          <h3 className="text-base font-semibold text-text-primary font-display">
-            Curvas de Aprendizaje
-          </h3>
-          <p className="text-xs text-text-muted mt-0.5">
-            Mejora del rendimiento con la repetición
-          </p>
-        </div>
-      </div>
-
+      <ThemedChartContainer
+        title="Curvas de Aprendizaje"
+        summary={accessibleSummary}
+        dataTable={dataTable}
+        dataTableCaption="Puntuación final por curva de aprendizaje"
+      >
       {/* Altura y margenes ajustados: el label "Intento" del eje X chocaba
           con la leyenda inferior. Solucion definitiva: leyenda arriba del
           chart (verticalAlign top) y margin top mayor para reservarle espacio.
@@ -229,6 +243,7 @@ function LearningCurvesSection({ data, loading }) {
           </AreaChart>
         </ResponsiveContainer>
       </div>
+      </ThemedChartContainer>
     </GlassCard>
   );
 }
@@ -457,8 +472,10 @@ export default function InsightsReports() {
         />
       </header>
 
-      {/* Tab navigation */}
-      <div className="flex items-center gap-1 border-b border-border-subtle" role="tablist" aria-label="Secciones de insights">
+      {/* Tab navigation — BUG-A11Y-INSIGHTS-TABS-A (QA Sprint 0 post-v0.5.0):
+          fondo sólido (background-elevated) para que el texto del tab no caiga
+          sobre la aurora púrpura del AppLayout (lo cual rompía contraste). */}
+      <div className="flex items-center gap-1 border-b border-border-subtle bg-background-elevated/95 backdrop-blur-sm rounded-t-lg px-2" role="tablist" aria-label="Secciones de insights">
         {TABS.map((tab) => {
           const isActive = activeTab === tab.id;
           const TabIcon = tab.icon;
@@ -486,23 +503,27 @@ export default function InsightsReports() {
                   document.querySelector(`[aria-controls="panel-${prevTab.id}"]`)?.focus();
                 }
               }}
+              // BUG-A11Y-INSIGHTS-TABS-A (QA Sprint 0 post-v0.5.0): los tabs
+              // se mostraban sobre la aurora púrpura del backdrop y text-muted
+              // daba 1.79:1. Cambiar a text-secondary (más luminoso) + bg
+              // sutil en el tab inactivo asegura contraste estable.
               className={cn(
                 'relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors duration-200',
                 'focus-ring rounded-t-lg -mb-px border-b-2 border-transparent',
-                isActive ? 'text-brand-base' : 'text-text-muted hover:text-text-secondary'
+                isActive ? 'text-brand-on-alpha' : 'text-text-secondary hover:text-text-primary'
               )}
             >
               <TabIcon size={16} aria-hidden="true" />
               <span>{tab.label}</span>
               {showBadge && (
+                // BUG-A11Y-INSIGHTS-BADGE-A (QA Sprint 0 post-v0.5.0): el badge
+                // de alertas tenía 1.32:1 sobre el bg de tab inactivo púrpura.
+                // Cambiar a bg sólido + texto blanco/error según estado.
                 <span className={cn(
-                  // min-w-[1.25rem] + text-center fija el ancho del badge
-                  // para evitar layout shift cuando el conteo pasa de 1 a 2
-                  // o más dígitos durante re-renders.
                   'ml-1 inline-flex items-center justify-center min-w-[1.25rem] px-1.5 py-0.5 text-[10px] font-bold rounded-full tabular-nums',
                   isActive
-                    ? 'bg-brand-base/20 text-brand-base'
-                    : 'bg-error-base/20 text-error-base'
+                    ? 'bg-brand-dark text-white'
+                    : 'bg-error-dark text-white'
                 )}>
                   {alertsCount}
                 </span>

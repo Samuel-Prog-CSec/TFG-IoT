@@ -364,7 +364,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                 {formData.consentGranted && (
                   <InputPremium
                     label="Nombre del tutor/a legal"
-                    placeholder="Ej: Ana Garc\u00EDa L\u00F3pez"
+                    placeholder={'Ej: Ana Garc\u00EDa L\u00F3pez'}
                     value={formData.consentGrantedBy}
                     onChange={(e) =>
                       setFormData(prev => ({
@@ -411,10 +411,13 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
 export default function StudentManagement() {
   useDocumentTitle('Gestión de Alumnos');
   const [students, setStudents] = useState([]);
-  const [, setTeachers] = useState([]);
+  const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
   const [, setError] = useState(null);
-  const [, setIsModalOpen] = useState(false);
+  // BUG-STUDENTS-CREATE-A (QA Sprint 0 post-v0.5.0): antes era `const [, setIsModalOpen]`
+  // descartando el state value y además el componente `CreateStudentModal` ni siquiera
+  // estaba montado en el JSX. Resultado: el botón "Nuevo Alumno" no abría nada.
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
 
@@ -850,6 +853,13 @@ export default function StudentManagement() {
           </ButtonPremium>
         </footer>
       )}
+
+      <CreateStudentModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onCreated={() => fetchInitialData(pagination.page)}
+        teachers={teachers}
+      />
 
       <EditStudentModal
         isOpen={isEditModalOpen}

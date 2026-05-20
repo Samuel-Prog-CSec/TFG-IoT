@@ -573,3 +573,31 @@ ole). El email y password quedan censurados.
    - En plataformas de tiempo real (Socket.io), los fallos no transaccionan en HTTP (no hay Request/Response tradicional con un StatusCode). Por ello, el controlador general que captura todos los comandos RFID (socketHandlers.js) se ha envuelto en un *Decorator Pattern* con un bloque global _Try-Catch_.
    - Si el gameEngine experimenta un bug lógico no controlado, o falla un acceso rápido a Redis, el catch general interceptará la excepciòn, añadirá el metadato (ventName / socketId) y despachará a Sentry, antes de omitir cordialmente al cliente un socket.emit('error').
 
+## Patrones aplicados en Sprint 0 pre-v1.0.0 (ADR-164)
+
+### Custom Hook + Reducer (`useGameSessionState`)
+**Cuándo**: cuando un componente kitchen-sink (>1000 líneas) tiene un `useReducer` inline con varias acciones coordinadas. **Cómo**: extraer reducer + estado inicial + un custom hook que envuelva `useReducer` y devuelva el shape estable. Beneficio: testeable como unidad pura, reutilizable si llega un segundo consumer, reducción de complejidad cognitiva del componente.
+
+Decisión clave: **no envolver siempre en React Context**. Si el state solo se consume desde un componente, el Context añade overhead (Provider tree, memoización del value) sin valor. Promocionar a Context solo cuando hermanos lo necesiten — la API del hook permanece y los consumers cambian su import en una línea.
+
+### Helper puro extraído (`normalizeFinalSummary`)
+**Cuándo**: cuando una función dentro de un componente no usa nada de React (no hooks, no state, no props directos), solo transforma datos. **Cómo**: mover a `lib/<nombre>.js`, exportar como función pura, testear con vitest + tablas de entrada/salida cubriendo edge cases. Beneficio: sin re-creación por render, sin closures, testeable sin renderizar.
+
+### DRY de schemas Zod en `commonValidator.js`
+**Cuándo**: cuando dos validadores definen schemas estructuralmente iguales que cambian al mismo tiempo. **Cómo**: consolidar en `commonValidator.js`, exportar nombrado, re-exportar alias desde el validador original si hay imports legacy. Previene el "drift" silencioso (un schema se endurece, el otro no — vector de bypass).
+
+### Helper factory para sanitización (`sanitizedString(opts)`)
+**Cuándo**: cuando el mismo patrón de validación se aplica a N campos con parámetros distintos (min, max, label, multiline). **Cómo**: exportar una función que devuelve un schema Zod configurado. Beneficio: cambiar la política de sanitización en un solo sitio actualiza N validadores. Aplica a Unicode invisibles, longitudes max, control chars.
+
+### Shim de rate-limit por instancia (`adminApprovalRateLimiter`)
+Patrón existente del proyecto reusado: `createRateLimiter({prefix, ...})` devuelve un middleware que delega al limiter real cuando `initRateLimiters()` ha corrido tras `await connectRedis()`. Permite añadir un nuevo limiter sin tocar el lifecycle del servidor. Aplica `keyGenerator: userOrIpKeyGenerator` para keys post-auth por usuario.
+
+### Promise.race + Sentinel para timeout duro
+**Cuándo**: un await debe matarse después de N ms para no bloquear la cola. **Cómo**: `Promise.race([operation(), timeoutPromise])` donde `timeoutPromise` rechaza con un `Symbol` único (no un Error con mensaje), distinguible exactamente en el catch interno. Evita falsos positivos si la propia operation lanza errores cuyo mensaje contenga "timeout". Pattern aplicado a `executeWithRfidLock`.
+
+### Cleanup defensivo con `Set<id>` en custom hook
+**Cuándo**: un hook lanza timers/intervals/rAFs que pueden sobrevivir al unmount del consumer. **Cómo**: mantener `useRef(new Set())`, añadir cada id al lanzar, eliminar al terminar normalmente, y limpiar todos en cleanup de `useEffect([])`. Cubre el caso "consumer ignora el return del callback".
+
+### Gating de animaciones con `useInView` + `useReducedMotion`
+**Cuándo**: animaciones `repeat: Infinity` que pueden quedar montadas fuera de viewport (modales, GameOver, scroll lejos). **Cómo**: combinar ambos hooks para decidir si la animación está activa. Sin esto, Framer Motion sigue gastando rAF aunque el usuario no vea nada.
+

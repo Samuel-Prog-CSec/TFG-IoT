@@ -1940,3 +1940,48 @@ sprint da margen.
    staging + smoke test manual + iteracion de fixes.
 5. Corte v1.0.0: tag + deploy prod + monitoreo cercano primeras 48h.
 6. Backlog post-release: ALTA primero, MEDIA despues.
+
+---
+
+## Sprint 0 pre-v1.0.0 — Implementado y diferido (ADR-164)
+
+Auditoría exhaustiva con 3 agentes Explore + verificación manual. 14 findings reales (+ 5 falsos positivos descartados). Sprint 0 ejecuta el bloque CRÍTICO/ALTO; el resto va a Sprints 1-3.
+
+### Implementado en Sprint 0
+- **PROP-AUD-C1** [SEC, ALTO] `executeWithRfidLock` con `Promise.race` + timeout 10s + métrica + Sentry alert.
+- **PROP-AUD-C2-parcial** [ARQ] Extracción de `gameReducer` + `INITIAL_GAME_STATE` + `normalizeFinalSummary` de `GameSession.jsx` a hooks/lib testeables. -148 líneas.
+- **PROP-AUD-A4** [SEC] Sanitización Unicode invisibles/direccionales + maxLength en `commonValidator.sanitizedString()`. Aplicado a contextos, mazos, sesiones, usuarios, consentimientos, anuncios.
+- **PROP-AUD-A5** [INT] UID duplicate validator en `GameSession.cardMappings` (espejo del de `CardDeck`).
+- **PROP-AUD-A6** [DRY] `cardMappingSchema` consolidado en `commonValidator.js`.
+- **PROP-AUD-M1** [PERF] `SLOW_AGGREGATE_WARN_MS=5000` slow-query log en `gamePlayRepository.aggregate`.
+- **PROP-AUD-M3** [PERF/A11Y] `CharacterMascot` gated con `useInView` + `useReducedMotion`.
+- **PROP-AUD-M7** [SEC] `adminApprovalRateLimiter` 100/h por super_admin para `/approve` y `/reject`.
+- **PROP-AUD-M8** [PERF/MEMORY] `useConfetti` auto-cleanup de intervals via `Set<id>` en `useEffect` cleanup.
+- **PROP-AUD-B2** [REGRESS] Cobertura tests DTO output extendida a GamePlay/GameSession/CardDeck/GameContext/SystemMetrics.
+
+### Diferido a Sprint 1 (post v1.0.0)
+- **PROP-AUD-C2-completo** División Container/View completa de `GameSession.jsx` y resto de páginas grandes (DeckCreationWizard 1251 / SessionsPage 990 / StudentsAnalytics 971 / DeckEditPage 867 / SessionDetail 817 / Dashboard / ChallengeDisplay).
+- **PROP-AUD-A2** Descomposición de `AppLayout` (788 líneas) en SidebarLayout + LayoutHeader + LayoutBackdrop + OnboardingHost.
+- **PROP-AUD-A3** Extracción de `CardLockManager` de `GameEngine.js` y MFA TOTP + deviceFingerprint de `auth.js` middleware.
+- **PROP-AUD-M2** Subcarpetas en `components/ui/` (cards/, forms/, feedback/, overlays/, rfid/, media/).
+- **PROP-AUD-M6** Charts con keyboard navigation completa + aria-live + tabla sr-only.
+- **PROP-AUD-B3** `RFIDModeHandler` con `aria-live="polite"` para anuncio de cambios de estado.
+- **PROP-AUD-B4** Empty states uniformes en StudentManagement, InsightsReports, etc.
+- **PROP-AUD-B5** Barrido final de residuos de emojis usados como iconos.
+
+### Diferido a Sprint 2 (v1.2.0)
+- **PROP-AUD-M5** CVA o Radix UI Primitives para SelectPremium/InputPremium/ButtonPremium.
+- **PROP-AUD-B6** Split de `redisService.js` en redisService/locks.js + cache.js si crece >2000 líneas.
+- **PROP-AUD-B7** Proyecciones explícitas en repos con `findOne`/`findById` (documentar en baseRepository.js).
+- **PROP-AUD-B1** JSDoc en cada `.index()` de modelos Mongoose explicando el caso de uso.
+- **PROP-AUD-B8** RGPD endpoint `GET /api/users/:id/export` y `DELETE /api/users/:id` con anonimización (si no existe ya).
+
+### Diferido a Sprint 3 (v1.3.0)
+- Materialized view `studentMetrics.*` con BullMQ nightly. Pre-aggregation de `getStudentDifficulties` y `getStudentSummary`. Reduce las queries analytics costosas a `findById().select()` O(1).
+
+### Falsos positivos descartados (NO se actuó)
+- ❌ N+1 en `getPlayStatsBySessionIds` — usa aggregation pipeline `$match`+`$group`, una sola query.
+- ❌ `healthController` expone `INSTANCE_NAME` — no aparece en el código, solo expone métricas operacionales legítimas.
+- ❌ `dangerouslySetInnerHTML` en frontend — 0 ocurrencias.
+- ❌ Tokens en `localStorage` — 0 ocurrencias (cookies httpOnly por T-905).
+- ❌ Duplicación masiva `ui/` vs `common/` — `common/` solo tiene 4 archivos utility específicos.

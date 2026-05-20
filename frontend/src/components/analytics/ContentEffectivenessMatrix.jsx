@@ -14,28 +14,31 @@ import ThemedChartContainer from './ThemedChartContainer';
  * 1.4.1 (Use of Color) — daltonismo rojo-verde distingue estado por
  * forma (check / alert / X) además de color.
  */
+// Tokens `-on-alpha` (index.css) garantizan AA sobre cards dark/light
+// elevated. Sustituyen los workarounds Sprint 0 (text-red-300, text-yellow-300,
+// light:text-{tone}-dark).
 const RAG_STYLES = {
   green: {
     bar: 'bg-success-base/70',
-    text: 'text-success-base',
+    text: 'text-success-on-alpha',
     border: 'border-success-base/40',
     icon: CircleCheck,
   },
   amber: {
     bar: 'bg-warning-base/70',
-    text: 'text-warning-base',
+    text: 'text-warning-on-alpha',
     border: 'border-warning-base/40',
     icon: CircleAlert,
   },
   red: {
     bar: 'bg-error-base/70',
-    text: 'text-error-base',
+    text: 'text-error-on-alpha',
     border: 'border-error-base/40',
     icon: CircleX,
   },
   gray: {
     bar: 'bg-background-surface/40',
-    text: 'text-text-muted',
+    text: 'text-text-secondary',
     border: 'border-border-subtle',
     icon: Circle,
   }
@@ -170,14 +173,21 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
                   {item.name}
                 </span>
                 <div className="flex items-center gap-3 flex-shrink-0">
-                  <span className="flex items-center gap-1 text-xs text-text-muted">
+                  {/* BUG-A11Y-CONTRAST-EFFECTIVENESS-A (QA Sprint 0 post-v0.5.0):
+                      text-text-muted (#949fb2) sobre card bg (#293759) daba
+                      4.4:1, just below AA. Subimos a text-text-secondary. */}
+                  <span className="flex items-center gap-1 text-xs text-text-secondary">
                     <Gamepad2 size={12} aria-hidden="true" /> {item.totalPlays}
                   </span>
                   {item.improvement != null && (
+                    // Tokens `-on-alpha` (index.css) garantizan AA sin
+                    // necesidad de variantes light: condicionales.
                     <span
                       className={cn(
                         'flex items-center gap-1 text-xs font-medium',
-                        item.improvement >= 0 ? 'text-success-base' : 'text-error-base'
+                        item.improvement >= 0
+                          ? 'text-success-on-alpha'
+                          : 'text-error-on-alpha'
                       )}
                     >
                       <TrendingUp size={12} className={item.improvement < 0 ? 'rotate-180' : ''} aria-hidden="true" />

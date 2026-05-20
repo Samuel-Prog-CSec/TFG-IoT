@@ -524,7 +524,7 @@ export default function ApprovalPanel() {
               <Shield className="size-6 text-text-primary" aria-hidden="true" />
             </div>
             <div>
-              <p className="text-[11px] uppercase tracking-[0.18em] text-warning-base font-bold mb-0.5">Dirección</p>
+              <p className="text-[11px] uppercase tracking-[0.18em] text-warning-on-alpha font-bold mb-0.5">Dirección</p>
               <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary leading-tight">
                 Solicitudes de docentes
               </h1>

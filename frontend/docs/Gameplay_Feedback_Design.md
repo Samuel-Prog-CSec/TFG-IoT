@@ -154,3 +154,16 @@ Documentado en ADR-118. Resumen de cómo la sesión 2026-05-09 amplía este sist
 - `playMascotChirp()` — pajarito greeting (E6/G6).
 - `playStreakSparkle()` — arpegio C6→C7.
 - `playGameOverFanfare(stars)` — escalado 0⭐ silencio / 1⭐ pop / 2⭐ arpegio / 3⭐ fanfare 1.5s.
+
+## Sprint 0 pre-v1.0.0 — Mascota gated por viewport (ADR-164, M3)
+
+`CharacterMascot.jsx` ahora combina `useReducedMotion()` con `useInView(containerRef)` de Framer Motion para decidir si las animaciones `repeat: Infinity` están activas. Sin esto, el alumno terminaba la partida, navegaba a GameOver y la mascota seguía floateando en background gastando CPU/rAF aunque no se viera.
+
+**Comportamiento:**
+- Mascota visible + sin reduced-motion → loop normal según `mood` (float / bounce / jump / nod / tilt / sway / pointRight / wobble).
+- Mascota fuera de viewport O reduced-motion activo → estado estático `{x:0, y:0, scale:1, rotate:0}`. Sin rAF, sin recálculo.
+- Las decoraciones `celebrating` (Star/Sparkles) solo se renderizan cuando `animationsActive`. Antes condicionaban solo en `!shouldReduceMotion`.
+
+**Leitmotiv "Tactile RFID + Paper" preservado:** la mascota sigue siendo expresiva y reactiva (mood cambia con resultados de ronda); solo se detiene cuando el alumno no la ve. La integración con `useGameFeedback` (mensajes contextualizados por mecánica) no cambia.
+
+**Mensaje sin bocadillo (`noBubble`):** Onboarding y otros sitios donde la mascota se usa como ilustración decorativa siguen pasando `noBubble={true}` para suprimir el speech bubble sin perder la animación facial expresiva del mood. Mantenido desde ADR-163.

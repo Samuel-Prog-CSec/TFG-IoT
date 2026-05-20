@@ -1,4 +1,4 @@
-import { m as motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence, useInView } from 'framer-motion';
 import { useRef, useMemo, memo } from 'react';
 import PropTypes from 'prop-types';
 import { Star, Sparkles } from 'lucide-react';
@@ -119,6 +119,15 @@ function CharacterMascot({
   const { shouldReduceMotion } = useReducedMotion();
   const lastMsgRef = useRef(-1);
 
+  // Sprint 0 pre-v1.0.0 (M3): pausamos los loops `repeat: Infinity` cuando
+  // la mascota está fuera del viewport (típicamente tras navegar a GameOver
+  // o desplazarse). Sin esto, Framer Motion mantiene cada loop activo
+  // gastando CPU/RAF aunque el usuario no lo vea. `once: false` permite
+  // reanudar al volver a entrar (e.g. scroll back).
+  const containerRef = useRef(null);
+  const isInView = useInView(containerRef, { once: false, margin: '0px' });
+  const animationsActive = isInView && !shouldReduceMotion;
+
   const expr = expressions[mood];
 
   // ADR-D + T-953 Fase 2.2: cuando la mecánica está disponible, el glow
@@ -159,11 +168,14 @@ function CharacterMascot({
   const displayMessage = noBubble ? null : (message || rotatingMessage);
 
   return (
-    <div className={cn(
-      "relative",
-      position === 'left' ? 'items-start' : 'items-end',
-      className
-    )}>
+    <div
+      ref={containerRef}
+      className={cn(
+        "relative",
+        position === 'left' ? 'items-start' : 'items-end',
+        className
+      )}
+    >
       {/* Speech bubble */}
       <AnimatePresence>
         {displayMessage && (
@@ -206,9 +218,9 @@ function CharacterMascot({
             : { x: position === 'right' ? 60 : -60, opacity: 0 }
         }
         animate={
-          shouldReduceMotion
-            ? { x: 0, y: 0, scale: 1, rotate: 0 }
-            : bodyAnimation[expr.bodyAnim]
+          animationsActive
+            ? bodyAnimation[expr.bodyAnim]
+            : { x: 0, y: 0, scale: 1, rotate: 0 }
         }
         transition={
           isFirstAppearance && !shouldReduceMotion
@@ -273,8 +285,10 @@ function CharacterMascot({
 
         {/* Extra decorations for celebrating — antes emojis ⭐✨, ahora
             Lucide Star/Sparkles para coherencia con el resto del design
-            system y para que el color rote con --color-warning-base. */}
-        {mood === 'celebrating' && !shouldReduceMotion && (
+            system y para que el color rote con --color-warning-base.
+            Solo se renderiza cuando la mascota está en viewport para no
+            mantener los loops Infinity activos fuera de pantalla (M3). */}
+        {mood === 'celebrating' && animationsActive && (
           <>
             <motion.span
               className="absolute -top-2 -right-2 text-warning-base drop-shadow-[0_0_8px_var(--color-warning-glow)]"

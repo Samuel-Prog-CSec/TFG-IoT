@@ -247,7 +247,9 @@ function SystemAlertsHub({
             }}
             className={cn(
               'ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium transition-colors duration-200',
-              'bg-brand-base/10 text-brand-base border border-brand-base/30 hover:bg-brand-base/20'
+              // BUG-A11Y-FORCE-DETECT-BTN (QA Sprint 0): text-brand-base
+              // sobre brand/10 light daba 4.42. brand-light dark + brand-dark light.
+              'bg-brand-base/10 text-brand-on-alpha border border-brand-base/30 hover:bg-brand-base/20'
             )}
             title="Solo disponible en desarrollo"
           >

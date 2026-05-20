@@ -8625,3 +8625,65 @@ Configurar manualmente en el panel Cloudflare (free tier basta):
 - `useTransform(scrollY, ...)` en `AppLayout.jsx:80-83` — parallax operativo.
 - `GET /api/openapi.json` en `server.js:310` — endpoint descargable existe.
 - `commonAxisProps`/`commonGridProps` en `ChartsTheme.jsx:139,149` — ya extraídos.
+
+---
+
+## ADR-164: Hardening pre-v1.0.0 — timeout RFID lock + sanitización Unicode + extracción reducer GameSession + perf mascota/confetti + rate limit admin + tests regresivos DTO + UID duplicate validator + DRY validators [Full-stack, Backend, Frontend, Security, Performance]
+
+**Contexto:** Auditoría exhaustiva pre-v1.0.0 con cuatro lentes (arquitecto/optimización, senior dev, ciberseguridad, diseño UI/UX) ejecutada con 3 agentes Explore en paralelo + verificación manual de los hallazgos más jugosos para descartar falsos positivos. La auditoría identificó 1 CRÍTICO, 6 ALTOS, 9 MEDIOS y 8 BAJOS reales. Falsos positivos descartados: N+1 en `getPlayStatsBySessionIds` (es aggregation pipeline, no loop), `INSTANCE_NAME` expuesto por `healthController` (no aparece en el código), `dangerouslySetInnerHTML` en frontend (cero ocurrencias), tokens en `localStorage` (cero ocurrencias), duplicación masiva `ui/` vs `common/` (common solo tiene 4 archivos utility).
+
+Sprint 0 ejecuta el bloque crítico/alto sin tocar las páginas grandes del frontend (DeckCreationWizard, SessionsPage, StudentsAnalytics, etc.), diferido a Sprint 1 con justificación de riesgo. El refactor completo Container/View de `GameSession.jsx` (1847 líneas) también se difiere parcialmente: en lugar del split monolítico se extraen las unidades puras testeables (reducer + helper de resumen final) y el render se mantiene en su sitio.
+
+**Decisión:** 10 cambios agrupados en bloques de menor a mayor riesgo, con checkpoint de tests verde al final de cada bloque.
+
+1. **A6 — Consolidar `cardMappingSchema` en `validators/commonValidator.js`**: el schema vivía duplicado en `gameSessionValidator.js` y `cardDeckValidator.js`. Riesgo de drift (en T-905 MFA ya pasó). Movido a `commonValidator.js`, alias `cardDeckMappingSchema` re-exportado desde `cardDeckValidator.js` para no romper imports existentes. DRY estricto.
+
+2. **A5 — Path validator de UIDs duplicados en `GameSession.cardMappings`**: el modelo `CardDeck` ya validaba UIDs únicos en path validator (`models/CardDeck.js:116-121`), pero `GameSession` solo validaba `length === numberOfCards`. Cerrar el flanco evita estados inconsistentes si alguien bypasa Zod (seed manual, migraciones). 8 líneas añadidas al path validator existente, sin cambio de API.
+
+3. **A4 — `sanitizedString({min,max,label,allowMultiline})` helper en `commonValidator.js`**: rechaza caracteres Unicode invisibles (`U+200B-200D`, `U+200E-200F`, `U+2028-2029`, `U+202A-202E`, `U+2060-2064`, `U+2066-2069`, `U+FEFF`) y caracteres de control ASCII. Aplicado a campos user-facing: `name` (contextos, mazos, usuarios, sesiones), `description`, `displayName`, `value`, `assignedValue`, `promptText`, `grantedBy` (consent), `newClassroom`, `reason`, `title`/`body`/`linkLabel` (anuncios). Defensa contra ataques de homógrafo, falsificación visual de nombres ("Maria<U+202E>evad") y rotura de layout en listados.
+
+   Implementación con `Set` de codepoints + función `containsInvisibleUnicode(str)` en lugar de regex literal con caracteres invisibles — un primer intento con regex literal rompió el parser de JS al guardar el archivo. La aproximación con codepoints numéricos es más legible y robusta. Tests cubren los rangos completos y el modo `allowMultiline`.
+
+4. **M7 — `adminApprovalRateLimiter` por super_admin**: nuevo limiter en `config/security.js` (100 acciones/hora por usuario, 1000 en dev), aplicado a `POST /api/admin/users/:id/approve|reject`. Defense-in-depth ante super_admin comprometido o bug de UI que dispare bucles. Sigue el patrón shim del proyecto (registry diferido + `userOrIpKeyGenerator`).
+
+5. **C1 — `executeWithRfidLock` con timeout duro**: el mutex por `userId` en `socketHandlers.js` no tenía timeout; una operación colgada (Mongo lento, Redis bloqueado, deadlock) dejaba la cola del usuario esperando indefinidamente y el socket RFID moría en silencio. Solución: `Promise.race([operation(), timeoutPromise(RFID_OPERATION_TIMEOUT_MS=10s)])`. En timeout: liberar lock, incrementar métrica `rfidLockTimeouts`, registrar `SECURITY_EVENT` (`RFID_LOCK_TIMEOUT` añadido a `securityLogger.js` con threshold Sentry 3/min), emitir `rfid_mode_error` al room del usuario con copy en español, throw `Error` con `code='RFID_LOCK_TIMEOUT'`.
+
+6. **M1 — Slow-query observability en `gamePlayRepository.aggregate`**: el repo ya tenía `DEFAULT_AGGREGATE_TIMEOUT_MS=15000`. Añadido `SLOW_AGGREGATE_WARN_MS=5000` con `logger.warn(alert:true)` cuando la operación supera el umbral pero termina, y `logger.error(alert:true)` cuando se aborta por `MaxTimeMSExpired`. Permite detectar pipelines analytics que merecen materialización (BullMQ nightly → `studentMetrics`) antes de degradar UX.
+
+7. **M8 — Auto-cleanup de intervals en `useConfetti`**: `fireFireworks` lanzaba `setInterval` y devolvía `clearInterval`, pero callers podían ignorar el return value. Ahora el hook mantiene `activeIntervalsRef = new Set()` y limpia todos los intervals en cleanup de `useEffect` al unmount. canvas-confetti ya gestiona su propio rAF interno (autopara cuando partículas mueren); solo necesitamos limpiar nuestros intervals.
+
+8. **M3 — `CharacterMascot` con `useInView` + `useReducedMotion`**: las 8 expresiones con `repeat: Infinity` (float/bounce/jump/nod/tilt/sway/pointRight/wobble) mantenían loops activos incluso cuando la mascota estaba fuera del viewport (típicamente GameOver tras finalizar partida o scroll). Ahora `animationsActive = useInView(ref) && !shouldReduceMotion` decide entre el `bodyAnimation[expr.bodyAnim]` y un fallback estático `{x:0,y:0,scale:1,rotate:0}`. Estrellas/Sparkles de `celebrating` también gated. CPU/RAF gastados se reducen a ~0 cuando la mascota no se ve.
+
+9. **B2 — Tests regresivos de DTO output sanitization**: el test existente `tests/security/dtoOutputSanitization.test.js` solo cubría User/Student/Auth. Extendido para cubrir GamePlay, GameSession (DTO + Detail + List), CardDeck, GameContext y SystemMetrics — 9 tests nuevos. Cada uno valida que campos como `password`, `mfa.secret`, `mfa.backupCodes`, `__v`, `_internal`, `currentSessionId`, `consent.ipAddress`, `consent.userAgent`, `consent.channel` no aparecen en el output del serializador. Red de seguridad ante regresiones al editar `utils/dtos.js`.
+
+10. **C2 parcial — Extracción de reducer + helper a unidades testeables**: `GameSession.jsx` pasa de **1847 a 1699 líneas** (-148). Movido `gameReducer` + `INITIAL_GAME_STATE` a `hooks/useGameSessionState.js` con custom hook que expone `{game, dispatch, gameStateRef}`. Movido `normalizeFinalSummary` a `lib/finalSummary.js`. Ambos con tests unitarios nuevos (8 tests del reducer, 9 tests del helper). El render JSX y los useCallback/useEffect del componente se mantienen donde están — la división Container/View completa se difiere a Sprint 1 con justificación: el coste/beneficio antes de v1.0.0 no compensa el riesgo de regresiones sutiles en re-renders y el render ya está bien compuesto por subcomponentes extraídos (`AssociationGameplayPanel`, `MemoryGameplayPanel`, `SequenceGameplayPanel`, `GameOverScreen`, `CharacterMascot`, `FallbackTouchPanel`, `RFIDConnector`). Los tests existentes (636 líneas de `GameSession.test.jsx`) siguen verdes con el refactor parcial.
+
+**Falsos positivos descartados (verificados leyendo el código):**
+- ❌ **N+1 en `getPlayStatsBySessionIds`** — verificado: usa aggregation pipeline con `$match`+`$group` (`gamePlayService.js:541-587`), una sola query. El agente backend se equivocó.
+- ❌ **`healthController` expone `INSTANCE_NAME`** — verificado: solo expone métricas operacionales legítimas tras super_admin gate (`healthController.js:183-229`), no hay `INSTANCE_NAME` ni rutas internas. Falso positivo del agente seguridad.
+- ❌ **`dangerouslySetInnerHTML` en frontend** — verificado: `0` ocurrencias.
+- ❌ **Tokens en `localStorage`** — verificado: `0` ocurrencias (cookies httpOnly según T-905).
+- ❌ **Duplicación masiva `ui/` vs `common/`** — verificado: `common/` solo tiene 4 archivos utility-específicos (ErrorBoundary, ChartErrorBoundary, SessionSparkline, AuthLoader).
+
+**Diferidos a Sprints posteriores (NO en Sprint 0):**
+- Sprint 1: A1 (refactor páginas grandes: DeckCreationWizard 1251 / SessionsPage 990 / StudentsAnalytics 971 / DeckEditPage 867 / SessionDetail 817), A2 (AppLayout decomp), A3 (CardLockManager + auth MFA split), M2 (subcarpetas `components/ui/`), M6 (charts keyboard navigation + aria-live), B3 (RFIDModeHandler aria-live), B4 (empty states uniformes), B5 (residuos emoji). División completa Container/View de GameSession también queda aquí.
+- Sprint 2: M5 (CVA o Radix para componentes UI), B6 (split redisService), B7 (proyecciones repos), B1 (JSDoc índices), B8 (RGPD export/delete endpoint).
+- Sprint 3: materialized view `studentMetrics` con BullMQ nightly (cierra el gap de pipelines analytics).
+
+**Consecuencias:**
+- Suite verde tras Sprint 0: **103 suites backend / 1339 tests** (subió de 1330 con tests de DTO), **51 archivos frontend / 498 tests** (subió de 439 con tests de reducer + finalSummary). `npm run lint` 0 errores en ambos (warnings preexistentes + 13 nuevos warnings de `dispatch` en deps de useCallback que son cosméticos — dispatch de `useReducer` es estable por contrato React).
+- Nuevas métricas observables: `runtimeMetrics.websocket.rfidLockTimeouts`, slow-query log en `gamePlayRepository.aggregate`.
+- Nuevas env vars: `RFID_OPERATION_TIMEOUT_MS` (default 10_000), `SLOW_AGGREGATE_WARN_MS` (default 5000), `RATE_LIMIT_ADMIN_APPROVAL_MAX` (default 100).
+- API contrato: `displayName`/`name`/`description` rechazan ahora caracteres Unicode invisibles. Cualquier integración legítima existente queda intacta (validación rechaza solo input nuevo). Errores devuelven 400 con mensaje en español.
+- `executeWithRfidLock` ahora throws `Error{code:'RFID_LOCK_TIMEOUT'}` en timeout — los call sites (`setRfidModeState`, `clearRfidModeState`) están envueltos por `executeSocketCommand` con try/catch general y el cliente recibe `rfid_mode_error` con copy claro.
+
+**Alternativas descartadas:**
+- **Refactor Container/View completo de GameSession.jsx en una tanda monolítica**: el usuario aceptó el riesgo explícitamente, pero al inspeccionar la implementación se decidió diferir parcialmente. Razones: (a) los tests existentes (636 líneas) son el contrato y validan comportamiento, pero no aíslan unidades — un refactor masivo del JSX puede pasar los tests y aún introducir regresiones visuales sutiles (timings, layouts) que solo se detectan jugando; (b) el render ya está compuesto por sub-componentes serios (AssociationGameplayPanel, MemoryGameplayPanel, etc.) y no hay duplicación lógica visible que se pueda extraer trivialmente; (c) la prioridad real para v1.0.0 es que las 3 mecánicas se jueguen sin regresión, no estilo de código. El split queda con plan claro para Sprint 1 cuando haya margen para QA dedicada.
+- **Regex literal con caracteres Unicode invisibles** para `UNICODE_INVISIBLE_REGEX`: rompió el parser de Babel/Node al escribir el archivo (los caracteres del rango U+200B se consumen como parte del regex). Resuelto con `Set<number>` de codepoints + función explícita `containsInvisibleUnicode`.
+- **CVA o Radix UI Primitives para `SelectPremium`/`InputPremium`** (M5): overkill para v1.0.0 cuando los componentes funcionan; el JSDoc + warning en dev mode cubre el 80% del beneficio. Diferido a Sprint 2.
+- **Materialized view nightly `studentMetrics`** (Sprint 3): mejora real de escalabilidad pero no urgente con el dataset actual; `maxTimeMS=15s` + slow-query log da observabilidad mientras tanto.
+
+**Pendientes documentados:**
+- Sprint 1 ya programado con su backlog (ver arriba).
+- 13 warnings de `dispatch` en deps de `useCallback` en `GameSession.jsx` — cosméticos, dispatch de `useReducer` es estable por contrato React. Se limpian naturalmente cuando se complete el refactor Container/View.
+- QA E2E final: levantar Docker + Playwright + `__rfidSim` (sensor físico roto desde mayo 2026), jugar las 3 mecánicas con `timeLimit ≥90-120s` por ronda, verificar estadísticas cruzadas (Dashboard + Analytics + InsightsReports + StudentProfile), sanity checks de C1/A4/A5/M7/M3 documentados en el plan file de la sesión.

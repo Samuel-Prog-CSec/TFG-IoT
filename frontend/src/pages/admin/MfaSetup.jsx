@@ -317,7 +317,9 @@ const MfaManagementPanel = ({ status, onChange }) => {
               size="md"
               onClick={() => setDisableOpen(true)}
               disabled={busyAction !== null}
-              className="self-start text-error-base hover:bg-error-base/10"
+              // BUG-A11Y-MFA-DISABLE-BTN (QA Sprint 0): text-error-base sobre
+              // card dark daba 3.87:1. red-300 (dark) + error-dark (light).
+              className="self-start text-error-on-alpha hover:bg-error-base/10"
             >
               <ShieldOff className="size-4" aria-hidden /> Quiero deshabilitar
             </ButtonPremium>

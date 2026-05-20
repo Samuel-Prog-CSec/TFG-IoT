@@ -15,7 +15,16 @@ const {
   toUserListDTOV1,
   toStudentAnalyticsDTOV1,
   toStudentIdentityDTOV1,
-  toAuthResponseDTOV1
+  toAuthResponseDTOV1,
+  toGamePlayDTOV1,
+  toGamePlayDetailDTOV1,
+  toGameSessionDTOV1,
+  toGameSessionDetailDTOV1,
+  toGameSessionListDTOV1,
+  toCardDeckDTOV1,
+  toCardDeckDetailDTOV1,
+  toGameContextDTOV1,
+  toSystemMetricsDTOV1
 } = require('../../src/utils/dtos');
 
 /**
@@ -192,6 +201,159 @@ describe('DTO output sanitization (B2)', () => {
       };
       const dto = toAuthResponseDTOV1(buildMockTeacher(), tokens);
       assertNoSensitiveFields(dto, 'toAuthResponseDTOV1');
+    });
+  });
+
+  describe('GamePlay DTOs', () => {
+    const buildMockGamePlay = () => ({
+      _id: '507f1f77bcf86cd799439020',
+      sessionId: '507f1f77bcf86cd799439021',
+      playerId: '507f1f77bcf86cd799439012',
+      status: 'completed',
+      score: 85,
+      __v: 0,
+      _internal: { lockToken: 'redis-lock-do-not-expose' },
+      events: [{ type: 'card_scanned', timestamp: new Date(), _internal: 'x' }],
+      metrics: {
+        correctAttempts: 10,
+        errorAttempts: 2,
+        totalAttempts: 12,
+        timeoutAttempts: 0
+      },
+      startedAt: new Date('2026-05-01'),
+      completedAt: new Date('2026-05-01'),
+      toObject() {
+        const rest = { ...this };
+        delete rest.toObject;
+        return rest;
+      }
+    });
+
+    it('toGamePlayDTOV1 no expone _internal ni __v', () => {
+      const dto = toGamePlayDTOV1(buildMockGamePlay());
+      assertNoSensitiveFields(dto, 'toGamePlayDTOV1');
+    });
+
+    it('toGamePlayDetailDTOV1 no expone _internal ni __v', () => {
+      const dto = toGamePlayDetailDTOV1(buildMockGamePlay());
+      assertNoSensitiveFields(dto, 'toGamePlayDetailDTOV1');
+    });
+  });
+
+  describe('GameSession DTOs', () => {
+    const buildMockSession = () => ({
+      _id: '507f1f77bcf86cd799439021',
+      mechanicId: { _id: '507f1f77bcf86cd799439030', name: 'memory' },
+      deckId: { _id: '507f1f77bcf86cd799439031', name: 'Mazo Test' },
+      contextId: { _id: '507f1f77bcf86cd799439032', name: 'Animales' },
+      createdBy: { _id: '507f1f77bcf86cd799439011', name: 'Profe' },
+      name: 'Sesion Test',
+      status: 'created',
+      difficulty: 'medium',
+      __v: 0,
+      _internal: 'no expose',
+      config: {
+        numberOfCards: 6,
+        numberOfRounds: 5,
+        timeLimit: 60,
+        pointsPerCorrect: 10,
+        penaltyPerError: -2
+      },
+      cardMappings: [{ uid: '32B8FA05', assignedValue: 'Perro', displayData: {} }],
+      createdAt: new Date('2026-05-01'),
+      updatedAt: new Date('2026-05-01'),
+      toObject() {
+        const rest = { ...this };
+        delete rest.toObject;
+        return rest;
+      }
+    });
+
+    it('toGameSessionDTOV1 no expone _internal ni __v', () => {
+      const dto = toGameSessionDTOV1(buildMockSession());
+      assertNoSensitiveFields(dto, 'toGameSessionDTOV1');
+    });
+
+    it('toGameSessionDetailDTOV1 no expone _internal ni __v', () => {
+      const dto = toGameSessionDetailDTOV1(buildMockSession());
+      assertNoSensitiveFields(dto, 'toGameSessionDetailDTOV1');
+    });
+
+    it('toGameSessionListDTOV1 no expone _internal ni __v', () => {
+      const dto = toGameSessionListDTOV1([buildMockSession(), buildMockSession()]);
+      assertNoSensitiveFields(dto, 'toGameSessionListDTOV1');
+    });
+  });
+
+  describe('CardDeck DTOs', () => {
+    const buildMockDeck = () => ({
+      _id: '507f1f77bcf86cd799439031',
+      name: 'Mazo Test',
+      description: 'descripción',
+      contextId: { _id: '507f1f77bcf86cd799439032', name: 'Animales' },
+      createdBy: { _id: '507f1f77bcf86cd799439011', name: 'Profe' },
+      status: 'active',
+      __v: 0,
+      _internal: 'no expose',
+      cardMappings: [{ uid: '32B8FA05', assignedValue: 'Perro' }],
+      createdAt: new Date('2026-05-01'),
+      updatedAt: new Date('2026-05-01'),
+      toObject() {
+        const rest = { ...this };
+        delete rest.toObject;
+        return rest;
+      }
+    });
+
+    it('toCardDeckDTOV1 no expone _internal ni __v', () => {
+      const dto = toCardDeckDTOV1(buildMockDeck());
+      assertNoSensitiveFields(dto, 'toCardDeckDTOV1');
+    });
+
+    it('toCardDeckDetailDTOV1 no expone _internal ni __v', () => {
+      const dto = toCardDeckDetailDTOV1(buildMockDeck());
+      assertNoSensitiveFields(dto, 'toCardDeckDetailDTOV1');
+    });
+  });
+
+  describe('GameContext DTO', () => {
+    it('toGameContextDTOV1 no expone _internal ni __v', () => {
+      const ctx = {
+        _id: '507f1f77bcf86cd799439032',
+        contextId: 'animales',
+        name: 'Animales',
+        isActive: true,
+        __v: 0,
+        _internal: 'no expose',
+        assets: [{ key: 'perro', value: 'Perro', display: 'P' }],
+        toObject() {
+          const rest = { ...this };
+          delete rest.toObject;
+          return rest;
+        }
+      };
+      const dto = toGameContextDTOV1(ctx);
+      assertNoSensitiveFields(dto, 'toGameContextDTOV1');
+    });
+  });
+
+  describe('System metrics DTO', () => {
+    it('toSystemMetricsDTOV1 no expone fields internos sensibles', () => {
+      const payload = {
+        timestamp: new Date().toISOString(),
+        http: { totalRequests: 100, avgLatencyMs: 50 },
+        websocket: { connectedClients: 5, events: { totalEvents: 10 } },
+        gameEngine: { activePlays: 0 },
+        rfid: { processed: { totalEventsProcessed: 0 } },
+        redis: { rateLimitStoreFallbackCount: 0 },
+        memory: { rss: 50, heapUsed: 30 },
+        // Campos artificiales para verificar que NO se filtran:
+        _internal: 'no expose',
+        __v: 0,
+        password: 'no expose'
+      };
+      const dto = toSystemMetricsDTOV1(payload);
+      assertNoSensitiveFields(dto, 'toSystemMetricsDTOV1');
     });
   });
 });

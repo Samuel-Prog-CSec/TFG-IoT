@@ -342,7 +342,10 @@ export default function TransferStudents() {
                   </div>
                 </div>
               ) : (
-                <p className="text-center py-2 opacity-50 italic">Completa los campos para previsualizar.</p>
+                // BUG-A11Y-TRANSFER-PREVIEW (QA Sprint 0): opacity-50 sobre
+                // texto sin color explícito tomaba text-text-muted al 50% =
+                // 2.17:1 en light. Sin alpha + text-muted cumple AA.
+                <p className="text-center py-2 italic text-text-muted">Completa los campos para previsualizar.</p>
               )}
             </div>
           </GlassCard>

@@ -32,10 +32,16 @@ const NO_DATA_CLS = 'bg-stripe-diagonal bg-background-surface/15 ring-1 ring-ins
 // creciente clara (QA 22/04/2026).
 function getDifficultyClass(errorRate, hasData) {
   if (!hasData) return NO_DATA_CLS;
+  // BUG-A11Y-HEATMAP-TEXT-A (QA Sprint 0 post-v0.5.0): bg-warning-base/65
+  // (amber) con text-text-primary (blanco en dark) fallaba 3.74:1. Para las
+  // celdas warning fijamos texto oscuro independiente del tema (la celda
+  // siempre se ve sobre fondo amber suficientemente luminoso).
   if (errorRate >= 60) return 'bg-error-base/80';
   if (errorRate >= 40) return 'bg-error-base/55';
-  if (errorRate >= 25) return 'bg-warning-base/65';
-  if (errorRate >= 10) return 'bg-warning-base/35';
+  // Opacidad subida (65→90) para que el texto negro pase AA 4.5:1 contra
+  // el amber resultante (antes 4.48:1, fallaba por 0.02).
+  if (errorRate >= 25) return 'bg-warning-base/90 !text-black';
+  if (errorRate >= 10) return 'bg-warning-base/70 !text-black';
   return 'bg-success-base/55';
 }
 
@@ -143,8 +149,13 @@ export default function DifficultyHeatmap({ data }) {
             aria-label="Mapa de calor de dificultad por contexto y mecánica"
           >
             {contexts.map((ctx, cIdx) => (
+              // BUG-A11Y-HEATMAP-A (QA Sprint 0 post-v0.5.0): axe-core marca
+              // como crítico que un `role=grid` contenga directamente
+              // `role=gridcell` sin un `role=row` intermedio. Añadido al wrapper
+              // de cada fila.
               <div
                 key={ctx}
+                role="row"
                 className="grid gap-1 items-stretch"
                 style={{ gridTemplateColumns: `minmax(120px, 1fr) repeat(${mechanics.length}, minmax(80px, 1fr))` }}
               >

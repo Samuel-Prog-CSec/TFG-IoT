@@ -5,7 +5,13 @@
  */
 
 const { z } = require('zod');
-const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
+const {
+  objectIdSchema,
+  paginationSchema,
+  uidSchema,
+  cardMappingSchema,
+  sanitizedString
+} = require('./commonValidator');
 const { DIFFICULTY, SESSION_STATUS } = require('../constants/enums');
 
 /**
@@ -54,30 +60,8 @@ const sessionConfigSchema = z.object({
     .default(-2)
 });
 
-/**
- * Schema para mapeo de token RFID fungible a valor de juego.
- * Relaciona una tarjeta RFID (identificada por UID) con un valor del contexto (ADR-012).
- *
- * @example
- * {
- *   uid: '32B8FA05',
- *   assignedValue: 'España',
- *   displayData: { emoji: '🇪🇸', audioUrl: '...', color: 'red' }
- * }
- */
-const cardMappingSchema = z
-  .object({
-    uid: uidSchema,
-
-    assignedValue: z
-      .string()
-      .min(1, 'El valor asignado es requerido')
-      .max(200, 'El valor asignado no puede exceder 200 caracteres')
-      .trim(),
-
-    displayData: z.record(z.string(), z.any()).optional().default({})
-  })
-  .strict();
+// cardMappingSchema se importa desde commonValidator (consolidado pre-v1.0.0).
+// Mantenemos el re-export en module.exports para preservar el API público existente.
 
 /**
  * Schema para crear una nueva sesión de juego.
@@ -124,11 +108,11 @@ const boardLayoutItemSchema = z
       .int('slotIndex debe ser un número entero')
       .min(0, 'slotIndex no puede ser negativo'),
     uid: uidSchema,
-    assignedValue: z
-      .string()
-      .min(1, 'assignedValue es requerido en boardLayout')
-      .max(200, 'assignedValue en boardLayout no puede exceder 200 caracteres')
-      .trim(),
+    assignedValue: sanitizedString({
+      min: 1,
+      max: 200,
+      label: 'assignedValue en boardLayout'
+    }),
     displayData: z.record(z.string(), z.any()).optional().default({})
   })
   .strict();
@@ -160,13 +144,13 @@ const associationChallengeItemSchema = z
       .int('roundNumber debe ser un número entero')
       .min(1, 'roundNumber debe ser >= 1'),
     uid: uidSchema,
-    assignedValue: z
-      .string()
-      .min(1, 'assignedValue es requerido en associationChallengePlan')
-      .max(200, 'assignedValue en associationChallengePlan no puede exceder 200 caracteres')
-      .trim(),
+    assignedValue: sanitizedString({
+      min: 1,
+      max: 200,
+      label: 'assignedValue en associationChallengePlan'
+    }),
     displayData: z.record(z.string(), z.any()).optional().default({}),
-    promptText: z.string().max(180, 'promptText no puede exceder 180 caracteres').trim().optional()
+    promptText: sanitizedString({ min: 0, max: 180, label: 'promptText' }).optional()
   })
   .strict();
 
@@ -188,11 +172,11 @@ const associationChallengePlanSchema = z
 const sequenceItemSchema = z
   .object({
     uid: uidSchema,
-    assignedValue: z
-      .string()
-      .min(1, 'assignedValue es requerido en sequencePlan')
-      .max(200, 'assignedValue en sequencePlan no puede exceder 200 caracteres')
-      .trim(),
+    assignedValue: sanitizedString({
+      min: 1,
+      max: 200,
+      label: 'assignedValue en sequencePlan'
+    }),
     displayData: z.record(z.string(), z.any()).optional().default({})
   })
   .strict();
@@ -283,9 +267,9 @@ const createGameSessionSchema = z
 
     contextId: objectIdSchema.optional(),
 
-    sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
+    sensorId: sanitizedString({ min: 0, max: 100, label: 'sensorId' }).optional(),
 
-    name: z.string().max(100, 'El nombre no puede exceder 100 caracteres').trim().optional(),
+    name: sanitizedString({ min: 0, max: 100, label: 'El nombre de la sesión' }).optional(),
 
     difficulty: z.enum([...DIFFICULTY]).optional(),
 
@@ -315,9 +299,9 @@ const updateGameSessionSchema = z
   .object({
     deckId: objectIdSchema.optional(),
 
-    sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
+    sensorId: sanitizedString({ min: 0, max: 100, label: 'sensorId' }).optional(),
 
-    name: z.string().max(100, 'El nombre no puede exceder 100 caracteres').trim().optional(),
+    name: sanitizedString({ min: 0, max: 100, label: 'El nombre de la sesión' }).optional(),
 
     config: sessionConfigInputSchema.optional(),
 

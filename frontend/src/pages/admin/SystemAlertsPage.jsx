@@ -2,9 +2,10 @@
  * @fileoverview Página de alertas y avisos del centro (T-942).
  *
  * Ruta `/admin/system-alerts`, accesible solo para super_admin.
- * Estructura en dos tabs:
+ * Estructura en tres tabs:
  *   - Alertas del sistema: <SystemAlertsHub />
  *   - Avisos a profesores: <SystemAnnouncementsManager />
+ *   - Desbloqueos: <LockoutUnlockForm /> (T-905 post-Sprint 0)
  *
  * Carga los datos bajo demanda al cambiar de tab (similar a
  * `InsightsReports.jsx` del teacher).
@@ -14,7 +15,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { motion } from 'framer-motion';
-import { ShieldAlert, Megaphone } from 'lucide-react';
+import { ShieldAlert, Megaphone, Unlock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
@@ -24,10 +25,12 @@ import GlassCard from '../../components/ui/GlassCard';
 import ErrorState from '../../components/ui/ErrorState';
 import SystemAlertsHub from '../../components/admin/SystemAlertsHub';
 import SystemAnnouncementsManager from '../../components/admin/SystemAnnouncementsManager';
+import LockoutUnlockForm from '../../components/admin/LockoutUnlockForm';
 
 const TABS = [
   { key: 'alerts', label: 'Alertas del sistema', Icon: ShieldAlert },
-  { key: 'announcements', label: 'Avisos a profesores', Icon: Megaphone }
+  { key: 'announcements', label: 'Avisos a profesores', Icon: Megaphone },
+  { key: 'lockouts', label: 'Desbloqueos', Icon: Unlock }
 ];
 
 export default function SystemAlertsPage() {
@@ -92,7 +95,7 @@ export default function SystemAlertsPage() {
   return (
     <main className="space-y-6" data-page="admin-system-alerts">
       <motion.header {...headerMotion} className="space-y-2">
-        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-warning-base font-semibold">
+        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-warning-on-alpha font-semibold">
           <ShieldAlert size={14} aria-hidden="true" />
           DIRECCIÓN · Operativa del centro
         </div>
@@ -105,7 +108,12 @@ export default function SystemAlertsPage() {
         </p>
       </motion.header>
 
-      <nav aria-label="Secciones" className="flex flex-wrap items-center gap-1">
+      {/* BUG-A11Y-SYSTEMALERTS-TABS (QA Sprint 0): role="tab" sin parent
+          role="tablist" rompe la regla axe. Aunque jsx-a11y avisa de "non-
+          interactive to interactive role", tablist es el correcto contenedor
+          ARIA cuando los hijos son `role="tab"` con `aria-selected`. */}
+      {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-to-interactive-role */}
+      <nav aria-label="Secciones" role="tablist" className="flex flex-wrap items-center gap-1">
         {TABS.map(({ key, label, Icon }) => (
           <button
             key={key}
@@ -116,8 +124,8 @@ export default function SystemAlertsPage() {
             className={cn(
               'flex items-center gap-2 rounded-lg px-3 py-2 text-sm font-medium transition-colors',
               tab === key
-                ? 'bg-brand-base/15 text-brand-base border border-brand-base/30'
-                : 'bg-background-elevated/40 text-text-muted border border-border-subtle hover:text-text-secondary'
+                ? 'bg-brand-base/15 text-brand-on-alpha border border-brand-base/30'
+                : 'bg-background-elevated/40 text-text-secondary border border-border-subtle hover:text-text-primary'
             )}
           >
             <Icon size={14} aria-hidden="true" />
@@ -147,6 +155,8 @@ export default function SystemAlertsPage() {
         ))}
 
       {tab === 'announcements' && <SystemAnnouncementsManager />}
+
+      {tab === 'lockouts' && <LockoutUnlockForm />}
     </main>
   );
 }

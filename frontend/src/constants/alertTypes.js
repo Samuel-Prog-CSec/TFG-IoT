@@ -73,13 +73,16 @@ export const ALERT_TYPE_LABELS = {
 /**
  * Estilos por severidad. Reutilizados por todos los componentes.
  */
+// Tokens `-on-alpha` cumplen AA en ambos temas sobre `bg-{tone}-base/10`
+// (definidos en index.css). Sustituyen los workarounds Sprint 0
+// `text-red-300 light:text-error-dark` y similares.
 export const SEVERITY_STYLES = {
   critical: {
     dot: 'bg-error-base',
     glow: 'shadow-[0_0_6px_var(--color-error-glow)]',
     bg: 'bg-error-base/10',
     border: 'border-error-base/30',
-    text: 'text-error-base',
+    text: 'text-error-on-alpha',
     label: 'Críticas',
     Icon: AlertOctagon
   },
@@ -88,7 +91,7 @@ export const SEVERITY_STYLES = {
     glow: 'shadow-[0_0_6px_var(--color-warning-glow)]',
     bg: 'bg-warning-base/10',
     border: 'border-warning-base/30',
-    text: 'text-warning-base',
+    text: 'text-warning-on-alpha',
     label: 'Advertencia',
     Icon: AlertTriangle
   },
@@ -97,7 +100,7 @@ export const SEVERITY_STYLES = {
     glow: 'shadow-[0_0_6px_var(--color-info-glow)]',
     bg: 'bg-info-base/10',
     border: 'border-info-base/30',
-    text: 'text-info-base',
+    text: 'text-info-on-alpha',
     label: 'Info',
     Icon: Info
   }

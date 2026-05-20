@@ -19,6 +19,7 @@ const { validateParams, validateQuery, validateBody } = require('../middlewares/
 const { userIdParamsSchema } = require('../validators/userValidator');
 const { emptyObjectSchema, paginationSchema } = require('../validators/commonValidator');
 const { unlockEmailSchema } = require('../validators/lockoutValidator');
+const { adminApprovalRateLimiter } = require('../config/security');
 const asyncHandler = require('../utils/asyncHandler');
 
 // Todas las rutas de admin requieren autenticación + rol super_admin
@@ -86,6 +87,7 @@ router.get('/pending', validateQuery(paginationSchema), asyncHandler(getPendingT
  */
 router.post(
   '/users/:id/approve',
+  adminApprovalRateLimiter,
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   asyncHandler(approveTeacher)
@@ -116,6 +118,7 @@ router.post(
  */
 router.post(
   '/users/:id/reject',
+  adminApprovalRateLimiter,
   validateParams(userIdParamsSchema),
   validateQuery(emptyObjectSchema),
   asyncHandler(rejectTeacher)

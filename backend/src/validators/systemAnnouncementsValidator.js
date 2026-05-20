@@ -5,7 +5,7 @@
  */
 
 const { z } = require('zod');
-const { objectIdSchema } = require('./commonValidator');
+const { objectIdSchema, sanitizedString } = require('./commonValidator');
 const { SYSTEM_ANNOUNCEMENT_CONFIG } = require('../config/systemAlerts');
 
 const announcementIdParamsSchema = z.object({ id: objectIdSchema }).strict();
@@ -27,8 +27,8 @@ const listAnnouncementsQuerySchema = z
 
 const createAnnouncementBodySchema = z
   .object({
-    title: z.string().trim().min(3).max(120),
-    body: z.string().trim().min(3).max(500),
+    title: sanitizedString({ min: 3, max: 120, label: 'title' }),
+    body: sanitizedString({ min: 3, max: 500, label: 'body', allowMultiline: true }),
     severity: z
       .enum([...SYSTEM_ANNOUNCEMENT_CONFIG.severities])
       .optional()
@@ -38,19 +38,19 @@ const createAnnouncementBodySchema = z
       .optional()
       .default('all_teachers'),
     linkUrl: z.string().trim().max(240).url().optional().nullable(),
-    linkLabel: z.string().trim().max(40).optional().nullable(),
+    linkLabel: sanitizedString({ min: 0, max: 40, label: 'linkLabel' }).optional().nullable(),
     expiresAt: z.string().datetime().optional().nullable()
   })
   .strict();
 
 const updateAnnouncementBodySchema = z
   .object({
-    title: z.string().trim().min(3).max(120).optional(),
-    body: z.string().trim().min(3).max(500).optional(),
+    title: sanitizedString({ min: 3, max: 120, label: 'title' }).optional(),
+    body: sanitizedString({ min: 3, max: 500, label: 'body', allowMultiline: true }).optional(),
     severity: z.enum([...SYSTEM_ANNOUNCEMENT_CONFIG.severities]).optional(),
     audience: z.enum([...SYSTEM_ANNOUNCEMENT_CONFIG.audiences]).optional(),
     linkUrl: z.string().trim().max(240).url().optional().nullable(),
-    linkLabel: z.string().trim().max(40).optional().nullable(),
+    linkLabel: sanitizedString({ min: 0, max: 40, label: 'linkLabel' }).optional().nullable(),
     expiresAt: z.string().datetime().optional().nullable()
   })
   .strict()

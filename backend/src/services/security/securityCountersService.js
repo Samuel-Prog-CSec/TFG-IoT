@@ -17,7 +17,7 @@
  */
 
 const crypto = require('crypto');
-const { getRedis, isRedisConnected, getKeyPrefix } = require('../../config/redis');
+const { getRedis, isRedisConnected } = require('../../config/redis');
 const logger = require('../../utils/logger').child({ component: 'securityCounters' });
 
 const NAMESPACE = 'security:counter';
@@ -33,7 +33,12 @@ const SUPPORTED_EVENTS = Object.freeze([
 
 let callCount = 0;
 
-const buildKey = eventType => `${getKeyPrefix()}${NAMESPACE}:${eventType}`;
+// BUG-REDIS-DOUBLE-PREFIX (QA Sprint 0 post-v0.5.0): NO se añade `getKeyPrefix()`
+// aquí. Los comandos del cliente ioredis (zadd, zcount, zremrangebyscore) aplican
+// el `keyPrefix` configurado automáticamente al pasar por el cliente. Hacerlo
+// manualmente generaba keys con doble prefijo (`rfid-games:rfid-games:security:counter:...`),
+// que rompían el matching con los detectores y `securityLogger`.
+const buildKey = eventType => `${NAMESPACE}:${eventType}`;
 
 /**
  * Incrementa el contador para un tipo de evento. No lanza ante fallos.

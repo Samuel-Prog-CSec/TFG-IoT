@@ -64,6 +64,26 @@
   --color-info-base: oklch(75% 0.12 230); /* Sky Blue */
   --color-info-dark: oklch(60% 0.12 230);
 
+  /* ===== TOKENS SEMÁNTICOS "-on-alpha" PARA TEXTO SOBRE ALPHA BG =====
+     Los `text-{tone}-base` cumplen contraste 4.5:1 sobre `bg-base` directo
+     pero NO sobre `bg-{tone}-base/10..20` (alpha del mismo tono mezclado
+     con bg-elevated). Estos tokens están calculados para cumplir AA en
+     ambos temas usando alpha bg del mismo tono — sin necesidad de variantes
+     `light:` en componente.
+
+     En dark: luminosidad ~80% (más claro que -base 65%) garantiza AA sobre
+     bg-{tone}-base/10..20 combinado con dark-elevated (incluyendo wash
+     atmosférico del aurora).
+     En light: luminosidad ~40-46% (definidos en `[data-theme="light"]`). */
+  --color-success-on-alpha: oklch(82% 0.15 150);  /* ~5.5:1 sobre dark+aurora */
+  --color-warning-on-alpha: oklch(82% 0.16 80);   /* idem */
+  --color-error-on-alpha: oklch(80% 0.16 25);     /* ~5.0:1 sobre dark+aurora */
+  --color-info-on-alpha: oklch(82% 0.12 230);
+  --color-brand-on-alpha: oklch(80% 0.12 300);
+  --color-accent-amber-on-alpha: oklch(86% 0.14 75);
+  --color-accent-cyan-on-alpha: oklch(82% 0.14 200);
+  --color-accent-orange-on-alpha: oklch(80% 0.16 50);
+
   /* Accents / Secondary Palette */
   --color-accent-indigo: oklch(60% 0.16 270);
   --color-accent-cyan: oklch(80% 0.14 200);
@@ -795,6 +815,19 @@
 
   --color-info-base: oklch(50% 0.16 230);
   --color-info-dark: oklch(38% 0.16 230);
+
+  /* Tokens "-on-alpha" para light: específicamente calibrados para
+     cumplir 5.0:1+ sobre `bg-{tone}-base/10..20` mezclado con
+     `bg-background-elevated` (99.5% L) en tema light. Mantiene la
+     identidad cromática pero baja a luminancia ~40-46% para AA. */
+  --color-success-on-alpha: oklch(40% 0.16 150);  /* ~5.8:1 */
+  --color-warning-on-alpha: oklch(46% 0.18 70);   /* ~5.1:1 */
+  --color-error-on-alpha: oklch(42% 0.20 25);     /* ~5.5:1 */
+  --color-info-on-alpha: oklch(42% 0.16 230);     /* ~5.4:1 */
+  --color-brand-on-alpha: oklch(42% 0.20 300);    /* ~5.3:1 */
+  --color-accent-amber-on-alpha: oklch(50% 0.16 75);  /* ~5.0:1 */
+  --color-accent-cyan-on-alpha: oklch(46% 0.13 200);  /* ~5.2:1 */
+  --color-accent-orange-on-alpha: oklch(46% 0.18 50); /* ~5.2:1 */
 
   /* Accents secundarios — saturación ajustada para fondo claro */
   --color-accent-indigo: oklch(50% 0.20 270);

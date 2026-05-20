@@ -737,7 +737,19 @@ function RecentActivity({ students }) {
   return (
     <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 relative overflow-hidden h-full flex flex-col">
       <h3 className="text-lg font-semibold text-text-primary font-display mb-4">Actividad Reciente</h3>
-      <div ref={scrollRef} className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
+      {/* BUG-A11Y-SCROLL-A (QA Sprint 0 post-v0.5.0): scrollable region
+          necesita keyboard focus para que el usuario pueda navegarla con
+          flechas (WCAG 2.1.1). Añadido tabIndex+role+aria-label.
+          eslint-disable: el rule jsx-a11y/no-noninteractive-tabindex no
+          contempla scrollable regions, pero axe y WCAG lo exigen. */}
+      <div
+        ref={scrollRef}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+        tabIndex={0}
+        role="region"
+        aria-label="Actividad reciente de alumnos"
+        className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar focus-ring rounded-md"
+      >
         {recentStudents.map((student, index) => (
           <div
             key={student.studentId || student._id || `recent-${index}`}
@@ -752,7 +764,10 @@ function RecentActivity({ students }) {
                 <span className="text-xs text-text-muted font-bold tabular-nums">
                   {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)} pts
                 </span>
-                <span className="text-[10px] text-text-disabled">
+                {/* BUG-A11Y-CONTRAST-A: text-text-disabled (oklch 0.6 sobre
+                    bg-background-surface/40) no llega a 4.5:1. Subir a
+                    text-text-muted que sí pasa AA. */}
+                <span className="text-[10px] text-text-muted">
                   {formatRelativeTime(student.lastPlayedAt || student.studentMetrics?.lastPlayedAt)}
                 </span>
               </div>

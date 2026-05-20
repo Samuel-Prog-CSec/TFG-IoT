@@ -53,6 +53,27 @@ const connectionCountByUserId = new Map();
 const rfidModeLocks = new Map();
 
 /**
+ * Timeout en milisegundos para una operación dentro del lock RFID.
+ *
+ * Sin este timeout, una operación colgada (query Mongo sin índice, Redis
+ * bloqueado, deadlock) deja `releaseLock` sin invocarse y la cola del
+ * userId queda esperando indefinidamente; el socket RFID muere en silencio
+ * y el cliente no recibe `rfid_mode_*` hasta que cierre el navegador.
+ *
+ * 10s cubre con holgura la operación realista más cara (write Mongo +
+ * Redis SET con TTL + emit). Configurable vía env para QA.
+ */
+const RFID_OPERATION_TIMEOUT_MS =
+  Number.parseInt(process.env.RFID_OPERATION_TIMEOUT_MS, 10) || 10_000;
+
+/**
+ * Símbolo opaco para distinguir el rechazo por timeout de cualquier otro
+ * `Error` lanzado por la operación. Evita falsos positivos si la operación
+ * lanza un `Error` cuyo mensaje contenga "timeout".
+ */
+const RFID_LOCK_TIMEOUT_SENTINEL = Symbol('RFID_LOCK_TIMEOUT');
+
+/**
  * Devuelve el número de conexiones Socket.IO activas para un usuario.
  * @param {string} userId
  * @returns {number}
@@ -136,9 +157,19 @@ const rfidModeTimers = new Map();
  * Ejecuta una operación RFID con exclusión mutua por userId.
  * Serializa operaciones concurrentes sobre el mismo usuario para evitar race conditions.
  *
+ * Aplica un timeout duro (`RFID_OPERATION_TIMEOUT_MS`) sobre la operación
+ * para que una query/await colgada NO bloquee la cola del usuario de forma
+ * permanente. Si el timeout se dispara:
+ *   1. Se libera el lock (siguiente operación puede arrancar).
+ *   2. Se incrementa la métrica `rfidLockTimeouts`.
+ *   3. Se registra un `SECURITY_EVENT` con `securityLogger` para auditoría.
+ *   4. Se emite `rfid_mode_error` al room del usuario con copy en español.
+ *   5. El caller recibe un `Error` con `code: 'RFID_LOCK_TIMEOUT'`.
+ *
  * @param {string} userId - ID del usuario
  * @param {Function} operation - Operación async a ejecutar
  * @returns {Promise<*>} Resultado de la operación
+ * @throws {Error} Con `code='RFID_LOCK_TIMEOUT'` si la operación supera el límite.
  */
 const executeWithRfidLock = async (userId, operation) => {
   const prevLock = rfidModeLocks.get(userId) || Promise.resolve();
@@ -148,10 +179,46 @@ const executeWithRfidLock = async (userId, operation) => {
   });
   rfidModeLocks.set(userId, lockPromise);
 
+  let timeoutHandle;
+  const timeoutPromise = new Promise((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(RFID_LOCK_TIMEOUT_SENTINEL);
+    }, RFID_OPERATION_TIMEOUT_MS);
+  });
+
   try {
     await prevLock;
-    return await operation();
+    return await Promise.race([operation(), timeoutPromise]);
+  } catch (error) {
+    if (error === RFID_LOCK_TIMEOUT_SENTINEL) {
+      runtimeMetrics.recordRfidLockTimeout();
+      logger.error(
+        {
+          userId,
+          timeoutMs: RFID_OPERATION_TIMEOUT_MS,
+          alert: true
+        },
+        'executeWithRfidLock superó el timeout — liberando lock'
+      );
+      logSecurityEvent('RFID_LOCK_TIMEOUT', {
+        userId,
+        timeoutMs: RFID_OPERATION_TIMEOUT_MS
+      });
+      if (socketServerRef) {
+        socketServerRef.to(`user_${userId}`).emit('rfid_mode_error', {
+          code: 'RFID_LOCK_TIMEOUT',
+          message: 'La operación RFID tardó demasiado y se ha cancelado. Vuelve a intentarlo.'
+        });
+      }
+      const timeoutError = new Error('Operación RFID excedió el timeout');
+      timeoutError.code = 'RFID_LOCK_TIMEOUT';
+      throw timeoutError;
+    }
+    throw error;
   } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
     releaseLock();
     // Limpiar lock si no hay operaciones pendientes posteriores
     if (rfidModeLocks.get(userId) === lockPromise) {

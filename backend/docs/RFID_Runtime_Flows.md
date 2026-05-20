@@ -358,3 +358,52 @@ Si la secuencia tarda más de 25s (`SHUTDOWN_TIMEOUT_MS`), un timeout duro fuerz
 - Tras el deploy (~30-60s en Koyeb), el frontend reconecta y emite `play_state_sync`.
 - `gameEngine.recoverActivePlays()` en el boot del nuevo proceso restaura los plays pausados.
 - El docente ve "Partida reanudada" sin pérdida de progreso (excepto el último scan in-flight).
+
+## 14. RFID mode lock con timeout duro (ADR-164, Sprint 0 pre-v1.0.0)
+
+`executeWithRfidLock(userId, operation)` en `realtime/socketHandlers.js` ya serializaba operaciones RFID por usuario para evitar race conditions, pero sin timeout una operación colgada bloqueaba la cola del usuario indefinidamente.
+
+**Pipeline actualizado:**
+
+```
+operation = setRfidModeState(userId, 'gameplay', socketId, metadata)
+           ▼
+     prevLock (Promise de la operación anterior, si existe)
+           ▼
+     await prevLock
+           ▼
+     Promise.race([
+       operation(),                              // → resolución normal
+       timeoutPromise(RFID_OPERATION_TIMEOUT_MS) // → reject con sentinel
+     ])
+           │
+           ├─ resolved → emit rfid_mode_changed + libera lock
+           │
+           └─ rejected (sentinel) →
+                runtimeMetrics.recordRfidLockTimeout()
+                logger.error({alert:true, userId, timeoutMs}, 'lock timeout')
+                logSecurityEvent('RFID_LOCK_TIMEOUT', {userId, timeoutMs})
+                socketServerRef.to(`user_${userId}`).emit('rfid_mode_error', {
+                  code: 'RFID_LOCK_TIMEOUT',
+                  message: 'La operación RFID tardó demasiado y se ha cancelado. Vuelve a intentarlo.'
+                })
+                throw Error{code:'RFID_LOCK_TIMEOUT'}
+                libera lock (siguiente operación arranca)
+```
+
+**Calibración:**
+- `RFID_OPERATION_TIMEOUT_MS=10000` por defecto. Cubre con holgura la operación realista más cara: write Mongo (`gameSessionRepository.updateOne`) + Redis SET con TTL (`rfid:mode:<userId>`) + emit a room. Suele tardar <500ms en local con Atlas + Upstash.
+- En QA permite simular timeouts más cortos (`RFID_OPERATION_TIMEOUT_MS=200`) para validar el flujo de error sin esperar 10s.
+
+**Observabilidad:**
+- Métrica `runtimeMetrics.websocket.rfidLockTimeouts` (snapshot vía `GET /api/metrics`).
+- Evento `RFID_LOCK_TIMEOUT` en `securityLogger` con Sentry threshold 3/min (`SECURITY_EVENTS.RFID_LOCK_TIMEOUT.sentry`). Si la espiga es genuina (Mongo/Redis lentos), Sentry alerta tras 3 incidentes en una ventana de 60s.
+
+**Sentinel pattern:**
+La promise de timeout rechaza con un `Symbol` (`RFID_LOCK_TIMEOUT_SENTINEL`) en lugar de un `Error` con mensaje. Esto evita falsos positivos en el `catch` interno si la propia `operation()` lanza un `Error` cuyo mensaje contenga la palabra "timeout". Solo distingue por identidad exacta del símbolo.
+
+**Tests E2E (QA Sprint 0):**
+Para verificar el camino feliz vs el camino de timeout en el simulador RFID, inyectar `__rfidSim.delayMs=15000` antes de un `__rfidSim.detect()` y verificar:
+1. `rfid_mode_error` llega al cliente con `code='RFID_LOCK_TIMEOUT'` y mensaje en español.
+2. `GET /api/metrics` muestra `runtimeMetrics.websocket.rfidLockTimeouts >= 1`.
+3. Una siguiente operación normal del mismo usuario no queda bloqueada por la fallida.

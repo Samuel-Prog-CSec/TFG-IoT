@@ -74,7 +74,12 @@ function MechanicTierChip({ mechanicKey, data }) {
     score !== null ? ` · ${score}%` : "" 
     } · ${data.gamesPlayed} ${data.gamesPlayed === 1 ? "partida" : "partidas"}`;
   return (
+    // BUG-A11Y-SPAN-LABEL-A (QA Sprint 0 post-v0.5.0): span con aria-label sin
+    // role provoca aria-prohibited-attr (axe serious). Añadir role="img" para
+    // que el chip de mecánica (icono + dot tier + texto sr-only) tenga nombre
+    // accesible válido.
     <span
+      role="img"
       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-semibold uppercase tracking-wider border ${theme.accentBgSoftClass} ${theme.accentBorderClass}`}
       title={tooltip}
       aria-label={tooltip}
@@ -114,13 +119,20 @@ function getTierBadge(tier) {
     case "average":
       return {
         label: "Promedio",
+        // BUG-A11Y-CONTRAST-AVG-A (QA Sprint 0 post-v0.5.0): text-warning-base
+        // sobre bg-warning-dark/15 daba 3.11 light / 3.6 dark. Igual que en
+        // StudentsList: dark usa warning-base luminoso, light usa warning-dark.
         className:
-          "bg-warning-dark/15 text-warning-base border-warning-dark/25",
+          "bg-warning-dark/15 text-warning-on-alpha border-warning-dark/25",
       };
     case "risk":
       return {
         label: "En Riesgo",
-        className: "bg-error-dark/15 text-error-base border-error-dark/25",
+        // BUG-A11Y-RISK-BADGE-A (QA Sprint 0 post-v0.5.0): para alcanzar AA
+        // 4.5:1 en dark theme usamos text-red-300 (oklch ~80% — más luminoso
+        // que error-base 65%) sobre bg-background-surface sólido + borde
+        // rojo. light:text-error-base mantiene legibilidad en tema claro.
+        className: "bg-background-surface text-error-on-alpha border-error-base/60",
       };
     default:
       return {
@@ -434,6 +446,10 @@ export default function StudentsAnalytics() {
       averageScore: s.averageScore ?? 0,
       accuracyRate: s.accuracyRate != null ? `${s.accuracyRate}%` : "-",
       avgResponseTime: formatResponseTime(s.avgResponseTime),
+      // BUG-CSV-SEQUENCE-A (QA Sprint 0 post-v0.5.0): CSV_COLUMNS declara
+      // `maxSequenceLengthAchieved` pero el mapeo lo omitía → columna "Mejor
+      // Secuencia" siempre vacía en el CSV exportado.
+      maxSequenceLengthAchieved: s.maxSequenceLengthAchieved ?? "-",
       lastPlayedAt: s.lastPlayedAt
         ? new Date(s.lastPlayedAt).toLocaleDateString("es-ES")
         : "Sin actividad",
@@ -739,10 +755,14 @@ export default function StudentsAnalytics() {
                       <thead>
                         <tr className="border-b border-border-subtle">
                           {TABLE_COLUMNS.map((col) => (
+                            // BUG-A11Y-CONTRAST-TH (QA Sprint 0 post-v0.5.0):
+                            // text-text-muted en th sobre gradient header
+                            // daba 2.58-3.92:1. text-text-secondary (más
+                            // luminoso) pasa AA en ambos temas.
                             <th
                               key={col.key}
                               scope="col"
-                              className="px-4 py-3 text-left text-xs font-semibold text-text-muted uppercase tracking-wider whitespace-nowrap"
+                              className="px-4 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap"
                               aria-sort={(() => {
                                 if (col.sortable && sortField === col.key)
                                   return sortOrder === "asc"

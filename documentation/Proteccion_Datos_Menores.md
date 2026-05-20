@@ -947,3 +947,29 @@ La integracion de un eje completo de proteccion de datos en el desarrollo de la 
 ---
 
 *Documento elaborado como parte del Trabajo de Fin de Grado «Plataforma de Juegos Educativos con RFID» para fundamentar las medidas tecnicas y organizativas de proteccion de datos de menores implementadas en la plataforma Eduplay, en cumplimiento del Reglamento (UE) 2016/679 (RGPD) y la Ley Organica 3/2018 (LOPDGDD).*
+
+---
+
+## Anexo Sprint 0 pre-v1.0.0 — Sanitización Unicode en nombres de menores (ADR-164)
+
+Tras la auditoría pre-v1.0.0, el helper `sanitizedString({min,max,label,allowMultiline})` en `backend/src/validators/commonValidator.js` se aplica a TODOS los campos user-facing donde puede aparecer el nombre de un menor o información que se renderice en listados visibles para profesores/super_admin:
+
+- **`User.name`** (`createStudentSchema`, `createUserSchema`, `updateUserSchema`, `registerTeacherSchema`).
+- **`consent.grantedBy`** (nombre del padre/tutor en `createStudentSchema` y `updateConsentSchema`).
+- **`profile.classroom`** (nombre del aula — quasi-identificador en aulas pequeñas, ver §6 Riesgo de re-identificación).
+- **`displayName` de contextos/mazos** que pueden mencionar al alumno o referirse a su material.
+
+**Caracteres rechazados** y motivación:
+
+| Categoría | Codepoints | Riesgo |
+|---|---|---|
+| Zero-width | `U+200B`–`U+200D`, `U+FEFF`, `U+2060`–`U+2064` | Falsificar nombres ("Mar­ia" con ZWSP se renderiza como "Maria" pero indexa distinto en BD; spoofing en listados de tutores). |
+| Direccionales RTL/LTR | `U+200E`, `U+200F`, `U+202A`–`U+202E`, `U+2066`–`U+2069` | RLO ("Right-to-Left Override") puede invertir el orden visible de caracteres: "Maria<U+202E>evad" se ve como "MariadaveU+202E" en listados de profesor — falsificación visual del nombre del menor. |
+| Separadores invisibles | `U+2028` (LS), `U+2029` (PS) | Inserción de saltos de línea no detectables que rompen layout o inyectan contenido oculto en exports CSV/JSON. |
+| Caracteres de control ASCII | `\x00`–`\x1F`, `\x7F` | Caracteres no imprimibles que pueden interferir con consoles, exports, o herramientas de visualización del docente. |
+
+**Validación al ingreso**: el helper aplica `.trim()` + `.min()`/`.max()` + `superRefine` con `containsInvisibleUnicode(value)` + `CONTROL_CHARS_REGEX.test(value)`. Cualquier input que contenga estos caracteres recibe respuesta 400 con mensaje en español: "El nombre contiene caracteres invisibles o direccionales no permitidos".
+
+**Impacto en compliance RGPD Art. 5.1.d (exactitud)**: aumenta la garantía de que los nombres almacenados son exactamente los visibles para el profesor — previene escenarios donde un atacante crea un alumno con nombre aparente "Maria" pero codificación distinta para evadir comprobaciones, o donde el listado de profesores muestra nombres falsificados por RLO override.
+
+**Compatibilidad retro**: la validación solo aplica a input nuevo. Datos existentes no se tocan. Si en producción se detectan registros legacy con caracteres invisibles, un job de migración los puede sanitizar individualmente con consentimiento del tutor (Art. 16 RGPD — rectificación).

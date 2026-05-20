@@ -86,31 +86,35 @@ export const SYSTEM_ALERT_SOURCES = [
 export const SOURCE_STYLES = {
   redis: {
     label: 'Redis',
-    badge: 'bg-rose-500/10 text-rose-600 border-rose-500/30 dark:text-rose-300'
+    badge: 'bg-rose-500/10 text-rose-300 light:text-rose-700 border-rose-500/30'
   },
+  // BUG-A11Y-SYSALERT-BADGES (QA Sprint 0): el proyecto usa `light:` custom
+  // variant, no la clase `.dark` de Tailwind. Las clases `dark:text-*`
+  // existentes nunca aplicaban. Refactor: default = color luminoso (dark
+  // mode), `light:` invierte a tono oscuro (AA sobre bg claro).
   mongo: {
     label: 'MongoDB',
-    badge: 'bg-emerald-500/10 text-emerald-600 border-emerald-500/30 dark:text-emerald-300'
+    badge: 'bg-emerald-500/10 text-emerald-300 light:text-emerald-700 border-emerald-500/30'
   },
   memory: {
     label: 'Memoria',
-    badge: 'bg-amber-500/10 text-amber-600 border-amber-500/30 dark:text-amber-300'
+    badge: 'bg-amber-500/10 text-amber-300 light:text-amber-800 border-amber-500/30'
   },
   queue: {
     label: 'Colas',
-    badge: 'bg-sky-500/10 text-sky-600 border-sky-500/30 dark:text-sky-300'
+    badge: 'bg-sky-500/10 text-sky-300 light:text-sky-700 border-sky-500/30'
   },
   auth: {
     label: 'Seguridad',
-    badge: 'bg-red-500/10 text-red-600 border-red-500/30 dark:text-red-300'
+    badge: 'bg-red-500/10 text-red-300 light:text-red-700 border-red-500/30'
   },
   moderation: {
     label: 'Moderación',
-    badge: 'bg-indigo-500/10 text-indigo-600 border-indigo-500/30 dark:text-indigo-300'
+    badge: 'bg-indigo-500/10 text-indigo-300 light:text-indigo-700 border-indigo-500/30'
   },
   compliance: {
     label: 'Compliance',
-    badge: 'bg-teal-500/10 text-teal-600 border-teal-500/30 dark:text-teal-300'
+    badge: 'bg-teal-500/10 text-teal-300 light:text-teal-700 border-teal-500/30'
   }
 };
 
@@ -131,21 +135,21 @@ export const ANNOUNCEMENT_AUDIENCES = [
  * de alertas — ahí 'urgent' no existe).
  */
 export const ANNOUNCEMENT_SEVERITY_STYLES = {
+  // Tokens `-on-alpha` (index.css) cumplen AA en ambos temas. Eliminados
+  // los workarounds light:text-{tone}-dark del Sprint 0.
   info: {
     label: 'Informativo',
-    container:
-      'bg-info-base/10 border-info-base/30 text-info-base dark:text-info-base',
+    container: 'bg-info-base/10 border-info-base/30 text-info-on-alpha',
     iconClass: 'text-info-base'
   },
   warning: {
     label: 'Aviso',
-    container:
-      'bg-warning-base/10 border-warning-base/30 text-warning-base dark:text-warning-base',
+    container: 'bg-warning-base/10 border-warning-base/30 text-warning-on-alpha',
     iconClass: 'text-warning-base'
   },
   urgent: {
     label: 'Urgente',
-    container: 'bg-error-base/10 border-error-base/40 text-error-base',
+    container: 'bg-error-base/10 border-error-base/40 text-error-on-alpha',
     iconClass: 'text-error-base'
   }
 };

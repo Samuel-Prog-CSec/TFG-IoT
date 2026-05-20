@@ -77,11 +77,13 @@ const getStepPulseTransition = ({ reducedMotion, isActive }) => {
 };
 
 const getStepLabelClassName = ({ isActive, isCompleted }) =>
+  // BUG-A11Y-STEPPER-LABEL (QA Sprint 0 post-v0.5.0): text-text-disabled
+  // sobre bg light daba 2.37:1 en pasos futuros. text-text-muted cumple AA.
   cn(
     'text-xs font-medium uppercase tracking-wider transition-colors duration-300',
     isActive && 'text-accent-indigo',
     isCompleted && 'text-success-base',
-    !isActive && !isCompleted && 'text-text-disabled'
+    !isActive && !isCompleted && 'text-text-muted'
   );
 
 function WizardStepItem({
@@ -116,6 +118,11 @@ function WizardStepItem({
         type="button"
         onClick={handleStepClick}
         disabled={!isClickable}
+        // BUG-A11Y-STEPPER-BUTTON (QA Sprint 0): el botón sólo tenía icono,
+        // sin nombre accesible. Añadir aria-label compuesto desde título +
+        // estado.
+        aria-label={`Paso ${index + 1}: ${step.title}${isCompleted ? ' (completado)' : isActive ? ' (actual)' : ''}`}
+        aria-current={isActive ? 'step' : undefined}
         className={getStepButtonClassName({ isActive, isCompleted, isClickable })}
         whileHover={isClickable ? { scale: 1.1 } : {}}
         whileTap={isClickable ? { scale: 0.95 } : {}}
@@ -184,7 +191,9 @@ function WizardStepItem({
       </motion.span>
 
       {step.description && (
-        <span className="text-[10px] text-text-disabled max-w-[80px] text-center hidden sm:block">
+        // BUG-A11Y-STEPPER-DESC (QA Sprint 0): text-text-disabled daba 2.37
+        // en light. text-text-muted cumple AA y sigue siendo terciario.
+        <span className="text-[10px] text-text-muted max-w-[80px] text-center hidden sm:block">
           {step.description}
         </span>
       )}

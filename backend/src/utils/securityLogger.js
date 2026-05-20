@@ -136,6 +136,14 @@ const SECURITY_EVENTS = {
     message: 'Evento RFID inválido recibido',
     sentry: { threshold: 10, windowMs: 60 * 1000, level: 'warning' }
   },
+  // C1 (pre-v1.0.0): el mutex de RFID por userId aborta una operación que
+  // excedió el timeout y libera el lock. Una espiga indica que algo en el
+  // pipeline está bloqueado (Mongo lento, Redis colgado, deadlock).
+  RFID_LOCK_TIMEOUT: {
+    level: 'error',
+    message: 'Operación RFID excedió el timeout y se liberó el lock',
+    sentry: { threshold: 3, windowMs: 60 * 1000, level: 'warning' }
+  },
   // Protección de datos — Seudonimización y auditoría (Art. 5.2, 16, 20, 25 RGPD)
   DATA_RECTIFICATION: {
     level: 'info',

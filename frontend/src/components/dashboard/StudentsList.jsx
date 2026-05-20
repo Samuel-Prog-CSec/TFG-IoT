@@ -37,7 +37,7 @@ const getTierColor = (tier) => {
   switch (tier) {
     case 'excellent': return 'text-success-base';
     case 'good': return 'text-success-base/80';
-    case 'average': return 'text-warning-base';
+    case 'average': return 'text-warning-on-alpha';
     case 'risk': return 'text-error-base';
     default: return 'text-text-muted';
   }
@@ -52,7 +52,11 @@ const getTierBadge = (tier) => {
   switch (tier) {
     case 'excellent': return { label: 'Excelente', className: 'bg-success-base/15 text-success-base' };
     case 'good': return { label: 'Bueno', className: 'bg-success-base/10 text-success-base/80' };
-    case 'average': return { label: 'Promedio', className: 'bg-warning-base/15 text-warning-base' };
+    // BUG-A11Y-CONTRAST-B (QA Sprint 0 post-v0.5.0): el proyecto usa el
+    // custom-variant `light:` (data-theme="light"), no la clase `.dark`.
+    // Defecto = dark theme (text-warning-base = 60% lum, AA sobre bg dark);
+    // light: override = text-warning-dark = 64% lum, AA sobre bg amber-tint.
+    case 'average': return { label: 'Promedio', className: 'bg-warning-base/15 text-warning-on-alpha' };
     case 'risk': return { label: 'En riesgo', className: 'bg-error-base/15 text-error-base' };
     default: return { label: '—', className: 'bg-background-surface/50 text-text-muted' };
   }
@@ -106,7 +110,12 @@ function StudentsList({ students }) {
       </header>
 
       {hasStudents ? (
-        <motion.ol
+        // BUG-A11Y-LIST-A (QA Sprint 0 post-v0.5.0): el <ol> tenía hijos con
+        // role="button", lo que rompe la regla axe "ol must only contain li".
+        // Cambiado a div role="list" + div role="listitem button" que respeta
+        // tanto la semántica de lista como la naturaleza interactiva de cada fila.
+        <motion.div
+          role="list"
           aria-label="Lista de mejores estudiantes"
           className="space-y-3"
           variants={staggerContainer}
@@ -118,13 +127,13 @@ function StudentsList({ students }) {
             const podium = PODIUM_STYLES[index];
             const PodiumIcon = podium?.icon;
             return (
-              <motion.li
+              <motion.div
                 key={student.studentId || student._id || index}
                 variants={staggerItem}
                 whileHover={{ x: 4, backgroundColor: 'rgba(255,255,255,0.05)' }}
                 onClick={() => navigate(`/students/${student.studentId || student._id}`)}
-                className="flex items-center justify-between p-3 rounded-xl transition-colors duration-200 group cursor-pointer list-none focus:outline-none focus:ring-1 focus:ring-brand-base/40 focus:bg-background-surface/20"
-                role="button"
+                className="flex items-center justify-between p-3 rounded-xl transition-colors duration-200 group cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-base/40 focus:bg-background-surface/20"
+                role="listitem"
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/students/${student.studentId || student._id}`); }}
                 aria-label={`${student.name}, puntuación ${Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}, posición ${index + 1}`}
@@ -146,8 +155,12 @@ function StudentsList({ students }) {
                     )}
                   </span>
 
-                  {/* Avatar */}
+                  {/* Avatar — BUG-A11Y-AVATAR-A (QA Sprint 0 post-v0.5.0):
+                      aria-label sin role provoca aria-prohibited-attr. Añadir
+                      role="img" para que el avatar (decorativo + iniciales)
+                      tenga un nombre accesible válido. */}
                   <div
+                    role="img"
                     className="size-10 rounded-full bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center text-sm font-bold text-white shadow-lg group-hover:scale-105 transition-transform"
                     aria-label={`Avatar de ${student.name}`}
                   >
@@ -184,10 +197,10 @@ function StudentsList({ students }) {
                   </div>
                   <ChevronRight size={14} className="text-text-muted/30 group-hover:text-text-muted transition-colors" aria-hidden="true" />
                 </div>
-              </motion.li>
+              </motion.div>
             );
           })}
-        </motion.ol>
+        </motion.div>
       ) : (
         <div className="flex flex-col items-center justify-center py-8 text-center">
           <p className="text-text-muted text-sm">Aún no hay datos de estudiantes.</p>

@@ -652,6 +652,20 @@ export const adminAPI = {
    */
   rejectTeacher: (userId, reason = '') =>
     api.post(`/admin/users/${userId}/reject`, { reason }),
+
+  /**
+   * Desbloquear cuenta bloqueada por intentos fallidos de login.
+   *
+   * El backend (T-905 B7) exige header `X-MFA-Token` reciente del super_admin.
+   * Si falta, el interceptor responde 428 `MFA_TOKEN_REQUIRED` y el
+   * `MfaChallengeModal` global aparece automáticamente para que el admin
+   * introduzca el TOTP. Tras validar, la petición se reintenta.
+   *
+   * @param {string} email - Email de la cuenta a desbloquear (case-insensitive en backend)
+   * @returns {Promise} Respuesta `{ unlocked: boolean }`
+   */
+  unlockAccount: (email) =>
+    api.post('/admin/lockouts/unlock', { email }),
 };
 
 // ============================================

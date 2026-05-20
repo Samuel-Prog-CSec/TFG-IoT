@@ -626,3 +626,17 @@ Los `—` significan que el campo no aplica y queda `undefined` en el documento 
 Tras la auditoría post-cierre de Sprint 6 (P0-3 del plan), `analyticsService.getClassroomStudents` añade `studentMetrics.maxSequenceLengthAchieved` y `studentMetrics.sequencesCompleted` al payload de cada alumno. El frontend (`pages/StudentsAnalytics.jsx`) normaliza el primer campo al nivel raíz y lo expone como columna ordenable **"Mejor Secuencia"** con icono `ListOrdered` ámbar y tooltip explicativo. Empty state `—` cuando el alumno no ha jugado partidas Secuencia. La columna entra también en el export CSV.
 
 Esto cierra el criterio 7 de T-922 ("vista comparativa con columna Mejor Secuencia"): permite que el docente compare retención visoespacial entre alumnos del aula con un único barrido visual, complementando la vista granular de `StudentProfile` (que sigue mostrando el `SequenceProgressChart` con la evolución temporal).
+
+## Sprint 0 pre-v1.0.0 — Slow-query observability + materialización planificada (ADR-164, M1)
+
+### Observabilidad de pipelines
+`gamePlayRepository.aggregate` ahora mide tiempo de cada aggregation y dispara `logger.warn(alert:true)` si supera `SLOW_AGGREGATE_WARN_MS=5000` (configurable). El log incluye `firstStage` para identificar qué pipeline aporta latencia. Esto da visibilidad **antes** de que MongoDB aborte por `maxTimeMS=15s` y la UX se degrade.
+
+### Candidatos a materialización (diferido a Sprint 3)
+Los pipelines `getStudentDifficulties` y `getStudentSummary` realizan 3+ `$lookup` consecutivos (gameplays → sessions → contexts → mechanics). Con dataset de seed (~50 plays) el coste es bajo, pero a escala (10K+ plays) son candidatos a vista materializada nightly:
+
+- **Job BullMQ:** `studentMetricsAggregator` ejecuta el pipeline una vez por noche y persiste los resultados en `studentMetrics.{maxScoreByContext, errorRateByMechanic, slowestContextId}` del documento `User`.
+- **Lectura:** los endpoints `/api/analytics/students/:id/difficulties` y `/summary` consultan `studentMetrics.*` directamente con `findById().select(...)`, O(1) per request.
+- **Trade-off:** los datos quedan con `staleness` de hasta 24h. Para v1.0.0 no es crítico porque los profesores consultan analytics post-clase, no en tiempo real.
+
+Esto está documentado pero NO implementado en Sprint 0: el slow-query log da observabilidad inmediata; la materialización se aborda cuando los logs muestren que el umbral se supera con regularidad. ADR-164 lo marca como `diferido Sprint 3`.

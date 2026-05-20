@@ -1,5 +1,11 @@
 import '@testing-library/jest-dom/vitest';
-import { vi } from 'vitest';
+import { expect, vi } from 'vitest';
+import { toHaveNoViolations } from 'jest-axe';
+
+// Matcher de jest-axe expuesto en vitest. Permite asserts del tipo
+// `expect(await axe(container)).toHaveNoViolations()` en los tests de
+// accesibilidad (frontend/src/__tests__/accesibilidad/).
+expect.extend(toHaveNoViolations);
 
 // jsdom no implementa scrollIntoView; varios componentes (SelectPremium,
 // listas con highlight, etc.) lo invocan al navegar por teclado o abrir

@@ -245,6 +245,9 @@ Whitelist dinámico desde `CORS_WHITELIST` env (split por coma). En prod FALLA-F
 | analytics | 1min | 30 | 200 | no | IP |
 | upload | 1h | 20 | 20 | no | IP |
 | export (GDPR) | 1min | 1 | 1 | no | userOrIp |
+| **admin_approval (ADR-164)** | **1h** | **100** | **1000** | **no** | **userOrIp** |
+
+**admin_approval** (Sprint 0 pre-v1.0.0, M7): aplicado a `POST /api/admin/users/:id/approve` y `/reject`. Defense-in-depth ante un super_admin comprometido que automatice aprobaciones en lote o un bug de UI que dispare bucles. 100 acciones/hora cubre cualquier caso real. Variable env `RATE_LIMIT_ADMIN_APPROVAL_MAX` lo permite tunear.
 
 ### 8.3 CAPTCHA Cloudflare Turnstile (B6 — completo)
 - Activación opt-in: si `TURNSTILE_SECRET` está set Y `accountLockoutService.getFailureCount(email) >= 3` → backend exige `captchaToken` en body de login.
@@ -263,7 +266,7 @@ Whitelist dinámico desde `CORS_WHITELIST` env (split por coma). En prod FALLA-F
 ## 9. Validación de entrada y NoSQL injection
 
 ### 9.1 Zod en frontera
-11 validators en `backend/src/validators/`. Middlewares `validateBody/Query/Params` aplicados antes de controllers.
+11 validators en `backend/src/validators/`. Middlewares `validateBody/Query/Params` aplicados antes de controllers. Schemas compartidos consolidados en `commonValidator.js` (ADR-164, A6): `cardMappingSchema` se exporta desde aquí y `cardDeckValidator`/`gameSessionValidator` lo reusan. DRY estricto evita drift entre validadores que comparten estructura.
 
 ### 9.2 `securityPayloadGuard` middleware
 `utils/payloadSecurity.findDangerousPayloadPath` rechaza payloads con:
@@ -274,7 +277,26 @@ Whitelist dinámico desde `CORS_WHITELIST` env (split por coma). En prod FALLA-F
 ### 9.3 NoSQL queries
 `filterBuilder.js` construye operadores Mongo (`$or`, `$gte`, `$lte`) desde config mapping, NO desde input usuario directo. Mongoose typing rechaza casts inválidos.
 
-### 9.4 File upload validation (B3)
+**Integridad referencial de cardMappings (ADR-164, A5):** `GameSession.cardMappings` ahora tiene path validator que rechaza UIDs duplicados (espejo del validator existente en `CardDeck`). Cubre el flanco residual donde un actor bypasa Zod (seed manual, migraciones directas) e intenta persistir un documento con la misma tarjeta asignada a dos valores distintos del contexto.
+
+### 9.4 Sanitización Unicode + límites de longitud (ADR-164, A4)
+Helper `sanitizedString({min,max,label,allowMultiline})` en `commonValidator.js`. Aplicado a campos user-facing renderizados en la UI:
+- **Contextos / mazos**: `name`, `description`, `display`, `value` (asset), `assignedValue` (cardMappings).
+- **Sesiones**: `name`, `sensorId`, `promptText` (associationChallengePlan), `assignedValue` (boardLayout / sequencePlan).
+- **Usuarios**: `name` (teacher/student), `grantedBy` (consent), `newClassroom`, `reason` (transferStudent).
+- **Anuncios super_admin**: `title`, `body`, `linkLabel`.
+
+**Caracteres rechazados:**
+- Zero-width: `U+200B` (ZWSP), `U+200C` (ZWNJ), `U+200D` (ZWJ), `U+FEFF` (BOM), `U+2060-2064` (WJ + invisible math).
+- Direccionales (RTL/LTR override): `U+200E` (LRM), `U+200F` (RLM), `U+202A-202E` (LRE/RLE/PDF/LRO/**RLO**), `U+2066-2069` (LRI/RLI/FSI/PDI).
+- Separadores invisibles: `U+2028` (LS), `U+2029` (PS).
+- Caracteres de control ASCII `\x00-\x1F\x7F`; modo `allowMultiline=true` permite `\t \n \r`.
+
+**Motivación:** ataques de homógrafo, falsificación visual de nombres en listados ("María<U+202E>evad" se renderiza como "MaríadaveU+202E"), rotura de layout por payload abusivo (10K caracteres en `displayName`). CSP+React mitigan XSS clásico pero no estos vectores semánticos. Implementación con `Set<number>` de codepoints + función `containsInvisibleUnicode(str)` — evita literales regex con caracteres invisibles que rompen el parser.
+
+**Tests:** validan que valores con cada categoría son rechazados con error 400 + mensaje en español ("X contiene caracteres invisibles o direccionales no permitidos"). Verificado E2E enviando `POST /api/contexts {displayName: "test<U+202E>evil"}` → 400.
+
+### 9.5 File upload validation (B3)
 - Multer `limits.fileSize`: 8MB imágenes, 5MB audio.
 - Multer `fileFilter` por MIME declarado.
 - **B3 nuevo:** middleware `validateImageMagicBytes` + `validateAudioMagicBytes` (en `middlewares/fileValidation.js`) detecta magic bytes propios (PNG, JPEG, GIF, WebP, MP3 ID3+sync, OGG, WAV) sin libs externas (file-type@22 es ESM-only). Aplicado en routes `/contexts/:id/images`, `/contexts/:id/audio`, `/contexts/:id/assets/:assetKey/audio`.
@@ -305,11 +327,13 @@ Surrogate-Control: no-store
 ```
 Defensa contra Cloudflare edge cache y proxies intermedios cacheando respuestas con PII de menores.
 
-### 10.4 DTO output sanitization audit (B2)
+### 10.4 DTO output sanitization audit (B2 + ADR-164)
 Test sistemático `dtoOutputSanitization.test.js` verifica que DTOs NUNCA exponen:
 - `password`, `passwordHash`, `__v`, `_internal`, `currentSessionId`
 - `mfa.secret`, `mfa.backupCodes`
 - `consent.ipAddress`, `consent.userAgent`, `consent.channel`
+
+**ADR-164 amplía cobertura a:** `toGamePlayDTOV1`, `toGamePlayDetailDTOV1`, `toGameSessionDTOV1`, `toGameSessionDetailDTOV1`, `toGameSessionListDTOV1`, `toCardDeckDTOV1`, `toCardDeckDetailDTOV1`, `toGameContextDTOV1`, `toSystemMetricsDTOV1`. Cada uno valida que campos artificiales como `_internal`, `__v` o `password` (inyectados en el mock) NO aparecen en la salida del serializador. Red de seguridad ante regresiones al editar `utils/dtos.js`.
 
 ### 10.5 GDPR export
 Endpoint `GET /api/users/:id/export` (rate limit 1/min) devuelve datos del propio usuario o de menores bajo su tutela. Verificado: no leak cross-user (test `gdprExportSanitization` cubierto via dtoOutputSanitization).
@@ -391,6 +415,20 @@ Firmware ESP8266 envía JSON line-delimited al puerto serie:
 3. PlatformIO build: `RFID_HMAC_SECRET=<secret> pio run --target upload` (variable inyectada vía build_flags en `rfid_scanner/platformio.ini`).
 4. Cuando todos los sensores estén actualizados: `RFID_HMAC_ENABLED=true` en backend + redeploy.
 
+### 13.5 RFID mode mutex con timeout duro (ADR-164, C1)
+`executeWithRfidLock(userId, operation)` en `realtime/socketHandlers.js` serializa operaciones RFID por usuario. **Antes:** una operación colgada (Mongo lento, Redis bloqueado, deadlock) dejaba `releaseLock` sin invocarse y la cola del usuario esperaba indefinidamente; el socket RFID moría en silencio.
+
+**Ahora:** `Promise.race([operation(), timeoutPromise(RFID_OPERATION_TIMEOUT_MS=10s)])`. En timeout:
+1. Libera lock para que la siguiente operación pueda arrancar.
+2. Incrementa `runtimeMetrics.websocket.rfidLockTimeouts`.
+3. Registra `SECURITY_EVENT('RFID_LOCK_TIMEOUT')` con threshold Sentry 3/min (configurado en `securityLogger.SECURITY_EVENTS`).
+4. Emite `rfid_mode_error` al room `user_${userId}` con copy en español: "La operación RFID tardó demasiado y se ha cancelado. Vuelve a intentarlo."
+5. El caller recibe `Error{code:'RFID_LOCK_TIMEOUT'}` y lo propaga al try/catch genérico del comando socket.
+
+**Env var configurable:** `RFID_OPERATION_TIMEOUT_MS=10000`. En QA permite simular timeouts más cortos para validar el flujo.
+
+**Mitigación:** una espiga en `rfidLockTimeouts` revela degradación de Mongo/Redis antes de que afecte UX masivamente. Combinado con el slow-query log de `gamePlayRepository.aggregate` (ADR-164, M1) y el circuit breaker Redis, da observabilidad fina del pipeline RFID.
+
 ---
 
 ## 14. Vulnerabilidades avanzadas y mitigaciones
@@ -418,6 +456,10 @@ Resumen tras T-905. El proyecto cubre actualmente:
 | CORS misconfig | ✅ whitelist dinámico + Referer check | §7.1 |
 | Cache leak Cloudflare | ✅ Cache-Control no-store global /api | §10.3 |
 | MFA bypass | ✅ requireMfa middleware + emergency disable | §4.8 |
+| Unicode homograph + RTL spoofing | ✅ `sanitizedString` rechaza invisibles/direccionales (ADR-164) | §9.4 |
+| RFID socket starvation por lock colgado | ✅ `Promise.race(timeout)` + `rfidLockTimeouts` (ADR-164) | §13.5 |
+| Admin mass approval abuse | ✅ `adminApprovalRateLimiter` 100/h (ADR-164) | §8.2 |
+| Inconsistent `cardMappings` (UID duplicate bypass Zod) | ✅ Mongoose path validator (ADR-164) | §9.3 |
 | RFID replay | ✅ HMAC + counter EEPROM | §13.2 |
 | Race conditions auth | ✅ mutex Redis card locks + grace period rotation | ADR-072 |
 | GDPR data leak (Sentry) | ✅ beforeSend redact | §11.3 |

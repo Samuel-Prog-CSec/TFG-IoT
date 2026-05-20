@@ -217,9 +217,10 @@ function TrajectoryChart({ trajectoryData, classComparison, title = 'Trayectoria
         </ResponsiveContainer>
       </div>
 
-      {/* Trend confidence info */}
+      {/* Trend confidence info — BUG-A11Y-TRAJECTORY-CONFIDENCE (QA Sprint 0):
+          text-text-disabled daba 2.52:1 sobre card light. text-muted cumple AA. */}
       {trajectoryData?.trend?.confidence && (
-        <p className="text-xs text-text-disabled mt-2 text-right">
+        <p className="text-xs text-text-muted mt-2 text-right">
           Confianza: {trajectoryData.trend.confidence}
           {trajectoryData.trend.dataPoints && ` (${trajectoryData.trend.dataPoints} puntos)`}
         </p>

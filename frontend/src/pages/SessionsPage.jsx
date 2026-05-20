@@ -275,7 +275,10 @@ const SessionCard = memo(function SessionCard({
             ) : (
               <h3 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]">{title}</h3>
             )}
-            <p className="text-sm text-text-muted">{mechanicLabel} · {contextLabel}</p>
+            {/* BUG-A11Y-CONTRAST-SESSIONCARD-A (QA Sprint 0 post-v0.5.0):
+                text-text-muted sobre card bg daba 3.92:1. text-secondary
+                pasa AA y mantiene jerarquía visual. */}
+            <p className="text-sm text-text-secondary">{mechanicLabel} · {contextLabel}</p>
           </div>
           <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
         </div>

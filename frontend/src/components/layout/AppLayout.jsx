@@ -258,25 +258,30 @@ export default function AppLayout() {
           La clase `.aurora-layer` aplica el modo de mezcla correcto: `screen`
           en dark, `multiply` en light (evita las manchas grises del screen
           sobre fondo claro). */}
-      <div className="aurora-layer fixed inset-0 pointer-events-none overflow-hidden opacity-25">
+      {/* BUG-A11Y-AURORA-OPACITY (QA Sprint 0 + tuning post): mezclamos cada
+          blob con bg-base via color-mix para que axe samplee un bg cercano
+          al neutral. Tras tuning iterativo, 18%/15%/15% es el último set que
+          mantiene 0 violaciones en SessionDetail (mecánica Secuencia amber
+          es el peor caso) — la firma de atmósfera se nota más sin romper AA. */}
+      <div className="aurora-layer fixed inset-0 pointer-events-none overflow-hidden">
         <motion.div
-          className="absolute top-0 left-1/4 size-96 rounded-full blur-[128px] opacity-80"
+          className="absolute top-0 left-1/4 size-96 rounded-full blur-[128px]"
           style={{
-            backgroundColor: 'var(--color-atmosphere-aurora-1)',
+            backgroundColor: 'color-mix(in oklab, var(--color-atmosphere-aurora-1) 18%, var(--color-background-base))',
             y: shouldReduceMotion ? 0 : auroraOffset1
           }}
         />
         <motion.div
-          className="absolute bottom-0 right-1/4 size-96 rounded-full blur-[128px] opacity-60"
+          className="absolute bottom-0 right-1/4 size-96 rounded-full blur-[128px]"
           style={{
-            backgroundColor: 'var(--color-atmosphere-aurora-2)',
+            backgroundColor: 'color-mix(in oklab, var(--color-atmosphere-aurora-2) 15%, var(--color-background-base))',
             y: shouldReduceMotion ? 0 : auroraOffset2
           }}
         />
         <motion.div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px] opacity-50 size-[clamp(320px,40vw,600px)]"
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px] size-[clamp(320px,40vw,600px)]"
           style={{
-            backgroundColor: 'var(--color-atmosphere-aurora-3)',
+            backgroundColor: 'color-mix(in oklab, var(--color-atmosphere-aurora-3) 15%, var(--color-background-base))',
             y: shouldReduceMotion ? 0 : auroraOffset3
           }}
         />
@@ -414,7 +419,7 @@ export default function AppLayout() {
                     className={cn(
                       'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider',
                       isSuperAdmin
-                        ? 'bg-warning-base/15 text-warning-base border border-warning-base/30'
+                        ? 'bg-warning-base/15 text-warning-on-alpha border border-warning-base/30'
                         : 'bg-brand-base/15 text-brand-light border border-brand-base/30'
                     )}
                   >
@@ -448,7 +453,7 @@ export default function AppLayout() {
           {isSuperAdmin && (
             <>
               {!isCompact && (
-                <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-warning-base uppercase tracking-widest flex items-center gap-2">
+                <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-warning-on-alpha uppercase tracking-widest flex items-center gap-2">
                   <Shield size={10} /> Gestión del centro
                 </p>
               )}

@@ -635,3 +635,18 @@ Cron `*/15 * * * *` (configurable por `ALERT_DETECTION_CRON`) ejecuta los 13 det
 Total esperado: <3 s para 50 teachers, lejos del límite del free tier Atlas M0. Si crece, se puede subir `ALERT_DETECTION_CRON` a `*/30 * * * *` o shardear como `dataRetention` (T-907 INT4) modificando `runForAllTeachers`.
 
 **Endpoint `GET /api/analytics/alerts`**: tras la primera corrida, latencia <50 ms (lectura `smartalerts` + cache `cache:alerts` 60 s) vs 200–500 ms del cálculo on-the-fly anterior. La carga MongoDB por refrescos del docente queda prácticamente eliminada (cache golpea ~95 %).
+
+## Sprint 0 pre-v1.0.0 — Observabilidad de pipelines + perf frontend (ADR-164)
+
+### M1 — Slow-query log en `gamePlayRepository.aggregate`
+`backend/src/repositories/gamePlayRepository.js` ya tenía `DEFAULT_AGGREGATE_TIMEOUT_MS=15000` configurable vía env. Sprint 0 añade `SLOW_AGGREGATE_WARN_MS=5000` (también configurable):
+- Si la aggregation termina pero tarda > `SLOW_AGGREGATE_WARN_MS` → `logger.warn(alert:true, {elapsedMs, maxTimeMS, firstStage})`. Indica candidato a materialización (BullMQ nightly → campos `studentMetrics`) o índice secundario faltante.
+- Si MongoDB aborta por `MaxTimeMSExpired` → `logger.error(alert:true, ...)`. La query se considera "envenenada" y el caller recibe el error tal cual.
+
+Permite detectar pipelines analytics que tienden a degradar **antes** de que afecten UX. Combinado con Sentry beforeSend redact, las alertas no fugan PII. Diferido a Sprint 3: extracción de los pipelines más caros (`getStudentDifficulties`, `getStudentSummary`) a vista materializada nightly.
+
+### M3 — `CharacterMascot` pausa loops fuera de viewport
+`frontend/src/components/game/CharacterMascot.jsx` añade `useInView(containerRef)` además de `useReducedMotion()`. Los 8 loops `repeat: Infinity` (float/bounce/jump/nod/tilt/sway/pointRight/wobble) y las decoraciones `celebrating` (Star/Sparkles con escalado infinito) solo se activan cuando la mascota está en pantalla. Tras un scroll fuera o tras navegar a GameOver, los rAF de Framer Motion se detienen automáticamente. DevTools Performance muestra reducción a ~0 frames/s gastados por la mascota fuera de viewport.
+
+### M8 — Auto-cleanup de intervals en `useConfetti`
+`frontend/src/hooks/useConfetti.js` mantiene `activeIntervalsRef = new Set()` y limpia todos los intervals en cleanup de `useEffect` al unmount del hook. Antes, `fireFireworks` retornaba `() => clearInterval(interval)` pero callers podían ignorar el return value, dejando intervals huérfanos si el componente se desmontaba mid-celebración. `canvas-confetti` gestiona su propio rAF interno y se autopara cuando las partículas mueren; el cleanup nuevo solo cancela nuestros intervals.

@@ -648,6 +648,33 @@ const exportDataRateLimiter = createRateLimiter({
   keyGenerator: userOrIpKeyGenerator
 });
 
+/**
+ * Rate limiter específico para acciones administrativas masivas
+ * (aprobar/rechazar profesores). Defense-in-depth ante un super_admin
+ * comprometido que intente automatizar aprobaciones en lote, o ante un bug
+ * de UI que dispare múltiples peticiones idénticas en bucle.
+ *
+ * Diseñado para no molestar al super_admin legítimo (100 aprobaciones/hora
+ * cubre cualquier caso real) pero romper escenarios de abuso.
+ *
+ * @type {import('express-rate-limit').RateLimitRequestHandler}
+ */
+const adminApprovalRateLimiter = createRateLimiter({
+  prefix: 'admin_approval',
+  windowMs: 60 * 60 * 1000, // 1 hora
+  max: Number.parseInt(process.env.RATE_LIMIT_ADMIN_APPROVAL_MAX, 10) || (isDev ? 1000 : 100),
+  message: {
+    success: false,
+    message: 'Demasiadas acciones administrativas, espera un momento'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  // Key por userId (el limiter se monta tras `authenticate + requireRole('super_admin')`,
+  // por lo que `req.user` siempre existe). Sin fallback a IP — si no hay user, el
+  // helper devuelve la IP, lo que es seguro por defecto.
+  keyGenerator: userOrIpKeyGenerator
+});
+
 module.exports = {
   corsOptions,
   ensureCsrfCookie,
@@ -663,6 +690,7 @@ module.exports = {
   analyticsRateLimiter,
   uploadRateLimiter,
   exportDataRateLimiter,
+  adminApprovalRateLimiter,
   initRateLimiters,
   corsWhitelist,
   CSRF_COOKIE_NAME,

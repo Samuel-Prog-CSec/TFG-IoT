@@ -30,14 +30,20 @@ export default function GuestRoute({ children }) {
   // Redirigir si ya está autenticado
   if (isAuthenticated && user) {
     // Determinar destino según rol
-    const destination = user.role === 'super_admin' 
-      ? ROUTES.ADMIN_APPROVALS 
+    const destination = user.role === 'super_admin'
+      ? ROUTES.ADMIN_APPROVALS
       : ROUTES.DASHBOARD;
 
-    // Obtener ruta original si existe
-    const from = location.state?.from?.pathname || destination;
+    // Obtener ruta original si existe — pero validar compatibilidad con el rol.
+    // BUG-AUTH-A (QA Sprint 0 post-v0.5.0): un super_admin no debería volver
+    // a /dashboard (teacher) ni un teacher a /admin/* (super_admin).
+    const from = location.state?.from?.pathname;
+    const isAdminPath = path => path.startsWith('/admin');
+    const fromCompatible = from && (
+      user.role === 'super_admin' ? isAdminPath(from) : !isAdminPath(from)
+    );
 
-    return <Navigate to={from} replace />;
+    return <Navigate to={fromCompatible ? from : destination} replace />;
   }
 
   return children;

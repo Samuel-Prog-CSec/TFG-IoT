@@ -115,12 +115,15 @@ const staggerItem = {
  * @param {React.ReactNode} props.value - Valor a mostrar
  */
 function InfoRow({ icon, label, value }) {
+  // BUG-CONSENT-INFOROW-A (QA Sprint 0 post-v0.5.0): el value puede contener
+  // un <div> (ej. "Finalidades" pinta una lista de chips). Si envolvemos en
+  // <p> rompe HTML semantics y React lanza hydration error.
   return (
     <div className="flex items-start gap-3 py-2">
       <span className="mt-0.5 text-text-muted">{icon}</span>
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium text-text-muted uppercase tracking-wider">{label}</p>
-        <p className="text-sm text-text-primary mt-0.5 break-words">{value ?? '—'}</p>
+        <div className="text-sm text-text-primary mt-0.5 break-words">{value ?? '—'}</div>
       </div>
     </div>
   );

@@ -73,3 +73,28 @@ Errors and warnings are never sampled.
 - In production, ship JSON logs to the central log collector.
 - In development, `pino-pretty` improves readability.
 - In tests, logs are silent by default to keep output clean.
+
+## Sprint 0 pre-v1.0.0 — Nuevo evento de seguridad + slow-query log (ADR-164)
+
+### `RFID_LOCK_TIMEOUT` (securityLogger)
+Registrado en `backend/src/utils/securityLogger.js` con:
+
+```js
+RFID_LOCK_TIMEOUT: {
+  level: 'error',
+  message: 'Operación RFID excedió el timeout y se liberó el lock',
+  sentry: { threshold: 3, windowMs: 60 * 1000, level: 'warning' }
+}
+```
+
+Disparado por `executeWithRfidLock` en `realtime/socketHandlers.js` cuando una operación interna excede `RFID_OPERATION_TIMEOUT_MS=10s` (configurable). Sentry recibe el alert si llegan 3 incidentes en una ventana de 60s — espiga genuina = degradación de Mongo o Redis. Payload incluye `userId`, `timeoutMs`. Sin PII de menores.
+
+### Slow-query log de `gamePlayRepository.aggregate`
+`backend/src/repositories/gamePlayRepository.js` envuelve cada `aggregate()` en try/catch + medición de tiempo:
+- Si `elapsedMs > SLOW_AGGREGATE_WARN_MS=5000` (configurable) → `logger.warn(alert:true, {elapsedMs, maxTimeMS, firstStage, slowThresholdMs})`.
+- Si MongoDB aborta con `MaxTimeMSExpired` → `logger.error(alert:true, ...)`.
+
+El log estructurado incluye `firstStage` (`$match`, `$lookup`, etc.) para identificar el pipeline culpable sin necesidad de incluir el cuerpo entero. Útil para detectar candidatos de materialización antes de que afecten UX.
+
+### Nueva métrica observada por `/api/metrics`
+`runtimeMetrics.websocket.rfidLockTimeouts` incrementa por cada disparo del timeout. Dashboard de observabilidad debe incluir esta serie en producción — espiga súbita correlaciona con degradación de Atlas o Upstash.

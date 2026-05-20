@@ -122,11 +122,14 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
               interval={0}
             />
             <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+            {/* BUG-A11Y-RECHARTS-PATH-LABEL (QA Sprint 0): Recharts forwarda
+                aria-label a <path> internos, lo cual viola aria-prohibited-attr.
+                El nombre accesible del chart se proporciona ya por
+                ThemedChartContainer (region aria-label). */}
             <Bar
               dataKey="score"
               radius={[0, 6, 6, 0]}
               barSize={20}
-              aria-label={`Rendimiento por ${dimension === 'context' ? 'contexto' : 'mecánica'}`}
               {...motion()}
             >
               {/* Cada celda usa pattern RAG (color + textura distintiva)
