@@ -1,0 +1,128 @@
+name: Free-tier monthly review
+
+# Abre una issue con una checklist mensual de las cuotas free-tier de los
+# proveedores que NO tenemos instrumentados internamente vía SmartAlert.
+# Los servicios con telemetría interna (Upstash commands, Atlas storage,
+# rate-limit fallback, LRU hit ratio) los vigilan los detectores; este
+# workflow cubre los que requieren login manual al panel del proveedor:
+# Sentry quota, Supabase egress, Cloudflare bandwidth, GitHub Actions
+# minutes y Grafana Cloud Loki ingest.
+#
+# Trigger: día 1 de cada mes a las 09:00 UTC (≈10:00 Europa/Madrid).
+# También invocable manualmente vía workflow_dispatch para verificar el
+# formato sin esperar al cron.
+
+on:
+  schedule:
+    - cron: "0 9 1 * *"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  create-review-issue:
+    name: Crear issue de revisión mensual
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: Abrir issue checklist
+        uses: actions/github-script@v8
+        with:
+          script: |
+            const now = new Date();
+            const year = now.getUTCFullYear();
+            const monthIdx = now.getUTCMonth();
+            const monthNames = [
+              'Enero', 'Febrero', 'Marzo', 'Abril', 'Mayo', 'Junio',
+              'Julio', 'Agosto', 'Septiembre', 'Octubre', 'Noviembre', 'Diciembre'
+            ];
+            const monthName = monthNames[monthIdx];
+            const yearMonth = `${year}-${String(monthIdx + 1).padStart(2, '0')}`;
+            const title = `Free-tier monthly review — ${yearMonth}`;
+
+            const body = [
+              `# Revisión mensual de cuotas externas — ${monthName} ${year}`,
+              '',
+              'Esta issue se ha generado automáticamente por el workflow',
+              '`free-tier-monthly-review.yml` (T-910, ADR-168). Cubre los',
+              'servicios cloud cuya cuota **no** vigilamos internamente vía',
+              '`SystemAlert` y que por tanto requieren revisión manual una',
+              'vez al mes.',
+              '',
+              '> Los servicios con detector interno automático (Upstash',
+              '> commands, Atlas storage, rate-limit fallback, hit ratio LRU)',
+              '> NO necesitan checklist: el motor `systemAlertDetectionService`',
+              '> ya emite alertas continuamente al cruzar el 80%.',
+              '',
+              '## Checklist',
+              '',
+              '- [ ] **Sentry** → [Stats → Quotas](https://sentry.io/settings/account/notifications/quota/) — verificar errores (<5 K) y transacciones (<10 K) mensuales por debajo del 80%.',
+              '- [ ] **Supabase Storage** → Studio → Project Settings → Usage — verificar storage (<800 MB) y egress mensual (<4 GB).',
+              '- [ ] **Cloudflare** → [Pages Analytics](https://dash.cloudflare.com/) — verificar builds del mes (<300) y traffic sin anomalías.',
+              '- [ ] **GitHub Actions** → [Settings → Billing](https://github.com/settings/billing) — sólo si el repo es privado: verificar minutos consumidos (<1500 sobre 2000).',
+              '- [ ] **Grafana Cloud Loki** → Stack `eduplay-rfid` → Usage — verificar ingest mensual (<40 GB sobre 50 GB).',
+              '- [ ] **UptimeRobot** → [Dashboard](https://uptimerobot.com/dashboard) — verificar que los 4 monitors están en verde y que la [status page pública](https://stats.uptimerobot.com/eduplay-rfid) responde.',
+              '',
+              '## Si algún servicio cruza el 80%',
+              '',
+              'Abrir el playbook correspondiente del Runbook:',
+              '',
+              '- Sentry → [Runbook §13d](../../documentation/Runbook_Operacional.md#13d-sentry-quota-al-80).',
+              '- Supabase egress → [Runbook §13c](../../documentation/Runbook_Operacional.md#13c-supabase-egress-al-80).',
+              '- Cloudflare / GitHub Actions / Grafana → caso a caso (sin playbook dedicado al ser raramente alcanzables).',
+              '',
+              '## Cierre',
+              '',
+              'Marca todas las casillas y cierra la issue. La próxima se abrirá',
+              'el día 1 del mes siguiente.',
+              '',
+              '_Referencias: [`Free_Tier_Budget.md`](../../documentation/Free_Tier_Budget.md), [ADR-168](../../documentation/Architecture_Decisions.md)._'
+            ].join('\n');
+
+            // Crear o reutilizar la label.
+            try {
+              await github.rest.issues.getLabel({
+                owner: context.repo.owner,
+                repo: context.repo.repo,
+                name: 'meta/monthly-review'
+              });
+            } catch (err) {
+              if (err.status === 404) {
+                await github.rest.issues.createLabel({
+                  owner: context.repo.owner,
+                  repo: context.repo.repo,
+                  name: 'meta/monthly-review',
+                  color: 'FBCA04',
+                  description: 'Revisión mensual de cuotas free-tier (T-910)'
+                });
+              } else {
+                throw err;
+              }
+            }
+
+            // Evitar duplicar si ya existe una issue abierta para este mes.
+            const { data: existingIssues } = await github.rest.issues.listForRepo({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              state: 'open',
+              labels: 'meta/monthly-review',
+              per_page: 50
+            });
+            const duplicate = existingIssues.find(i => i.title === title);
+            if (duplicate) {
+              core.notice(`Ya existe issue abierta para ${yearMonth}: #${duplicate.number}`);
+              return;
+            }
+
+            const { data: issue } = await github.rest.issues.create({
+              owner: context.repo.owner,
+              repo: context.repo.repo,
+              title,
+              body,
+              labels: ['meta/monthly-review'],
+              assignees: ['Samuel-Prog-CSec']
+            });
+            core.notice(`Issue creada: #${issue.number} — ${issue.html_url}`);

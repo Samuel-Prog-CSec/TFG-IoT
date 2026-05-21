@@ -246,7 +246,8 @@ TFG-IoT/
 
 - **Status page pública**: https://stats.uptimerobot.com/eduplay-rfid — estado en tiempo real de API y frontend (prod + staging). _URL definitiva confirmada al activarla en T-904 Bloque 8.3._
 - **Hub observabilidad**: [`documentation/Operational_Dashboard.md`](documentation/Operational_Dashboard.md) — Atlas, Upstash, Koyeb, Cloudflare, Sentry, Grafana Cloud Loki, UptimeRobot. Saved queries LogQL incluidas.
-- **Playbooks ante incidente**: [`documentation/Runbook_Operacional.md`](documentation/Runbook_Operacional.md) — 18 procedimientos (deploys, rollbacks, alertas Sentry y UptimeRobot, RGPD, slow queries).
+- **Playbooks ante incidente**: [`documentation/Runbook_Operacional.md`](documentation/Runbook_Operacional.md) — procedimientos (deploys, rollbacks, alertas Sentry y UptimeRobot, RGPD, slow queries, cuotas free-tier).
+- **Presupuesto free-tier**: [`documentation/Free_Tier_Budget.md`](documentation/Free_Tier_Budget.md) — límites por servicio, consumo estimado, alertas tempranas y plan B (ADR-167).
 - **Observabilidad técnica**: traces en Sentry Performance (`op:gameplay`, `op:rfid.scan`, `op:analytics`); logs estructurados en Grafana Cloud Loki con retención 14 días (ADR-165, ADR-166).
 
 ---

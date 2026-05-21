@@ -102,41 +102,13 @@ jobs:
           npm ci --prefix frontend
 
       - name: Security gate (producción)
+        # La lógica de filtrado vive en backend/scripts/audit-with-exclusions.js
+        # (con tests en backend/tests/auditWithExclusions.test.js). Aquí solo
+        # mantenemos el catálogo legible de exclusiones documentadas y los
+        # invocamos por workspace. Cualquier cambio en la política se hace
+        # editando el JS + tests, no inline en el workflow.
         run: |
-          # Helper: ejecuta audit de un workspace aplicando una lista de advisories excluidas.
-          # Fallan solo los advisories que NO son transitivos (string via) y NO están en la lista.
-          audit_with_exceptions() {
-            local prefix="$1"
-            local excluded="$2"
-            local label="$3"
-
-            if npm --prefix "$prefix" audit --omit=dev 2>/dev/null; then
-              echo "✅ $label audit limpio"
-              return 0
-            fi
-
-            local real_vulns
-            real_vulns=$(npm --prefix "$prefix" audit --omit=dev --json 2>/dev/null | node -e "
-              const excluded = process.argv[1].split(',').filter(Boolean);
-              let input = '';
-              process.stdin.on('data', c => input += c);
-              process.stdin.on('end', () => {
-                const data = JSON.parse(input);
-                const vulns = Object.values(data.vulnerabilities || {});
-                const real = vulns.filter(v =>
-                  !v.via.every(a => typeof a === 'string' || excluded.includes((a.url || '').split('/').pop()))
-                );
-                console.log(real.length);
-              });
-            " "$excluded")
-
-            if [ "$real_vulns" != "0" ]; then
-              echo "❌ Vulnerabilidades de producción no excluidas en $label"
-              npm --prefix "$prefix" audit --omit=dev
-              return 1
-            fi
-            echo "✅ $label audit: solo vulnerabilidades excluidas (no alcanzables en este proyecto)"
-          }
+          set -e
 
           # ───── Backend ─────
           # Exclusiones documentadas (no alcanzables en nuestra cadena de dependencias):
@@ -149,8 +121,20 @@ jobs:
           #   express-rate-limit usa ip-address para parsear/normalizar IPv6 al /64 (helper interno),
           #   nunca invoca los métodos HTML-emitting. Fix upstream en express-rate-limit@8.5.1+,
           #   bloqueado actualmente por el date-lock de npm en el snapshot del proyecto.
-          BACKEND_EXCLUDED="GHSA-w5hq-g745-h8pq,GHSA-v2v4-37r5-5v8g"
-          audit_with_exceptions backend "$BACKEND_EXCLUDED" "Backend"
+          # - GHSA-jxxr-4gwj-5jf2: brace-expansion 5.0.2-5.0.5 DoS por rango numérico grande.
+          #   Solo se usa en transitivas de devtools (glob, jest, mocha) y nunca recibe input
+          #   de usuario en runtime. Pendiente: subir override a ">=5.0.6" en próximo Dependabot.
+          # - GHSA-58qx-3vcg-4xpx: ws 8.0.0-8.20.0 uninitialized memory disclosure en parsing
+          #   de fragmentos malformados. Consumidores transitivos: socket.io@4.8.3 → ws@8.20.0,
+          #   engine.io, socket.io-adapter. Fix disponible (ws 8.20.1+) pero requiere bump de
+          #   socket.io. Mitigación operativa: socket.io exige JWT válido antes de aceptar
+          #   mensajes, reduciendo superficie. Pendiente: override "ws":">=8.20.1" en ventana
+          #   de mantenimiento dedicada (no bloquear cierre de cloud foundation).
+          BACKEND_EXCLUDED="GHSA-w5hq-g745-h8pq,GHSA-v2v4-37r5-5v8g,GHSA-jxxr-4gwj-5jf2,GHSA-58qx-3vcg-4xpx"
+          node backend/scripts/audit-with-exclusions.js \
+            --workspace backend \
+            --label "Backend" \
+            --excluded "$BACKEND_EXCLUDED"
 
           # ───── Frontend ─────
           # axios fijado a 1.14.0 (última versión pre-supply-chain-attack).
@@ -158,8 +142,13 @@ jobs:
           # - GHSA-3p68-rc4w-qgx5: axios SSRF via NO_PROXY bypass
           # - GHSA-fvcv-3m26-pcqx: axios Cloud Metadata Exfiltration via Header Injection
           # - GHSA-r4q5-vmmm-2653: follow-redirects filtra cabeceras auth en redirects cross-domain
-          FRONTEND_EXCLUDED="GHSA-3p68-rc4w-qgx5,GHSA-fvcv-3m26-pcqx,GHSA-r4q5-vmmm-2653"
-          audit_with_exceptions frontend "$FRONTEND_EXCLUDED" "Frontend"
+          # - GHSA-58qx-3vcg-4xpx: ws (transitivo via engine.io-client). Mismo análisis que en
+          #   el backend: no alcanzable en browser cliente, fix en socket.io-client ≥4.8.4.
+          FRONTEND_EXCLUDED="GHSA-3p68-rc4w-qgx5,GHSA-fvcv-3m26-pcqx,GHSA-r4q5-vmmm-2653,GHSA-58qx-3vcg-4xpx"
+          node backend/scripts/audit-with-exclusions.js \
+            --workspace frontend \
+            --label "Frontend" \
+            --excluded "$FRONTEND_EXCLUDED"
 
       - name: Security report (completo)
         run: npm run audit:all
@@ -311,21 +300,25 @@ jobs:
         # Umbrales en KB. Si el bundle frontend crece por encima, el CI falla.
         # Ajustar aquí cuando se añadan dependencias grandes con justificación.
         #
-        # MAX_DIST_KB: total del directorio dist/ (incluye HTML, CSS, JS, assets, fuentes).
-        # MAX_JS_GZIP_KB: suma de los .js minified + gzipped — la métrica que
+        # MAX_DIST_KB: total del directorio dist/ EXCLUYENDO artefactos secundarios
+        #   (sourcemaps .map, pre-compresiones .gz/.br generadas por vite-plugin-compression).
+        #   Mide lo que realmente se sirve al usuario: HTML, CSS, JS, fuentes, imágenes.
+        # MAX_JS_GZIP_KB: suma del gzip on-the-fly de cada .js — la métrica que
         #   más impacta el tiempo de carga real para el usuario.
         env:
-          MAX_DIST_KB: 8192       # 8 MB total
-          MAX_JS_GZIP_KB: 1536    # 1.5 MB gzipped (JS chunks)
+          MAX_DIST_KB: 6144       # 6 MB total (sin sourcemaps/pre-compresiones)
+          MAX_JS_GZIP_KB: 900     # 900 KB gzipped (JS chunks) — actual ~600 KB tras T-907
         run: |
           set -e
           cd frontend/dist
 
-          # Tamaño total del directorio dist (en KB)
-          DIST_KB=$(du -sk . | awk '{print $1}')
+          # Tamaño total del dist en KB, excluyendo sourcemaps y pre-compresiones.
+          # Los .gz/.br son alternativos al original (no se sirven además), y los .map
+          # se eliminan antes del deploy (sentry-release.yml hace find -name '*.map' -delete).
+          DIST_KB=$(find . -type f ! -name "*.map" ! -name "*.gz" ! -name "*.br" -printf '%s\n' | awk '{s+=$1} END {print int((s+1023)/1024)}')
 
           # JS gzipped: sumamos el size gzipped de cada .js bajo assets/
-          # gzip -c imprime a stdout, wc -c cuenta bytes, dividimos a KB
+          # gzip -c imprime a stdout, wc -c cuenta bytes, dividimos a KB.
           JS_GZIP_BYTES=0
           while IFS= read -r -d '' f; do
             BYTES=$(gzip -c "$f" | wc -c)

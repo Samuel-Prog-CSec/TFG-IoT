@@ -23,7 +23,11 @@ import {
   UserMinus,
   ImageOff,
   Archive,
-  FileX2
+  FileX2,
+  Gauge,
+  HardDrive,
+  Network,
+  Cpu
 } from 'lucide-react';
 
 // Reexportamos los estilos compartidos para que SystemAlertsHub no tenga que
@@ -42,6 +46,10 @@ export const SYSTEM_ALERT_TYPE_ICONS = {
   mongo_disconnected: Database,
   memory_pressure: MemoryStick,
   queue_backlog: ListTodo,
+  upstash_commands_quota: Gauge,
+  atlas_storage_quota: HardDrive,
+  rate_limit_store_fallback: Network,
+  in_memory_cache_low_hit: Cpu,
   account_lockout_spike: Lock,
   auth_failed_spike: ShieldAlert,
   token_theft_detected: ShieldOff,
@@ -58,6 +66,10 @@ export const SYSTEM_ALERT_TYPE_LABELS = {
   mongo_disconnected: 'MongoDB desconectado',
   memory_pressure: 'Memoria al límite',
   queue_backlog: 'Cola acumulada',
+  upstash_commands_quota: 'Comandos Upstash al límite',
+  atlas_storage_quota: 'Almacenamiento Atlas al límite',
+  rate_limit_store_fallback: 'Rate limit no distribuido',
+  in_memory_cache_low_hit: 'Caché LRU con bajo rendimiento',
   account_lockout_spike: 'Bloqueos de cuenta',
   auth_failed_spike: 'Fallos de login',
   token_theft_detected: 'Token comprometido',

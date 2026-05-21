@@ -8791,3 +8791,102 @@ PROP-110 dejó abierta la decisión entre Grafana Cloud Loki, BetterStack Logtai
 - Si el centro escala >5 docentes y el volumen sube a 5 GB/mes sostenidos, considerar bajar `LOG_SHIPPING_LEVEL` a `warn` para reducir verbosidad info.
 - LogQL alerts ("error rate > 5%/min") podrían sustituir parte de las Sentry Alerts cuando el equipo gane familiaridad con Grafana — diferido a un sprint post-v1.0.0.
 - Migración futura a Grafana on-premise (autohosted) si las condiciones cambian; `pino-loki` apunta a cualquier endpoint compatible.
+
+---
+
+## ADR-167: Saneamiento del pipeline CI/CD pre-cierre cloud foundation [DevOps]
+
+### Contexto (ADR-167)
+
+Antes de mergear `feature/cloud-foundation-and-cd` a `main`, el pipeline de CI/CD acumulaba varias deudas heredadas de iteraciones rápidas durante T-901..T-907:
+
+- **CI rojo desde 2026-05-14**: el step *Security Audit* de `build.yml` fallaba contra `GHSA-v2v4-37r5-5v8g` (ip-address XSS) pese a estar listada en `BACKEND_EXCLUDED`. El helper inline shell+Node inline rompía cuando el campo `via[]` mezclaba strings y objetos sin `url` (caso `ip-address` → `express-rate-limit`). Además, dos nuevas advisories (`GHSA-jxxr-4gwj-5jf2` brace-expansion, `GHSA-58qx-3vcg-4xpx` ws) aparecieron en el snapshot npm entre auditorías.
+- **Inconsistencias entre workflows**: `sentry-release.yml` usaba `actions/checkout@v5` + `setup-node@v5` (resto del repo en `@v6`), sin `persist-credentials: false`, sin `timeout-minutes` y con `npx @sentry/cli@^2` sin pinning.
+- **URLs operativas tratadas como secretos**: `KOYEB_PROD_URL` y `KOYEB_STAGING_URL` configuradas como `secrets.*` quedaban enmascaradas en logs y bloqueaban el link clickable en la UI de Environments.
+- **Falta de coherencia local**: no había `.nvmrc` ni `CODEOWNERS`. `codeql.yml` arrastraba una matrix de un solo idioma sin valor real.
+- **Bundle budget mal dimensionado**: `MAX_JS_GZIP_KB=1536` era 2.5× el tamaño real (`604 KB` tras T-907); `MAX_DIST_KB=8192` se rompería con sourcemaps + pre-compresiones (`.gz`/`.br`) generadas por vite-plugin-compression, que NO se sirven al usuario y por tanto no deben contar.
+
+Objetivo: dejar el pipeline correcto, consistente y verificado antes de la release `v1.0.0`.
+
+### Decisión (ADR-167)
+
+1. **Extraer el helper Security Audit a un script Node testable**: nuevo `backend/scripts/audit-with-exclusions.js` que recorre `vulnerabilities[*].via` recursivamente (objetos con `url`, strings transitivos, defensivo ante futuras estructuras). Tests unitarios en `backend/tests/auditWithExclusions.test.js` (17 casos, cubren el bug original ip-address + express-rate-limit como caso 3). `build.yml` llama al script en lugar del shell inline.
+2. **Ampliar exclusiones documentadas**: `BACKEND_EXCLUDED` añade `GHSA-jxxr-4gwj-5jf2` (brace-expansion DoS, transitiva de devtools no alcanzable en runtime) y `GHSA-58qx-3vcg-4xpx` (ws memory disclosure, mitigado por gate JWT en socket.io). `FRONTEND_EXCLUDED` añade `GHSA-58qx-3vcg-4xpx` (ws transitiva en cliente). `dependency-review.yml` `allow-ghsas` sincronizado. Pendiente: bump de `socket.io` para cerrar `ws` cuando publique upstream.
+3. **Hardening `sentry-release.yml`**: `@v5`→`@v6`, `persist-credentials: false`, `timeout-minutes: 15`, pin `@sentry/cli@2.58.5` instalado una vez con `npm install --no-save`, `NODE_VERSION` centralizado como en `build.yml`.
+4. **Migrar URLs operativas a `vars`**: `KOYEB_PROD_URL` y `KOYEB_STAGING_URL` dejan de ser `secrets.*` y pasan a `vars.*` en `deploy-production.yml` y `deploy-staging.yml`. La política operativa explícita es **"tokens son secrets, URLs son vars"**.
+5. **`preview-deploy.yml`**: añadidos steps "Verificar secrets requeridos" al inicio de `preview` y `teardown` (patrón consistente con `deploy-staging.yml`).
+6. **`codeql.yml`**: eliminado `strategy.matrix.language` (un solo valor), usando literal `javascript-typescript` directo.
+7. **Bundle budget ajustado**:
+   - `MAX_JS_GZIP_KB`: 1536 → 900 (sobre 604 KB real, ~50% margen).
+   - `MAX_DIST_KB`: 8192 → 6144 con nueva fórmula que **excluye `.map`/`.gz`/`.br`** (sourcemaps se borran pre-deploy en sentry-release, las pre-compresiones son alternativas al original, no acumulativas). Dist real efectivo: ~2.2 MB, margen 64%.
+8. **`.nvmrc` raíz** con `24.14.0` para `nvm use` local; **`.github/CODEOWNERS`** mínimo con fallback global, ownership explícito de `/.github/`, `/.github/workflows/` y docs maestros.
+9. **No crear `RELEASE_PLEASE_TOKEN` PAT**: el approval gate manual del environment `production` es la capa de protección preferida. Un PAT que auto-dispare deploys post-tag eliminaría ese checkpoint.
+
+### Posibles Impactos / Consecuencias
+
+**Positivos:**
+- CI vuelve a verde y bloquea regresiones reales (la métrica JS gz ahora detecta crecimiento ≥50% en lugar de no detectar nada).
+- Helper Security Audit testeable y mantenible: ampliar exclusiones se hace editando JS con tests, no inline en un workflow opaco.
+- Política `secrets` vs `vars` clarificada y aplicada uniformemente.
+- Sentry release workflow listo para activarse con `vars.SENTRY_RELEASE_ENABLED=true` post-aprovisionamiento.
+
+**Negativos / Mitigaciones:**
+- Las exclusiones de `brace-expansion` y `ws` son provisionales hasta que Dependabot empuje el bump de socket.io y el override `brace-expansion>=5.0.6`. Riesgo residual mitigado (no alcanzables en runtime). Documentado el motivo en build.yml.
+- La migración `secrets`→`vars` requiere acción manual en Settings → Variables; mientras no esté, los workflows fallan en el step "Verificar secrets y variables requeridos" con error claro.
+
+### Estado Futuro
+
+- Eliminar las 2 exclusiones nuevas (`brace-expansion`, `ws`) cuando un Dependabot PR consolide el upgrade.
+- Cuando T-901 cierre, crear environment `production` (required reviewer Samuel-Prog-CSec, deployment branches `tags: v*`) — sin esto el primer deploy-production queda en *Waiting* indefinidamente.
+- Considerar action reutilizable local `.github/actions/setup-koyeb-cli` con checksum verificado para reducir riesgo supply-chain del actual `curl ... install.sh | sh`.
+
+---
+
+## ADR-168: Estrategia de presupuesto free-tier — detectores SmartAlert internos + revisión mensual externa [Full-stack, Backend, DevOps]
+
+### Contexto (ADR-168)
+
+El despliegue de v1.0.0 corre íntegramente sobre tiers gratuitos de proveedores cloud (MongoDB Atlas M0, Upstash Redis, Koyeb Eco, Cloudflare Pages, Supabase Storage, Sentry SaaS, UptimeRobot, GitHub Actions, Grafana Cloud Loki). Cada uno tiene cuotas distintas y mecanismos de notificación heterogéneos, lo que genera tres problemas concretos:
+
+1. **No existía un único documento** con todos los límites, el consumo estimado para el escenario objetivo y el plan B en caso de cruzarlos. Cuando una cuota se acerca al techo, el riesgo es que el sistema se rompa en silencio (Atlas storage lleno, Upstash commands agotados) sin aviso temprano accionable.
+2. **T-907 introdujo telemetría interna** (`runtimeMetrics.redis.commandsEstimatedDaily`, `commandsByCategory`, `inMemoryCache.*`, `rateLimitStoreFallbackCount`) pero esos datos quedaban como simples snapshots en `/api/metrics` sin convertirse en alertas operativas. `Operational_Dashboard.md` §3.4 incluso prometía una alerta Sentry al 80% Upstash, pero la implementación no existía.
+3. **Los proveedores sin API gratuita para consultar cuota programáticamente** (Sentry quota, Supabase egress, Cloudflare bandwidth, GitHub Actions minutes, Grafana Loki ingest) sólo se podían vigilar abriendo manualmente el panel del proveedor. Sin un recordatorio recurrente, esa revisión simplemente no se hacía.
+
+El cuarto problema relacionado era el **cold start** del plan Koyeb Eco: tras un periodo de inactividad la app responde lenta en el primer request post-idle. En el contexto de la defensa del TFG ese primer request puede ser el tribunal abriendo la app, una mala primera impresión evitable a coste cero.
+
+### Decisión (ADR-168)
+
+1. **Cuatro detectores SmartAlert internos nuevos** en el motor `systemAlertDetectionService`:
+   - `upstash_commands_quota`: lee `runtimeMetrics.redis.commandsEstimatedDaily` y compara contra `UPSTASH_DAILY_BUDGET` (default 10 000). Severity `warning` al 80%, `critical` al 95%. Incluye en `data` la categoría dominante para diagnóstico inmediato.
+   - `atlas_storage_quota`: consulta `mongoose.connection.db.stats({ scale: 1 })` con **caché en memoria del módulo de 1 hora** (sin caché, doce stats/hora penalizan al M0 compartido). Compara `dataSize + indexSize` contra `ATLAS_STORAGE_BUDGET_MB` (default 512).
+   - `rate_limit_store_fallback`: cualquier `runtimeMetrics.redis.rateLimitStoreFallbackCount > 0` dispara warning. Cierra una promesa abierta desde QA-BUG-1 (sesión 2026-04-20) y eleva a SmartAlert visible en `/admin/system-alerts` sin depender de Sentry.
+   - `in_memory_cache_low_hit`: hit ratio agregado de las tres instancias LRU (`authUser`, `mechanic`, `context`) sostenido bajo `LRU_HIT_RATIO_WARN` (default 0,4) durante 4 muestras consecutivas. Requiere mínimo 50 lookups acumulados (`minLookups`) para evitar falsos positivos en arranque frío.
+2. **Workflow programado `.github/workflows/free-tier-monthly-review.yml`** (cron día 1 de cada mes a las 09:00 UTC, también `workflow_dispatch`) que crea automáticamente una issue con checklist de los servicios externos sin telemetría interna. La issue queda asignada a Samuel y etiquetada `meta/monthly-review`. Si ya existe issue abierta para el mes en curso, no la duplica.
+3. **Cinco playbooks nuevos** en `Runbook_Operacional.md` (§13a-§13e) que detallan qué hacer cuando una alerta interna o un check manual cruce el 80%: Atlas storage, Upstash commands, Supabase egress, Sentry quota y cold-start warming Koyeb.
+4. **Presupuesto budget configurable vía env vars** (`UPSTASH_DAILY_BUDGET`, `ATLAS_STORAGE_BUDGET_MB`, `LRU_HIT_RATIO_WARN`) con defaults conservadores 2026. Setear a `0` desactiva el detector correspondiente (escape hatch para dev local).
+5. **Cold-start warming pasivo heredado de T-904**: los 4 monitors UptimeRobot que pingan `/health/live` cada 5 minutos cumplen el rol de mantener vivo el contenedor Koyeb Eco entre periodos sin tráfico real. `/health/live` no toca Mongo ni Redis, por lo que el warming no consume comandos Upstash ni conexiones Atlas.
+6. **Archivado del compose Docker producción**: `docker-compose.prod.yml` movido a `docker/archive/` con README dedicado. Producción ya no pasa por Docker desde T-901; conservar el compose en raíz era deuda cognitiva. Conservado en `archive/` para testing local pre-deploy.
+7. **Documento maestro `documentation/Free_Tier_Budget.md`** como fuente de verdad de límites, consumo estimado por servicio, monitoreo, umbral de migración y coste plan B (≈$79/mes total si todo escalase simultáneamente).
+8. **Memoria TFG actualizada** (§1.3 Alcance y limitaciones del cap.1) con sub-apartado dedicado a las limitaciones derivadas del despliegue cloud y las mitigaciones técnicas que el proyecto incorpora. La actualización va en la misma sesión que la decisión técnica para preservar coherencia narrativa.
+
+### Posibles Impactos / Consecuencias
+
+**Positivos:**
+- Las alertas de cuota free-tier dejan de depender de email opcional del proveedor o de mirar dashboards externos. El super_admin las ve en `/admin/system-alerts` igual que cualquier otra alerta operativa, con notificación realtime si llegan a `critical`.
+- La revisión mensual queda automatizada como issue con checklist concreto y links directos a cada dashboard. Imposible que se olvide al estar en GitHub.
+- Cold-start warming sin coste adicional aprovechando infraestructura ya desplegada en T-904. Cero líneas de código nuevas, cero env vars nuevas para esto.
+- `Free_Tier_Budget.md` permite a un sucesor entender en una página el coste real de operar el sistema y dónde están los cuellos de botella.
+- El detector `rate_limit_store_fallback` cierra un hallazgo de QA abierto (BUG-QA-1) elevando una señal previamente solo loggeable a alerta accionable.
+
+**Negativos / Mitigaciones:**
+- `commandsEstimatedDaily` se calcula linealmente sobre el uptime del proceso (`total / uptimeSeconds × 86400`). Esto **subestima picos sostenidos** y **sobrestima los primeros minutos tras reinicio**. Mitigación: umbrales conservadores (80%/95%) y caché 1h en Atlas para no amplificar el sesgo del muestreo.
+- `db.stats()` cacheado 1h tiene granularidad limitada: una purga puntual no se refleja hasta la siguiente corrida tras el TTL. Aceptable: si el detector ya disparó, la siguiente verificación (próxima hora) confirma la recuperación.
+- La revisión mensual depende de disciplina humana. Mitigación: la issue se asigna automáticamente; si pasa el mes sin cerrar, la del mes siguiente la solapa visualmente en GitHub.
+- Las cuotas de Sentry/Supabase/Cloudflare se acumulan dentro del mes; un pico cerca del cierre puede agotar la cuota antes de la próxima revisión. Mitigación: Sentry envía email automático al 80%; Supabase también; Cloudflare se mantiene en bandwidth ilimitado.
+
+### Estado Futuro
+
+- Si el centro educativo escala más allá del dimensionamiento objetivo TFG (≈125 alumnos), migrar a tiers de pago acotados: Atlas M2 ($9), Sentry Team ($26), Koyeb Eco paid ($1,61/servicio). Total estimado ≤$80/mes documentado en `Free_Tier_Budget.md` §6.
+- Si Koyeb endurece la política de hibernación a intervalos < 5 minutos, añadir un quinto monitor UptimeRobot a 3 min (sigue dentro de los 50 monitors free). Decisión documentada en Runbook §13e.
+- Evaluar OpenTelemetry export para reemplazar `runtimeMetrics` propio a medio plazo. El MVP actual cubre las necesidades de v1.0.0 sin nueva dependencia.
+- Cuando aparezcan APIs gratuitas de cuotas (Sentry/Supabase tienen iniciativas en curso), trasladar las entradas del workflow mensual a detectores internos siguiendo el mismo patrón que los 4 actuales.

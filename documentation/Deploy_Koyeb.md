@@ -339,6 +339,36 @@ Una vez Koyeb + Atlas + Upstash + Pages están arriba:
 
 Cada uno tiene su propio doc; este `Deploy_Koyeb.md` es sólo el bootstrap inicial.
 
+### 9.1 Configuración GitHub Actions (T-903)
+
+Cuando los servicios de Koyeb estén creados y operativos, configurar en GitHub → Settings → Secrets and variables → Actions:
+
+**Secrets (Settings → Secrets):**
+- `KOYEB_API_TOKEN` — generado en Koyeb → Account Settings → API Tokens.
+- `KOYEB_API_PROD_NAME` — nombre del servicio web de producción (ej. `api-prod`).
+- `KOYEB_WORKER_PROD_NAME` — nombre del worker de producción (ej. `worker-prod`).
+- `KOYEB_API_STAGING_NAME` — nombre del servicio web de staging.
+- `KOYEB_WORKER_STAGING_NAME` — nombre del worker de staging.
+- `KOYEB_ORG` — slug de la organización Koyeb (para previews).
+- `SONAR_TOKEN` — SonarCloud, generado en https://sonarcloud.io → My Account → Security.
+- `SENTRY_AUTH_TOKEN` — Sentry → Settings → Account → API → Auth Tokens (scope `project:releases`).
+- `SENTRY_ORG_SLUG` — slug de organización Sentry.
+
+**Variables (Settings → Variables):**
+- `KOYEB_PROD_URL` — URL pública de producción (ej. `https://api-prod-<org>.koyeb.app`). **No es secret**: la URL aparece en el environment de GitHub como link clickable.
+- `KOYEB_STAGING_URL` — URL pública de staging.
+- `PREVIEW_DEPLOYS_ENABLED` — `true`/`false`. Activa `preview-deploy.yml`. Solo poner a `true` si el plan Koyeb soporta previews.
+- `SENTRY_RELEASE_ENABLED` — `true`/`false`. Activa `sentry-release.yml`.
+- `FAIL_ON_WARNINGS` — `true`/`false`. Política operativa de `zap-scan.yml`.
+
+**Environment `production`:**
+- Crear en Settings → Environments → New environment.
+- *Required reviewers*: Samuel-Prog-CSec.
+- *Deployment branches and tags*: Selected → añadir patrón `v*` (solo tags).
+- Sin este environment, `deploy-production.yml` queda en *Waiting for approval* indefinidamente.
+
+> Política `secrets` vs `vars`: tokens y nombres de servicio son secrets (revelan la organización Koyeb); las URLs operativas son vars (no son confidenciales, queremos verlas en logs y UI). Ver [ADR-167](Architecture_Decisions.md).
+
 ---
 
 ## Referencias

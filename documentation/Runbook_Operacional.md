@@ -23,9 +23,17 @@
 | 11 | [Slow queries en MongoDB Atlas](#11-slow-queries-en-mongodb-atlas) | Media |
 | 12 | [Picos de comandos en Upstash](#12-picos-de-comandos-en-upstash) | Media |
 | 13 | [Verificar integridad de backups Atlas](#13-verificar-integridad-de-backups-atlas) | Baja (programada) |
+| 13a | [Atlas storage al 80%](#13a-atlas-storage-al-80) | Media (proactiva free tier) |
+| 13b | [Upstash commands al 80%](#13b-upstash-commands-al-80) | Media (proactiva free tier) |
+| 13c | [Supabase egress al 80%](#13c-supabase-egress-al-80) | Media (proactiva free tier) |
+| 13d | [Sentry quota al 80%](#13d-sentry-quota-al-80) | Media (proactiva free tier) |
+| 13e | [Cold-start warming de Koyeb (verificación)](#13e-cold-start-warming-de-koyeb-verificación) | Baja (proactiva) |
 | 14 | [Levantar entorno de test desde cero](#14-levantar-entorno-de-test-desde-cero) | Baja (onboarding) |
 | 15 | [Aplicar parche de seguridad urgente](#15-aplicar-parche-de-seguridad-urgente) | Alta (incidente) |
 | 16 | [Crear preview deploy desde un Pull Request](#16-crear-preview-deploy-desde-un-pull-request) | Baja (QA) |
+| 17 | [Responder alerta Sentry Performance (degradación de p95)](#17-responder-alerta-sentry-performance-degradación-de-p95) | Variable |
+| 18 | [Responder alerta UptimeRobot](#18-responder-alerta-uptimerobot) | Alta |
+| 19 | [Diagnosticar Security Audit rojo en CI](#19-diagnosticar-security-audit-rojo-en-ci) | Media (bloqueante PRs) |
 
 ---
 
@@ -42,6 +50,13 @@
 3. El workflow `build.yml` (CI) corre primero.
 4. Si CI verde, `deploy-staging.yml` se dispara automáticamente via `workflow_run`.
 5. Monitor: https://github.com/Samuel-Prog-CSec/TFG-IoT/actions
+
+**Pre-requisitos de config (Settings → Secrets and variables → Actions):**
+
+- **Secrets:** `KOYEB_API_TOKEN`, `KOYEB_API_STAGING_NAME`, `KOYEB_WORKER_STAGING_NAME`.
+- **Variables:** `KOYEB_STAGING_URL` (no es secreto — URL operativa visible en logs).
+
+Si falta cualquiera, el step "Verificar secrets y variables requeridos" detiene el workflow con un error claro.
 
 **Verificación:**
 
@@ -71,6 +86,12 @@ Frontend: abrir `https://maintenance.eduplay-frontend.pages.dev` → login con `
 5. El workflow espera approval en el environment `production`. Aprueba desde:
    `https://github.com/Samuel-Prog-CSec/TFG-IoT/actions/runs/<RUN_ID>`
 6. El workflow redeploya `api-prod` + `worker-prod` en paralelo + smoke test.
+
+**Pre-requisitos de config:**
+
+- **Environment `production`** con Required reviewer = Samuel-Prog-CSec y Deployment branches = tags `v*`. Si no existe, el workflow queda *Waiting for approval* sin un reviewer asignado y nunca progresa.
+- **Secrets:** `KOYEB_API_TOKEN`, `KOYEB_API_PROD_NAME`, `KOYEB_WORKER_PROD_NAME`.
+- **Variables:** `KOYEB_PROD_URL` (no es secreto). Si la migración desde `secrets.KOYEB_PROD_URL` no se ha hecho, borrar la antigua y crear la nueva como Variable.
 
 **Verificación:**
 
@@ -424,6 +445,177 @@ mongosh "mongodb+srv://eduplay-api:<pwd>@eduplay-cluster.xxx.mongodb.net/rfid_ga
 
 ---
 
+## 13a. Atlas storage al 80%
+
+**Síntoma:** alerta `atlas_storage_quota` (warning o critical) en `/admin/system-alerts`, o aviso por email del propio Atlas.
+
+**Diagnóstico:**
+
+1. Abrir Atlas UI → cluster `eduplay-cluster` → tab "Metrics" → panel "Storage". Apuntar el uso actual frente al límite (512 MB en M0).
+2. Identificar las colecciones más pesadas:
+   ```bash
+   mongosh "$MONGODB_URI" --eval 'db.getCollectionNames().forEach(c => { const s = db[c].stats(); print(c + " → " + Math.round(s.size/1024/1024 * 10)/10 + " MB datos + " + Math.round(s.totalIndexSize/1024/1024 * 10)/10 + " MB índices"); })'
+   ```
+3. Comprobar si la retención RGPD viene corriendo (Runbook §9 + worker `data-retention`).
+
+**Pasos:**
+
+```bash
+# 1) Ejecutar retención manual (purga GamePlay/Session > política RGPD)
+cd backend && npm run data:retention
+
+# 2) Eliminar SystemAlerts ya resueltas (>90d) si pesan
+mongosh "$MONGODB_URI" --eval 'db.systemalerts.deleteMany({ status: { $in: ["resolved","dismissed"] }, updatedAt: { $lt: new Date(Date.now() - 90*24*3600*1000) } })'
+
+# 3) Si la alerta es critical (>95%) y la retención no ha liberado suficiente:
+#    upgrade temporal a Atlas M2 ($9/mes, 2 GB, sin downtime)
+#    Atlas UI → cluster → "Modify cluster" → tier M2 → confirm
+```
+
+**Verificación:**
+
+- Espera a la próxima corrida del detector (≤5 min) → la alerta debe pasar a `resolved` (`autoResolveAfterMissedRuns: 2`).
+- Repetir `db.stats()`: el `usedMB` debe haber bajado por debajo del 80% del presupuesto.
+
+**Rollback:** N/A. La purga de datos antiguos es definitiva. El upgrade a M2 se puede devolver a M0 más adelante si el storage baja.
+
+---
+
+## 13b. Upstash commands al 80%
+
+**Síntoma:** alerta `upstash_commands_quota` o `rate_limit_store_fallback` en `/admin/system-alerts`. Complementa al §12 (que cubre el caso reactivo: pico ya producido).
+
+**Diagnóstico:**
+
+1. Revisar `/api/metrics` (auth super_admin) → bloque `redis.commandsByCategory` para identificar la categoría dominante (auth, ratelimit, bullmq, cache-*, etc.).
+2. Comparar con Upstash Console → Metrics → "Commands per day": confirmar que la proyección lineal interna y el dashboard externo concuerdan.
+
+**Pasos:**
+
+```bash
+# Caso A — la categoría dominante es 'bullmq' (jobs frecuentes):
+#   Subir el cron de `system-alert-detection` de */5 a */10 mientras dura la presión.
+#   En Koyeb dashboard ajustar la env var SYSTEM_ALERT_DETECTION_CRON.
+
+# Caso B — la categoría dominante es 'cache-analytics' o 'cache-context':
+#   Subir TTL en backend/src/services/cacheHelper.js para el namespace afectado.
+#   Validar que la frescura sigue siendo aceptable para el caso de uso.
+
+# Caso C — la categoría dominante es 'auth' (cache slim-user cold):
+#   Aumentar IN_MEMORY_AUTH_USER_TTL_MS y/o IN_MEMORY_AUTH_USER_MAX en Koyeb.
+#   Reiniciar para que apliquen.
+
+# Caso D — la alerta es `rate_limit_store_fallback` (Redis intermitente):
+#   Verificar conectividad Upstash, restaurar conexión y *reiniciar el proceso*
+#   para que los limiters se reanclen al store distribuido (no se reconectan
+#   automáticamente al cambiar de store).
+```
+
+**Si todo lo anterior no basta:**
+
+- Migrar a Upstash Pay-as-you-go (~$0,20 por 100K cmds). Cambio sin downtime desde Upstash Console.
+
+**Verificación:** la alerta debe auto-resolverse en las próximas 2 corridas del detector. Revisar también `runtimeMetrics.redis.commandsEstimatedDaily` cae por debajo del 80%.
+
+**Rollback:** revertir TTL/MAX si la frescura se vuelve un problema visible para los usuarios.
+
+---
+
+## 13c. Supabase egress al 80%
+
+**Síntoma:** email automático de Supabase indicando uso elevado, o issue creada por el workflow `free-tier-monthly-review.yml`.
+
+**Diagnóstico:**
+
+1. Supabase Studio → proyecto → Settings → Usage → "Storage Bandwidth" (egress mensual).
+2. Confirmar que los assets se sirven con `Cache-Control: max-age=31536000` (T-908): abrir DevTools en el frontend, ver una imagen de una tarjeta y verificar el header.
+
+**Pasos:**
+
+```bash
+# Caso A — cache-control correcto, simplemente hay mucho tráfico legítimo:
+#   Esperar al próximo ciclo de facturación o migrar a Supabase Pro ($25/mes).
+
+# Caso B — cache-control incorrecto o ausente:
+#   Verificar `backend/src/services/storage/...` que el upload setea
+#   metadata correctamente. Reupload de los assets afectados desde
+#   admin (`/admin/contexts` → "Re-procesar contexto").
+
+# Caso C — necesidad estructural de más egress:
+#   Evaluar mover assets a Cloudflare R2 (free 10 GB egress/mes,
+#   integración nativa con Workers).
+```
+
+**Verificación:** el siguiente ciclo de facturación debe mostrar consumo proporcionalmente menor. Espera 2-3 días para tendencia clara.
+
+**Rollback:** N/A. Si se migra a R2, conservar Supabase como backup durante un mes.
+
+---
+
+## 13d. Sentry quota al 80%
+
+**Síntoma:** email automático de Sentry o issue del workflow mensual.
+
+**Diagnóstico:**
+
+1. Sentry → Stats → "Quotas". Comparar errores y transacciones acumulados frente al free tier (5 K + 10 K).
+2. Identificar si el pico viene de un Issue concreto (regresión) o es tendencia uniforme.
+
+**Pasos:**
+
+```bash
+# Caso A — pico por un Issue específico:
+#   Resolver el bug o usar "Ignore" en Sentry para descartar ocurrencias
+#   futuras hasta que se libere fix.
+
+# Caso B — tendencia uniforme (todo el sistema genera más eventos):
+#   Bajar muestreo de Performance en producción.
+#   Koyeb env: SENTRY_TRACES_SAMPLE_RATE=0.05 (antes 0.1) en api-prod.
+#   Documentar el cambio en ADR-165 si se mantiene.
+
+# Caso C — la cuota se acerca al 100% y faltan días del mes:
+#   Considerar Sentry Team ($26/mes) — 50K errores + 100K transacciones.
+```
+
+**Verificación:** revisar Stats al día siguiente; el ritmo de consumo debe haber bajado proporcionalmente al cambio de `tracesSampleRate`.
+
+**Rollback:** restaurar `SENTRY_TRACES_SAMPLE_RATE=0.1` cuando se reduzca el tráfico real.
+
+---
+
+## 13e. Cold-start warming de Koyeb (verificación)
+
+**Síntoma:** primera petición tras un periodo sin tráfico tarda > 3 s, o se nota un retraso visible al abrir la app por primera vez tras una sesión inactiva.
+
+**Diagnóstico:**
+
+1. Verificar que los 4 monitors UptimeRobot configurados en T-904 (Bloque 8.3 de `DEPLOY_GUIA_COMPLETA.md`) están **activos** y pingando `/health/live` cada 5 min:
+   - API prod, API staging, Frontend prod, Frontend staging.
+2. UptimeRobot Dashboard → cada monitor debe mostrar estado "Up" y latencia razonable (< 1 s en steady state).
+
+**Pasos:**
+
+```bash
+# Caso A — algún monitor está pausado/borrado:
+#   UptimeRobot dashboard → recrearlo apuntando a `<KOYEB_URL>/health/live`
+#   con intervalo 5 min. No usar `/health/ready` (golpearía Mongo+Redis).
+
+# Caso B — Koyeb ha cambiado su política de hibernación a más agresiva
+# (la documentación lo indica como ≈5 min sin tráfico):
+#   Añadir un 5º monitor cada 3 min en UptimeRobot (sigue dentro de los
+#   50 monitors del free tier). Documentar el cambio en ADR-168.
+
+# Caso C — se confirma que Koyeb Eco no es suficiente:
+#   Migrar a Koyeb Eco paid ($1,61/mes/servicio) — sin hibernación.
+#   Decisión documentada en Free_Tier_Budget.md §6.
+```
+
+**Verificación:** ejecutar `curl -w "%{time_total}\n" -o /dev/null -s <KOYEB_URL>/health/live` tras 10 minutos de inactividad y confirmar que el tiempo está por debajo de 500 ms.
+
+**Rollback:** N/A. Los monitors son acciones idempotentes.
+
+---
+
 ## 14. Levantar entorno de test desde cero
 
 **Síntoma:** Nuevo contributor, máquina nueva, o quiero un entorno limpio para reproducir un bug.
@@ -521,6 +713,11 @@ El workflow `.github/workflows/preview-deploy.yml` se dispara automáticamente c
 4. Validar el flujo afectado. **Importante:** los preview deploys escriben en la DB de staging, así que cualquier dato creado durante el QA será visible para otros previews.
 5. Para forzar un redeploy sin nuevos commits: pulsar "Synchronize" en el panel del PR (re-dispara el workflow).
 6. Al cerrar/mergear el PR, esperar el comentario `Preview cleaned up`.
+
+**Pre-requisitos de config:**
+
+- **Variable `PREVIEW_DEPLOYS_ENABLED=true`** en Settings → Variables. Sin esto el workflow se salta (free tier Koyeb no soporta previews por PR).
+- **Secrets `KOYEB_API_TOKEN` y `KOYEB_ORG`**. Si faltan, el step "Verificar secrets requeridos" para los jobs `preview` y `teardown` aborta con error claro: el problema es config de repo, no del PR.
 
 **Limitaciones:**
 
@@ -646,10 +843,64 @@ El workflow `.github/workflows/preview-deploy.yml` se dispara automáticamente c
 
 ---
 
+## 19. Diagnosticar Security Audit rojo en CI
+
+**Síntoma:** `build.yml` falla en el job *Security Audit*. La salida del step "Security gate (producción)" muestra `FAIL Backend: N vulnerabilidad(es) de producción NO excluida(s)` o similar.
+
+**Diagnóstico (en local, rápido):**
+
+```bash
+# 1. Reproduce exactamente lo que hace el CI:
+node backend/scripts/audit-with-exclusions.js \
+  --workspace backend \
+  --label "Backend" \
+  --excluded "GHSA-w5hq-g745-h8pq,GHSA-v2v4-37r5-5v8g,GHSA-jxxr-4gwj-5jf2,GHSA-58qx-3vcg-4xpx"
+
+node backend/scripts/audit-with-exclusions.js \
+  --workspace frontend \
+  --label "Frontend" \
+  --excluded "GHSA-3p68-rc4w-qgx5,GHSA-fvcv-3m26-pcqx,GHSA-r4q5-vmmm-2653,GHSA-58qx-3vcg-4xpx"
+
+# Si el script lista vulns nuevas: anótalas (formato GHSA-xxxx-xxxx-xxxx).
+# 2. Para ver el árbol completo de la vuln:
+npm --prefix backend audit --omit=dev | head -40
+```
+
+**Pasos:**
+
+Por cada nueva GHSA detectada, decidir:
+
+1. **¿Es alcanzable en runtime?** Si NO (transitiva de dev-only, código no llamado, etc.), añadir el GHSA a la lista correspondiente en `.github/workflows/build.yml` (constantes `BACKEND_EXCLUDED` / `FRONTEND_EXCLUDED`) con un comentario que explique:
+   - Qué paquete la introduce.
+   - Por qué no es alcanzable.
+   - Cuándo se podrá retirar la exclusión (ej. "tras bump de socket.io@4.9").
+2. **Sincronizar `dependency-review.yml`** con la misma lista en `allow-ghsas` — si no, los PRs nuevos fallarán por el mismo motivo.
+3. **¿Es alcanzable?** Aplicar [playbook 15](#15-aplicar-parche-de-seguridad-urgente) — bump del paquete top-level o override en `package.json`.
+
+**Verificación:**
+
+```bash
+# Tras editar build.yml + dependency-review.yml:
+node backend/scripts/audit-with-exclusions.js --workspace backend --label "Backend" --excluded "<lista actualizada>"
+# Debe imprimir: "OK Backend audit: N vulnerabilidad(es) cubierta(s) por exclusiones documentadas"
+
+# Push a la rama feature → CI debe quedar verde en el job Security Audit.
+```
+
+**Rollback:** Si una exclusión deja pasar una vuln que SÍ era alcanzable y descubres el incidente, retirar el GHSA de la lista, aplicar fix urgente ([playbook 15](#15-aplicar-parche-de-seguridad-urgente)), y documentar en Sentry/Slack.
+
+**Notas:**
+
+- El helper de exclusiones vive en `backend/scripts/audit-with-exclusions.js` con tests unitarios en `backend/tests/auditWithExclusions.test.js`. Cambios en la política se hacen ahí, no inline en el workflow.
+- Las exclusiones se acumulan con motivos en los comentarios — revisar mensualmente si alguna puede retirarse tras bumps de Dependabot.
+
+---
+
 ## Referencias
 
 - **ADR-139..146** en [`Architecture_Decisions.md`](Architecture_Decisions.md): decisiones de stack y CD.
 - **ADR-165, ADR-166**: Sentry Performance + Log shipping Loki (T-904).
+- **ADR-167**: Saneamiento del pipeline CI/CD pre-cierre cloud foundation.
 - **[`Deploy_Koyeb.md`](Deploy_Koyeb.md)**: aprovisionamiento inicial.
 - **[`Operational_Dashboard.md`](Operational_Dashboard.md)**: hub de las 6 consolas + saved queries LogQL.
 - **[`Secrets_Rotation.md`](Secrets_Rotation.md)**: política rotación completa.

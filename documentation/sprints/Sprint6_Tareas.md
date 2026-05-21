@@ -667,10 +667,39 @@ Suite documental completa para v1.0.0: README raíz como carta de presentación 
 
 ---
 
-### T-910: ☁️ Housekeeping (free tier budget + deprecar Docker prod + cold-start warming) 📋
+### T-910: ☁️ Housekeeping (free tier budget + deprecar Docker prod + cold-start warming) ✅ DONE
 
-**Consolida:** PROP-131 + PROP-132 + PROP-133
-**Prioridad:** P0 | **Tamaño:** M (4-8h) | **Dependencias:** T-901, T-904
+**Cierre:** 2026-05-21. Implementado en alcance ampliado (3 fases originales A/B/C + 6 fases adicionales D/F/G/H/I/J). Decisión del usuario: cubrir adaptaciones para los 8 servicios free-tier en uso, no solo Koyeb. ADR-168 (Free-tier budget strategy).
+
+| Fase | Implementación | Verificación |
+|---|---|---|
+| A — Detectores SmartAlert internos | 4 detectores nuevos en `backend/src/services/analytics/systemDetectors/`: `upstashCommandsQuota`, `atlasStorageQuota` (con caché 1h `db.stats()`), `rateLimitStoreFallback`, `inMemoryCacheLowHit`. Catálogo extendido a 16 tipos en `config/systemAlerts.js` con budgets configurables vía `UPSTASH_DAILY_BUDGET` / `ATLAS_STORAGE_BUDGET_MB` / `LRU_HIT_RATIO_WARN`. Espejo UI en `frontend/src/constants/systemAlertTypes.js` (iconos Lucide Gauge/HardDrive/Network/Cpu). | 4 tests unitarios (16 casos) + asserts actualizados en `systemAlertConfig.test.js`. Suite analytics: 75/75. |
+| B — `documentation/Free_Tier_Budget.md` | Documento maestro nuevo (~370 líneas) con 9 servicios × 5 columnas (límite duro / consumo estimado / monitoreo / umbral migración / coste plan B). §3 dimensionamiento objetivo TFG (1 centro × 5 docentes × 25 alumnos), §4 alertas tempranas, §5 checklist mensual, §6 plan B total ≈$79/mes. | Linkeado desde `README.md` (sección "Operational status") y `Operational_Dashboard.md` §1. |
+| C — Archivado Docker prod | `docker-compose.prod.yml` → `docker/archive/` con README dedicado. Banner en `docker/README.md`. 5 referencias actualizadas: `CLAUDE.md`, `docker/README.md`, `backend/docs/Arquitectura_Redis.md`, `backend/docs/Redis_Optimization_Analysis.md`, `backend/seeders/README.md`. Workflows CI no afectados (no usaban el compose). | `Grep "docker-compose.prod.yml"` solo devuelve coincidencias en `docker/archive/`, histórico de sprints/propuestas y `Architecture_Decisions.md` contextual. |
+| D — Playbooks Runbook 13a-13e | 5 playbooks nuevos en `documentation/Runbook_Operacional.md` (Atlas storage al 80%, Upstash commands al 80%, Supabase egress al 80%, Sentry quota al 80%, Cold-start warming Koyeb). Tabla de playbooks al inicio actualizada. | Formato consistente con playbooks existentes (síntoma / diagnóstico / pasos / verificación / rollback). |
+| F — Workflow mensual GitHub Actions | `.github/workflows/free-tier-monthly-review.yml` con cron día 1 a las 09:00 UTC + `workflow_dispatch`. Job único con `actions/github-script@v8` que abre issue checklist con la label `meta/monthly-review`, asignada a `Samuel-Prog-CSec`. Crea la label si no existe; deduplica si ya hay issue abierta para el mes. | Sintaxis YAML válida. Pendiente smoke test manual: `gh workflow run free-tier-monthly-review.yml`. |
+| G — Cold-start warming docs | `Operational_Dashboard.md` §5.3 nueva ("Cold-start warming Koyeb") explica el rol dual de los 4 monitors UptimeRobot (T-904). `DEPLOY_GUIA_COMPLETA.md` §8.3.5 nueva sub-bloque inmediato a la configuración UptimeRobot. Cero código nuevo: documenta capacidad ya desplegada. | Enlazado desde Runbook §13e. |
+| H — ADR-168 | `documentation/Architecture_Decisions.md` append. Contexto + Decisión (8 puntos) + Impactos + Estado Futuro. Documenta limitación lineal de `commandsEstimatedDaily` y caché 1h de `db.stats()` como trade-offs aceptados. | ADR-167 ya estaba ocupado por CI/CD pipeline; renumerado a ADR-168 con coherencia en todas las referencias cruzadas. |
+| J — Memoria TFG cap.1 § Limitaciones | `memoria/chapters/01-intro.tex` renombra `\subsection*{Limitaciones}` → `\subsection*{Limitaciones generales}` y añade `\subsection*{Limitaciones derivadas del despliegue en cloud}` con dos bloques (restricciones inherentes / mitigaciones técnicas). `memoria/misc/acro.tex` añade `\acro{TLS}{Transport Layer Security}`. Registrado en `development/MEMORIA_CAMBIOS.md` siguiendo formato sesión. | Voz académica impersonal, sin IDs internos en .tex, sin nombres de funciones/archivos del código, referencias a estándares (RGPD, TLS) sobre detalles de implementación. |
+| I — Verificación E2E + cierre | Backend lint 0 errores. Backend tests **1396/1396** (111 suites). Frontend lint 0 errores. Frontend tests **546/546** (57 archivos). Build frontend OK (index.js 60.83 KB gz). | Smoke E2E con detectores umbrales bajos queda como paso operativo manual post-merge. |
+
+**Tests post-cierre:** 1396 backend (+nuevos detectores e indexación) + 546 frontend. 0 errores lint en ambos. Build frontend OK (60.83 KB gz inicial).
+
+**Pasos manuales pendientes (post-merge, no bloquean v1.0.0):**
+1. Setear env vars en Koyeb si se quiere personalizar budgets: `UPSTASH_DAILY_BUDGET`, `ATLAS_STORAGE_BUDGET_MB`, `LRU_HIT_RATIO_WARN` (los defaults bastan).
+2. Verificar que la label `meta/monthly-review` existe en GitHub repo (la crea el workflow en su primer disparo si no existe).
+3. Disparar manualmente el workflow `free-tier-monthly-review.yml` vía `gh workflow run` para validar formato issue antes del primer cron real.
+4. Esperar al día 1 del próximo mes para el primer cron.
+
+**Diferidos a follow-up (no bloquean v1.0.0):**
+- Detectores automáticos para Sentry/Supabase/Cloudflare cuotas externas — requieren credenciales paid o tokens OAuth no triviales; revisión manual mensual via workflow cubre el caso.
+- Cloudflare cache de assets Supabase — requiere dominio propio bajo proxy; T-908 ya aplica `Cache-Control: max-age=31536000` y el CDN nativo Supabase basta para el dimensionamiento objetivo.
+- Telemetría real de Koyeb cold start (no hay API gratuita).
+
+**ADR:** ADR-168 (Estrategia de presupuesto free-tier — detectores SmartAlert internos + revisión mensual externa).
+
+**Consolida:** PROP-131 + PROP-132 + PROP-133 (alcance original) + extensión a todos los servicios free-tier (decisión del usuario, 2026-05-21).
+**Prioridad:** P0 | **Tamaño:** M (ampliado a ~12 h reales por scope) | **Dependencias:** T-901, T-904
 **Origen:** Sin budget docs un límite se cruza sin aviso; Docker prod queda como deuda cognitiva; cold start de Koyeb free puede romper la primera demo si no hay warming
 
 **Descripción:**

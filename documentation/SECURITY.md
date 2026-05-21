@@ -603,6 +603,30 @@ GET rfid-games:auth:lock:user@example.com
 - Secuencia: ⚠️ Sistema funciona, automation Playwright timing limitada en transiciones Memoriza→Reproduce. Validación con QA humano cubierta previamente (project_qa_2026_05_06.md).
 - Sensor binding (B8) bloqueó correctamente scans cross-sensor — comportamiento esperado, workaround Mongo admin documentado.
 
+### 16.9 Pipeline de seguridad en CI/CD
+
+**Capas de defensa en el pipeline (`.github/workflows/`):**
+
+| Workflow | Disparador | Bloqueo | Función |
+|---|---|---|---|
+| `build.yml` (Security Audit) | push + PR | Sí | `npm audit --omit=dev` con allowlist de GHSAs no alcanzables (`audit-with-exclusions.js`). |
+| `dependency-review.yml` | PR | Sí | `actions/dependency-review-action@v4`, bloquea PRs con deps `>= moderate` o licencias prohibidas. |
+| `codeql.yml` | push + PR + lunes 06:00 UTC | No (informativo, sube alerts a Security tab) | SAST oficial GitHub, queries `security-and-quality`. |
+| `gitleaks.yml` | push + PR + domingo 05:00 UTC | Sí | Scan de tokens/credenciales en historial Git. Allowlist en `.gitleaks.toml`. |
+| `zap-scan.yml` | manual + mensual día 1 | No (issue auto-creado) | DAST OWASP ZAP baseline contra staging. Allowlist `.zap/rules.tsv`. |
+
+**Helper centralizado de exclusiones GHSA:**
+
+`backend/scripts/audit-with-exclusions.js` reemplaza al helper inline shell+Node que rompía con cadenas mixtas de `via[]`. Recorre `vulnerabilities[*].via` recursivamente, considerando una vuln cubierta solo si todas las hojas resuelven a GHSA-ids excluidos. Tests unitarios en `backend/tests/auditWithExclusions.test.js` (17 casos, incluye regresión del bug original `ip-address` + `express-rate-limit`).
+
+**Política operativa de exclusiones:**
+
+- Cada GHSA excluido lleva en `build.yml` un comentario que explica: paquete que la introduce, motivo de no-alcanzabilidad, condición para retirar la exclusión.
+- `dependency-review.yml` `allow-ghsas` se mantiene **sincronizado** con `BACKEND_EXCLUDED + FRONTEND_EXCLUDED` de `build.yml`. Una nueva exclusión debe añadirse en los dos sitios o los PRs nuevos fallarán.
+- Mensualmente, tras los Dependabot PRs, revisar si alguna exclusión puede retirarse (paquete bumpeado upstream).
+
+**Procedimiento ante nueva vuln detectada en CI:** ver [Playbook 19 del Runbook](Runbook_Operacional.md#19-diagnosticar-security-audit-rojo-en-ci).
+
 ---
 
 ## 17. Rotación de secrets

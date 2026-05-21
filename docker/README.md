@@ -1,6 +1,18 @@
-# 🐳 Docker - Plataforma de Juegos Educativos con RFID
+# 🐳 Docker — Plataforma de Juegos Educativos con RFID
 
-Este documento describe la configuración de Docker para el entorno de desarrollo y producción del proyecto.
+> **⚠️ Docker se usa únicamente para desarrollo local y para testing
+> pre-deploy en un entorno representativo de producción. El despliegue
+> real de producción es Koyeb (backend + worker) + Cloudflare Pages
+> (frontend), aprovisionado vía las guías de
+> [`documentation/Deploy_Koyeb.md`](../documentation/Deploy_Koyeb.md) y
+> [`development/DEPLOY_GUIA_COMPLETA.md`](../development/DEPLOY_GUIA_COMPLETA.md).
+> El stack `docker-compose.prod.yml` se conserva en
+> [`docker/archive/`](archive/) como herramienta opcional de
+> verificación local con todos los servicios levantados (Mongo + Redis
+> + nginx); no forma parte del flujo de despliegue.**
+
+Este documento describe la configuración de Docker para el entorno de
+desarrollo local del proyecto.
 
 ## Índice
 
@@ -11,7 +23,7 @@ Este documento describe la configuración de Docker para el entorno de desarroll
 - [Perfiles de Ejecución](#perfiles-de-ejecución)
 - [Configuración](#configuración)
 - [Desarrollo con Hot Reload](#desarrollo-con-hot-reload)
-- [Producción](#producción)
+- [Testing local pre-deploy](#testing-local-pre-deploy)
 - [Persistencia de Datos](#persistencia-de-datos)
 - [Health Checks](#health-checks)
 - [Troubleshooting](#troubleshooting)
@@ -159,7 +171,7 @@ docker compose exec redis redis-cli
 
 ## Perfiles de Ejecución
 
-### Perfil Default (Producción)
+### Perfil Default (Desarrollo)
 
 ```bash
 docker compose up -d
@@ -226,15 +238,24 @@ Esto monta los directorios `frontend/` y `backend/` como volúmenes, permitiendo
 
 ---
 
-## Producción
+## Testing local pre-deploy
 
-Para desplegar en producción:
+El compose **producción** se ha archivado en
+[`docker/archive/docker-compose.prod.yml`](archive/docker-compose.prod.yml)
+porque el despliegue de producción real ya no pasa por Docker: utiliza
+Koyeb (backend + worker) y Cloudflare Pages (frontend) — ver
+[`documentation/Deploy_Koyeb.md`](../documentation/Deploy_Koyeb.md).
+
+El compose archivado sigue siendo útil para validar localmente un build
+representativo de producción (restart policies, límites de recursos,
+puertos internos no expuestos, logging rotado) antes de empujar un tag
+de release:
 
 ```bash
-docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+docker compose -f docker-compose.yml -f docker/archive/docker-compose.prod.yml up -d
 ```
 
-Características del modo producción:
+Características del modo testing local de producción:
 
 - ✅ `restart: always` en todos los servicios
 - ✅ Límites de recursos (memoria y CPU)

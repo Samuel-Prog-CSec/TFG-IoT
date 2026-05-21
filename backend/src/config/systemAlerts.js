@@ -68,6 +68,65 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'backend/docs/Arquitectura_Redis.md#bullmq'
   }),
 
+  // ── Free-tier budget (T-910) ────────────────────────────────────────
+  // Detectores que vigilan la proximidad a las cuotas del free tier
+  // observables internamente. Las cuotas de proveedores sin API gratuita
+  // (Sentry, Supabase, Cloudflare) se revisan manualmente vía workflow
+  // mensual; ver `documentation/Free_Tier_Budget.md` §5.
+  upstash_commands_quota: Object.freeze({
+    label: 'Comandos Upstash cerca del límite diario',
+    description:
+      'La proyección lineal del consumo diario de comandos Redis supera el umbral del free tier.',
+    source: 'redis',
+    thresholds: Object.freeze({
+      warningPct: 80,
+      criticalPct: 95,
+      // El default cubre el caso conservador 10K/día; ajustable por env
+      // cuando Upstash modifique límites o se migre a paid.
+      dailyBudget: Number.parseInt(process.env.UPSTASH_DAILY_BUDGET, 10) || 10000
+    }),
+    direction: 'negative',
+    defaultRunbook: 'documentation/Runbook_Operacional.md#13b'
+  }),
+  atlas_storage_quota: Object.freeze({
+    label: 'Almacenamiento Atlas cerca del límite',
+    description:
+      'El uso de storage (data + index) en MongoDB Atlas M0 supera el umbral configurado.',
+    source: 'mongo',
+    thresholds: Object.freeze({
+      warningPct: 80,
+      criticalPct: 95,
+      // M0 free tier ofrece 512 MB; configurable para tiers superiores.
+      storageBudgetMB: Number.parseInt(process.env.ATLAS_STORAGE_BUDGET_MB, 10) || 512
+    }),
+    direction: 'negative',
+    defaultRunbook: 'documentation/Runbook_Operacional.md#13a'
+  }),
+  rate_limit_store_fallback: Object.freeze({
+    label: 'Rate limit no distribuido',
+    description:
+      'Algún rate limiter HTTP ha caído a MemoryStore por ausencia de Redis: el límite global ya no se comparte entre instancias.',
+    source: 'redis',
+    thresholds: Object.freeze({ anyOccurrence: true }),
+    direction: 'negative',
+    defaultRunbook: 'documentation/Runbook_Operacional.md#13b'
+  }),
+  in_memory_cache_low_hit: Object.freeze({
+    label: 'Hit ratio de caché en memoria bajo',
+    description:
+      'El hit ratio agregado del cache LRU en memoria está por debajo del umbral sostenido durante varias muestras.',
+    source: 'memory',
+    thresholds: Object.freeze({
+      warningHitRatio: Number.parseFloat(process.env.LRU_HIT_RATIO_WARN) || 0.4,
+      sustainedSamples: 4,
+      // Por debajo de este número de lookups totales no se evalúa
+      // (evita falsos positivos en arranques con poco tráfico).
+      minLookups: 50
+    }),
+    direction: 'negative',
+    defaultRunbook: 'backend/docs/Performance_Notes.md#cache-lru'
+  }),
+
   // ── Seguridad ───────────────────────────────────────────────────────
   account_lockout_spike: Object.freeze({
     label: 'Pico de bloqueos de cuenta',

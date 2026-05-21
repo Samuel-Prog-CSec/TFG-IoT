@@ -28,6 +28,11 @@ en primer lugar cuando llega una alerta.
 
 > Sustituye los `<placeholders>` por URLs reales tras T-901.
 
+> **Presupuesto free-tier:** los límites de cada consola y las alertas
+> tempranas que vigilan la proximidad al techo del free tier están
+> documentados en
+> [`Free_Tier_Budget.md`](Free_Tier_Budget.md) (T-910, ADR-168).
+
 ---
 
 ## 2. Status page pública
@@ -197,7 +202,30 @@ Setup detallado en `development/DEPLOY_GUIA_COMPLETA.md` Bloque 9.
 
 Setup detallado en `DEPLOY_GUIA_COMPLETA.md` Bloque 8.3.
 
-### 5.3 Alertas pendientes (futuro)
+### 5.3 Cold-start warming Koyeb (T-910, ADR-168)
+
+Los 4 monitors UptimeRobot anteriores cumplen una **doble función** sin
+añadir coste ni infraestructura adicional:
+
+1. Notifican un fallo real de disponibilidad (su propósito original).
+2. **Mantienen activo el contenedor Koyeb Eco** entre periodos de tráfico
+   real: el ping cada 5 minutos a `/health/live` impide que el plan
+   gratuito hiberne la instancia tras inactividad. Esto elimina el cold
+   start visible (~2-4 s) en el primer request post-idle, escenario
+   crítico durante la defensa del TFG ante un tribunal que abre la app
+   por primera vez tras un periodo prolongado sin tráfico.
+
+`/health/live` es deliberadamente el endpoint elegido para esto: no
+toca Mongo ni Redis, por lo que el warming **no consume commands
+Upstash ni connections Atlas**. La carga es despreciable: un GET por
+servicio cada 5 minutos.
+
+Si Koyeb cambia su política de hibernación a un intervalo más agresivo
+(< 5 minutos), se añade un quinto monitor cada 3 minutos manteniéndose
+dentro de los 50 monitors del free tier UptimeRobot. Verificación
+operativa: [Runbook §13e](Runbook_Operacional.md#13e-cold-start-warming-de-koyeb-verificación).
+
+### 5.4 Alertas pendientes (futuro)
 
 - LogQL alerts en Grafana Cloud Loki para complementar Sentry. Diferido a
   post-v1.0.0; las 4 alertas Sentry cubren el 80% de casos críticos.

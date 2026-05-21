@@ -15,6 +15,10 @@ const redisHighLatency = require('./redisHighLatency');
 const mongoDisconnected = require('./mongoDisconnected');
 const memoryPressure = require('./memoryPressure');
 const queueBacklog = require('./queueBacklog');
+const upstashCommandsQuota = require('./upstashCommandsQuota');
+const atlasStorageQuota = require('./atlasStorageQuota');
+const rateLimitStoreFallback = require('./rateLimitStoreFallback');
+const inMemoryCacheLowHit = require('./inMemoryCacheLowHit');
 const accountLockoutSpike = require('./accountLockoutSpike');
 const authFailedSpike = require('./authFailedSpike');
 const tokenTheftDetected = require('./tokenTheftDetected');
@@ -29,6 +33,10 @@ const ALL_SYSTEM_DETECTORS = Object.freeze([
   mongoDisconnected,
   memoryPressure,
   queueBacklog,
+  upstashCommandsQuota,
+  atlasStorageQuota,
+  rateLimitStoreFallback,
+  inMemoryCacheLowHit,
   accountLockoutSpike,
   authFailedSpike,
   tokenTheftDetected,

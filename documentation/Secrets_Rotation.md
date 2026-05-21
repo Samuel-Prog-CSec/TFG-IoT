@@ -31,6 +31,40 @@
 
 ---
 
+## Variables (no secretos, no rotación)
+
+Algunos valores que históricamente se trataban como `secrets.*` en GitHub Actions no son confidenciales y se han migrado a **GitHub Variables** (`vars.*`). La política operativa es:
+
+- **Tokens, passwords, claves de API** → `secrets.*`. Enmascarados en logs.
+- **URLs de servicio, IDs de organización, feature flags** → `vars.*`. Visibles en logs y en la UI de Environments.
+
+| Variable | Tipo en GitHub | Uso |
+|---|---|---|
+| `KOYEB_PROD_URL` | `vars.*` | URL pública de api-prod (consumida por `deploy-production.yml`). |
+| `KOYEB_STAGING_URL` | `vars.*` | URL pública de api-staging (consumida por `deploy-staging.yml`). |
+| `PREVIEW_DEPLOYS_ENABLED` | `vars.*` | Feature flag para `preview-deploy.yml`. |
+| `SENTRY_RELEASE_ENABLED` | `vars.*` | Feature flag para `sentry-release.yml`. |
+| `FAIL_ON_WARNINGS` | `vars.*` | Política operativa de `zap-scan.yml`. |
+
+Las URLs operativas no requieren rotación. Si la URL cambia (rebrand, dominio nuevo), basta con actualizar la Variable correspondiente.
+
+> **Tras migrar de `secrets.*` a `vars.*`:** crear la Variable con el mismo valor, validar con un workflow_dispatch del deploy y entonces borrar el Secret antiguo para evitar shadow config. Ver [ADR-167](Architecture_Decisions.md).
+
+---
+
+## Pin de @sentry/cli (no es secret, pero rota como una dep)
+
+`@sentry/cli` está pinneado en `.github/workflows/sentry-release.yml` (variable `SENTRY_CLI_VERSION`, valor actual: `2.58.5`). El upgrade se hace coordinadamente:
+
+1. Smoke test local: `npx @sentry/cli@<nueva-versión> --version` y `releases list`.
+2. Editar `SENTRY_CLI_VERSION` en el workflow.
+3. Disparar `sentry-release.yml` manualmente contra un tag staging.
+4. Confirmar que sourcemaps se suben.
+
+Cuando salga `@sentry/cli@3.x`, validar antes de migrar — la sintaxis de `releases set-commits --auto` puede cambiar.
+
+---
+
 ## Procedimiento general
 
 Cada rotación sigue este patrón (los detalles por secreto están más abajo):
@@ -179,6 +213,8 @@ Si sospechas que un secreto está comprometido (commit accidental, leak de logs,
 ## Referencias
 
 - **ADR-139** Stack cloud Koyeb + Atlas + Upstash + Cloudflare Pages.
+- **ADR-167** Saneamiento del pipeline CI/CD pre-cierre cloud foundation (incluye política `secrets` vs `vars`).
 - **`Deploy_Koyeb.md`** — aprovisionamiento inicial.
+- **`Runbook_Operacional.md`** — playbooks de rotación operativa.
 - **OWASP Cheat Sheet — Secrets Management**: https://cheatsheetseries.owasp.org/cheatsheets/Secrets_Management_Cheat_Sheet.html
 - **RGPD Art. 33-34** — notificación de brechas.

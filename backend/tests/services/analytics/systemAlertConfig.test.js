@@ -9,8 +9,19 @@ const config = require('../../../src/config/systemAlerts');
 const { ALL_SYSTEM_DETECTORS } = require('../../../src/services/analytics/systemDetectors');
 
 describe('systemAlerts config (T-942)', () => {
-  it('expone 12 tipos canónicos', () => {
-    expect(config.SYSTEM_ALERT_TYPE_KEYS).toHaveLength(12);
+  it('expone 16 tipos canónicos', () => {
+    expect(config.SYSTEM_ALERT_TYPE_KEYS).toHaveLength(16);
+  });
+
+  it('incluye los 4 detectores free-tier (T-910)', () => {
+    expect(config.SYSTEM_ALERT_TYPE_KEYS).toEqual(
+      expect.arrayContaining([
+        'upstash_commands_quota',
+        'atlas_storage_quota',
+        'rate_limit_store_fallback',
+        'in_memory_cache_low_hit'
+      ])
+    );
   });
 
   it('cada tipo tiene label, source, thresholds y direction', () => {

@@ -33,21 +33,23 @@ jobs:
        github.event.workflow_run.head_branch == 'Maintenance')
 
     steps:
-      - name: Verificar secrets requeridos
+      - name: Verificar secrets y variables requeridos
+        # KOYEB_STAGING_URL es Variable (no Secret) — las URLs operativas no son
+        # confidenciales. Tokens y nombres de servicio sí son secretos.
         env:
           KOYEB_API_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
           KOYEB_API_STAGING_NAME: ${{ secrets.KOYEB_API_STAGING_NAME }}
           KOYEB_WORKER_STAGING_NAME: ${{ secrets.KOYEB_WORKER_STAGING_NAME }}
-          KOYEB_STAGING_URL: ${{ secrets.KOYEB_STAGING_URL }}
+          KOYEB_STAGING_URL: ${{ vars.KOYEB_STAGING_URL }}
         run: |
           set -e
           for var in KOYEB_API_TOKEN KOYEB_API_STAGING_NAME KOYEB_WORKER_STAGING_NAME KOYEB_STAGING_URL; do
             if [ -z "${!var}" ]; then
-              echo "::error::Secret $var no está configurado"
+              echo "::error::Variable/secret $var no está configurado"
               exit 1
             fi
           done
-          echo "Todos los secrets están presentes"
+          echo "Todos los secrets y variables están presentes"
 
       - name: Instalar Koyeb CLI
         run: |
@@ -71,7 +73,7 @@ jobs:
       - name: Smoke test /health/ready (8 intentos × 15s)
         id: smoke
         env:
-          STAGING_URL: ${{ secrets.KOYEB_STAGING_URL }}
+          STAGING_URL: ${{ vars.KOYEB_STAGING_URL }}
         run: |
           set +e
           OK=0
@@ -113,7 +115,7 @@ jobs:
             echo "## Deploy a staging"
             echo "- API: ${{ secrets.KOYEB_API_STAGING_NAME }}"
             echo "- Worker: ${{ secrets.KOYEB_WORKER_STAGING_NAME }}"
-            echo "- URL: ${{ secrets.KOYEB_STAGING_URL }}/health/ready"
+            echo "- URL: ${{ vars.KOYEB_STAGING_URL }}/health/ready"
             echo "- Outcome smoke test: ${{ steps.smoke.outcome }}"
             echo "- /health/ready 200 hits: ${{ steps.smoke.outputs.ok_count }}/8"
           } >> "$GITHUB_STEP_SUMMARY"

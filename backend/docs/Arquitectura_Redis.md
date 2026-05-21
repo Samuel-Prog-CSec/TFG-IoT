@@ -502,7 +502,8 @@ prefijo     tipo      identificador
 ## Política de evicción (`maxmemory-policy: noeviction`)
 
 Redis se configura con `maxmemory 256mb` (dev) / `512mb` (prod) y `maxmemory-policy noeviction`
-(ver `docker-compose.yml` y `docker-compose.prod.yml`). Esto significa que cuando la memoria llega
+(ver `docker-compose.yml` y, para el modo de testing local pre-deploy, `docker/archive/docker-compose.prod.yml`).
+Esto significa que cuando la memoria llega
 al límite, las **escrituras nuevas fallan con error** (`OOM command not allowed when used memory > 'maxmemory'`)
 en lugar de expulsar claves existentes.
 

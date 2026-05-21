@@ -1,0 +1,23 @@
+# CODEOWNERS — auto-asigna reviewer en PRs.
+#
+# Sintaxis: <pattern> <user1> <user2> ...
+# El último patrón que coincide gana. Mantener el fallback global al final.
+#
+# Mientras el repo sea de Samuel solo, todas las reglas apuntan a él. En el
+# futuro post-TFG, basta con añadir cuentas adicionales por área.
+
+# Fallback global (siempre el último por convención)
+* @Samuel-Prog-CSec
+
+# Workflows de CI/CD — cambios sensibles, revisar siempre.
+/.github/                @Samuel-Prog-CSec
+/.github/workflows/      @Samuel-Prog-CSec
+
+# Docs maestros del proyecto.
+/documentation/SECURITY.md               @Samuel-Prog-CSec
+/documentation/Architecture_Decisions.md @Samuel-Prog-CSec
+/documentation/Runbook_Operacional.md    @Samuel-Prog-CSec
+/documentation/Secrets_Rotation.md       @Samuel-Prog-CSec
+
+# Memoria académica.
+/memoria/  @Samuel-Prog-CSec

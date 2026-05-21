@@ -60,20 +60,24 @@ jobs:
     # en repo Settings → Environments → production.
     environment:
       name: production
-      url: ${{ secrets.KOYEB_PROD_URL }}
+      url: ${{ vars.KOYEB_PROD_URL }}
 
     steps:
-      - name: Verificar secrets requeridos
+      - name: Verificar secrets y variables requeridos
+        # KOYEB_PROD_URL es Variable (no Secret) — las URLs operativas no son
+        # confidenciales y queremos que aparezcan en logs y en la UI de
+        # Environments sin enmascarar. Tokens y nombres de servicio sí son
+        # secretos (revelarían la organización Koyeb).
         env:
           KOYEB_API_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
           KOYEB_API_PROD_NAME: ${{ secrets.KOYEB_API_PROD_NAME }}
           KOYEB_WORKER_PROD_NAME: ${{ secrets.KOYEB_WORKER_PROD_NAME }}
-          KOYEB_PROD_URL: ${{ secrets.KOYEB_PROD_URL }}
+          KOYEB_PROD_URL: ${{ vars.KOYEB_PROD_URL }}
         run: |
           set -e
           for var in KOYEB_API_TOKEN KOYEB_API_PROD_NAME KOYEB_WORKER_PROD_NAME KOYEB_PROD_URL; do
             if [ -z "${!var}" ]; then
-              echo "::error::Secret $var no está configurado"
+              echo "::error::Variable/secret $var no está configurado"
               exit 1
             fi
           done
@@ -98,7 +102,7 @@ jobs:
       - name: Smoke test /health/ready (8 intentos × 15s)
         id: smoke
         env:
-          PROD_URL: ${{ secrets.KOYEB_PROD_URL }}
+          PROD_URL: ${{ vars.KOYEB_PROD_URL }}
         run: |
           set +e
           OK=0
