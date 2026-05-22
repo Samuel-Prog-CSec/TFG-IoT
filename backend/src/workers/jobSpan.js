@@ -52,7 +52,30 @@ async function withJobSpan(job, handler, { queueName } = {}) {
         'queue.job.attempts': attempts
       }
     },
-    () => handler(childLogger)
+    async () => {
+      try {
+        return await handler(childLogger);
+      } catch (err) {
+        // BullMQ ya emite `failed` y persiste el error en el job, pero ese
+        // evento solo aparece en métricas internas. Para que el fallo salte
+        // en el dashboard de Sentry con los tags que usamos para filtrar
+        // jobs (queue + jobName), capturamos aquí explícitamente antes de
+        // re-lanzar — Sentry deduplica con el span automáticamente, así
+        // que no se cuentan dos veces.
+        Sentry.captureException(err, {
+          tags: {
+            module: 'bullmq',
+            queue: effectiveQueue,
+            jobName
+          },
+          extra: {
+            jobId,
+            attempts
+          }
+        });
+        throw err;
+      }
+    }
   );
 }
 

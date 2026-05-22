@@ -381,12 +381,13 @@ export default function AppLayout() {
             isCompact
               ? 'mx-3 mt-2 mb-1 p-2 rounded-lg hover:bg-background-surface/50'
               : cn(
-                  // Floating: pegado al borde derecho del sidebar, centrado
-                  // sobre la linea del borde (translate-x-1/2 le hace
-                  // sobresalir mitad-mitad). z alto para vencer el card
-                  // user-info adyacente. Tamano sm + circulo para que se
-                  // lea como "control de panel" y no como item de menu.
-                  'absolute top-7 right-0 translate-x-1/2 z-30',
+                  // Control pegado al borde derecho del sidebar pero DENTRO
+                  // (right-3 = 12px de margen interno). Antes salía mitad-mitad
+                  // con translate-x-1/2 y se solapaba con el h1 de paginas
+                  // admin que no aplicaban su propio padding-x (QA 2026-05-21
+                  // BUG-QA-NUEVO-2). Mantenemos el look "control de panel"
+                  // sin invadir el area del main content.
+                  'absolute top-7 right-3 z-30',
                   'size-7 rounded-full bg-background-elevated',
                   'border border-border-default shadow-[var(--shadow-md)]',
                   'hover:bg-background-surface hover:border-border-emphasis'
@@ -420,7 +421,7 @@ export default function AppLayout() {
                       'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider',
                       isSuperAdmin
                         ? 'bg-warning-base/15 text-warning-on-alpha border border-warning-base/30'
-                        : 'bg-brand-base/15 text-brand-light border border-brand-base/30'
+                        : 'bg-brand-base/15 text-brand-on-alpha border border-brand-base/30'
                     )}
                   >
                     {isSuperAdmin ? 'Dirección' : 'Docente'}
@@ -736,7 +737,7 @@ function NavItem({ to, icon, label, dataTour, compact = false }) {
           'flex items-center rounded-xl transition-colors duration-200 group relative overflow-hidden',
           compact ? 'justify-center px-2 py-3' : 'gap-3 px-4 py-3',
           (isActive || isParentOf)
-            ? 'text-brand-light font-medium bg-brand-base/10 border border-brand-base/20'
+            ? 'text-brand-on-alpha font-medium bg-brand-base/10 border border-brand-base/20'
             : 'text-text-secondary hover:text-text-primary hover:bg-background-surface/50 font-medium'
         )
       }

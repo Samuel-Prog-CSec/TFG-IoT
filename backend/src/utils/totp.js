@@ -134,27 +134,47 @@ const verify = ({
   digits = DEFAULT_DIGITS,
   algorithm = DEFAULT_ALGORITHM,
   timestamp = Date.now()
+}) =>
+  verifyWithStep({ token, secret, window: tolerance, period, digits, algorithm, timestamp }).valid;
+
+/**
+ * Variante de `verify` que además devuelve el step (contador TOTP) que validó
+ * el código. Útil para callers que necesitan implementar anti-replay: el step
+ * identifica unívocamente la ventana de 30s usada y permite guardar un flag
+ * en Redis para rechazar reutilizaciones del mismo código.
+ *
+ * @param {object} options Mismos parámetros que `verify`.
+ * @returns {{valid: boolean, step?: number}}
+ *   - `valid: false` → token rechazado.
+ *   - `valid: true, step: <counter>` → step (Math.floor(ts/1000/period)) que validó.
+ */
+const verifyWithStep = ({
+  token,
+  secret,
+  window: tolerance = 1,
+  period = DEFAULT_PERIOD,
+  digits = DEFAULT_DIGITS,
+  algorithm = DEFAULT_ALGORITHM,
+  timestamp = Date.now()
 }) => {
   if (!token || typeof token !== 'string') {
-    return false;
+    return { valid: false };
   }
-  // Validar formato antes de procesar para evitar trabajo innecesario.
   if (token.length !== digits || !/^\d+$/.test(token)) {
-    return false;
+    return { valid: false };
   }
   for (let offset = -tolerance; offset <= tolerance; offset++) {
     const candidateTimestamp = timestamp + offset * period * 1000;
     const expected = generate({ secret, timestamp: candidateTimestamp, period, digits, algorithm });
-    // Comparación constante para reducir leakage por timing (defensa en profundidad
-    // aunque para 6 dígitos sea marginal).
     if (
       expected.length === token.length &&
       crypto.timingSafeEqual(Buffer.from(expected), Buffer.from(token))
     ) {
-      return true;
+      const step = Math.floor(candidateTimestamp / 1000 / period);
+      return { valid: true, step };
     }
   }
-  return false;
+  return { valid: false };
 };
 
 /**
@@ -189,6 +209,7 @@ const buildOtpAuthUrl = ({
 module.exports = {
   generate,
   verify,
+  verifyWithStep,
   generateSecret,
   buildOtpAuthUrl,
   encodeBase32,

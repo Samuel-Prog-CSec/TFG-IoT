@@ -556,7 +556,7 @@ function Header({
             {!reducedMotion && (
               <motion.span
                 aria-hidden="true"
-                className="inline-flex items-center justify-center size-9 rounded-xl bg-brand-base/15 text-brand-light"
+                className="inline-flex items-center justify-center size-9 rounded-xl bg-brand-base/15 text-brand-on-alpha"
                 animate={{ rotate: [0, 8, -4, 6, 0], scale: [1, 1.05, 1, 1.03, 1] }}
                 transition={{ duration: 1.6, times: [0, 0.25, 0.5, 0.75, 1], repeat: Infinity, repeatDelay: 3.5, ease: 'easeInOut' }}
               >
@@ -651,21 +651,21 @@ const QUICK_LINKS = [
     label: 'Ver todas las sesiones',
     route: ROUTES.SESSIONS,
     icon: CalendarClock,
-    tintClass: 'text-brand-light',
+    tintClass: 'text-brand-on-alpha',
     tintBgClass: 'bg-brand-base/15 group-hover:bg-brand-base/25'
   },
   {
     label: 'Crear nueva sesión',
     route: ROUTES.CREATE_SESSION,
     icon: Gamepad2,
-    tintClass: 'text-accent-cyan',
+    tintClass: 'text-accent-cyan-on-alpha',
     tintBgClass: 'bg-accent-cyan/15 group-hover:bg-accent-cyan/25'
   },
   {
     label: 'Ver mazos de cartas',
     route: ROUTES.CARD_DECKS,
     icon: Layers,
-    tintClass: 'text-accent-pink',
+    tintClass: 'text-accent-pink-on-alpha',
     tintBgClass: 'bg-accent-pink/15 group-hover:bg-accent-pink/25'
   },
 ];

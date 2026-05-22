@@ -48,6 +48,36 @@ const BACKUP_CODE_BYTES = 8; // 16 hex chars → 4 grupos de 4 con guiones
 
 // Tolerancia de un step (30s antes/después) para evitar fallos por clock skew (window=1).
 
+// Anti-replay TOTP: 90 s cubre la ventana ±1 step (30 s) + holgura. Tras la
+// expiración, el código ya no es válido por TOTP en sí (han pasado >30 s desde
+// su step), así que mantener el marcador no aporta seguridad y desperdicia
+// memoria Upstash.
+const TOTP_REPLAY_GUARD_TTL_SECONDS = 90;
+
+/**
+ * Comprueba el guard anti-replay para un step TOTP recién verificado. Si la
+ * key no existía (NX adquirido), devuelve `true` y el código puede consumirse.
+ * Si ya existía, devuelve `false`: el mismo código se intentó usar de nuevo
+ * dentro de la ventana de 90 s — lo rechazamos.
+ *
+ * Si Redis no está disponible, la función `setIfNotExists` devuelve `true`
+ * (defaults a permitir para no romper el login en outage); en ese escenario
+ * el anti-replay queda degradado pero la verificación TOTP sigue activa.
+ *
+ * @param {string} userId
+ * @param {number} step
+ * @returns {Promise<boolean>}
+ */
+const acquireTotpReplayGuard = async (userId, step) => {
+  const id = `${userId}:${step}`;
+  return redisService.setIfNotExists(
+    redisService.NAMESPACES.MFA_TOTP_USED,
+    id,
+    '1',
+    TOTP_REPLAY_GUARD_TTL_SECONDS
+  );
+};
+
 /**
  * Genera un backup code en formato `XXXX-XXXX-XXXX-XXXX` (hex uppercase).
  */
@@ -115,14 +145,28 @@ const setupVerify = async (req, res) => {
     throw new ValidationError('No hay setup MFA pendiente. Reinicia con setup-init.');
   }
 
-  const valid = totp.verify({ token: code, secret: pending, window: 1 });
-  if (!valid) {
+  const verification = totp.verifyWithStep({ token: code, secret: pending, window: 1 });
+  if (!verification.valid) {
     logSecurityEvent('AUTH_LOGIN_FAILED', {
       ...getRequestContext(req),
       userId,
       reason: 'MFA_SETUP_VERIFY_INVALID'
     });
     throw new UnauthorizedError('Código TOTP inválido. Inténtalo de nuevo.', 'MFA_CODE_INVALID');
+  }
+
+  // Anti-replay: el mismo código TOTP no debe poder activarse dos veces.
+  const fresh = await acquireTotpReplayGuard(userId, verification.step);
+  if (!fresh) {
+    logSecurityEvent('AUTH_LOGIN_FAILED', {
+      ...getRequestContext(req),
+      userId,
+      reason: 'MFA_CODE_REUSED'
+    });
+    throw new UnauthorizedError(
+      'Código TOTP ya utilizado. Espera 30 s y prueba el siguiente.',
+      'MFA_CODE_REUSED'
+    );
   }
 
   // Generar backup codes (plaintext para devolver una vez + hash bcrypt para persistir).
@@ -175,14 +219,28 @@ const challenge = async (req, res) => {
   }
   const secret = decryptField(userDoc.mfa.secret, 'mfa');
 
-  const valid = totp.verify({ token: code, secret, window: 1 });
-  if (!valid) {
+  const verification = totp.verifyWithStep({ token: code, secret, window: 1 });
+  if (!verification.valid) {
     logSecurityEvent('AUTH_LOGIN_FAILED', {
       ...getRequestContext(req),
       userId,
       reason: 'MFA_CHALLENGE_INVALID'
     });
     throw new UnauthorizedError('Código TOTP inválido', 'MFA_CODE_INVALID');
+  }
+
+  // Anti-replay: rechazamos códigos ya consumidos dentro de la ventana de 90 s.
+  const fresh = await acquireTotpReplayGuard(userId, verification.step);
+  if (!fresh) {
+    logSecurityEvent('AUTH_LOGIN_FAILED', {
+      ...getRequestContext(req),
+      userId,
+      reason: 'MFA_CODE_REUSED'
+    });
+    throw new UnauthorizedError(
+      'Código TOTP ya utilizado. Espera 30 s y prueba el siguiente.',
+      'MFA_CODE_REUSED'
+    );
   }
 
   await userRepository.updateById(userId, { 'mfa.lastUsedAt': new Date() });
@@ -208,25 +266,31 @@ const verifyBackupCode = async (req, res) => {
     throw new ForbiddenError('MFA no habilitado', 'MFA_NOT_ENROLLED');
   }
 
+  // Comparamos contra TODOS los códigos (usados e inactivos) para distinguir
+  // "código no existe" de "código ya consumido". El reuso de un backup code es
+  // señal fuerte de compromiso (un atacante probando códigos robados), conviene
+  // loguearlo aparte.
   let matchedIndex = -1;
+  let reuseAttempt = false;
   for (let i = 0; i < userDoc.mfa.backupCodes.length; i++) {
     const entry = userDoc.mfa.backupCodes[i];
-    if (entry.usedAt) {
+    const matches = await bcrypt.compare(backupCode, entry.hash);
+    if (!matches) {
       continue;
     }
-
-    const matches = await bcrypt.compare(backupCode, entry.hash);
-    if (matches) {
-      matchedIndex = i;
-      break;
+    if (entry.usedAt) {
+      reuseAttempt = true;
+      continue;
     }
+    matchedIndex = i;
+    break;
   }
 
   if (matchedIndex === -1) {
     logSecurityEvent('AUTH_LOGIN_FAILED', {
       ...getRequestContext(req),
       userId,
-      reason: 'MFA_BACKUP_CODE_INVALID'
+      reason: reuseAttempt ? 'MFA_BACKUP_CODE_REUSE_ATTEMPT' : 'MFA_BACKUP_CODE_INVALID'
     });
     throw new UnauthorizedError('Backup code inválido o ya utilizado', 'MFA_CODE_INVALID');
   }

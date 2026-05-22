@@ -29,7 +29,9 @@ jobs:
 
     steps:
       - name: Abrir issue checklist
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
+        env:
+          MAINTAINER: ${{ vars.MAINTAINER || github.repository_owner }}
         with:
           script: |
             const now = new Date();
@@ -117,12 +119,13 @@ jobs:
               return;
             }
 
+            const maintainer = process.env.MAINTAINER || context.repo.owner;
             const { data: issue } = await github.rest.issues.create({
               owner: context.repo.owner,
               repo: context.repo.repo,
               title,
               body,
               labels: ['meta/monthly-review'],
-              assignees: ['Samuel-Prog-CSec']
+              assignees: maintainer ? [maintainer] : []
             });
             core.notice(`Issue creada: #${issue.number} — ${issue.html_url}`);

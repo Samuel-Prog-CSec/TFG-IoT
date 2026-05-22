@@ -169,6 +169,22 @@ updates:
     commit-message:
       prefix: "gh-actions"
     groups:
+      # Acciones SAST/SCA críticas: se separan del agregador para que las
+      # actualizaciones de seguridad no se retrasen agrupadas con setup-node u
+      # otras de bajo riesgo. Cada PR de este grupo se mergea con prioridad.
+      security-actions:
+        patterns:
+          - "github/codeql-action"
+          - "gitleaks/gitleaks-action"
+          - "zaproxy/action-baseline"
+          - "sonarsource/sonarqube-scan-action"
+          - "actions/dependency-review-action"
       all-actions:
         patterns:
           - "*"
+        exclude-patterns:
+          - "github/codeql-action"
+          - "gitleaks/gitleaks-action"
+          - "zaproxy/action-baseline"
+          - "sonarsource/sonarqube-scan-action"
+          - "actions/dependency-review-action"

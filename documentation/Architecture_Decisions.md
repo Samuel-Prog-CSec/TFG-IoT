@@ -76,6 +76,7 @@ Cada ADR indica su alcance: **[Backend]**, **[Frontend]**, **[Full-stack]** o **
 | ADR-089..164 | Hardening seguridad T-905, performance T-907, observabilidad parcial, motion signature y QA acumulada Sprint 5/6 (ver cuerpo) | Varios |
 | ADR-165 | Sentry Performance — instrumentación manual de transacciones críticas + sampling per-env (T-904 Fase A) | Backend, Frontend, DevOps |
 | ADR-166 | Log shipping centralizado con Grafana Cloud Loki + `pino-loki` (T-904 Fase B) | Backend, DevOps |
+| ADR-169 | Bootstrap de tema servido como archivo externo (`/theme-bootstrap.js`) en lugar de `<script>` inline para mantener CSP estricta sin hash ni nonce | Frontend, DevOps |
 
 **Leyenda de alcance:**
 - **Backend**: Cambios exclusivamente en el servidor (Node.js/Express)
@@ -8890,3 +8891,46 @@ El cuarto problema relacionado era el **cold start** del plan Koyeb Eco: tras un
 - Si Koyeb endurece la política de hibernación a intervalos < 5 minutos, añadir un quinto monitor UptimeRobot a 3 min (sigue dentro de los 50 monitors free). Decisión documentada en Runbook §13e.
 - Evaluar OpenTelemetry export para reemplazar `runtimeMetrics` propio a medio plazo. El MVP actual cubre las necesidades de v1.0.0 sin nueva dependencia.
 - Cuando aparezcan APIs gratuitas de cuotas (Sentry/Supabase tienen iniciativas en curso), trasladar las entradas del workflow mensual a detectores internos siguiendo el mismo patrón que los 4 actuales.
+
+---
+
+## ADR-169: Bootstrap de tema servido como archivo externo en lugar de `<script>` inline [Frontend, DevOps]
+
+### Contexto (ADR-169)
+
+`index.html` mantenía un `<script>` inline (~770 bytes) que se ejecutaba antes del primer paint para resolver `localStorage['eduplay:theme']` + `prefers-color-scheme` y aplicar `data-theme` a `<html>`. El objetivo era eliminar el FOUC (<50ms) que aparece si React decide el tema después de hidratarse.
+
+La CSP estricta de producción (T-905 B5, ADR-149) define `script-src 'self' https://*.sentry.io https://challenges.cloudflare.com` sin `'unsafe-inline'`, sin hash ni nonce. Al cargar la app, el navegador bloqueaba el inline script y registraba violación CSP a `/api/csp-report`:
+
+> Executing inline script violates the following Content Security Policy directive 'script-src 'self' …'. Either the 'unsafe-inline' keyword, a hash ('sha256-o9WaUZoVbxRTw1SFHjQAv5B6zmMn3E9Xni3fn18r7qo='), or a nonce ('nonce-…') is required to enable inline execution. The action has been blocked.
+
+Detectado en QA del 2026-05-21 (BUG-QA-1). El bootstrap nunca llegaba a ejecutarse en producción y el tema caía a la rama `catch` (`document.documentElement.dataset.theme = 'dark'`), descartando la preferencia del usuario en cada carga fría.
+
+Opciones evaluadas:
+
+1. **Mantener inline + añadir hash SHA-256 a CSP**: defensivo. El hash debe regenerarse cada vez que cambia el contenido del script (Vite no lo hace automáticamente), y es sensible a line endings (CRLF vs LF). Mantenimiento frágil.
+2. **CSP nonce por request**: requiere SSR/edge function que inyecte un `nonce` en el script y propague al header `Content-Security-Policy`. La SPA actual es estática (Nginx + Cloudflare Pages), no SSR. Implementar SSR sólo para esto desproporcionado.
+3. **`'unsafe-inline'` en `script-src`**: anularía la defensa CSP frente a XSS. Descartado por política de seguridad (T-905 B5).
+4. **Mover el bootstrap a `/theme-bootstrap.js`**: archivo externo en `frontend/public/`, referenciado con `<script src="/theme-bootstrap.js"></script>` sin `defer`/`async` para que se ejecute síncronamente antes del primer paint. Coste: 1 fetch HTTP adicional (mismo origen, cacheable, ~0.6 KB gzip).
+
+### Decisión (ADR-169)
+
+Adoptamos la opción 4. `frontend/public/theme-bootstrap.js` contiene el bootstrap. Sin `defer`/`async` mantiene la garantía pre-paint. Encaja en `script-src 'self'` sin modificación de la política. Vite copia `public/` tal cual al `dist/` y el plugin `vite-plugin-compression` genera variantes `.gz`/`.br` automáticamente. El archivo cae bajo la regla `expires 1y; Cache-Control "public, immutable"` de Nginx (frontend/nginx.conf §5.59-62), por lo que sólo se fetcha en la primera carga y queda en cache HTTP del navegador para subsiguientes.
+
+### Consecuencias (ADR-169)
+
+**Positivos:**
+- CSP estricta intacta. Cero violaciones en producción (verificable en `/api/csp-report`).
+- Bootstrap volverá a ejecutarse en prod: el tema persistido respeta `prefers-color-scheme` y la elección manual del usuario.
+- Sin mantenimiento de hash: el archivo cambia con el código, no hace falta sincronizar nada en otro sitio.
+- Lint estándar aplica al archivo (ESLint `no-var`, `sonarjs/no-nested-conditional`); inline script no se lintea.
+
+**Negativos / Mitigaciones:**
+- Una request extra (~0.6 KB gz). Mitigación: caché 1 año + immutable header; sólo 1 fetch en primera visita.
+- Microscópica ventana de ejecución posterior al inline equivalente (parsing del HTML descubre el `<script>` y dispara fetch). En la práctica, en localhost ~3-5ms; en producción con HTTP/2 multiplexed ~10-15ms. Sigue por debajo del umbral FOUC perceptible (50ms).
+- Si en el futuro se añade Cloudflare Workers o cualquier capa que reescriba HTML, el `src="/theme-bootstrap.js"` no debe romperse. La referencia es relativa al root, mismo origen.
+
+### Estado Futuro
+
+- Si la app migra a SSR (Next.js, Astro, etc.) el bootstrap se inyectará server-side y este archivo dejará de hacer falta.
+- Si en algún momento se necesitan hashes para otros scripts inline críticos (ej. analytics third-party que no admite carga diferida), establecer un build script que regenere los hashes y los inyecte en `nginx.conf` + `helmet.contentSecurityPolicy.directives.scriptSrc`.

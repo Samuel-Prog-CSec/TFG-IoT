@@ -60,6 +60,15 @@ class InactiveTeachersDetector extends SystemAlertDetector {
         ? Math.floor((now.getTime() - new Date(example.lastLoginAt).getTime()) / dayMs)
         : Math.floor((now.getTime() - new Date(example.createdAt).getTime()) / dayMs);
 
+      // Concordancia singular/plural (QA 2026-05-21 BUG-QA-NUEVO-1): antes
+      // se escribia "1 profesor(es) llevan" — feo en singular y un parentesis
+      // de tipo formularistico que no encaja en mensajes para humanos.
+      const isSingular = list.length === 1;
+      const teacherWord = isSingular ? 'profesor' : 'profesores';
+      const verbWord = isSingular ? 'lleva' : 'llevan';
+      const thresholdDays =
+        severity === 'warning' ? cfg.thresholds.warningDays : cfg.thresholds.infoDays;
+
       return [
         {
           type: this.type,
@@ -67,9 +76,7 @@ class InactiveTeachersDetector extends SystemAlertDetector {
           source: this.source,
           component: 'moderation:teachers',
           title: cfg.label,
-          description: `${list.length} profesor(es) llevan más de ${
-            severity === 'warning' ? cfg.thresholds.warningDays : cfg.thresholds.infoDays
-          } días sin entrar.`,
+          description: `${list.length} ${teacherWord} ${verbWord} más de ${thresholdDays} días sin entrar.`,
           recommendation: 'Considera contactarles o archivar cuentas si ya no usan la plataforma.',
           data: {
             inactiveCount: list.length,

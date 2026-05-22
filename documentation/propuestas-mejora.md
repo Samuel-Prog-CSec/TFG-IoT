@@ -1985,3 +1985,22 @@ Auditoría exhaustiva con 3 agentes Explore + verificación manual. 14 findings 
 - ❌ `dangerouslySetInnerHTML` en frontend — 0 ocurrencias.
 - ❌ Tokens en `localStorage` — 0 ocurrencias (cookies httpOnly por T-905).
 - ❌ Duplicación masiva `ui/` vs `common/` — `common/` solo tiene 4 archivos utility específicos.
+
+---
+
+## PROP-Q1 [MEDIA · UX, no bug]: Agrupar alertas inteligentes por alumno en Alertas Hub
+
+**Origen:** QA 2026-05-21 — Sesión de auditoría integral pre-release v1.0.0.
+
+**Observación:** la lista de `/analytics/insights` → tab Alertas muestra a varios alumnos repetidos consecutivamente (Emilia Domínguez ×2, Valentina López ×2, Victoria Ruiz ×2 — top y bottom). Cada repetición corresponde a una alerta de tipo distinto (descenso, abandono, etc.) sobre el mismo alumno, pero a primera vista parece duplicación de filas.
+
+**Propuesta:** opciones no excluyentes:
+1. **Agrupar por alumno** (collapsible): una fila por estudiante con un contador "3 alertas activas" y un caret que despliega los detalles. Reduce ruido visual sin perder información.
+2. **Etiquetar el tipo de alerta** con un badge prominente al inicio de la fila: `[Descenso]`, `[Abandono]`, `[Mejora rápida]`. El nombre del alumno queda secundario porque ya está en el badge contextual.
+3. **Ordenación inteligente**: poner contiguas todas las alertas del mismo alumno (sort: alumno, fecha desc) en lugar del orden actual por fecha. Lo más simple, sin cambios de estructura.
+
+**Recomendación:** opción 3 + opción 2 (ordenación por alumno + badge tipo al inicio). Mínimo cambio de UI, máxima ganancia de claridad. La opción 1 (agrupación con collapsible) queda como segunda iteración si la 3+2 no resuelve.
+
+**No es bug funcional**: los datos son correctos, sólo es percepción de duplicación. Por eso queda como propuesta, no en el fix-en-bloque de la QA del 21/05.
+
+**Esfuerzo estimado:** S (1 día). Cambio frontal en `AlertsHub.jsx` (o el componente equivalente de `/analytics/insights`).

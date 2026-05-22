@@ -105,7 +105,10 @@ const NAMESPACES = {
   AUTH_FAILED: 'auth:fail',
 
   /** Cuenta bloqueada temporalmente por intentos fallidos (TTL: lockout duration) */
-  AUTH_LOCKED: 'auth:lock'
+  AUTH_LOCKED: 'auth:lock',
+
+  /** Anti-replay TOTP: marca step ya usado por un super_admin (TTL: 90s) */
+  MFA_TOTP_USED: 'mfa:totp:used'
 };
 
 /**

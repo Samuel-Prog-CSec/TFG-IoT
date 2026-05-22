@@ -83,6 +83,9 @@
   --color-accent-amber-on-alpha: oklch(86% 0.14 75);
   --color-accent-cyan-on-alpha: oklch(82% 0.14 200);
   --color-accent-orange-on-alpha: oklch(80% 0.16 50);
+  /* Pink/indigo en dark mantienen su luminosidad alta (legibles sobre dark+aurora). */
+  --color-accent-pink-on-alpha: oklch(80% 0.16 340);
+  --color-accent-indigo-on-alpha: oklch(78% 0.14 270);
 
   /* Accents / Secondary Palette */
   --color-accent-indigo: oklch(60% 0.16 270);
@@ -828,6 +831,10 @@
   --color-accent-amber-on-alpha: oklch(50% 0.16 75);  /* ~5.0:1 */
   --color-accent-cyan-on-alpha: oklch(46% 0.13 200);  /* ~5.2:1 */
   --color-accent-orange-on-alpha: oklch(46% 0.18 50); /* ~5.2:1 */
+  /* Pink/indigo en light: tonos rebajados a luminancia ~45% para AA sobre
+     bg-{tone}-base/10..20 sobre fondo marfil 98% L (QA 2026-05-21). */
+  --color-accent-pink-on-alpha: oklch(45% 0.20 340); /* ~5.0:1 */
+  --color-accent-indigo-on-alpha: oklch(42% 0.20 270); /* ~5.4:1 */
 
   /* Accents secundarios — saturación ajustada para fondo claro */
   --color-accent-indigo: oklch(50% 0.20 270);

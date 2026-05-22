@@ -8,7 +8,7 @@
  * @module hooks/useSystemAlertActions
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import systemAlertsService from '../services/systemAlerts';
 
@@ -26,6 +26,18 @@ const formatSnoozeUnit = ({ untilHours, untilDays }) => {
 
 export function useSystemAlertActions({ onListChange, onRefetch }) {
   const pendingDismissRef = useRef(new Map());
+
+  // Cancela timers de undo al desmontar (logout, navegación fuera del panel
+  // de alertas) para evitar `commit` corriendo contra un componente ya muerto.
+  useEffect(() => {
+    const pending = pendingDismissRef.current;
+    return () => {
+      for (const { timer } of pending.values()) {
+        clearTimeout(timer);
+      }
+      pending.clear();
+    };
+  }, []);
 
   const removeOptimistic = useCallback(
     alertId => {

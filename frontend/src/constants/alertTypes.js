@@ -52,20 +52,23 @@ export const ALERT_TYPE_ICONS = {
 };
 
 /**
- * Mapeo tipo → etiqueta en español.
+ * Mapeo tipo → etiqueta en español. SINCRONIZADO con la fuente de verdad
+ * `backend/src/config/alerts.js` (campo `label`). Si una alerta cambia su
+ * label en el backend, actualizar también aquí para que `AlertCard` y la
+ * notificación realtime coincidan en copy.
  */
 export const ALERT_TYPE_LABELS = {
-  declining_performance: 'Caída de rendimiento',
+  declining_performance: 'Rendimiento en descenso',
   inactivity: 'Inactividad',
-  sudden_score_drop: 'Caída brusca',
-  consistent_timeout: 'Timeouts frecuentes',
+  sudden_score_drop: 'Caída repentina de puntuación',
+  consistent_timeout: 'Timeouts consistentes',
   improving_fast: 'Mejora rápida',
-  plateau_detected: 'Estancamiento',
+  plateau_detected: 'Estancamiento detectado',
   high_abandonment: 'Alto abandono',
   engagement_drop: 'Caída de compromiso',
-  recovery_after_drop: 'Recuperación',
+  recovery_after_drop: 'Recuperación tras bache',
   mastery_milestone: 'Hito de dominio',
-  mechanic_specific_struggle: 'Dificultad por mecánica',
+  mechanic_specific_struggle: 'Dificultad específica por mecánica',
   sequence_stagnation: 'Estancamiento en Secuencia',
   sequence_order_errors: 'Errores de orden en Secuencia'
 };

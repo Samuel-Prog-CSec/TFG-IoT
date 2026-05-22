@@ -28,12 +28,20 @@ const loginAndGetToken = async (email = SUPER_ADMIN.email, password = SUPER_ADMI
 
 const cleanRedis = async () => {
   await redisService.flushNamespace('mfa:setup');
+  await redisService.flushNamespace(redisService.NAMESPACES.MFA_TOTP_USED);
   await redisService.flushNamespace(redisService.NAMESPACES.AUTH_FAILED);
   await redisService.flushNamespace(redisService.NAMESPACES.AUTH_LOCKED);
   await redisService.flushNamespace(redisService.NAMESPACES.BLACKLIST);
   await redisService.flushNamespace(redisService.NAMESPACES.SECURITY);
   await redisService.flushNamespace(redisService.NAMESPACES.AUTH_USER);
 };
+
+// Genera un código TOTP en un step "futuro" para evitar colisión con el guard
+// anti-replay del controller: dos llamadas consecutivas en el mismo test
+// (setup-verify + challenge) cogerían el mismo step si las ejecutamos sin
+// avanzar timestamp. El step +1 (offset +30s) es válido por la `window=1`
+// pero corresponde a un step distinto, así que no dispara MFA_CODE_REUSED.
+const generateNextStepCode = secret => totp.generate({ secret, timestamp: Date.now() + 30_000 });
 
 describe('MFA TOTP controller (B7)', () => {
   beforeAll(async () => {
@@ -157,7 +165,9 @@ describe('MFA TOTP controller (B7)', () => {
     });
 
     it('devuelve mfaToken con código TOTP válido', async () => {
-      const code = totp.generate({ secret });
+      // Step "siguiente" para esquivar el guard anti-replay: setup-verify
+      // del beforeEach ya consumió el step actual.
+      const code = generateNextStepCode(secret);
       const res = await request(app)
         .post('/api/auth/mfa/challenge')
         .set('Authorization', `Bearer ${accessToken}`)

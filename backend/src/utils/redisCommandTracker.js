@@ -32,6 +32,17 @@
  * @module utils/redisCommandTracker
  */
 
+// Logger opcional: si el módulo se carga antes que `utils/logger` esté
+// inicializado (p. ej. en tests aislados), fallback a no-op. Usamos require
+// dentro del helper para evitar ciclos al boot.
+const getLogger = () => {
+  try {
+    return require('./logger').child({ component: 'redisCommandTracker' });
+  } catch {
+    return { debug: () => {} };
+  }
+};
+
 const KNOWN_CATEGORIES = [
   'auth',
   'blacklist',
@@ -125,6 +136,12 @@ const categoryForNamespace = namespace => {
  */
 const recordCommand = (categoryOrNamespace, count = 1) => {
   if (!Number.isFinite(count) || count <= 0) {
+    // Trazamos los rechazos para postmortem (caller que pasa NaN, 0, negativos…).
+    // `debug` evita ruido en boot pero deja la señal disponible al subir el nivel.
+    getLogger().debug('recordCommand: rechazado por count inválido', {
+      count,
+      categoryOrNamespace
+    });
     return;
   }
   const category = KNOWN_CATEGORIES.includes(categoryOrNamespace)

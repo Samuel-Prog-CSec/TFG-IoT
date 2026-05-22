@@ -11,6 +11,11 @@
 const gamePlayRepository = require('../../repositories/gamePlayRepository');
 const { toObjectId, getStartDate, linearRegression, enrichMetric } = require('./analyticsHelpers');
 
+// Sub-agregaciones para el informe `format=detailed` del docente; se acotan a
+// 7 s para que MongoDB aborte antes que el `Promise.race` (8 s) de
+// `reportDataService`, evitando queries zombie.
+const REPORT_AGGREGATE_TIMEOUT_MS = 7000;
+
 // ══════════════════════════════════════════════════════════════════════
 // E12 — Efectividad de contenido por contexto/mecánica
 // ══════════════════════════════════════════════════════════════════════
@@ -109,7 +114,9 @@ async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy =
     { $sort: { avgScore: -1 } }
   ];
 
-  const results = await gamePlayRepository.aggregate(pipeline);
+  const results = await gamePlayRepository.aggregate(pipeline, {
+    maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS
+  });
 
   // Calcular improvement rate y learning efficiency para cada item
   const items = results.map(r => {

@@ -318,6 +318,23 @@ const updateGameSessionSchema = z
   .strict()
   .refine(data => Object.keys(data).length > 0, {
     message: 'Debe proporcionar al menos un campo para actualizar'
+  })
+  .superRefine((data, ctx) => {
+    // Si el caller envía simultáneamente sequencePlan y config.numberOfRounds,
+    // ambos deben coincidir en longitud. Hasta T-921 era posible enviar un plan
+    // de 3 rondas y un numberOfRounds=5, dejando la mecánica Secuencia en estado
+    // incoherente (rondas pintadas sin entradas en el plan).
+    if (
+      Array.isArray(data.sequencePlan) &&
+      data.config?.numberOfRounds !== undefined &&
+      data.sequencePlan.length !== data.config.numberOfRounds
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['sequencePlan'],
+        message: 'sequencePlan debe tener el mismo número de rondas que config.numberOfRounds'
+      });
+    }
   });
 
 /**

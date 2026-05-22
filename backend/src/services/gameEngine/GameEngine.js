@@ -680,15 +680,25 @@ class GameEngine {
       `Finalizando partida ${playId}${abandoned ? ' (abandonada por inactividad)' : ''}...`
     );
 
-    // 1. Limpiar timers pendientes
+    // 1. Limpiar timers pendientes. Sequence añade un timer extra para la fase
+    //    `memorizing` que sin esta limpieza quedaba huérfano: al disparar tras
+    //    `_endPlayInternal`, intentaba avanzar el `playState` que ya estaba
+    //    desmontado y dejaba logs `playState no encontrado` ruidosos.
     if (playState.roundTimer) {
       clearTimeout(playState.roundTimer);
+      playState.roundTimer = null;
     }
     if (playState.nextRoundTimer) {
       clearTimeout(playState.nextRoundTimer);
+      playState.nextRoundTimer = null;
     }
     if (playState.playTimer) {
       clearTimeout(playState.playTimer);
+      playState.playTimer = null;
+    }
+    if (playState.sequenceMemorizingTimer) {
+      clearTimeout(playState.sequenceMemorizingTimer);
+      playState.sequenceMemorizingTimer = null;
     }
 
     // 2. Guardar el estado final en la BD

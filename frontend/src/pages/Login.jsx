@@ -380,8 +380,12 @@ export default function Login() {
                   exit={{ opacity: 0, y: -10, height: 0 }}
                   className="mb-4"
                 >
-                  <div className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/30">
-                    <Clock className="size-5 text-error-base flex-shrink-0 mt-0.5" />
+                  <div
+                    role="alert"
+                    aria-live="assertive"
+                    className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/30"
+                  >
+                    <Clock className="size-5 text-error-base flex-shrink-0 mt-0.5" aria-hidden="true" />
                     <div>
                       <p className="text-error-base font-medium text-sm">
                         Demasiados intentos fallidos
@@ -422,12 +426,15 @@ export default function Login() {
                 <AnimatePresence>
                   {error && (
                     <motion.div
+                      key="login-error"
+                      role="alert"
+                      aria-live="assertive"
                       initial={{ opacity: 0, y: -10, height: 0 }}
                       animate={{ opacity: 1, y: 0, height: 'auto' }}
                       exit={{ opacity: 0, y: -10, height: 0 }}
                       className="flex items-start gap-3 p-3.5 rounded-xl bg-error-base/10 border border-error-base/30"
                     >
-                      <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
+                      <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" aria-hidden="true" />
                       <p className="text-error-base text-sm">{error}</p>
                     </motion.div>
                   )}

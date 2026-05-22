@@ -130,7 +130,12 @@ function SequenceGameplayPanel({
       />
 
       {!rfidConnected && phase === SEQUENCE_PHASES.REPRODUCING && (
-        <FallbackTouchPanelSequence cards={cardMappings} onSelectCard={handleCardTap} />
+        <FallbackTouchPanelSequence
+          cards={cardMappings}
+          onSelectCard={handleCardTap}
+          cursor={cursor}
+          sequenceLength={length}
+        />
       )}
 
       <AnimatePresence>

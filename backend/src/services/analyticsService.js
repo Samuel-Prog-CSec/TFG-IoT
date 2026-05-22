@@ -8,6 +8,17 @@ const Sentry = require('@sentry/node');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 
 /**
+ * Timeout aplicado a las agregaciones más pesadas del flujo de informes
+ * (`reportDataService.getClassroomReport` / `getStudentReport`). Marca el
+ * límite que protege el pool de Mongoose si una sub-agregación se cuelga:
+ * sin esto, el race en `Promise.race` rechazaba la promesa pero la query
+ * seguía corriendo zombie hasta los 15 s del default. Mantenemos margen de
+ * 1 s sobre `REPORT_TIMEOUT_MS=8000` para que MongoDB aborte antes que
+ * `Promise.race` y el caller reciba el error real con `codeName`.
+ */
+const REPORT_AGGREGATE_TIMEOUT_MS = 7000;
+
+/**
  * Obtiene la evolución del rendimiento de un estudiante a lo largo del tiempo.
  * Agrupa las partidas por fecha (día o semana) y calcula promedios.
  *
@@ -226,7 +237,7 @@ async function _getClassroomSummaryImpl(teacherId) {
   // producía discrepancias entre el contador (9) y la cuenta de filas con badge
   // EN RIESGO (8). Ahora ambas vistas leen la misma fuente.
   const [results, studentsInRisk] = await Promise.all([
-    gamePlayRepository.aggregate(pipeline),
+    gamePlayRepository.aggregate(pipeline, { maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS }),
     userRepository.count({
       createdBy: teacherOid,
       role: 'student',
@@ -837,7 +848,9 @@ async function getClassroomTrends(teacherId, timeRange = '7d') {
     }
   ];
 
-  const [result] = await gamePlayRepository.aggregate(pipeline);
+  const [result] = await gamePlayRepository.aggregate(pipeline, {
+    maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS
+  });
 
   const curr = result.current[0] || {};
   const prev = result.previous[0] || {};

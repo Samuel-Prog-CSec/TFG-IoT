@@ -61,7 +61,7 @@ jobs:
           persist-credentials: false
 
       - name: Initialize CodeQL
-        uses: github/codeql-action/init@v3
+        uses: github/codeql-action/init@78ed0c7291d93e40c51b085850dc669a4c3ab73b # v3
         with:
           languages: javascript-typescript
           # security-and-quality incluye reglas de calidad además de seguridad.
@@ -69,6 +69,9 @@ jobs:
           queries: security-and-quality
           # Excluir paths irrelevantes para el análisis. Aplica DESPUÉS de
           # paths-ignore del workflow trigger; las dos capas reducen ruido.
+          # Nota: `backend/seeders/**` y `backend/scripts/**` SE INCLUYEN en el
+          # análisis (acceden a BD y merecen cobertura SAST: migraciones,
+          # bootstrap, enriquecimiento de gameplays).
           config: |
             paths-ignore:
               - "**/node_modules"
@@ -77,17 +80,15 @@ jobs:
               - "**/build"
               - "memoria/**"
               - "rfid_scanner/**"
-              - "backend/seeders/**"
-              - "backend/scripts/**"
               - "backend/tests/**"
               - "frontend/src/**/__tests__/**"
               - "frontend/src/**/*.test.{js,jsx}"
 
       - name: Autobuild
-        uses: github/codeql-action/autobuild@v3
+        uses: github/codeql-action/autobuild@78ed0c7291d93e40c51b085850dc669a4c3ab73b # v3
 
       - name: Perform CodeQL Analysis
-        uses: github/codeql-action/analyze@v3
+        uses: github/codeql-action/analyze@78ed0c7291d93e40c51b085850dc669a4c3ab73b # v3
         with:
           category: "/language:javascript-typescript"
           # upload: failure-only para no contaminar el badge si ya hay

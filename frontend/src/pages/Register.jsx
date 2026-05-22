@@ -403,12 +403,15 @@ export default function Register() {
                 <AnimatePresence>
                   {error && (
                     <motion.div
+                      key="register-error"
+                      role="alert"
+                      aria-live="assertive"
                       initial={{ opacity: 0, y: -10, height: 0 }}
                       animate={{ opacity: 1, y: 0, height: 'auto' }}
                       exit={{ opacity: 0, y: -10, height: 0 }}
                       className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/20"
                     >
-                      <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
+                      <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" aria-hidden="true" />
                       <p className="text-error-base text-sm">{error}</p>
                     </motion.div>
                   )}

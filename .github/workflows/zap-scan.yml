@@ -67,7 +67,7 @@ jobs:
           }
 
       - name: ZAP Baseline Scan
-        uses: zaproxy/action-baseline@v0.13.0
+        uses: zaproxy/action-baseline@4dbc7854a9ad12686198001f786c09768ab9f9ac # v0.13.0
         with:
           target: ${{ steps.target.outputs.url }}
           # Reglas a silenciar (false positives conocidos):

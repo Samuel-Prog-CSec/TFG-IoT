@@ -107,11 +107,17 @@ adminRouter.post(
   asyncHandler(systemAlertsController.bulkAction)
 );
 
-// Debug en dev — útil para QA Playwright (force-run detection)
-adminRouter.post(
-  '/system-alerts/_debug/run-now',
-  asyncHandler(systemAlertsController.debugRunDetection)
-);
+// Debug en dev — útil para QA Playwright (force-run detection).
+// Bloqueado en producción: el endpoint dispara el motor entero y podría usarse
+// para amplificar carga o desencadenar notificaciones inesperadas. Si en algún
+// momento se necesita en producción, pasa por feature flag explícito en lugar
+// de quitar este guard.
+if (process.env.NODE_ENV !== 'production') {
+  adminRouter.post(
+    '/system-alerts/_debug/run-now',
+    asyncHandler(systemAlertsController.debugRunDetection)
+  );
+}
 
 // ────── /api/admin/announcements/* (super_admin) ──────────────────────
 

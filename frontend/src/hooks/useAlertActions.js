@@ -7,7 +7,7 @@
  * @module hooks/useAlertActions
  */
 
-import { useCallback, useRef } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { toast } from 'sonner';
 import analyticsService from '../services/analytics';
 
@@ -21,6 +21,21 @@ const UNDO_WINDOW_MS = 5000;
 export function useAlertActions({ onListChange, onRefetch }) {
   // Cola de undo: cada entrada `{ alertId, timer, payload }`.
   const pendingDismissRef = useRef(new Map());
+
+  // Al desmontar el hook (navegación, logout) cancelamos los timers de undo
+  // pendientes; sin esto, el commit dispara contra una React tree ya muerta,
+  // restaura optimistic en `onListChange` (set state en componente desmontado)
+  // o llama `onRefetch` cuando el panel de alertas ya no existe. La intención
+  // del undo se descarta deliberadamente — la UI ya cerró su contexto.
+  useEffect(() => {
+    const pending = pendingDismissRef.current;
+    return () => {
+      for (const { timer } of pending.values()) {
+        clearTimeout(timer);
+      }
+      pending.clear();
+    };
+  }, []);
 
   const removeOptimistic = useCallback(
     alertId => {

@@ -126,6 +126,7 @@ export default function StepMemoryRules({
                 max={300}
                 step={5}
                 value={config.timeLimit}
+                aria-valuetext={`${config.timeLimit} segundos`}
                 onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-brand-base"
               />
@@ -149,6 +150,7 @@ export default function StepMemoryRules({
                 max={15}
                 step={5}
                 value={config.pointsPerCorrect}
+                aria-valuetext={`+${config.pointsPerCorrect} puntos por pareja correcta`}
                 onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-success-base"
               />
@@ -172,6 +174,7 @@ export default function StepMemoryRules({
                 max={0}
                 step={1}
                 value={config.penaltyPerError}
+                aria-valuetext={`${config.penaltyPerError} puntos por pareja incorrecta`}
                 onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
                 className="flex-1 penalty-range"
                 // El accent-color nativo pinta desde min hacia value. Con rango

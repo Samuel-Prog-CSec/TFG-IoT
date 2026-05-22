@@ -243,7 +243,7 @@ function RevealOnScroll({ children, className = '', reduced }) {
 function SectionHeader({ icon: Icon, title }) {
   return (
     <div className="flex items-center gap-3 mb-5">
-      <div className="flex items-center justify-center size-10 rounded-xl bg-brand-base/15 text-brand-light flex-shrink-0">
+      <div className="flex items-center justify-center size-10 rounded-xl bg-brand-base/15 text-brand-on-alpha flex-shrink-0">
         <Icon className="size-5" />
       </div>
       <h2 className="text-xl font-semibold font-display text-text-primary">

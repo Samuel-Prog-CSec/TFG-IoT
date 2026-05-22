@@ -44,8 +44,29 @@ const mongoStateBuffer = [];
 // `markRetentionRunCompleted()`. En primer arranque será null.
 let lastRetentionRunAt = null;
 
+// Rango aceptable: 1 h en el futuro (tolerancia clock skew worker/web) y 7 días
+// en el pasado (suficiente para reanudar tras outages largos). Fuera de este
+// rango el timestamp suele ser fruto de bug o input corrupto y aceptarlo
+// haría que el detector `retention_stale` produjera falsos positivos.
+const RETENTION_TIMESTAMP_MAX_FUTURE_MS = 60 * 60 * 1000;
+const RETENTION_TIMESTAMP_MAX_PAST_MS = 7 * 24 * 60 * 60 * 1000;
+
 const markRetentionRunCompleted = (timestamp = new Date()) => {
-  lastRetentionRunAt = timestamp instanceof Date ? timestamp : new Date(timestamp);
+  const dt = timestamp instanceof Date ? timestamp : new Date(timestamp);
+  if (!Number.isFinite(dt.getTime())) {
+    logger.warn('markRetentionRunCompleted: timestamp inválido, ignorado', { timestamp });
+    return;
+  }
+  const now = Date.now();
+  const delta = dt.getTime() - now;
+  if (delta > RETENTION_TIMESTAMP_MAX_FUTURE_MS || delta < -RETENTION_TIMESTAMP_MAX_PAST_MS) {
+    logger.warn('markRetentionRunCompleted: timestamp fuera de rango, ignorado', {
+      timestamp: dt.toISOString(),
+      now: new Date(now).toISOString()
+    });
+    return;
+  }
+  lastRetentionRunAt = dt;
 };
 
 const invalidateCache = async () => {

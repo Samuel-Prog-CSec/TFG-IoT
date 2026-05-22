@@ -429,12 +429,27 @@ const buildHelmetOptions = (env = process.env.NODE_ENV) => {
     }
   }
 
+  // Resolución de `reportOnly`:
+  //  - En dev/test: por defecto `true` para no romper HMR (Vite genera scripts
+  //    inline, websockets, blobs); las violaciones siguen llegando a
+  //    `/api/csp-report` para detectar regresiones sin penalizar al developer.
+  //    Override explícito con `CSP_REPORT_ONLY=false` si se quiere validar la
+  //    política completa localmente.
+  //  - En prod: por defecto `false` (enforce). Cuando se prepara una rampa de
+  //    una política nueva, `CSP_REPORT_ONLY=true` durante 1 semana en staging.
+  let reportOnly;
+  if (process.env.CSP_REPORT_ONLY === 'true') {
+    reportOnly = true;
+  } else if (process.env.CSP_REPORT_ONLY === 'false') {
+    reportOnly = false;
+  } else {
+    reportOnly = !isProd;
+  }
+
   return {
     contentSecurityPolicy: {
       directives: cspDirectives,
-      // CSP_REPORT_ONLY=true: recolecta violaciones sin bloquear contenido. Útil al
-      // promover una política nueva a staging durante 1 semana antes de enforce.
-      reportOnly: process.env.CSP_REPORT_ONLY === 'true'
+      reportOnly
     },
     crossOriginEmbedderPolicy: false, // Audio/video cross-origin requieren COEP off
     crossOriginResourcePolicy: { policy: 'cross-origin' }, // Recursos de Supabase

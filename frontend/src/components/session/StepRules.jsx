@@ -136,6 +136,7 @@ export default function StepRules({
                 min={1}
                 max={15}
                 value={config.numberOfRounds}
+                aria-valuetext={`${config.numberOfRounds} ronda${config.numberOfRounds === 1 ? '' : 's'}`}
                 onChange={(e) => onConfigChange('numberOfRounds', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-accent-indigo"
               />
@@ -159,6 +160,7 @@ export default function StepRules({
                 max={ASSOCIATION_LIMITS.maxTimeLimit}
                 step={5}
                 value={config.timeLimit}
+                aria-valuetext={`${config.timeLimit} segundos`}
                 onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-brand-base"
               />
@@ -182,6 +184,7 @@ export default function StepRules({
                 max={15}
                 step={5}
                 value={config.pointsPerCorrect}
+                aria-valuetext={`+${config.pointsPerCorrect} puntos por acierto`}
                 onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-success-base"
               />
@@ -204,6 +207,7 @@ export default function StepRules({
                 min={-5}
                 max={0}
                 value={config.penaltyPerError}
+                aria-valuetext={`${config.penaltyPerError} puntos por error`}
                 onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
                 className="flex-1 penalty-range"
                 // Ver nota en StepMemoryRules.jsx: con rango negativo el fill

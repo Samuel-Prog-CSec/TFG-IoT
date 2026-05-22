@@ -102,7 +102,7 @@ export default function SystemAnnouncementForm({ open, mode, initial, onClose, o
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm px-4"
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm p-4 sm:p-6 lg:p-8 overflow-y-auto"
         onClick={onClose}
         role="dialog"
         aria-modal="true"
@@ -116,14 +116,14 @@ export default function SystemAnnouncementForm({ open, mode, initial, onClose, o
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 16, opacity: 0 }}
           transition={{ type: 'spring', stiffness: 260, damping: 24 }}
-          className="w-full max-w-xl bg-background-surface border border-border-default rounded-2xl shadow-2xl overflow-hidden"
+          className="w-full max-w-2xl bg-background-surface border border-border-default rounded-2xl shadow-2xl overflow-hidden my-auto"
         >
-          <header className="flex items-center justify-between px-5 py-4 border-b border-border-subtle">
-            <div>
-              <p className="text-[10px] uppercase tracking-wide text-text-muted font-medium">
+          <header className="flex items-center justify-between px-6 py-5 border-b border-border-subtle">
+            <div className="space-y-1">
+              <p className="text-[11px] uppercase tracking-[0.12em] text-text-muted font-semibold">
                 {mode === 'edit' ? 'Editar aviso' : 'Nuevo aviso a profesores'}
               </p>
-              <h2 id={titleId} className="text-base font-semibold text-text-primary">
+              <h2 id={titleId} className="text-lg font-semibold text-text-primary font-display">
                 Aviso del centro
               </h2>
             </div>
@@ -131,13 +131,13 @@ export default function SystemAnnouncementForm({ open, mode, initial, onClose, o
               type="button"
               onClick={onClose}
               aria-label="Cerrar"
-              className="rounded-md p-1 text-text-muted hover:bg-background-elevated/60 hover:text-text-primary"
+              className="rounded-lg p-2 text-text-muted hover:bg-background-elevated/60 hover:text-text-primary focus-ring"
             >
               <X size={18} aria-hidden="true" />
             </button>
           </header>
 
-          <div className="px-5 py-4 space-y-4 max-h-[70vh] overflow-y-auto">
+          <div className="px-6 py-6 space-y-5 max-h-[70vh] overflow-y-auto">
             <InputPremium
               id={titleId}
               label="Título"
@@ -171,41 +171,43 @@ export default function SystemAnnouncementForm({ open, mode, initial, onClose, o
               <p className="text-[11px] text-text-muted">{body.length}/500 caracteres</p>
             </div>
 
-            <fieldset className="grid grid-cols-3 gap-2">
-              <legend className="sr-only">Severidad</legend>
-              {ANNOUNCEMENT_SEVERITIES.map(s => {
-                const style = ANNOUNCEMENT_SEVERITY_STYLES[s];
-                const checked = severity === s;
-                return (
-                  <label
-                    key={s}
-                    className={cn(
-                      'flex flex-col items-center gap-1 rounded-lg border px-3 py-2 cursor-pointer transition-colors',
-                      checked
-                        ? style.container
-                        : 'border-border-subtle text-text-secondary hover:bg-background-elevated/40'
-                    )}
-                  >
-                    <input
-                      type="radio"
-                      name="severity"
-                      value={s}
-                      checked={checked}
-                      onChange={() => setSeverity(s)}
-                      className="sr-only"
-                    />
-                    <span className="text-[11px] uppercase tracking-wide font-semibold">
-                      {style.label}
-                    </span>
-                  </label>
-                );
-              })}
+            <fieldset className="space-y-2">
+              <legend className="text-sm font-medium text-text-secondary mb-1">Severidad</legend>
+              <div className="grid grid-cols-3 gap-2.5">
+                {ANNOUNCEMENT_SEVERITIES.map(s => {
+                  const style = ANNOUNCEMENT_SEVERITY_STYLES[s];
+                  const checked = severity === s;
+                  return (
+                    <label
+                      key={s}
+                      className={cn(
+                        'flex items-center justify-center gap-1 rounded-xl border px-4 py-3 cursor-pointer transition-colors',
+                        checked
+                          ? style.container
+                          : 'border-border-subtle text-text-secondary hover:bg-background-elevated/40'
+                      )}
+                    >
+                      <input
+                        type="radio"
+                        name="severity"
+                        value={s}
+                        checked={checked}
+                        onChange={() => setSeverity(s)}
+                        className="sr-only"
+                      />
+                      <span className="text-xs uppercase tracking-[0.08em] font-semibold">
+                        {style.label}
+                      </span>
+                    </label>
+                  );
+                })}
+              </div>
             </fieldset>
 
-            <fieldset className="space-y-2">
-              <legend className="text-sm font-medium text-text-secondary">Audiencia</legend>
+            <fieldset className="space-y-2.5">
+              <legend className="text-sm font-medium text-text-secondary mb-1">Audiencia</legend>
               {ANNOUNCEMENT_AUDIENCES.map(opt => (
-                <label key={opt.value} className="flex items-center gap-2 cursor-pointer">
+                <label key={opt.value} className="flex items-center gap-2.5 cursor-pointer py-0.5">
                   <input
                     type="radio"
                     name="audience"
@@ -268,7 +270,7 @@ export default function SystemAnnouncementForm({ open, mode, initial, onClose, o
             )}
           </div>
 
-          <footer className="flex items-center justify-end gap-2 px-5 py-3 border-t border-border-subtle bg-background-base/30">
+          <footer className="flex items-center justify-end gap-3 px-6 py-4 border-t border-border-subtle bg-background-base/30">
             <ButtonPremium type="button" variant="ghost" onClick={onClose} disabled={submitting}>
               Cancelar
             </ButtonPremium>

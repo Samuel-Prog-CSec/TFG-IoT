@@ -17,6 +17,12 @@ const {
   enrichMetric
 } = require('./analyticsHelpers');
 
+// Margen de 1 s sobre `reportDataService.REPORT_TIMEOUT_MS=8000` para que
+// MongoDB aborte por `maxTimeMS` antes de que el Promise.race rechace la
+// promesa, evitando queries zombie en el pool. Aplica a los aggregates de
+// trayectoria invocados desde el flujo de informes.
+const REPORT_AGGREGATE_TIMEOUT_MS = 7000;
+
 // ══════════════════════════════════════════════════════════════════════
 // E01 — Trayectoria de aprendizaje
 // ══════════════════════════════════════════════════════════════════════
@@ -97,7 +103,9 @@ async function getStudentTrajectory(studentId, { timeRange = '30d', granularity 
     { $sort: { _id: 1 } }
   ];
 
-  const results = await gamePlayRepository.aggregate(pipeline);
+  const results = await gamePlayRepository.aggregate(pipeline, {
+    maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS
+  });
 
   const dataPoints = results.map(r => ({
     period: r._id,

@@ -32,7 +32,8 @@ jobs:
 
     if: >-
       vars.PREVIEW_DEPLOYS_ENABLED == 'true' &&
-      github.event.action != 'closed'
+      github.event.action != 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - uses: actions/checkout@v6
@@ -70,9 +71,11 @@ jobs:
           APP_NAME="api-pr-$PR_NUM"
 
           # Si ya existe, redeploy; si no, create.
-          if koyeb services get "$APP_NAME" --token "$KOYEB_TOKEN" >/dev/null 2>&1; then
+          # El CLI Koyeb lee KOYEB_TOKEN del entorno automáticamente; no pasarlo
+          # en argv evita que aparezca en `ps`/audit logs del runner.
+          if koyeb services get "$APP_NAME" >/dev/null 2>&1; then
             echo "Servicio $APP_NAME ya existe — redeploy"
-            koyeb services redeploy "$APP_NAME" --token "$KOYEB_TOKEN"
+            koyeb services redeploy "$APP_NAME"
           else
             echo "Creando servicio $APP_NAME desde la rama $BRANCH"
             # NOTA: variables de entorno mínimas se asumen heredadas del template
@@ -87,8 +90,7 @@ jobs:
               --port 5000:http \
               --route /:5000 \
               --instance-type eco \
-              --region fra \
-              --token "$KOYEB_TOKEN"
+              --region fra
           fi
 
           URL="https://${APP_NAME}-${KOYEB_ORG}.koyeb.app"
@@ -96,7 +98,7 @@ jobs:
           echo "app_name=$APP_NAME" >> "$GITHUB_OUTPUT"
 
       - name: Comentar URL en el PR
-        uses: actions/github-script@v8
+        uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8
         env:
           PREVIEW_URL: ${{ steps.deploy.outputs.url }}
           APP_NAME: ${{ steps.deploy.outputs.app_name }}
@@ -137,7 +139,8 @@ jobs:
     runs-on: ubuntu-latest
     if: >-
       vars.PREVIEW_DEPLOYS_ENABLED == 'true' &&
-      github.event.action == 'closed'
+      github.event.action == 'closed' &&
+      github.event.pull_request.head.repo.full_name == github.repository
 
     steps:
       - name: Verificar secrets requeridos
@@ -159,11 +162,13 @@ jobs:
         env:
           KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
         run: |
+          # KOYEB_TOKEN viene por env — no se pasa --token en argv para no
+          # exponerlo en `ps`/audit logs del runner.
           PR_NUM="${{ github.event.pull_request.number }}"
           APP_NAME="api-pr-$PR_NUM"
-          if koyeb services get "$APP_NAME" --token "$KOYEB_TOKEN" >/dev/null 2>&1; then
+          if koyeb services get "$APP_NAME" >/dev/null 2>&1; then
             echo "Eliminando $APP_NAME"
-            koyeb services delete "$APP_NAME" --token "$KOYEB_TOKEN"
+            koyeb services delete "$APP_NAME"
           else
             echo "Servicio $APP_NAME ya no existe — nada que limpiar"
           fi

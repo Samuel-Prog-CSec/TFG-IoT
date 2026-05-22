@@ -80,12 +80,13 @@ const MfaChallengeModal = () => {
       role="dialog"
       aria-modal="true"
       aria-labelledby="mfa-challenge-title"
+      aria-describedby="mfa-challenge-description"
     >
       <div className="bg-background-elevated border border-border-default rounded-2xl shadow-xl max-w-md w-full p-6">
         <h2 id="mfa-challenge-title" className="text-xl font-semibold text-text-primary mb-2">
           Verificación MFA
         </h2>
-        <p className="text-sm text-text-muted mb-4">
+        <p id="mfa-challenge-description" className="text-sm text-text-muted mb-4">
           Esta acción requiere doble factor.{' '}
           {useBackup
             ? 'Introduce uno de tus backup codes (formato XXXX-XXXX-XXXX-XXXX).'

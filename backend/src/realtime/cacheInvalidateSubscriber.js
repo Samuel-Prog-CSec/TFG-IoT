@@ -126,14 +126,51 @@ const startCacheInvalidateSubscriber = async () => {
     subscriberClient = null;
   });
 
-  try {
-    await subscriberClient.subscribe(CACHE_INVALIDATE_CHANNEL);
-    logger.info('cacheInvalidateSubscriber: suscrito al canal', {
-      channel: CACHE_INVALIDATE_CHANNEL,
-      instance: ownInstanceId
+  // Retry exponencial corto si el subscribe inicial falla (p.ej. handshake aún
+  // no listo, conexión TLS pendiente). Si tras 3 intentos no logramos suscribir
+  // damos por perdido el subscriber: el TTL local de los LRU (30–60 s) actúa
+  // como fallback aceptable. No reintentamos en bucle infinito porque el resto
+  // del sistema no debe quedar bloqueado en este detalle.
+  const SUBSCRIBE_RETRIES = 3;
+  const SUBSCRIBE_BASE_DELAY_MS = 1000;
+  let subscribed = false;
+  let lastErr = null;
+  for (let attempt = 0; attempt < SUBSCRIBE_RETRIES; attempt += 1) {
+    try {
+      await subscriberClient.subscribe(CACHE_INVALIDATE_CHANNEL);
+      subscribed = true;
+      logger.info('cacheInvalidateSubscriber: suscrito al canal', {
+        channel: CACHE_INVALIDATE_CHANNEL,
+        instance: ownInstanceId,
+        attempt: attempt + 1
+      });
+      break;
+    } catch (err) {
+      lastErr = err;
+      const delay = SUBSCRIBE_BASE_DELAY_MS * 2 ** attempt;
+      logger.warn('cacheInvalidateSubscriber: subscribe falló, reintentando', {
+        attempt: attempt + 1,
+        nextDelayMs: delay,
+        error: err.message
+      });
+      // Última iteración → no esperar más, salir del bucle.
+      if (attempt === SUBSCRIBE_RETRIES - 1) {
+        break;
+      }
+      await new Promise(resolve => setTimeout(resolve, delay));
+    }
+  }
+
+  if (!subscribed) {
+    logger.error('cacheInvalidateSubscriber: fallo definitivo al suscribir tras retries', {
+      attempts: SUBSCRIBE_RETRIES,
+      error: lastErr?.message
     });
-  } catch (err) {
-    logger.error('cacheInvalidateSubscriber: fallo al suscribir', { error: err.message });
+    try {
+      await subscriberClient.quit();
+    } catch {
+      // ignorar — el subscriber se descarta igualmente.
+    }
     subscriberClient = null;
     return;
   }

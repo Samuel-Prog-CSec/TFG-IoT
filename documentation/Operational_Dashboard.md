@@ -33,6 +33,39 @@ en primer lugar cuando llega una alerta.
 > documentados en
 > [`Free_Tier_Budget.md`](Free_Tier_Budget.md) (T-910, ADR-168).
 
+### 1.1 Métricas internas del backend (`/api/metrics`)
+
+Endpoint propio que expone el snapshot de runtime del backend. **Requiere
+`super_admin` autenticado** (no es público; el cliente final no lo consume).
+
+- **URL:** `GET /api/metrics`
+- **Autenticación:** JWT + role `super_admin` + (opcional) MFA si la
+  política está activa.
+- **Categorías expuestas (en `runtimeMetrics`):**
+  - `redis` — comandos totales y por categoría (`auth`, `cache-*`, `lua`,
+    `pipeline`…), proyección diaria estimada, hit ratio del LRU local
+    (`inMemoryCache.{authUser,mechanic,context}`), latencias del ping.
+  - `http` — contadores de rate-limit fallback, código de respuesta agregado.
+  - `socket` — conexiones activas, eventos por tipo (rate-limited
+    distribuido, pub/sub de invalidación, modo RFID).
+  - `rfid_hmac` — verificaciones OK / rechazos por counter mismatch /
+    rechazos por firma inválida (T-905 B7).
+  - `memory` — heap usado/total, % heap, GC pauses recientes.
+  - `queues` — backlog por queue BullMQ (`alert-detection`,
+    `data-retention`, `notifications`, `gdpr-exports`).
+- **Para qué se usa:**
+  - Verificación rápida del consumo de comandos Upstash antes de cortar un
+    release (deberíamos ver `commandsEstimatedDaily` < 80 % del budget;
+    ver `Free_Tier_Budget.md` §3.2).
+  - Debug en directo de un blip de Redis: el detector
+    `rate_limit_store_fallback` se dispara al ver `httpRateLimitFallback > 0`.
+  - QA E2E (Playwright) para sanity-check después de cada partida de
+    Secuencia: las invalidaciones cross-instance dejan rastro en
+    `socket.cacheInvalidatePublishes`.
+- **No reemplaza Grafana ni Sentry:** el endpoint es un *snapshot* del
+  proceso vivo; para series temporales o tracing distribuido seguimos
+  yendo a las consolas externas listadas arriba.
+
 ---
 
 ## 2. Status page pública

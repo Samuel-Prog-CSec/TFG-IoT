@@ -14,18 +14,37 @@ import * as Sentry from '@sentry/react';
 let isSentryEnabled = false;
 
 /**
- * Resuelve el environment efectivo del frontend. `VITE_APP_ENV` permite
- * distinguir staging (preview Cloudflare Pages) de production sin depender
- * de `import.meta.env.MODE` (que en preview también dice "production").
+ * Resuelve el environment efectivo del frontend. Orden de precedencia:
+ *
+ *  1. `VITE_APP_ENV` explícito (build-time override). Lo usamos para
+ *     diferenciar staging del production deploy estable.
+ *  2. Heurística Cloudflare Pages: si la build se hizo en CF Pages
+ *     (`VITE_CF_PAGES=1`) y la rama NO es `main`, etiquetamos como
+ *     `preview`. Estas builds las dispara una PR y suelen tener muy
+ *     poco tráfico real; etiquetar aparte evita que sus traces inflen el
+ *     panel de Sentry de producción y desperdicien cuota.
+ *  3. `import.meta.env.MODE` (vite — dev/test/production) como fallback.
  *
  * @returns {string}
  */
-const resolveEnvironment = () => import.meta.env.VITE_APP_ENV || import.meta.env.MODE || 'development';
+const resolveEnvironment = () => {
+  const explicit = import.meta.env.VITE_APP_ENV;
+  if (explicit) {
+    return explicit;
+  }
+  const isCfPagesBuild = import.meta.env.VITE_CF_PAGES === '1';
+  const cfBranch = import.meta.env.VITE_CF_PAGES_BRANCH;
+  if (isCfPagesBuild && cfBranch && cfBranch !== 'main') {
+    return 'preview';
+  }
+  return import.meta.env.MODE || 'development';
+};
 
 /**
  * Calcula el sample rate Sentry para traces:
  *  - production → 0.1
  *  - staging    → 0.5
+ *  - preview    → 0.01  (PR deploys: visibilidad mínima, no inflar cuota)
  *  - resto      → 1.0
  *
  * @param {string} env
@@ -34,6 +53,7 @@ const resolveEnvironment = () => import.meta.env.VITE_APP_ENV || import.meta.env
 const sampleRateFor = (env) => {
   if (env === 'production') return 0.1;
   if (env === 'staging') return 0.5;
+  if (env === 'preview') return 0.01;
   return 1.0;
 };
 

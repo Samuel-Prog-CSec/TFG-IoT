@@ -152,7 +152,6 @@ jobs:
 
       - name: Security report (completo)
         run: npm run audit:all
-        continue-on-error: true
 
   # ──────────────────────────────────────────────
   # Job 3: Tests backend (requiere MongoDB)
@@ -411,7 +410,7 @@ jobs:
 
       - name: SonarCloud Scan
         id: sonar_scan
-        uses: sonarsource/sonarqube-scan-action@v8
+        uses: sonarsource/sonarqube-scan-action@7006c4492b2e0ee0f816d36501671557c97f5995 # v8
         with:
           args: >-
             -Dsonar.token=${{ secrets.SONAR_TOKEN }}

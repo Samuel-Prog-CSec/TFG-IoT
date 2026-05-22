@@ -665,7 +665,13 @@ export default function GameSession() {
       (payload?.results || []).forEach(item => {
         finalStatuses[item.uid] = TYPE_TO_STATUS[item.status] || 'correct';
       });
-      return { ...prev, phase: 'completed', cardStatuses: finalStatuses };
+      // cursor: 0 cierra cualquier render intermedio (overlay, transición a
+      // memorizing) que pintara el indicador "Carta X de N" del fallback
+      // panel con el cursor de la ronda recién terminada. La nueva ronda
+      // entra siempre desde 0 y `handleSequencePhaseMemorizing`/`Reproducing`
+      // lo confirman; este reset es defensa-en-profundidad para evitar que
+      // un race condition exponga el cursor de la ronda anterior.
+      return { ...prev, phase: 'completed', cardStatuses: finalStatuses, cursor: 0 };
     });
     // La ronda ha terminado: paramos el timer del cliente para que la
     // barra no siga decrementando durante el respiro entre rondas (el
