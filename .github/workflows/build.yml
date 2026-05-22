@@ -143,6 +143,11 @@ jobs:
             --excluded "$FRONTEND_EXCLUDED"
 
       - name: Security report (completo)
+        # Informe puramente diagnóstico (incluye devDeps); las exclusiones de
+        # producción ya las aplica el step anterior. Las moderates conocidas
+        # (BACKEND_EXCLUDED/FRONTEND_EXCLUDED) hacen que npm audit retorne
+        # exit 1 sin que eso refleje un fallo real. No bloquear el job.
+        continue-on-error: true
         run: npm run audit:all
 
   # ──────────────────────────────────────────────
