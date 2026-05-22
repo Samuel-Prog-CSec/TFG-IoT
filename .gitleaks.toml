@@ -1,0 +1,60 @@
+# .gitleaks.toml — Configuración de allowlist para gitleaks.
+#
+# Por defecto gitleaks usa sus reglas builtin (https://github.com/gitleaks/gitleaks/blob/master/config/gitleaks.toml)
+# que detectan AWS, GitHub, Stripe, Slack, JWT, npm tokens, etc. Aquí sólo
+# añadimos allowlist para reducir falsos positivos.
+
+title = "EduPlay RFID Gitleaks Config"
+
+# Extender la config builtin (no reemplazar).
+[extend]
+useDefault = true
+
+# Allowlist global: paths o regex que NUNCA cuentan como leak.
+[allowlist]
+description = "Allowlist EduPlay — placeholders documentados, secrets de test."
+
+paths = [
+  # Documentación y memoria: contienen ejemplos didácticos de URIs/secrets fake.
+  '''(?i)\.env\.example$''',
+  '''(?i)documentation/.*\.md$''',
+  '''(?i)backend/docs/.*\.md$''',
+  '''(?i)frontend/docs/.*\.md$''',
+  '''(?i)CONTRIBUTING\.md$''',
+  '''(?i)README\.md$''',
+  '''(?i)memoria/.*''',
+  # Seeders y fixtures usan credenciales de test conocidas (Test1234!, Admin1234!).
+  '''(?i)backend/seeders/.*\.js$''',
+  '''(?i)backend/tests/.*\.js$''',
+  '''(?i)backend/scripts/seed.*\.js$''',
+  # Workflows con placeholders en comentarios.
+  '''(?i)\.github/workflows/.*\.yml$''',
+]
+
+# Allowlist por regex — strings literales que documentamos como seguros.
+regexes = [
+  # Credenciales de seed que aparecen en CLAUDE.md y docs:
+  '''Admin1234!''',
+  '''Test1234!''',
+  '''devRedis123!''',
+  # Placeholders genéricos
+  '''tu_secret_jwt_minimo_32_caracteres_aqui''',
+  '''tu_secret_refresh_minimo_32_caracteres_aqui''',
+  '''minimo_32_caracteres''',
+  '''test_secret''',
+  '''test-jwt-secret-''',
+  '''test-jwt-refresh-secret-''',
+]
+
+# Stop-words: si la línea contiene "example", "placeholder", "TODO", normalmente
+# es un comentario o doc. NO usar `commits` allowlist a menos que sea estrictamente
+# necesario (un commit en allowlist queda olvidado para siempre).
+stopwords = [
+  "example",
+  "placeholder",
+  "your_secret_here",
+  "<your_token>",
+  "<password>",
+  "fake",
+  "dummy",
+]

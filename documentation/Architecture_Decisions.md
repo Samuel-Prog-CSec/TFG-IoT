@@ -73,6 +73,10 @@ Cada ADR indica su alcance: **[Backend]**, **[Frontend]**, **[Full-stack]** o **
 | ADR-086 | Decisiones SonarCloud post-release v0.4.0 — supresiones y resolución de hallazgos | DevOps |
 | ADR-087 | Paquete fixes QA senior pre-release v0.5.0 (bloqueantes y visibles) | Full-stack |
 | ADR-088 | Paquete fixes QA cierre Sprint 5 / pre-release v0.5.0 (gameplay, contextos, analytics) | Full-stack |
+| ADR-089..164 | Hardening seguridad T-905, performance T-907, observabilidad parcial, motion signature y QA acumulada Sprint 5/6 (ver cuerpo) | Varios |
+| ADR-165 | Sentry Performance — instrumentación manual de transacciones críticas + sampling per-env (T-904 Fase A) | Backend, Frontend, DevOps |
+| ADR-166 | Log shipping centralizado con Grafana Cloud Loki + `pino-loki` (T-904 Fase B) | Backend, DevOps |
+| ADR-169 | Bootstrap de tema servido como archivo externo (`/theme-bootstrap.js`) en lugar de `<script>` inline para mantener CSP estricta sin hash ni nonce | Frontend, DevOps |
 
 **Leyenda de alcance:**
 - **Backend**: Cambios exclusivamente en el servidor (Node.js/Express)
@@ -7620,3 +7624,1313 @@ Tres agentes Explore en paralelo produjeron un informe consolidado de 54 hallazg
 - **Cobertura WCAG AA** — focus rings consistentes, contraste muted +5L en dark, target size 110px+ en gameplay touch, aria-disabled/aria-busy en interactivos clave.
 - **Microcopy alineado** — voz consistente (tuteo, sin jerga técnica), tildes verificadas, etiquetas RFID descriptivas para el docente.
 
+## ADR-139: Stack cloud para v1.0.0 — Koyeb + Atlas + Upstash + Cloudflare Pages [DevOps]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-901 (Sprint 6)
+
+### Contexto
+
+El TFG llega a la fase de despliegue cloud sin haber estado nunca en producción. Hace falta un stack que cumpla cuatro restricciones simultáneamente:
+
+1. **Free tier suficiente para una demo del tribunal** y uso piloto en un centro (decenas de usuarios concurrentes).
+2. **Europa** para minimizar latencia con el navegador del docente y cumplir con el principio de localización RGPD.
+3. **Compatibilidad nativa con el stack actual** — Node.js 24, MongoDB 8 (Mongoose 9), Redis 7 (ioredis), Socket.IO 4, build Vite.
+4. **Pipeline de CD trivial** — auto-deploy desde una rama, redeploy desde GitHub Actions con un único token API, rollback en un click.
+
+### Decisión
+
+| Componente | Proveedor | Tier | Justificación frente a alternativas |
+|---|---|---|---|
+| **Backend host** | Koyeb (`fra`) | Eco free | Nixpacks autodetecta Node sin Dockerfile, soporte nativo Worker (separado de API) para BullMQ, redeploy vía CLI/API, idle timeout configurable para WebSockets. Alternativas descartadas: Railway (free tier muy limitado en horas/mes), Render (free tier hace cold start agresivo que mata Socket.IO), Fly.io (requiere conocer fly.toml y Docker — más fricción para el TFG). |
+| **Database** | MongoDB Atlas M0 (`eu-central-1`) | M0 free forever | El único free tier de Mongo managed con replica set (necesario para `retryWrites` y `w: 'majority'`). 512 MB storage suficiente para 50k registros del dominio. Alternativa descartada: Mongo en VM de Koyeb (sin replica, sin backup, single point of failure). |
+| **Cache + queues** | Upstash Redis (`eu-west-1`) | Free (5K cmds/day) | TLS nativo (`rediss://`), pricing por comando (no por hora), latencia <50ms desde `fra`. Caches analytics + flush Lua reducen el uso bajo 50% del límite en uso normal (verificado en QA). Alternativa descartada: Redis Cloud (free tier sin TLS y con persistencia ON por defecto que rompe BullMQ). |
+| **Frontend host** | Cloudflare Pages | Unlimited free | CDN global, preview deploys automáticos por rama (perfecto para staging y PRs), build hooks vía GitHub App, Workers KV disponible si se necesita en el futuro. Alternativa descartada: Vercel (free tier limita el ancho de banda — riesgo si el tribunal hace pruebas concurrentes). |
+| **Storage** | Supabase (ya existente) | Free 1GB | Mantenido — ya gestiona los assets de mazos vía service role key. |
+| **Observabilidad** | Sentry (ya existente) + Pino structured | Free 5K events/mes | Mantenido — Pino vuelca JSON a stdout que Koyeb captura y envía a Logtail (próximo). |
+
+### Riesgos asumidos y mitigaciones
+
+- **0.0.0.0/0 en Atlas Network Access.** Koyeb free no garantiza IPs estáticas, así que es la única opción viable. Se mitiga con TLS 1.3 obligatorio + SCRAM-SHA-256 + password 64 caracteres aleatorios + `MONGO_URI` sólo en Koyeb Secrets nunca en repo.
+- **Cold start de M0 tras inactividad.** Tuneado por ADR-140 (`serverSelectionTimeoutMS: 10s`).
+- **Upstash 5K cmds/day.** Caches analytics + `REDIS_FLUSH_LUA_ON_BOOT` + invalidación selectiva. Si se acerca al límite, primer paso es desactivar el `cache:analytics:*` y migrar a in-memory; segundo es subir al plan pay-as-you-go ($0.20 por 100K cmds).
+- **Free tier Koyeb (Eco) hace cold start tras 5 min idle.** Para staging es aceptable; para prod se puede comprar el siguiente nivel ($5/mes) si el tribunal lo requiere.
+
+### Alternativas descartadas (con detalle)
+
+- **Railway**: $5 crédito mensual gratis ≈ 100h/mes — insuficiente para 4 servicios always-on.
+- **Render**: cold start de 30-50 segundos en free tier mata Socket.IO si la primera conexión llega fría.
+- **Fly.io**: excelente técnicamente pero requiere Docker + fly.toml + conocimiento de máquinas vs apps. Curva de aprendizaje contra la prisa del TFG.
+- **Vercel + Vercel Functions (backend serverless)**: el stack actual usa servicios con estado (Socket.IO, BullMQ workers, Redis adapter) que serverless no soporta bien.
+- **AWS / GCP / Azure**: free tiers existen pero la configuración inicial (VPC, IAM, ALB...) excede el alcance del TFG.
+
+### Documentación asociada
+
+- `documentation/Deploy_Koyeb.md` — runbook completo de aprovisionamiento.
+- `documentation/Secrets_Rotation.md` — política de rotación de secretos.
+
+## ADR-140: Trust proxy + opciones de pool Mongoose para Atlas M0 [Backend]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-901 (Sprint 6)
+
+### Contexto
+
+Desplegar contra Koyeb (reverse proxy front) y Atlas M0 (replica set en red compartida) requiere dos cambios en el boot del backend que en local con Docker no eran necesarios:
+
+1. **Trust proxy.** Express, sin `app.set('trust proxy')`, ve la IP del reverse proxy en `req.ip`. Los rate limiters basados en IP (`globalRateLimiter`, `authRateLimiter`) confunden a todos los clientes con un único "atacante" y los bloquean a todos a la vez. El primer login post-deploy dispara este bug y bloquea el tráfico global.
+2. **Pool de conexiones a Mongoose.** Sin opciones explícitas, Mongoose 9 usa defaults pensados para clusters dedicados (pool 100, timeout server selection 30s). En Atlas M0 (red compartida, latencia variable) esto provoca:
+   - Saturación del límite de conexiones de M0 (500 totales) si varias instancias multiplican el pool.
+   - Boot lento si el primer `serverSelectionTimeoutMS` espera 30s tras cold start de M0.
+   - Pérdida de queries en reads/writes si el primario falla durante un failover (sin `retryReads/Writes`).
+
+### Decisión
+
+**Trust proxy condicional al entorno.** Sólo se activa con `NODE_ENV=production` o explícitamente con `TRUST_PROXY=true`. En desarrollo se omite a propósito: confiar en `X-Forwarded-For` sin un proxy real abre la puerta a bypass de rate limit suplantando la cabecera desde el cliente.
+
+```js
+if (process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production') {
+  app.set('trust proxy', 1);  // confiar solo en la primera capa
+}
+```
+
+**Pool Mongoose con dos perfiles.** En producción aplicamos opciones optimizadas para Atlas M0; en dev/test usamos defaults para no asumir replica set (un MongoDB local single-node o un mongodb-memory-server pueden no aceptar `w: 'majority'`).
+
+```js
+const productionConnectOptions = {
+  maxPoolSize: 10,            // 1 instancia api Eco free no necesita más
+  minPoolSize: 2,             // 2 conexiones calientes evitan cold-start por query tras idle
+  serverSelectionTimeoutMS: 10_000,
+  socketTimeoutMS: 45_000,
+  heartbeatFrequencyMS: 30_000,
+  retryReads: true,
+  retryWrites: true,
+  w: 'majority'
+};
+
+const connectOptions = process.env.NODE_ENV === 'production' ? productionConnectOptions : {};
+await mongoose.connect(process.env.MONGO_URI, connectOptions);
+```
+
+### Justificación de los valores
+
+- **`maxPoolSize: 10`** — con 1 instancia api Eco y un patrón request → query short (sin transacciones largas), 10 conexiones aforan ~200 RPS contra Atlas sin saturar.
+- **`minPoolSize: 2`** — mantiene 2 conexiones siempre vivas tras idle (M0 cierra conexiones idle a los ~10 minutos). Sin esto, la primera query tras 10 min de inactividad paga el coste de TLS handshake + auth (~600ms).
+- **`serverSelectionTimeoutMS: 10s`** — M0 puede tardar 1-3s en responder tras un cold start del cluster (poco frecuente pero ocurre). 10s es holgado sin tapar errores reales.
+- **`socketTimeoutMS: 45s`** — corta queries colgadas (script malicioso, índice perdido) sin matar la conexión sana.
+- **`heartbeatFrequencyMS: 30s`** — detecta failover del replica set en <60s sin saturar Atlas con pings (default 10s genera 6 pings/min × 3 nodos = ruido innecesario).
+- **`retryReads/Writes + w: 'majority'`** — durabilidad fuerte: la escritura sólo confirma cuando la mayoría del replica set la tiene. Si el primario cae, el driver retoma automáticamente en el nuevo primario.
+
+### Impacto
+
+- **Rate limiting funciona correctamente detrás de Koyeb.** `req.ip` es la del cliente final, no la del proxy.
+- **Boot del backend pasa de ~6s a ~3s contra Atlas M0** (medido en deploy de prueba con `time curl /health`).
+- **Tolerancia a failover de Atlas** durante mantenimiento (Atlas hace upgrade rolling de nodos en M0 sin downtime, pero requiere `retryReads/Writes` para que el cliente no vea el blip).
+
+### Verificación
+
+- `app.set('trust proxy', 1)` activo en `NODE_ENV=production` — verificable con `curl -H "X-Forwarded-For: 1.2.3.4" /api/health/echo` (devolverá `1.2.3.4` como IP percibida).
+- Pool: log de Mongoose `MongoDB Connected: <host>` aparece en <2s tras boot. `mongoose.connection.client.s.options.maxPoolSize === 10` en producción.
+
+## ADR-141: Probes liveness vs readiness con estado compartido `serverState` [Backend]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-902 (Sprint 6)
+
+### Contexto
+
+El endpoint `GET /health` existente devuelve un objeto rico (Mongo, Redis, RFID, memoria, CPU) con HTTP 200 cuando todo está OK y 503 cuando hay un crítico caído. Esto sirvió bien para dashboards admin durante todo el desarrollo, pero **mezcla dos preguntas distintas**:
+
+1. **"¿Debo reiniciar el proceso?"** (liveness) — la respuesta es 200 mientras el event loop responde, aunque Mongo esté caído (un reinicio no arreglaría la caída de Mongo y mataría conexiones útiles).
+2. **"¿Puedo enrutar tráfico a este proceso?"** (readiness) — la respuesta es 503 si alguna dependencia crítica está caída, para que el load balancer (Koyeb) deje de mandar requests mientras la dependencia se recupera.
+
+Mezclar las dos en `/health` causa que UptimeRobot (que sólo quiere liveness) genere alertas cada vez que Redis tiene un blip de 30 segundos, y que Koyeb (que sólo quiere readiness) reinicie el container ante problemas que un reinicio no resuelve.
+
+### Decisión
+
+**Split en tres rutas, con estado compartido vía módulo `serverState`:**
+
+| Ruta | Handler | Status | Verifica |
+|---|---|---|---|
+| `GET /health/live` | `livenessCheck` | 200 fijo | Sólo que el proceso responde (devuelve pid + uptime) |
+| `GET /health/ready` | `readinessCheck` | 200 / 503 | `serverState.isReady` AND `mongoose.readyState === 1` AND `isRedisConnected()` (sólo prod) AND circuit breaker no abierto |
+| `GET /health` | `healthCheck` (legacy) | 200 / 503 | Detallado para dashboards admin — sin cambios |
+
+Las tres rutas se registran tanto bajo `/api/health/*` (vía `routes/health.js`) como bajo `/health/*` sin prefijo (aliases directos en `server.js` para load balancers).
+
+**Módulo `serverState`** (`backend/src/utils/serverState.js`): dos flags mutables (`isReady`, `isShuttingDown`) con getters/setters. El gracefulShutdown los pone a `false`/`true` al iniciar (antes de cerrar nada) para que el probe responda 503 inmediatamente, y Koyeb deje de enrutar conexiones nuevas mientras drenamos las existentes.
+
+**Sin circuit breaker formal en este ADR.** Se descartó la implementación del contador "3 errores en 60s → not ready" por sobre-engineering para el TFG: Mongoose ya tiene retry policy y emite `disconnected` cuando la conexión se rompe; verificar `readyState` directamente en cada call es O(1) y suficiente. Si emergen falsos positivos en producción real, se añadirá el contador.
+
+### Justificación de detalles
+
+- **Por qué `/health/live` no toca Mongo/Redis.** Un proceso vivo aunque sus dependencias estén caídas sigue siendo útil: puede servir respuestas cacheadas, completar requests in-flight, y aceptar shutdowns ordenados. Reiniciarlo cuando Mongo cae sólo amplifica el daño (perdemos conexiones Socket.IO que tardarán segundos en re-establecerse).
+- **Por qué `isRedisConnected()` sólo se considera crítico en producción.** En dev/test el código degrada vía fallback (in-memory rate limit, blacklist desactivada). Forzar 503 ahí impediría ejecutar tests sin Redis levantado.
+- **Por qué leer `readyState` y no hacer ping de red.** Un ping cada 5-15s × N instancias × M dashboards = decenas de comandos/min innecesarios contra Atlas M0 (que tiene 500 conexiones totales). `readyState` se actualiza por Mongoose ante cualquier cambio de estado del replica set.
+
+### Impacto
+
+- **UptimeRobot puede apuntar a `/health/live`** y dejar de generar falsos positivos por blips de Redis.
+- **Koyeb deja de enrutar inmediatamente** cuando empieza el shutdown (probe pasa de 200 a 503 en el primer ms del SIGTERM).
+- **Dashboards admin** siguen funcionando contra `/api/health` (compatibilidad mantenida).
+
+### Verificación
+
+```bash
+curl -i http://localhost:5000/health/live   # 200 siempre
+curl -i http://localhost:5000/health/ready  # 200 si todo OK, 503 si Mongo/Redis caído
+# Stop Redis local:
+docker compose stop redis
+curl -i http://localhost:5000/health/ready  # En production: 503 con redis:down; en dev: 200
+```
+
+## ADR-142: Graceful shutdown ampliado — drain, Socket.IO close, Sentry flush, timeout duro 25s [Backend]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-902 (Sprint 6)
+
+### Contexto
+
+El shutdown existente (`backend/src/server.js` antes de este ADR) cerraba HTTP → gameEngine → RFID → BullMQ → Redis → Mongo con un timeout duro de 30s. Funcionaba pero tenía cuatro problemas para cloud:
+
+1. **No notificaba a Socket.IO.** Los clientes veían `disconnect` sin razón explícita; el reconnect arrancaba inmediato cuando todavía no había un servidor al que reconectar (resultado: 1-3 errores de connect_error antes de que Koyeb termine de rerutear).
+2. **No drenaba.** `server.close()` empezaba a rechazar conexiones nuevas al instante; los requests in-flight con `setTimeout` o I/O pendiente quedaban abortados.
+3. **No flush de Sentry.** Eventos capturados en los últimos segundos antes del shutdown se perdían si Sentry no había batched todavía.
+4. **Timeout duro 30s = límite Koyeb 30s.** SIGKILL llegaba justo cuando intentábamos `process.exit(1)`, así el log de "forzando shutdown" rara vez se persistía.
+
+### Decisión
+
+**Secuencia revisada** en `gracefulShutdown(signal)`:
+
+```
+1. setShuttingDown(true) + setReady(false)
+   → /health/ready responde 503 en el siguiente ms
+   → Koyeb deja de enrutar conexiones nuevas
+
+2. io.emit('server_shutdown', { reason, ts })
+   gameNsp.emit('server_shutdown', { reason, ts })
+   → Clientes Socket.IO reciben notificación explícita (mejora futura: UI "Conectando con nueva versión…")
+
+3. await new Promise(r => setTimeout(r, DRAIN_BEFORE_CLOSE_MS))   // 5s
+   → Requests in-flight y eventos Socket.IO terminan de entregarse
+
+4. server.close()           // HTTP listener
+5. gameEngine.shutdown()    // timers + persiste plays activos como 'paused'
+6. rfidService.stop()
+7. stopRfidModeSubscriber()
+8. await io.close()         // Socket.IO espera a que los sockets cierren
+9. closeAllQueues()         // BullMQ libera conexiones Redis dedicadas
+10. disconnectRedis()
+11. disconnectDB()
+12. await Sentry.flush(2000)  // best-effort 2s
+13. process.exit(0)
+```
+
+**Timeout duro: 25s** (configurable vía `SHUTDOWN_TIMEOUT_MS`). Si la secuencia no termina, `process.exit(1)` antes de que Koyeb mande SIGKILL a los 30s.
+
+**Idempotente**: `getIsShuttingDown()` evita procesar SIGTERM y SIGINT consecutivos.
+
+**Worker (`worker.js`)** sigue el mismo patrón simplificado: `stopAllWorkers()` (BullMQ drena jobs en curso) → `closeAllQueues()` → `disconnectRedis()` → `disconnectDB()` → `Sentry.flush(2000)` → `exit(0)`. Mismo timeout duro de 25s.
+
+### Justificación de los 5s de drain
+
+Probado con `wrk -t2 -c10 -d3s`: requests P99 ~150ms, P95 ~80ms. 5s cubre cualquier request realista con margen 30×. Si subimos a 10s, las requests largas (uploads de assets a Supabase, retención RGPD batch) podrían beneficiarse, pero gastan presupuesto del timeout duro de 25s. 5s es el compromiso.
+
+### Justificación del `io.emit('server_shutdown')`
+
+El cliente Socket.IO actual no escucha el evento, pero ya queda emitido. La mejora futura UI ("Conectando con nueva versión…") es de bajo coste cuando se decida.
+
+### Impacto
+
+- **Sin requests abortadas en deploys** observado en QA con `wrk -t2 -c10 -d30s` corriendo durante un redeploy: 0 errores HTTP, 1 reconnect Socket.IO con backoff de 1s.
+- **Sentry captura el shutdown completo**, incluyendo logs `error` del último segundo.
+- **Koyeb termina graceful** sin SIGKILL en deploys normales (medido en deploy de prueba — proceso exitea 0 en ~12s).
+
+### Verificación
+
+```bash
+# Local: docker compose up backend
+docker compose stop backend     # Manda SIGTERM al container
+docker compose logs backend | tail -30
+# Esperado: log "iniciando shutdown controlado" → 9 fases → "Shutdown completo"
+```
+
+### Riesgos asumidos
+
+- **`server_shutdown` emit puede fallar** si Redis adapter cae primero (sockets distribuidos). Mitigado con try/catch — la emit es best-effort.
+- **Jobs BullMQ >25s** se interrumpen forzosamente. BullMQ los marca como `stalled` y reintentará en el nuevo proceso tras el lock TTL (30s default). Para el job de retención RGPD (~5s en cluster pequeño) no es un problema; si emergen jobs largos en el futuro, ampliar `SHUTDOWN_TIMEOUT_MS` con conocimiento del límite de Koyeb.
+
+## ADR-143: CD pipeline — staging on push + production on tag con approval gate [DevOps]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-903 (Sprint 6)
+
+### Contexto
+
+Hasta ahora el repo tenía un único workflow CI (`build.yml`) que ejecuta lint, audit, tests, build y SonarCloud, pero **no desplegaba nada**. Cada release requería entrar manualmente al dashboard de Koyeb y darle a "Redeploy". Para v1.0.0 y en adelante necesitamos:
+
+1. **Staging predecible**: cualquier cambio mergado a `Maintenance` debe llegar a `api-staging` sin intervención humana, condicionado a que el CI esté verde.
+2. **Producción segura**: el deploy a prod sólo debe ocurrir cuando alguien con autoridad lo apruebe explícitamente, y debe haber un paso atrás trivial si algo va mal.
+3. **Trazabilidad**: cada deploy debe quedar registrado (qué tag, qué commit, qué reviewer aprobó, qué resultado del smoke test).
+4. **Sin Dockerfiles**: Koyeb usa Nixpacks para detectar Node 24 y armar el container; no queremos mantener Dockerfile.prod en paralelo al Dockerfile dev del repo.
+
+### Decisión
+
+**Tres workflows nuevos** (todos en `.github/workflows/`), encadenados:
+
+```
+push a Maintenance
+    │
+    ▼
+build.yml (CI)  ── lint, audit, tests, build, SonarCloud
+    │ verde
+    ▼
+deploy-staging.yml (workflow_run trigger)
+    │
+    ▼
+redeploy api-staging + worker-staging  (paralelo)
+    │
+    ▼
+smoke test /health/ready × 8 (cada 15s)
+    │
+    └── ≥3 verdes → ✅
+    └── <3 verdes → koyeb services rollback
+
+
+push de tag v*
+    │
+    ▼
+deploy-production.yml
+    │
+    ├─ validate-tag (semver regex)
+    │
+    ▼
+environment: production  (approval gate manual)
+    │
+    ▼
+redeploy api-prod + worker-prod  (paralelo)
+    │
+    ▼
+smoke test /health/ready × 8 (cada 15s)
+    │
+    └── <5 fallos → ✅ + gh release create/edit
+    └── ≥5 fallos → koyeb services rollback (ADR-144)
+```
+
+### Detalles técnicos
+
+- **Trigger staging** vía `workflow_run` para encadenar después del CI: `if: github.event.workflow_run.conclusion == 'success' && head_branch == 'Maintenance'`. Esto evita disparar deploys cuando los tests rompen.
+- **Trigger producción** vía push de tag `v*`. Ningún path-filter — los tags se reactionan siempre. `workflow_dispatch` también está disponible para deploys manuales fuera de banda.
+- **Approval gate**: GitHub Environments `production` con required reviewers. Configuración manual en repo Settings → Environments. Pendiente: configurar "Deployment branches" → tag pattern `v*` para que sólo se pueda usar este environment con un tag semver.
+- **Sin secret duplicado**: KOYEB_API_TOKEN es el mismo para los tres workflows; los nombres de servicio van por secrets separados (`KOYEB_API_STAGING_NAME`, `KOYEB_API_PROD_NAME`, ...) para poder renombrar sin tocar workflows.
+- **Concurrency**: staging tiene `cancel-in-progress: true` (un deploy nuevo cancela el anterior — tienen los últimos cambios); producción tiene `cancel-in-progress: false` (deploys de prod son FIFO).
+
+### Justificación frente a alternativas
+
+- **Koyeb Auto-deploy** (activable en cada servicio desde el dashboard): redeploya en cada push sin pasar por CI. **Descartado** — queremos garantizar que un fallo de tests bloquea el deploy.
+- **Single workflow** que detecta tag vs push y ramifica: **descartado** por complejidad — tres workflows separados son más legibles y tienen permisos mínimos cada uno.
+- **`koyeb-community/koyeb-actions@v1`**: action de terceros. **Descartado** por dependencia externa; usar la CLI oficial vía install script da más control y depende sólo de Koyeb.
+
+### Verificación
+
+- Push a `Maintenance` con tests verdes → `deploy-staging.yml` corre → `curl https://api-staging-<org>.koyeb.app/health/ready` devuelve 200.
+- `git tag v1.0.0 && git push --tags` → `deploy-production.yml` espera approval → tras approval, redeploy + smoke test OK.
+
+## ADR-144: Auto-rollback en cloud por smoke test post-deploy [DevOps]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-903 (Sprint 6)
+
+### Contexto
+
+Aunque ADR-141 separó `/health/ready` y el CD pipeline (ADR-143) hace un smoke test tras cada deploy, hace falta una regla clara para decidir **cuándo el deploy es lo bastante malo como para revertirlo automáticamente** en lugar de dejar al operador depurar.
+
+Criterios deseados:
+- **No revertir por blip**. Un 503 puntual durante el reroute del load balancer (1-2 intentos) es normal.
+- **Revertir si la nueva versión está claramente rota**. Una mayoría sostenida de 503 indica que el container arrancó mal (env var faltante, breaking change en Mongo, etc.) y reiniciar a la versión anterior es la mejor primera acción.
+- **No revertir por timeout del runner**. Si GitHub Actions queda colgado en `curl`, la fall-safe debe ser "no hacer nada" (volver a la versión anterior es seguro, sí, pero requiere certeza de que la nueva versión es la causa).
+
+### Decisión
+
+**Polling 8 × 15 segundos** tras el redeploy, contando 200s vs no-200s, con dos umbrales asimétricos según el entorno:
+
+| Entorno | Considerar éxito | Considerar fallo (rollback) |
+|---|---|---|
+| **staging** (`deploy-staging.yml`) | ≥3 de 8 intentos `200` | <3 de 8 intentos verdes |
+| **producción** (`deploy-production.yml`) | ≥4 de 8 intentos verdes | ≥5 de 8 fallos (no-200) |
+
+**Por qué umbrales diferentes:**
+- En staging toleramos un poco más de fragilidad — es donde queremos detectar problemas antes de producción y el coste de un rollback es bajo.
+- En producción, la regla "≥5/8 fallos" es más conservadora: requiere mayoría clara de fallos, no sólo "no la mayoría de éxitos". Esto evita rollback por una caída transitoria de Atlas durante el deploy.
+
+**Mecánica del rollback** (script Bash en el workflow):
+
+```bash
+if [ "$FAIL" -ge 5 ]; then
+  echo "::error::Smoke test fallido — rollback"
+  exit 1   # marca el step como failed → dispara el step "Auto-rollback"
+fi
+```
+
+```yaml
+- name: Auto-rollback si smoke test falla
+  if: failure() && steps.smoke.outcome == 'failure'
+  run: |
+    koyeb services rollback "$API_NAME" --token "$KOYEB_TOKEN" || true
+    koyeb services rollback "$WORKER_NAME" --token "$KOYEB_TOKEN" || true
+```
+
+Koyeb mantiene las últimas 5 revisiones por servicio gratis; `koyeb services rollback` apunta a la anterior sin pedir más confirmación.
+
+### Riesgos asumidos
+
+- **Falso negativo (rollback de un deploy bueno por blip largo)**: si Atlas tiene una caída de 2 minutos coincidiendo con el deploy, el smoke test verá 8/8 fallos y revertirá. Mitigación: tras el rollback, el operador puede re-deploy manual con `workflow_dispatch` cuando Atlas vuelva.
+- **Falso positivo (no rollback de un deploy malo intermitente)**: si la nueva versión tiene un 50% de error rate, smoke verá ~4/8 fallos y no revertirá. Mitigación: las alertas de Sentry capturarán el error rate y dispararán notificación; el operador puede hacer rollback manual desde el dashboard de Koyeb.
+- **`koyeb services rollback` sin "última estable"**: si las 5 últimas revisiones están todas rotas, el rollback rebota a una versión también rota. Mitigación: el dashboard de Koyeb permite "Deploy from commit SHA" para casos extremos.
+
+### Verificación
+
+Tras una sesión de validación E2E (T-902 completada), introducir intencionalmente un breaking change que falle el smoke test (ej. setear `MONGO_URI` inválido en el servicio Koyeb) y verificar que:
+1. `deploy-staging.yml` detecta los 503.
+2. El step "Auto-rollback" se ejecuta.
+3. La revisión activa vuelve a la anterior.
+4. `curl /health/ready` vuelve a 200.
+
+## ADR-145: release-please con manifest 1.0.0 + Conventional Commits para versionado [DevOps]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-903 (Sprint 6)
+
+### Contexto
+
+El proyecto ha versionado a mano hasta ahora (`backend/package.json` y `frontend/package.json` con 0.5.1 sincronizado manualmente, sin tags semver en el repo). Para v1.0.0 y la fase de mantenimiento posterior necesitamos:
+
+- **Bump automático** según el tipo de commits desde el último tag (Conventional Commits → semver).
+- **CHANGELOG generado** sin escribirlo a mano cada release.
+- **Tags vX.Y.Z** consistentes para que `deploy-production.yml` se pueda atar al evento de tag.
+- **No introducir herramientas adicionales en local** — el contributor sigue trabajando con `git commit` y nada más; toda la magia ocurre en CI.
+
+### Decisión
+
+**`googleapis/release-please-action@v4`** como bot que mantiene un PR "chore: release vX.Y.Z" abierto contra `main`:
+
+1. Cada push a `main` re-evalúa el PR. Si hay commits nuevos desde el último release, actualiza:
+   - `CHANGELOG.md` (entry nueva con sección agrupada por tipo de commit).
+   - `package.json`, `backend/package.json`, `frontend/package.json` (campo `version`).
+   - `.release-please-manifest.json` (la versión actual canónica).
+2. Cuando el PR se mergea, release-please **crea el tag `vX.Y.Z` automáticamente**, que dispara `deploy-production.yml`.
+
+**Configuración**:
+
+- `release-please-config.json`: `release-type: simple` (monorepo sincronizado, no per-package). `include-v-in-tag: true` para tags `v1.0.0` que coincidan con el trigger del workflow de producción. `extra-files` para que el bump propague a `backend/` y `frontend/`.
+- `.release-please-manifest.json`: `{ ".": "1.0.0" }` para forzar que el **primer release sea v1.0.0** directamente (no v0.5.2 incremental sobre la versión actual). Cuando este PR se mergee, marcará el "fin de pre-release" y el inicio de la línea de releases oficiales.
+- `changelog-sections`: ocultar `test`, `ci`, `build`, `style` en el CHANGELOG (ruido para el usuario final); el resto sí aparece.
+
+**Token**: usa `GITHUB_TOKEN` por defecto. Si en el futuro queremos que el tag creado por release-please dispare `deploy-production.yml` reactivamente (hoy no lo hace porque GITHUB_TOKEN no dispara workflows reactivos por seguridad), reemplazar por `RELEASE_PLEASE_TOKEN` con un PAT que tenga `contents:write`.
+
+### Estrategia frente a alternativas
+
+- **`semantic-release`**: más feature-rich (publica a npm, Docker Hub, etc.) pero overkill para nuestro caso. release-please es más ligero y específico para repos GitHub-only.
+- **Versionado manual**: descartado — propenso a olvidos y a divergencia entre `backend/package.json` y `frontend/package.json`.
+- **`commit-and-tag-version`** (npm script local): obliga al contributor a correr el script antes de pushear, lo que tiende a olvidarse. release-please mueve la responsabilidad al CI.
+
+### Verificación
+
+Tras el merge de esta PR a `main`:
+1. `release-please.yml` corre.
+2. Abre un PR "chore: release v1.0.0" con CHANGELOG retroactivo (todos los commits del repo).
+3. Editar manualmente el CHANGELOG para resumir los sprints previos en una sección "Pre-release history" (parte de T-909).
+4. Aprobar y mergear el PR.
+5. Tag `v1.0.0` aparece en el repo → dispara `deploy-production.yml` → approval gate → deploy.
+
+### Riesgos asumidos
+
+- **Primer CHANGELOG ruidoso**: todo el historial del repo aparece. Mitigación: edición manual antes del merge (T-909).
+- **Conflicts del PR de release con cambios concurrentes**: si se mergan features mientras el PR de release está abierto, release-please rebase-eará el PR. Si hay conflictos en `CHANGELOG.md`, hay que resolver a mano (raro).
+- **Commits sin Conventional Commit format** son ignorados en el bump (no aparecen en CHANGELOG, no bump-ean). El commitlint del repo ya bloquea estos en pre-commit hook.
+
+## ADR-146: OpenAPI 3.1 publicado vía swagger-ui-express + swagger-jsdoc [Backend, Docs]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** T-909 (Sprint 6)
+
+### Contexto
+
+La API REST del proyecto tiene 11 routers (auth, users, mechanics, contexts, sessions, plays, decks, admin, analytics, metrics, notifications) con ~50 endpoints documentados de forma libre en `backend/docs/API_v0.5.0.md`. Mantener un Markdown sincronizado con cambios en código a mano se ha demostrado inviable: tres veces durante el Sprint 5 el doc estuvo desincronizado con la firma real de respuesta.
+
+Para v1.0.0 queremos:
+
+1. **Una fuente de verdad** que viva junto al código (cambios al endpoint y a su doc en el mismo commit).
+2. **Spec descargable** (`openapi.json`) para que cualquier cliente — frontend, generadores de SDK, herramientas de testing — pueda consumirla sin parsear Markdown.
+3. **UI interactiva** para que el contributor pueda explorar la API sin tener que leer toda la doc.
+4. **Diferenciación staging/prod** — en staging la UI es pública (facilita demo y onboarding); en producción requiere super_admin (no exponer la superficie completa a bots/escáneres).
+
+### Decisión
+
+- **`swagger-jsdoc@6.2.8`** extrae anotaciones `@openapi` desde JSDoc en `routes/*.js` y `controllers/*.js`. La spec base (info, servers, tags, components.securitySchemes, components.responses) vive en `backend/src/config/swagger.js`; los endpoints se anotan progresivamente.
+- **`swagger-ui-express@5.0.1`** sirve la UI en `/api/docs`. La spec se sirve también en `/api/openapi.json` para descarga.
+- **Stub mínimo viable**: en v1.0.0 sólo `auth` y `health` están anotados. El resto de routers tendrá `@openapi` en sprints posteriores. El estado actual es suficiente para que el lector entienda la estructura general y pueda explorar la spec.
+- **Diferenciación entorno**: `requiresAuthForDocs()` devuelve `true` cuando `APP_ENV=production`. En ese caso, el router `/api/docs` se monta detrás de `authenticate + requireRole('super_admin')`. El JSON spec (`/api/openapi.json`) sí queda público — sólo es la spec, no permite ejecutar nada.
+
+```js
+if (requiresAuthForDocs()) {
+  app.use('/api/docs', authenticate, requireRole('super_admin'), swaggerUi.serve, swaggerUi.setup(spec));
+} else {
+  app.use('/api/docs', swaggerUi.serve, swaggerUi.setup(spec));
+}
+```
+
+### Alternativas consideradas
+
+- **Mantener el `API_v0.5.0.md` manual**: descartado — el síndrome de "doc fuera de sync con código" ya causó tres bugs.
+- **Generar spec desde Zod schemas** (`@asteasolutions/zod-to-openapi`): tentador porque ya validamos con Zod, pero requiere reescribir todas las definiciones de schemas. Demasiado overhead para v1.0.0; reconsiderar en Sprint 7.
+- **Postman collection en lugar de OpenAPI**: descartado — OpenAPI 3.1 es estándar, Postman es vendor-locked.
+
+### Riesgos asumidos
+
+- **Anotaciones incompletas** en v1.0.0: sólo auth y health. Mitigación: el resto se completa en Sprint 7+ con un patrón ya establecido.
+- **Stub de spec puede engañar** a un consumidor que la trate como contrato completo. Mitigación: nota explícita en `info.description` apuntando a `Architecture_Decisions.md` para convenciones de respuesta.
+
+### Verificación
+
+```bash
+cd backend && npm run dev
+# Abrir en navegador
+# http://localhost:5000/api/docs        → Swagger UI con auth + health
+# http://localhost:5000/api/openapi.json → JSON descargable
+```
+
+En staging deploy: `https://api-staging-<org>.koyeb.app/api/docs` accesible públicamente.
+En prod deploy: `https://api-<org>.koyeb.app/api/docs` requiere login super_admin.
+
+## ADR-147: Hardening pipeline CI — SAST, secrets scanning, dep review, coverage gate y bundle budget [DevOps]
+
+**Fecha:** 2026-05-16
+**Estado:** Aceptado
+**Tarea:** Cerrar etapa CI antes del deploy
+
+### Contexto
+
+El pipeline CI (`build.yml`) cubría lint, audit, tests y build, pero faltaban cuatro capas que se vuelven críticas cuando el repositorio empieza a hacer deploys automáticos a cloud:
+
+1. **SAST**: análisis estático del propio código (no de dependencias) para detectar inyecciones, XSS, regex DoS, manejo inseguro de JWT/cookies. `npm audit` sólo cubre vulnerabilidades de dependencias, no de código nuestro.
+2. **Secrets scanning**: detectar tokens, credenciales o URIs con password commiteadas accidentalmente. Particularmente importante ahora que el operador maneja `KOYEB_API_TOKEN`, `MONGO_URI` y `JWT_SECRET` reales.
+3. **Dependency review en PRs**: dependabot abre PRs nocturnos, pero un PR humano que añade `npm install <pkg-vulnerable>` no se detectaba hasta el siguiente audit. La GitHub Action `dependency-review-action` analiza el diff del PR contra base branch y bloquea inmediatamente.
+4. **Coverage gate**: SonarCloud reportaba cobertura pero el job estaba en `continue-on-error: true`. Un PR que tirara cobertura en 20 puntos pasaba CI igual.
+5. **Bundle size budget**: ningún check sobre el tamaño del bundle frontend. Una librería pesada añadida sin querer (ej. `moment` en lugar de date-fns) inflaría el bundle sin alerta.
+
+Además, el `pre-commit` corría sólo lint-staged + tests relacionados — un commit con cambios masivos pasaba pre-commit pero rompía CI por tests del workspace que `--findRelatedTests` no detectaba (ej. cambio de schema Mongoose que rompe tests de controller).
+
+### Decisión
+
+**Cuatro workflows nuevos + dos checks añadidos al CI existente + un hook husky nuevo.**
+
+#### Workflows nuevos
+
+| Workflow | Tooling | Tirado por | Bloqueante |
+|---|---|---|---|
+| `codeql.yml` | `github/codeql-action@v3` con queries `security-and-quality` | Push/PR + schedule lunes 06:00 UTC | Sí (branch protection) |
+| `gitleaks.yml` | `gitleaks/gitleaks-action@v2` | Push/PR + schedule domingo 05:00 UTC | Sí |
+| `dependency-review.yml` | `actions/dependency-review-action@v4` | Sólo PRs | Sí (con `fail-on-severity: moderate`) |
+
+`.gitleaks.toml` (root) con allowlist para placeholders documentados (`.env.example`, docs, seeders) y credenciales de seed conocidas (`Admin1234!`, `Test1234!`, etc.) — así el scan no marca falsos positivos en cada commit.
+
+`dependency-review-action` configurado con licencias permitidas (MIT, Apache, BSD, ISC, 0BSD, etc.) y prohibidas (GPL-2.0, GPL-3.0, AGPL, MPL, EUPL). Las advisories `GHSA-w5hq-g745-h8pq` y `GHSA-v2v4-37r5-5v8g` están en `allow-ghsas` (ya documentadas en `build.yml` como no alcanzables).
+
+#### Checks añadidos al CI existente
+
+- **Coverage gate** en el job `quality-report`: parsea LCOV de backend y frontend, calcula cobertura global, **falla** si baja de `BACKEND_MIN_COVERAGE=50%` o `FRONTEND_MIN_COVERAGE=30%`. Sólo se evalúa si los tests originales pasaron (no doble-fallar por la misma causa).
+- **Bundle size budget** en el job `frontend-checks` tras `npm run build`: mide `frontend/dist` total y suma gzip de los `.js`. Falla si excede `MAX_DIST_KB=8192` (8 MB) o `MAX_JS_GZIP_KB=1536` (1.5 MB). Reporta top 10 archivos más pesados como detalle expandible para investigación rápida.
+
+#### Hook husky nuevo
+
+`.husky/pre-push`: corre lint completo y `npm test` completo en backend y frontend (~2 min total). Bypass documentado con `git push --no-verify`, `SKIP_PREPUSH=1`, o cuando `$CI=true` (skip automático en GitHub Actions).
+
+### Justificación de umbrales y tradeoffs
+
+- **Coverage 50%/30%** son baselines actuales (medidos en el último run de develop). Pretenden ser un *no-regression gate*: si bajas, has perdido cobertura sin justificación. Para subir el listón, primero sube el baseline con tests nuevos y luego sube el umbral en un PR dedicado.
+- **Bundle 8 MB / 1.5 MB gzipped** son ~3× del actual (deja margen para crecer un par de sprints). Si el bundle se duplica de golpe, casi siempre es por una dep nueva pesada que se puede sustituir o cargar lazy.
+- **CodeQL `security-and-quality`** incluye reglas de calidad además de seguridad — genera más alertas que `security-extended`, pero el ratio señal/ruido es bueno en código JS pequeño-mediano. Cambiar a `security-extended` si emerge ruido.
+- **Pre-push 2 min** es asumible para el flujo de TFG (commits frecuentes pero pushes menos frecuentes). Para PRs grandes con muchos commits intermedios, los pushes pueden lanzarse con `--no-verify` y dejar que CI haga la validación.
+- **Gitleaks personal vs org**: el `GITLEAKS_LICENSE` secret sólo se requiere para repos de organización. El repo del TFG está en cuenta personal — la action es gratis.
+
+### Alternativas consideradas
+
+- **`semgrep` en vez de CodeQL**: más rules custom y más rápido en CI, pero requiere mantenimiento de reglas. CodeQL es zero-config para JS/TS.
+- **`trufflehog` en vez de gitleaks**: ambos son válidos. gitleaks tiene mejor UX para `.toml` config y se integra mejor en PR comments.
+- **`bundlesize` o `size-limit` npm packages** en vez de script bash: descartado por no añadir más deps al proyecto; el script de 30 líneas hace lo mismo con `du` + `gzip` builtin del runner.
+- **Coverage gate vía SonarCloud Quality Gate (required check)**: dependería de configuración externa en sonarcloud.io. Hacerlo en el propio workflow lo hace versionable y reproducible.
+
+### Verificación
+
+```bash
+# Validar sintaxis YAML local antes de pushear
+npx js-yaml .github/workflows/codeql.yml > /dev/null
+npx js-yaml .github/workflows/gitleaks.yml > /dev/null
+npx js-yaml .github/workflows/dependency-review.yml > /dev/null
+npx js-yaml .github/workflows/build.yml > /dev/null
+
+# Probar pre-push hook
+git push --dry-run                     # debe correr lint + tests
+SKIP_PREPUSH=1 git push --dry-run      # debe saltarlos
+
+# Tras el push, verificar en GitHub Actions:
+# - codeql.yml ejecuta y sube resultados a Security → Code scanning
+# - gitleaks.yml escanea historial
+# - dependency-review.yml sólo aparece en PRs
+# - build.yml ahora tiene "Coverage gate" y "Bundle size budget" en su summary
+```
+
+### Branch protection — pasos en GitHub
+
+Para que estos workflows realmente bloqueen merges, configurar en repo Settings → Branches → Branch protection rule (en `main` y `Maintenance`):
+
+- ✅ Require status checks to pass before merging
+- ✅ Status checks required:
+  - `CI / Lint`
+  - `CI / Backend Tests`
+  - `CI / Frontend Tests & Build`
+  - `CI / Quality Report` (incluye coverage gate)
+  - `CodeQL / Analyze JavaScript/TypeScript`
+  - `Gitleaks / Scan secrets`
+  - `Dependency Review / Dependency Review` (sólo en PRs)
+
+
+
+---
+
+## ADR-148: JWT hardening profundo + Account lockout per-user [Backend, Security]
+
+**Contexto:** T-905 B1. La sesión es el principal vector de seguridad de la app. Tres áreas a reforzar:
+1. **Algorithm confusion**: `jwt.verify` sin whitelist permite tokens forjados con `alg:none` u otros algoritmos.
+2. **Secrets débiles**: validación previa exigía solo 32 chars y permitía secrets repetitivos.
+3. **Credential stuffing distribuido**: rate limiter por IP no detecta ataque a un mismo email desde múltiples IPs.
+
+**Decisión:**
+- `algorithms: ['HS256']` whitelist explícito en `verifyAccessToken`/`verifyRefreshToken`. `algorithm: 'HS256'` explícito en sign.
+- `clockTolerance: 0` + validación strict de claims: `jti`, `iat`, `iat`-no-futuro, `type`, `issuer`, `audience`.
+- `envValidator.validateJWTSecrets()` exige >=64 chars + entropía Shannon >=3.5 + distintos entre access y refresh.
+- `accountLockoutService` Redis-backed: tras 5 fallos en 15min por email lowercased -> lockout 15min. Mensaje genérico (anti-enumeración). Fail-open si Redis cae.
+- Endpoint emergencia `POST /api/admin/lockouts/unlock` (super_admin, luego requireMfa).
+- Tolerancia 1s en `checkSecurityFlag` para evitar falso "token anterior al flag" por rounding de iat (segundos vs ms).
+
+**Detalle completo:** `documentation/SECURITY.md` §4.
+
+---
+
+## ADR-149: Cifrado AES-256-GCM + DTO sanitization + Cache-Control anti-leak [Backend, Security]
+
+**Contexto:** T-905 B2. Datos de menores (RGPD) requieren defensa en profundidad contra leaks por cache compartido (Cloudflare), DTOs accidentalmente verbose, y logs/Sentry con PII.
+
+**Decisión:**
+- `utils/cryptoUtils.js`: `encryptField`/`decryptField` AES-256-GCM + AAD para domain separation. IV 96b + auth tag 128b. Clave `MFA_ENCRYPTION_KEY` (deriva de JWT_SECRET en dev/test).
+- `middlewares/cachePolicy.js`: `noStoreSensitive` aplica `Cache-Control: private, no-store` + `Pragma`, `Expires`, `Surrogate-Control` globalmente a `/api/*`.
+- Test sistemático `dtoOutputSanitization.test.js` verifica que DTOs nunca exponen password, mfa.secret/backupCodes, consent.ipAddress/userAgent/channel, currentSessionId, __v.
+- Pino redact ampliado: x-csrf-token, x-mfa-token, mfa.*, captchaToken, backupCode, etc.
+- Sentry beforeSend ampliado: headers auth/MFA/CSRF, query strings con token|code|secret, contexts/extras/tags con PII de menores.
+
+**Detalle completo:** `documentation/SECURITY.md` §10, §11.
+
+---
+
+## ADR-150: Magic bytes file validation + Health endpoint PII sanitization [Backend, Security]
+
+**Contexto:** T-905 B3. Multer validaba MIME declarado por el cliente (mentible). `/api/health` exponía host y database name de Mongo (revelan infra).
+
+**Decisión:**
+- `middlewares/fileValidation.js`: detección magic bytes propia (PNG, JPEG, GIF, WebP, MP3 ID3/sync, OGG, WAV) sin libs externas — `file-type@22` es ESM-only e incompatible con Jest sin Babel. Aplicado tras `multer.single` en routes/contexts.js.
+- `utils/healthCheck.js`: gatea host y database por `NODE_ENV !== 'production'`. En dev/staging sí (útil diagnóstico), en prod no.
+
+**Detalle completo:** `documentation/SECURITY.md` §9.4, §11.4.
+
+---
+
+## ADR-151: Rate limits recalibración + Nginx edge limit_req [Backend, DevOps]
+
+**Contexto:** T-905 B4. Valores anteriores eran restrictivos para clases con 10-30 docentes + picos de 100 alumnos. Cero defensa en Nginx (todo el peso en express-rate-limit).
+
+**Decisión:**
+- `globalRateLimiter` 100->1000/15min prod. `creationLimiter` 10/min -> 50/hora. WS `rfid_scan_from_client` 2/3s -> 60/min.
+- Nuevo `authLooseRateLimiter` 20/15min para `/refresh` y `/me`.
+- `frontend/nginx-zones.conf` (montado en `/etc/nginx/conf.d/00-zones.conf`): `limit_req_zone api_limit 20r/s burst=40` para `/api/*`; `ws_limit 10r/s burst=20` para `/socket.io/*`.
+
+**Detalle completo:** `documentation/SECURITY.md` §8.
+
+---
+
+## ADR-152: Helmet split dev/prod + CSP strict + report endpoint [Backend, Security]
+
+**Contexto:** T-905 B5. CSP anterior era único dev/prod, demasiado permisivo para prod. Sin endpoint de violations. Sin plan de rollout gradual.
+
+**Decisión:**
+- `buildHelmetOptions(env)` función que devuelve config diferenciada:
+  - Prod: scriptSrc sin unsafe-inline ni unsafe-eval; con Sentry + Cloudflare Turnstile. HSTS preload 2 años.
+  - Dev: connectSrc incluye `ws:/wss:` para Vite HMR. HSTS más corto.
+- `routes/cspReport.js`: POST `/api/csp-report` recibe csp-report/reports+json, loguea Pino warn + Sentry tag. Rate limit dedicado. Sin auth/CSRF.
+- Env `CSP_REPORT_ONLY=true` para deploy gradual a staging.
+- Nginx frontend CSP sincronizada con backend.
+
+**Detalle completo:** `documentation/SECURITY.md` §6.
+
+---
+
+## ADR-153: Open redirect whitelist + Turnstile CAPTCHA + Política divulgación [Frontend, Security]
+
+**Contexto:** T-905 B6. `redirectByRole` usaba blacklist débil permitiendo URLs externas. Sin CAPTCHA tras fallos. Sin política de divulgación.
+
+**Decisión:**
+- `frontend/src/constants/routes.js` exporta `isSafeRedirectPath(path)`: whitelist positiva de prefijos + rechazo schemes peligrosos + protocol-relative.
+- `backend/src/middlewares/turnstileGuard.js`: opt-in cuando `TURNSTILE_SECRET` está set Y email tiene >=3 fallos previos -> exige captchaToken body + verify contra Cloudflare siteverify. Fail-closed.
+- `loginSchema` extiende con `captchaToken: string.optional()`.
+- `ForbiddenError` constructor extendido con `code` opcional.
+- `documentation/SECURITY.md` §1 incluye política completa de divulgación.
+
+**Detalle completo:** `documentation/SECURITY.md` §7.3, §8.3, §1.
+
+---
+
+## ADR-154: MFA TOTP super_admin con totp.js propio + AES-256-GCM secret + 8 backup codes [Backend, Frontend, Security]
+
+**Contexto:** T-905 B7. Sin doble factor para acciones críticas (hard delete usuarios, GDPR purge, unlock cuentas). Sin enrollment ni recovery via backup codes.
+
+**Decisión:**
+- `utils/totp.js` implementación propia RFC 6238 (~190 líneas, sin deps). Razón: otplib@13 depende de @scure/base que es ESM-only.
+- Modelo User extendido con subschema mfa (enabled, secret cifrado AES-256-GCM AAD 'mfa', backupCodes array de bcrypt hashes, enabledAt, lastUsedAt).
+- `mfaController.js`: 6 endpoints (setup-init, setup-verify, challenge, verify-backup-code, backup-codes/regenerate, disable).
+- `requireMfa` middleware aplica a `DELETE /api/users/:id/data`, `POST /api/admin/lockouts/unlock`. Devuelve 428 MFA_TOKEN_REQUIRED/MFA_ENROLLMENT_REQUIRED.
+- Frontend: pages/admin/MfaSetup.jsx (wizard QR + verify + backup codes download), components/auth/MfaChallengeModal.jsx (modal global), interceptor 428 en services/api.js con event-driven challenge/retry.
+- Emergency recovery: env `MFA_EMERGENCY_DISABLE_USER_ID` (operacional, redeploy).
+
+**Detalle completo:** `documentation/SECURITY.md` §4.8, §16.1, §16.2.
+
+---
+
+## ADR-155: RFID HMAC-SHA256 + counter monotónico EEPROM con migración gradual [IoT, Backend, Security]
+
+**Contexto:** T-905 B8. El firmware enviaba UID en texto plano al puerto serie. Vector de attack: clonar UID + emularlo. Sin anti-replay.
+
+**Decisión:**
+- Firmware: `rfid_scanner/src/main.cpp` calcula HMAC-SHA256(secret, uid:counter) con BearSSL (incluido en framework ESP8266, sin libs extra). Counter monotónico en EEPROM offset 0..3 (uint32 LE). Persistencia BATCHED cada 100 scans con counter "reservado".
+- Secret inyectado en build-time vía -DRFID_HMAC_SECRET en `platformio.ini`.
+- Backend `utils/rfidHmacValidator.js`: si `RFID_HMAC_ENABLED=false` (default migración) -> pasa todo + métrica de adopción. Si true -> exige HMAC + counter, valida con `crypto.timingSafeEqual`, anti-replay con `rfid:counter:<sensorId>` en Redis.
+- Schema `rfidClientEventSchema` extendido con counter y hmac opcionales.
+- Integrado en `socketHandlers.handleRfidScanFromClient` antes de procesar evento.
+- Activación: `RFID_HMAC_ENABLED=true` tras 100% adopción confirmada.
+
+**Detalle completo:** `documentation/SECURITY.md` §13.
+
+---
+
+## ADR-156: Suite tests seguridad adversariales consolidada [Backend, Security, Testing]
+
+**Contexto:** T-905 B9. Tests de seguridad dispersos en tests/. Sin red de seguridad explícita contra regresiones en hardenings nuevos.
+
+**Decisión:**
+- Carpeta dedicada `backend/tests/security/` con 14 archivos: jwtHardening, accountLockout, cryptoUtils, dtoOutputSanitization, cachePolicy, fileValidationMiddleware, cspReport, securityHeaders, mfaController, requireMfa, turnstileGuard, rfidHmacValidator, nosqlInjection, csrfBypass, rateLimitConfigs.
+- ~140 tests cubriendo cada bloque + adversariales comunes (alg confusion, prototype pollution, MIME spoofing, replay).
+- Comando: `npm test -- --testPathPatterns=security`.
+- Diferidos por refactor: idorCrossTeacher.test.js skipped (requiere factories CardDeck completas).
+
+**Detalle completo:** `documentation/SECURITY.md` §15.
+
+---
+
+## ADR-157: OWASP ZAP Baseline scan workflow + ejecución local [DevOps, Security]
+
+**Contexto:** T-905 B10. Sin scan automatizado de vulnerabilidades aplicación corriendo. Sin procedimiento de triage documentado.
+
+**Decisión:**
+- `.github/workflows/zap-scan.yml`: workflow_dispatch + schedule mensual día 1 04:00 UTC. `zaproxy/action-baseline@v0.13.0`. Artifact HTML+JSON+MD 30 días retention. Permission `issues: write` para auto-issue opcional.
+- `.zap/rules.tsv`: silencia falsos positivos esperados (cookie Secure en localhost HTTP, Permissions-Policy missing en dev, no-store en /api/*).
+- Procedimiento local con `docker run ghcr.io/zaproxy/zaproxy:stable zap-baseline.py` documentado en SECURITY.md §16.3.
+
+**Detalle completo:** `documentation/SECURITY.md` §16.3.
+
+---
+
+## ADR-158: Telemetría comandos Upstash + LRU memoria + pipeline helper [Backend, Performance]
+
+**Contexto:** T-907 Fase D (PROP-123). Upstash free tier limita a 10K comandos/día. Sin telemetría por categoría era imposible saber qué namespace consumía más ni anticipar picos en demos al tribunal con 30-40 alumnos concurrentes. Cada request autenticada generaba 3-5 comandos (`isTokenRevoked` + `checkSecurityFlag` + `auth:user GET` + opcional `SETEX` + rate-limit), y en microbursts del mismo usuario (refrescos rápidos, polling Sentry) se duplicaban innecesariamente.
+
+**Decisión:**
+
+1. **`backend/src/utils/redisCommandTracker.js`**: counter en memoria por categoría (`auth`, `blacklist`, `refresh`, `security`, `cache-mechanic`, `cache-context`, `cache-analytics`, `play`, `card`, `ratelimit`, `ws`, `bullmq`, `lua`, `pipeline`, `other`). `categoryForNamespace()` mapea automáticamente. `getSnapshot()` devuelve `total`, `byCategory`, `estimatedDaily` (extrapolación lineal desde uptime).
+
+2. **Instrumentación de `redisService.js`**: cada método operacional (`get`, `set`, `setWithTTL`, `setIfNotExists`, `exists`, `del`, `expire`, `incr`, `ttl`, `hset`, `hgetall`, `hget`, `hdel`, `sadd`, `smembers`, `sismember`, `srem`) registra 1 comando tras `recordSuccess()`. Métodos batch (`setMany`, `delMany`, `existsMany`, `hgetallMany`, `expireManyIfValueMatches`) registran N comandos (longitud del array). Lua wrappers (`reserveCardsAtomic`, `releaseCardsAtomic`, `renewLeaseAtomic`) registran 1 comando bajo categoría `lua`. `scanByNamespace` cuenta iteraciones de cursor.
+
+3. **`backend/src/utils/inMemoryCache.js`**: clase `InMemoryCache` LRU+TTL ligera (sin dependencias externas, implementación ~130 líneas). Instancias singleton:
+   - `authUserCache` (TTL 30s, max 500 entradas).
+   - `mechanicCache` (TTL 60s, max 50).
+   - `contextCache` (TTL 60s, max 100).
+   TTLs y tamaños configurables via env. Cada instancia expone `stats()` con `hits/misses/evictions/hitRatePercent`.
+
+4. **Integración en `middlewares/auth.js → fetchUserForAuth`**: lookup order `memoria → Redis → Mongo`. Hit en LRU local (caso común en microbursts) ahorra 1 GET Upstash por request autenticada. `invalidateUserCache(userId)` limpia ambas capas (memoria + Redis).
+
+5. **`backend/src/utils/runtimeMetrics.js`**: `getSnapshot()` enriquecido con `redis.commandsTotal`, `redis.commandsByCategory`, `redis.commandsEstimatedDaily`, `redis.inMemoryCache.{authUser,mechanic,context}`. WebSocket: nuevos contadores `websocket.{authRevalidationCacheHits/Misses, playOwnershipCacheHits/Misses}`. Helper functions `recordSocketRevalidationCache(hit/miss)` y `recordPlayOwnershipCache(hit/miss)`.
+
+6. **`socketHandlers.js`**: `getAuthCacheEntry` y `getOwnershipCacheEntry` invocan los nuevos contadores. Permite ver en `/api/metrics` la tasa de hit/miss de las caches en memoria del proceso (no Redis) que ya existían (TTL 30s y 5s respectivamente).
+
+7. **`runPipeline(buildFn, namespace='pipeline')`**: nuevo helper exportado en `redisService` que expone el cliente ioredis nativo dentro de un pipeline gestionado. Permite a callers (futuros) agrupar lecturas heterogéneas en un solo round-trip a Upstash y se contabiliza automáticamente en la categoría `pipeline` (o cualquier otra que pasen).
+
+8. **SCAN con `COUNT 100`**: ya existía en `scanByNamespace`; se documenta la decisión en este ADR. Reduce iteraciones de cursor en namespaces grandes (`cache:analytics:*`) ~10×.
+
+**Consecuencias:**
+- `/api/metrics` muestra ahora consumo Upstash en tiempo real → operador detecta tempranamente si la tasa actual rompería el budget diario antes de tocarlo.
+- LRU memoria reduce ~33% de los comandos por request autenticada en hit caliente (3 cmds → 2 cmds: blacklist + security + cero auth:user). En microbursts >1 req/s del mismo usuario, ahorro mayor.
+- LRU añade ventana de staleness ≤30s en cambios de rol/status cross-instance (single-instance no aplica). `invalidateUserCache` limpia la capa local pero NO la de otras instancias — documentado como deuda menor, mitigable con pub/sub `cache:invalidate` futuro si se escala horizontalmente.
+- Instrumentación añade overhead despreciable (incremento de Map + Number.isFinite + try/catch).
+- Compatibilidad: ningún cambio de contrato público en `redisService`. Tests existentes siguen verdes.
+
+**Alternativas descartadas:**
+- `lru-cache` npm package (mantenido por isaacs, ~5KB). Descartado para evitar nueva dependencia con tan poca lógica involucrada.
+- Pipeline forzado en `middlewares/auth.authenticate` combinando `blacklist + security + auth:user` en 1 round-trip: invasivo para `verifyAccessToken` y rompería tests que mockean los métodos individualmente. Beneficio (1 round-trip vs 3) es solo latencia, no comandos; con LRU memoria ya se logra el ahorro principal de comandos. Se deja `runPipeline` disponible para iteración futura.
+- Reset diario del contador con cron: actual `getSnapshot()` extrapola desde uptime, lo que basta para monitoreo. Reset queda como acción manual via `redisCommandTracker.reset()` si se necesita.
+
+---
+
+## ADR-159: Bundle frontend reduction (Recharts lazy + Sentry dynamic + Brotli + visualizer + sourcemap hidden) [Frontend, Performance]
+
+**Contexto:** T-907 Fase B (PROP-121). Bundle inicial frontend sin auditar tras Sprint 4. Sentry SDK (~30-40 KB gzipped) cargado síncrono pre-render bloqueando FCP. Recharts (~85 KB gzipped) cargado eager al entrar en Dashboard (la página post-login). Sin pre-compresión Brotli/Gzip — Cloudflare debía comprimir on-the-fly por cada respuesta. Sin tooling de análisis (`rollup-plugin-visualizer`). `sourcemap: true` en build de prod inflaba assets servidos al navegador con maps que Sentry ya consume server-side.
+
+**Decisión:**
+
+1. **`vite.config.js`**:
+   - Añadir `rollup-plugin-visualizer` (devDep) activado condicionalmente por `BUILD_ANALYZE=true npm run build` → genera `dist/stats.html` con treemap por chunk + gzip/brotli sizes.
+   - Añadir `vite-plugin-compression2` (devDep) en mode `production` para emitir `<asset>.br` + `<asset>.gz` junto al original. Cloudflare Pages y la mayoría de CDN sirven la variante adecuada por `Accept-Encoding` sin coste runtime. Reducción ~20-30% del peso transferido.
+   - `sourcemap: 'hidden'` en prod (antes `true`). Los stack traces siguen simbolicándose vía `sentryVitePlugin` (que sube los maps a Sentry) sin enlazarlos en el bundle navegador. Ahorra ~15-25% del peso transferido.
+   - `manualChunks` extiende: nuevos chunks `sentry` (`@sentry/*`) y `qrcode` (`qrcode.react`) para asegurar split independiente.
+
+2. **`main.jsx`**: `initSentry()` ahora se invoca tras `requestIdleCallback` (fallback `setTimeout 200ms`) con dynamic `import('./lib/sentry')`. El SDK queda en su propio chunk `sentry` que se descarga después del paint inicial. Errores de los primeros ~200ms son raros (módulos ya validados) y `window.onerror` nativo los recoge antes de que Sentry se anexe.
+
+3. **`Dashboard.jsx`**: lazificación de `StudentProgressChart`, `ClassroomOverview`, `DifficultyHeatmap` y `ActivityHeatmap` con `lazy()` + `Suspense fallback={<SkeletonChart />}`. KPIs hero y header se renderizan antes de que el chunk `charts` esté disponible.
+
+4. **`MfaSetup.jsx`**: lazy `QRCodeSVG` (chunk `qrcode`). Solo se descarga al entrar en el paso `Step.QR` del wizard MFA.
+
+5. **`index.html`**: `<link rel="preload" as="style" ...>` para la hoja CSS de Google Fonts. Mantiene `preconnect` previo. Combinado con `display=swap` evita FOIT sin bloquear render.
+
+**Consecuencias:**
+- Bundle crítico inicial reducido sin perder componentes ni animaciones. Recharts pasa a cargarse solo cuando el usuario entra a vistas que lo necesitan (Dashboard, analytics). En Dashboard, los KPIs aparecen antes de que el chart vendor termine de descargarse.
+- Sentry queda fuera del path crítico → FCP mejora cuando el navegador no tiene cacheado el SDK.
+- Cloudflare sirve `.br` directamente para clientes Brotli-capable (>97% del tráfico web) → menos CPU edge, menor latencia.
+- Hidden source maps siguen permitiendo debugging server-side (Sentry) pero no exponen código original al navegador.
+- `BUILD_ANALYZE=true` permite QA periódico de regresiones de bundle sin coste en builds normales.
+- Riesgos mitigados:
+  - `vite-plugin-compression2`: añade variantes que CDN reconoce, no rompe deploy.
+  - Dynamic Sentry: ventana de ~200ms sin capturar errores; aceptable porque los módulos importados ya están validados y el SDK añade overhead similar.
+
+**Alternativas descartadas:**
+- **LazyMotion (`<LazyMotion features={domAnimation} strict>`)**: aportaría ~25-30 KB de reducción pero requiere migrar ~100 archivos con `import { motion }` a `import { m }` y `motion.X` a `m.X`. Sin la migración global y con `strict={false}`, Framer Motion sigue cargando el bundle completo dinámicamente — beneficio nulo. Riesgo alto de romper animaciones en QA. Diferido como tarea independiente.
+- **Sustituir Recharts por librería más ligera (visx, lightweight-charts)**: cambio masivo, alto riesgo de regresión visual en 11 charts diferentes. Fuera de scope.
+- **Inline critical CSS**: ya cubre Tailwind v4 con `@theme inline`; manual inline no aporta.
+
+**Métricas (registradas en `Frontend_Chunking_Vite_Optimization.md` Iteración E)**:
+- Comparativa antes/después se documenta tras correr `BUILD_ANALYZE=true npm run build` en el commit de cierre.
+
+---
+
+## ADR-160: Estrategia Cloudflare cache + WAF + rate-limit edge [Full-stack, DevOps, Security]
+
+**Contexto:** T-907 Fase A (PROP-120). Frontend desplegado en Cloudflare Pages y backend Koyeb tras Cloudflare proxy, pero sin reglas de cache configuradas, sin WAF activo y sin rate-limit edge. El backend asumía toda la carga de filtrado HTTP/abuso, consumiendo recursos del free tier (Koyeb 1 instancia + Upstash 10K cmds/día) que podrían ahorrarse atajando tráfico evidentemente malicioso o repetido en el edge.
+
+**Decisión:**
+
+Configurar manualmente en el panel Cloudflare (free tier basta):
+
+1. **Cache estáticos** (Cache Rules o Page Rules):
+   - `*/assets/*` (regex `\.(js|css|woff2|...)$`) → `Cache Everything, Edge TTL 1h, Browser TTL 1h`.
+   - `/index.html` y `/` → `Bypass cache` (SPA shell debe ir fresco tras deploy).
+   - `/api/*` → `Bypass cache` (datos personales de menores no se cachean en edge, RGPD Art. 25).
+
+2. **WAF Managed Rules**: OWASP Core Ruleset (free) con sensitivity `Medium`. Action `Block` para Critical/High, `Log only` para Medium/Low durante la primera semana en prod (escalar a Block si no hay false positives).
+
+3. **Rate Limiting edge**: 1 regla disponible en free tier → `/api/*` 30 req/10s por IP, action `Block 10s`. Complementa rate-limiters del backend (`config/security.js`, ADR-068) que siguen siendo la fuente de verdad por usuario autenticado.
+
+4. **Bot Fight Mode**: activado (free). Bloquea User-Agents conocidos. Whitelistear UptimeRobot.
+
+5. **SSL/TLS Full (strict) + Always Use HTTPS + HTTP/3 (QUIC)**: verificación, no cambios.
+
+6. **Procedimientos operativos**: verificación curl (`CF-Cache-Status`, `cf-mitigated`), rollback plan (pause WAF rule, edge limit relajado, pausa global de Cloudflare por sitio), bitácora para auditoría.
+
+**Consecuencias:**
+- Carga del backend reducida: estáticos servidos desde edge sin tocar Koyeb. Filtrado de scrapers/bots/payloads maliciosos antes de consumir 1 segundo de CPU backend.
+- Cache estática 1h equilibra frescura tras deploy y eficiencia (los assets hash-versionados son inmutables, pero TTL alto en SPA podría confundir si manifiesto cambia rápido).
+- WAF en `Log only` durante 1 semana evita false positives en flujos como upload de assets (multipart) que podrían disparar reglas OWASP.
+- Rate limit edge 30 req/10s es lo bastante generoso para uso normal de un docente (~3 req/s sostenido) y atajará abuso obvio antes de tocar el backend.
+- Aplicación es manual: la guía documenta cada paso con verificación, lo que evita dependencia de credenciales en repo o pipelines IaC complejos para este TFG.
+
+**Alternativas descartadas:**
+- **API Cloudflare + script automatizado**: requiere `CLOUDFLARE_API_TOKEN` y `ZONE_ID` en repo/secret manager y cambios accidentales son irrecuperables. Para frecuencia de modificación baja (1 setup + ajustes ocasionales) la guía paso a paso es preferible.
+- **WAF Pro Ruleset**: requiere upgrade de plan, fuera de free tier.
+- **Argo Smart Routing**: $5/mes, no justificado para volumen TFG.
+
+**Pendientes documentados (no se hace en este sprint):**
+- Cloudflare Workers para edge-render SSR (no aplica al stack SPA actual).
+- Cloudflare Access SSO Google para `/admin/*` (MFA local cubierto en T-905).
+
+---
+
+## ADR-161: Persistencia de alertas inteligentes con ciclo de vida y motor por detectores [Full-stack, Backend, Frontend, Security]
+
+**Contexto:** T-941 (Sprint 6, P1, XL) + ampliación profunda solicitada. Antes de esta tarea, `analyticsService` derivaba alertas **on-the-fly** desde `GamePlay` + `User.studentMetrics` cada vez que un docente abría `/analytics/insights` o el widget del Dashboard. Deuda detectada en QA 2026-04-22 (PROP-78):
+
+- Sin persistencia → 6 pipelines MongoDB por cada lectura (~200–500 ms Atlas M0); sin cache dedicada.
+- `createdAt = now` para todas → la UI mostraba "Hace 7 min" aunque la condición llevase 4 días vigente.
+- Sin lifecycle (dismiss/resolve/snooze); sin trazabilidad ni audit.
+- Sin notificación realtime al docente cuando aparecía una `critical`.
+- `plateau_detected` figuraba en `ALERT_TYPES` pero **nunca se implementó** (TODO abierto).
+- `detectDecliningPerformance` dividía por `previousAvg` sin validar `> 0` → falsa alerta crítica con `Infinity %` (BUG-T941-1).
+- `alertsService.getAlerts()` **no filtraba `consent.withdrawnAt`** → exposición potencial RGPD de menores con consentimiento retirado.
+- T-923 dejó `sequence_stagnation` y `sequence_order_errors` como criterio "post-T-941" → pendientes hasta esta tarea.
+- Duplicación frontend: `AlertsHub` y `AlertsPanel` mantenían `SEVERITY_STYLES`/`ALERT_TYPE_*` por separado (~80 líneas DRY).
+- 0 tests Vitest para componentes/hooks de alertas y notificaciones.
+
+**Decisión:** reescritura completa sin código legacy ni feature flag (pre-deploy). 15 decisiones de diseño:
+
+1. **Modelo `SmartAlert`** (`backend/src/models/SmartAlert.js`, colección `smartalerts`). Estados `active | resolved | dismissed | snoozed`. Campos: `detectedAt` (estable), `lastSeenAt`, `occurrencesCount`, `missedRuns`, `resolvedAt + resolvedAutomatically`, `dismissedAt + dismissedBy + dismissReason`, `snoozedUntil/At/By`, `severityHistory[]`, `gamePlayId`, `notificationId`, `pinned + pinnedAt`, `studentPseudoId` (sha256 truncado). Virtuals `daysActive`, `isEscalated`.
+2. **Índices**: `{ teacherId, status, pinned: -1, detectedAt: -1 }`, `{ teacherId, severity, status }`, `{ status, snoozedUntil }` partial, **`{ studentId, type, status='active' }` unique partial → dedup BD**, `{ status, updatedAt }` partial (hard-delete), `{ studentId, detectedAt: -1 }`.
+3. **Strategy pattern** — `AlertDetector` base + 1 archivo por tipo. Registro en `detectors/index.js`. Los detectores **no escriben en BD**, solo retornan findings.
+4. **13 detectores activos** (6 migrados + 7 nuevos): `decliningPerformance` (con fix div/0), `inactivity`, `suddenScoreDrop`, `consistentTimeout`, `improvingFast`, `highAbandonment`, **`plateauDetected`** (cierra TODO), **`engagementDrop`**, **`recoveryAfterDrop`** (positivo), **`masteryMilestone`** (positivo, dedup nivel detector por contextId), **`mechanicSpecificStruggle`** (cross-mecánica), **`sequenceStagnation`** (cierra T-923), **`sequenceOrderErrors`** (cierra T-923).
+5. **`alertDetectionService.runForTeacher`**: carga students activos con consent vigente; ejecuta 13 detectores en `Promise.allSettled`; defensa en profundidad descartando findings fuera del conjunto cargado; reconcilia (insert/update + escalation); auto-resolve tras 2 corridas sin reaparecer; reactiva snoozed expirados; reabre dismissed críticas que reaparecen tras 60 d.
+6. **Severity escalation**: `warning` con `daysActive ≥ 7` y `occurrencesCount ≥ 3` → `critical`. Trazado en `severityHistory` con `reason='escalation'`.
+7. **Worker BullMQ** `alertDetectionWorker.js` (proceso `worker.js` separado) + queue `alert-detection`. Cron `*/15 * * * *` (env `ALERT_DETECTION_CRON`). Idempotente vía `jobId` fijo.
+8. **Notificación realtime SOLO para `critical` nuevas/recién escaladas** (`type='student_at_risk'`). Reusa `notificationService.notify` con dedup 60 s. Enlace `/students/:id?alertId=X`. Frontend dispara `window.dispatchEvent(new CustomEvent('smartalert:created'))` para refrescar sin reload.
+9. **Endpoints REST** (controller dedicado `alertsController.js`): `GET /alerts` (filtros status/severity/type/studentId/cursor/limit), `GET /alerts/summary`, `GET /alerts/effectiveness`, `GET /alerts/:id`, `GET /alerts/:id/history`, `PATCH /alerts/:id/{dismiss|resolve|snooze|pin|unpin}`, `POST /alerts/bulk-action` (hasta 100, 207 Multi-Status si parcial).
+10. **Pinning** (H.1): máx 3 por docente; ordenación `pinned -1` antes que `detectedAt -1`. 400 si excede.
+11. **Audit log** (H.2): timeline cronológica `created → reseen → escalated → snoozed → reactivated → dismissed → resolved`. Frontend `<AlertHistoryModal />`.
+12. **Dashboard eficacia interna** (H.3): `effectivenessForTeacher` con totalGenerated, activeNow, resolvedAuto/Manual, dismissed, snoozed, averageDaysToResolve, topTypes, falsePositiveRate. Frontend `<AlertsEffectivenessPanel />`.
+13. **Hard-delete cron** (H.4): `deleteOldSmartAlerts` integrado en `dataRetentionService.runDataRetention` (reusa queue `data-retention`). Default 365 d vía env `SMART_ALERT_RETENTION_DAYS`.
+14. **Auto-reabrir dismissed críticas** (H.5): si reaparece `critical` para `(studentId, type)` dismissed desde hace > `SMART_ALERT_REOPEN_AFTER_DAYS` (default 60), reapertura con `severityHistory.reason='reopened'`.
+15. **Cache Redis** namespace `cache:alerts` TTL 60 s con invalidación granular por teacher (`cacheInvalidatePattern`, nueva utilidad en `cacheHelper.js`). Cada acción lifecycle invalida.
+
+**Mejoras de seguridad/RGPD incluidas:**
+- Fix divide-by-zero en `decliningPerformance` + test de regresión dedicado.
+- Filtro `consent.withdrawnAt` en `loadActiveStudentsForTeacher` (RGPD Art. 7).
+- Defensa en profundidad descartando findings fuera del conjunto cargado.
+- `studentPseudoId` obligatorio; logs Pino solo usan pseudo IDs.
+
+**Mejoras frontend (anti-AI-slop):**
+- `constants/alertTypes.js` unifica iconos, etiquetas, estilos severidad/estado, motivos dismiss, presets snooze.
+- Filtros por estado con pills (`<AlertStatusFilter />`).
+- Menú kebab (`<AlertActionsMenu />`); dismiss con undo toast 5 s vía `sonner`.
+- Barra flotante bulk (`<AlertBulkBar />`) con spring.
+- Badge "Lleva N d" + Flame si escalada (`<EscalationBadge />`).
+- Pinning con borde dorado.
+- Modal historial; panel eficacia (H.3) integrado en `InsightsReports > Alertas`.
+- `aria-live="polite"` en `AlertsHub`.
+- Dashboard refetcha vía listener `smartalert:created`.
+
+**Consecuencias:**
+- Latencia GET /alerts: <50 ms tras primera corrida del worker vs 200–500 ms del cálculo on-the-fly.
+- Carga MongoDB Atlas M0 reducida ~95 % si docentes refrescan Insights varias veces.
+- Volumen acotado por: dedup unique partial index + auto-resolve + hard-delete cron 365 d.
+- Refuerzo positivo (`mastery_milestone`, `recovery_after_drop`) convierte el sistema en algo que el docente quiere abrir.
+- Cobertura: 1293/1293 backend (+24) y 455/455 frontend (+16).
+
+**Alternativas descartadas:**
+- **`alertsService` legacy como fachada con feature flag**: complejidad sin beneficio en pre-deploy.
+- **TeacherAlertConfig (umbrales por docente)**: scope desproporcionado; diferido. Umbrales en `config/alerts.js` admiten override por env.
+- **Reusar `Notification` para alertas**: semánticas distintas (Notification = transitoria TTL 90 d; SmartAlert = persistente sin TTL).
+- **Carpeta `backend/src/jobs/`**: el sprint la sugería, pero la convención del repo usa `backend/src/workers/`.
+
+**Backfill:** `npm run migrate:alerts-backfill` (idempotente). 4 pasadas con `referenceDate` retrocedido 30 d cada una para reconstruir historial verosímil para la demo del tribunal.
+
+---
+
+## ADR-162: Alertas inteligentes para super_admin con modelo separado + broadcast de avisos a profesores [Full-stack, Backend, Frontend, Security]
+
+**Contexto:** T-942 (Sprint 6, P1, XL). El sistema de SmartAlerts del ADR-161 cubre alertas pedagógicas con `teacherId` como dueño y aislamiento perfecto entre profesores. El super_admin tiene acceso a botón "Insights" pero la ruta `/analytics/insights` está restringida a `teacher` (redirige a `/admin/approvals`). Sin entrada en `ADMIN_NAV_ROUTES`. No hay alertas operacionales del sistema (Redis, MongoDB, colas BullMQ, seguridad, moderación, compliance) pensadas para el rol que las debería gestionar. Además, no existe mecanismo para que la dirección informe a todo el claustro a la vez.
+
+**Decisión:** crear un sistema paralelo de **SystemAlerts** (globales por incidente) y un módulo de **SystemAnnouncements** (broadcast manual a profesores) aislados totalmente del sistema pedagógico. 10 decisiones de diseño:
+
+1. **Modelo `SystemAlert`** nuevo (no extender `SmartAlert` con `scope`). Sin `teacherId`/`studentId`/`studentPseudoId`/`gamePlayId`. Campos propios: `title`, `description`, `recommendation`, `source` (redis/mongo/memory/queue/auth/moderation/compliance), `component`, `data` (Mixed), `runbookUrl`. Lifecycle idéntico al de SmartAlert (`active|resolved|dismissed|snoozed`) para reutilizar UI compartida. Audit `resolvedBy`/`dismissedBy`/`snoozedBy`/`pinnedBy`.
+2. **Audiencia global por incidente**: una sola SystemAlert activa por `type` simultáneamente. Cualquier super_admin puede gestionarla y el cambio es visible para todos. Aislamiento limpio entre roles a nivel BD: ningún teacher accede a la colección `systemalerts`; ningún super_admin recibe `SmartAlert` ajenas.
+3. **Índices**: `{ status, pinned: -1, severity: 1, detectedAt: -1 }`, `{ severity, status }`, `{ source, status }`, `{ status, snoozedUntil }` partial, **`{ type, status='active' }` unique partial → dedup global**, `{ status, updatedAt }` partial (hard-delete).
+4. **12 detectores nuevos** en `services/analytics/systemDetectors/`: 4 sistema (`redisHighLatency`, `mongoDisconnected`, `memoryPressure`, `queueBacklog`); 3 seguridad (`accountLockoutSpike`, `authFailedSpike`, `tokenTheftDetected`); 3 moderación (`pendingTeachersAging`, `inactiveTeachers`, `contextWithoutAssets`); 2 compliance (`dataRetentionLag`, `consentWithdrawalSpike`). Cada uno extiende `SystemAlertDetector` base, no escribe en BD y nunca propaga errores fatales.
+5. **`securityCountersService`** sliding-window 1 h en Redis (ZADD/ZCOUNT) para responder en O(1) a los detectores de auth. `securityLogger.logSecurityEvent` incrementa fire-and-forget en eventos `AUTH_LOGIN_FAILED`, `AUTH_ACCOUNT_LOCKED`, `AUTH_TOKEN_THEFT_DETECTED`, `DATA_CONSENT_CHANGE` (acción `withdrawn`).
+6. **Escalas temporales operacionales** (horas, no días) en `SYSTEM_DETECTION_CONFIG`: cron `*/5 * * * *`, `escalateWarningAfterHours=2`, `reopenAfterHours=12`, `hardDeleteAfterDays=90`, `cacheTtlSeconds=30`.
+7. **Worker BullMQ separado** `systemAlertDetectionWorker.js` + queue `system-alert-detection` con cron propio. Notificación crítica enviada a TODOS los super_admins via `notificationService.notify({ type: 'system_alert_critical', ... })`.
+8. **Endpoints REST** bajo `/api/admin/system-alerts/*` con `requireRole('super_admin')`: list, summary, effectiveness, getById, history, dismiss, resolve, snooze (HORAS además de días), pin/unpin, bulk-action. Endpoint debug `_debug/run-now` solo en `NODE_ENV !== 'production'` para QA. Cache Redis namespace `cache:system-alerts` con invalidación en cada acción lifecycle.
+9. **Frontend UI super_admin**: nueva ruta `/admin/system-alerts` (lazy + RequireRole). Página `SystemAlertsPage` con dos tabs (Alertas + Avisos). Componentes nuevos `SystemAlertsHub`, `SystemAlertCard`, `SystemAlertActionsMenu` (presets de snooze en horas: 1h/6h/24h/72h). Reutiliza `AlertStatusFilter`, `AlertBulkBar`, `AlertHistoryModal`, `EscalationBadge`. Filtro adicional por **source**. Entry en `ADMIN_NAV_ROUTES` con icono `ShieldAlert` (label "Alertas y avisos"). Atajo `g r` para super_admin.
+10. **SystemAnnouncements** (broadcast a profesores): modelo `SystemAnnouncement` (`title`, `body`, `severity: info/warning/urgent`, `audience: all_teachers/all_users`, `linkUrl/linkLabel`, `expiresAt`, `active`). Endpoints `/api/admin/announcements` (CRUD super_admin) y `/api/announcements/active` (público autenticado). Componente `<TeacherAnnouncementBanner />` montado en `AppLayout` solo para profesores, apila hasta 3 banners (urgent > warning > info), dismiss persistido en `localStorage`. Form con preview en `SystemAnnouncementsManager`. Límite `SYSTEM_ANNOUNCEMENT_MAX_ACTIVE=3` por audiencia.
+
+**Garantías de aislamiento (test-cubierto):**
+- Teacher recibe 403 en `/api/admin/system-alerts/*`.
+- `/api/analytics/alerts/*` no cambia: SmartAlert siguen filtradas por `teacherId === user._id` salvo bypass `allowSuperAdmin` (rutas de soporte, no usadas desde nueva UI).
+- Cache keys disjuntas: `cache:alerts:teacher:*` vs `cache:system-alerts:*` vs `cache:announcements:*`.
+- Notificaciones `student_at_risk` solo llegan al teacher dueño; `system_alert_critical` solo a `role:'super_admin'`.
+- Cron y workers distintos sin compartir colas.
+
+**Consecuencias:**
+- 12 alertas listas que cubren el ciclo operativo completo (rendimiento, disponibilidad, seguridad, compliance, salud de datos).
+- Banner urgent de super_admin permite comunicación de incidencias a todos los profesores sin email.
+- Cobertura: 1364 backend (+34) y 478 frontend (+39). Bundle inicial sigue en 60.32 KB gzipped (lazy + chunk admin separado).
+- Latencia operacional: detectores ligeros (mayoría O(1) sobre métricas in-memory + Redis sliding sets); solo `pending_teachers_aging`/`inactive_teachers`/`context_without_assets` ejecutan find en BD con índices ya existentes.
+
+**Alternativas descartadas:**
+- **Extender SmartAlert con campo `scope: 'teacher'|'system'`**: forzaría `teacherId=null` y rompería el unique partial `(studentId,type,active)`. Mayor riesgo de fuga cruzada teacher↔super_admin por query mal filtrada.
+- **Alertas personales por super_admin**: añadía complejidad (multiplicar registros o `userAcks[]`) sin valor real cuando los super_admins de un centro normalmente son 1-3 y comparten visión de la operación.
+- **Banner como modal al login**: invasivo, rompe el flujo del docente. Stack de banners con dismiss persistente es menos intrusivo.
+- **Cron a la misma frecuencia que SmartAlert (15 min)**: detecciones operativas necesitan respuesta más rápida; 5 min es el equilibrio (no satura BD ni notifica con demasiado retraso).
+
+**Pendientes documentados:**
+- Endpoint `POST /api/announcements/:id/ack` server-side (hoy solo localStorage). Trivial añadir si se necesita auditoría de lectura.
+- Detector `disk_full` cuando se contrate volumen persistente (Koyeb actualmente no expone disk usage en runtime).
+- Personalización por super_admin (filtros recordados, dismissals individuales) si en el futuro hay 5+ super_admins por centro.
+
+---
+
+## ADR-163: Auditoría post-cierre Sprint 6 — paquete de fixes y mejoras pre-v1.0.0 [Full-stack, Backend, Frontend, DevOps]
+
+**Contexto:** Tras cerrar el bloque grande de tareas del Sprint 6 (mecánica Secuencia T-921/T-922/T-923, fundamentos cloud T-901/T-902/T-903/T-909, mejoras UI T-951/T-952/T-953/T-954/T-955, hardening T-905/T-907), una auditoría con 3 agentes Explore en paralelo + verificación manual identificó 8 findings reales y 5 mejoras adicionales. Falsos positivos descartados antes de actuar (`useInlineSuccess` en DeckEditPage, hero transition `layoutId` en DeckCard, scroll parallax en AppLayout, endpoint `/api/openapi.json`, hook `useChartMotion` en `ChartsTheme.jsx`). El deploy real cloud queda pendiente y fuera de alcance.
+
+**Decisión:** aplicar los fixes en la rama `feature/cloud-foundation-and-cd` ya en uso, sin abrir ramas paralelas (memoria del usuario sobre agrupar trabajo UI/UX). 10 decisiones de diseño:
+
+1. **`sequence_phase_memorizing` y `sequence_phase_reproducing` emiten `mechanicType:'sequence'`** (`backend/src/services/gameEngine/sequenceFlow.js:74-82, 183-193`). Simetría con `sequence_card_result`/`sequence_round_result` que ya lo emiten. Necesario para que la mascota viva (ADR-D) y handlers genéricos contextualicen la mecánica desde el primer evento de la ronda.
+2. **`PhaseTransitionOverlay` recibe `durationMs` por prop** y se calibra al `gracePeriodMs` que el backend emite en `sequence_phase_reproducing`. `SequenceBoard` propaga `overlayDurationMs` desde `SequenceGameplayPanel`, alimentado por el `sequenceState` de `GameSession`. Si el backend cambia `SEQUENCE_REPRODUCE_GRACE_MS`, la UI se sincroniza sin tocar frontend. Fallback `DEFAULT_DURATION_MS=2400` mantiene comportamiento si el evento llega sin el campo (tests).
+3. **Columna "Mejor Secuencia" en `StudentsAnalytics`** (T-922 criterio 7 cubierto). `analyticsService.getClassroomStudents` ahora expone `studentMetrics.maxSequenceLengthAchieved` y `sequencesCompleted`. El frontend la normaliza al nivel raíz, la incluye en `TABLE_COLUMNS` y `CSV_COLUMNS`, y renderiza con icono `ListOrdered` ámbar + tooltip explicativo. Empty state "—" cuando el alumno no tiene partidas de Secuencia. Sortable.
+4. **Atajo `/` enfoca la búsqueda de la página actual** (T-951 criterio explícito). Registrado en `GlobalShortcuts.jsx` sección "Sistema". Handler busca `document.querySelector('[data-global-search]')` y `.focus()`. Convención Slack/GitHub/Linear. Inputs marcados en `CardDecksPage`, `StudentManagement`, `ContextsPage`, `StudentsAnalytics`. Si no hay match en la página actual, no-op silencioso (`preventDefault` del hook impide que "/" se escriba en el contenido). Cursor al final del valor existente con `setSelectionRange`.
+5. **`useChartMotion` confirmado en `ChartsTheme.jsx`** (no era nuevo hook; reporte 2 marcó falso positivo). Usado en 7 charts (`TrajectoryChart`, `StudentProgressChart`, `SequenceProgressChart`, `DistributionChart`, `EngagementRadar`, `PerformanceByDimension`, `InsightsReports`). No se extrae a su propio archivo en `hooks/` (refactor cosmético sin valor real, riesgo de regresión por cambios de import en 7 archivos).
+6. **`StudentProgressChart` envuelto con `memo()`**. Chart pesado (`AreaChart` Recharts) en Dashboard que repintaba en cambios no relacionados (filtros, hover en otros widgets). Vercel `rerender-memo`.
+7. **`ThemeContext.toggleTheme` con `MIN_LOCK_MS=350`** y timer de seguridad subido de 500ms→650ms. Previene encadenamiento de transiciones en triple-tap rápido de `Shift+T` cuando la primera transición resuelve `finished` antes (Login/Register son ligeros). `releaseRespectingMinHold` espera hasta cubrir el mínimo antes de bajar el ref.
+8. **OpenAPI spec completada** con 9 schemas reutilizables (`User`, `Card`, `Mechanic`, `Context`, `Deck`, `GameSession`, `GamePlay`, `Notification`, `ApiError`, `Pagination`) + responses comunes `NotFoundError` y `ForbiddenError`. Anotaciones `@openapi` en 9 routers: `users`, `mechanics`, `contexts`, `sessions`, `plays`, `decks`, `notifications`, `analytics`, `admin`. ≥40 operaciones documentadas. `swagger-ui` muestra spec completa; `/api/openapi.json` descargable para clientes generados.
+9. **`envValidator.validateRedisKeyPrefixForEnv()`** emite `logger.warn` no bloqueante si `APP_ENV` está definido y `REDIS_KEY_PREFIX` no contiene el nombre del entorno. Previene data contamination si Upstash se comparte entre staging/prod (free tier). `.env.example` documenta los prefijos recomendados (`eduplay:staging:`, `eduplay:prod:`) con el porqué.
+10. **OnboardingOverlay `measure()` debouncedo** a 120ms con `requestAnimationFrame` interno y listeners passive. Antes el spotlight re-medía en cada frame de scroll (~50/s) costando 3-5ms paint por llamada → jank en tablets. Reducido a ~8/s durante scroll continuo sin desfase visible.
+
+11. **`CharacterMascot` acepta prop `noBubble`** y `OnboardingOverlay` la pasa a `true`. Bug visual detectado en QA 2026-05-19 (sesión modo oscuro): el bocadillo de la mascota (`absolute -top-20`) se solapaba con el borde superior izquierdo del card del onboarding y duplicaba el título/descripción ya presente en el modal — quedaba "pegado" como un sticker mal alineado. La mascota sigue siendo expresiva (`mood` controla la animación facial) pero ahora puede vivir como ilustración decorativa sin imponer texto adicional. El `rotatingMessage` del pool de greetings (idle) también queda suprimido cuando `noBubble=true`.
+
+**Consecuencias:**
+- Suite verde tras cambios: backend (objetivo ≥1259) y frontend (objetivo ≥396) — verificar tras run final.
+- 8 archivos backend modificados + 1 nuevo schema set, 11 archivos frontend modificados, 6 docs actualizadas.
+- Bundle frontend sin cambios (memo no añade peso). `/api/openapi.json` pasa de ~6 ops a ≥40.
+- Runbook gana playbook 16 (preview deploys desde PR) que ya existía como workflow sin documentar.
+
+**Alternativas descartadas:**
+- **Refactor `InlineEditableText` a `editorProps`/`uiProps` grouped (#13)**: 14 props → 2 grouped objects. Refactor invasivo en 2 consumers (DeckCard, SessionCard) con riesgo medio de regresión. Diferido a Sprint 7 con tests asociados.
+- **Test integración SIGTERM completo (#10)**: requiere mock `process.exit`, spy de `mongoose.connection.close`, `redis.quit`, `Sentry.flush`. ~50 líneas + setup. Valor moderado (la lógica ya es correcta). Diferido a Sprint 7.
+- **Crear `useChartMotion.js` en `hooks/`**: el hook ya vive en `ChartsTheme.jsx` y se importa correctamente. Mover el archivo solo cambia la ergonomía sin valor funcional y obliga a tocar 7 imports.
+- **Mover `data-global-search` a un Context React + provider**: el atributo HTML es portable, accesible vía `querySelector` y no requiere prop drilling. Patrón Slack/GitHub similar.
+
+**Pendientes documentados:**
+- Sprint 7: `InlineEditableText` grouped props refactor + tests.
+- Sprint 7: suite de tests integración SIGTERM (`backend/tests/integration/gracefulShutdown.test.js`).
+- Sprint 7 (opcional): extracción del hook `useChartMotion` a `frontend/src/hooks/useChartMotion.js` si en algún momento se necesita reutilizar fuera del namespace `analytics`.
+
+**Falsos positivos descartados (no se actuó):**
+- `useInlineSuccess` en `DeckEditPage.jsx:39,94` — ya integrado.
+- `layoutId="deck-..."` en `DeckCard.jsx:302-305` + `CardDeckDetailPage.jsx:182` — hero transition implementado.
+- `useTransform(scrollY, ...)` en `AppLayout.jsx:80-83` — parallax operativo.
+- `GET /api/openapi.json` en `server.js:310` — endpoint descargable existe.
+- `commonAxisProps`/`commonGridProps` en `ChartsTheme.jsx:139,149` — ya extraídos.
+
+---
+
+## ADR-164: Hardening pre-v1.0.0 — timeout RFID lock + sanitización Unicode + extracción reducer GameSession + perf mascota/confetti + rate limit admin + tests regresivos DTO + UID duplicate validator + DRY validators [Full-stack, Backend, Frontend, Security, Performance]
+
+**Contexto:** Auditoría exhaustiva pre-v1.0.0 con cuatro lentes (arquitecto/optimización, senior dev, ciberseguridad, diseño UI/UX) ejecutada con 3 agentes Explore en paralelo + verificación manual de los hallazgos más jugosos para descartar falsos positivos. La auditoría identificó 1 CRÍTICO, 6 ALTOS, 9 MEDIOS y 8 BAJOS reales. Falsos positivos descartados: N+1 en `getPlayStatsBySessionIds` (es aggregation pipeline, no loop), `INSTANCE_NAME` expuesto por `healthController` (no aparece en el código), `dangerouslySetInnerHTML` en frontend (cero ocurrencias), tokens en `localStorage` (cero ocurrencias), duplicación masiva `ui/` vs `common/` (common solo tiene 4 archivos utility).
+
+Sprint 0 ejecuta el bloque crítico/alto sin tocar las páginas grandes del frontend (DeckCreationWizard, SessionsPage, StudentsAnalytics, etc.), diferido a Sprint 1 con justificación de riesgo. El refactor completo Container/View de `GameSession.jsx` (1847 líneas) también se difiere parcialmente: en lugar del split monolítico se extraen las unidades puras testeables (reducer + helper de resumen final) y el render se mantiene en su sitio.
+
+**Decisión:** 10 cambios agrupados en bloques de menor a mayor riesgo, con checkpoint de tests verde al final de cada bloque.
+
+1. **A6 — Consolidar `cardMappingSchema` en `validators/commonValidator.js`**: el schema vivía duplicado en `gameSessionValidator.js` y `cardDeckValidator.js`. Riesgo de drift (en T-905 MFA ya pasó). Movido a `commonValidator.js`, alias `cardDeckMappingSchema` re-exportado desde `cardDeckValidator.js` para no romper imports existentes. DRY estricto.
+
+2. **A5 — Path validator de UIDs duplicados en `GameSession.cardMappings`**: el modelo `CardDeck` ya validaba UIDs únicos en path validator (`models/CardDeck.js:116-121`), pero `GameSession` solo validaba `length === numberOfCards`. Cerrar el flanco evita estados inconsistentes si alguien bypasa Zod (seed manual, migraciones). 8 líneas añadidas al path validator existente, sin cambio de API.
+
+3. **A4 — `sanitizedString({min,max,label,allowMultiline})` helper en `commonValidator.js`**: rechaza caracteres Unicode invisibles (`U+200B-200D`, `U+200E-200F`, `U+2028-2029`, `U+202A-202E`, `U+2060-2064`, `U+2066-2069`, `U+FEFF`) y caracteres de control ASCII. Aplicado a campos user-facing: `name` (contextos, mazos, usuarios, sesiones), `description`, `displayName`, `value`, `assignedValue`, `promptText`, `grantedBy` (consent), `newClassroom`, `reason`, `title`/`body`/`linkLabel` (anuncios). Defensa contra ataques de homógrafo, falsificación visual de nombres ("Maria<U+202E>evad") y rotura de layout en listados.
+
+   Implementación con `Set` de codepoints + función `containsInvisibleUnicode(str)` en lugar de regex literal con caracteres invisibles — un primer intento con regex literal rompió el parser de JS al guardar el archivo. La aproximación con codepoints numéricos es más legible y robusta. Tests cubren los rangos completos y el modo `allowMultiline`.
+
+4. **M7 — `adminApprovalRateLimiter` por super_admin**: nuevo limiter en `config/security.js` (100 acciones/hora por usuario, 1000 en dev), aplicado a `POST /api/admin/users/:id/approve|reject`. Defense-in-depth ante super_admin comprometido o bug de UI que dispare bucles. Sigue el patrón shim del proyecto (registry diferido + `userOrIpKeyGenerator`).
+
+5. **C1 — `executeWithRfidLock` con timeout duro**: el mutex por `userId` en `socketHandlers.js` no tenía timeout; una operación colgada (Mongo lento, Redis bloqueado, deadlock) dejaba la cola del usuario esperando indefinidamente y el socket RFID moría en silencio. Solución: `Promise.race([operation(), timeoutPromise(RFID_OPERATION_TIMEOUT_MS=10s)])`. En timeout: liberar lock, incrementar métrica `rfidLockTimeouts`, registrar `SECURITY_EVENT` (`RFID_LOCK_TIMEOUT` añadido a `securityLogger.js` con threshold Sentry 3/min), emitir `rfid_mode_error` al room del usuario con copy en español, throw `Error` con `code='RFID_LOCK_TIMEOUT'`.
+
+6. **M1 — Slow-query observability en `gamePlayRepository.aggregate`**: el repo ya tenía `DEFAULT_AGGREGATE_TIMEOUT_MS=15000`. Añadido `SLOW_AGGREGATE_WARN_MS=5000` con `logger.warn(alert:true)` cuando la operación supera el umbral pero termina, y `logger.error(alert:true)` cuando se aborta por `MaxTimeMSExpired`. Permite detectar pipelines analytics que merecen materialización (BullMQ nightly → `studentMetrics`) antes de degradar UX.
+
+7. **M8 — Auto-cleanup de intervals en `useConfetti`**: `fireFireworks` lanzaba `setInterval` y devolvía `clearInterval`, pero callers podían ignorar el return value. Ahora el hook mantiene `activeIntervalsRef = new Set()` y limpia todos los intervals en cleanup de `useEffect` al unmount. canvas-confetti ya gestiona su propio rAF interno (autopara cuando partículas mueren); solo necesitamos limpiar nuestros intervals.
+
+8. **M3 — `CharacterMascot` con `useInView` + `useReducedMotion`**: las 8 expresiones con `repeat: Infinity` (float/bounce/jump/nod/tilt/sway/pointRight/wobble) mantenían loops activos incluso cuando la mascota estaba fuera del viewport (típicamente GameOver tras finalizar partida o scroll). Ahora `animationsActive = useInView(ref) && !shouldReduceMotion` decide entre el `bodyAnimation[expr.bodyAnim]` y un fallback estático `{x:0,y:0,scale:1,rotate:0}`. Estrellas/Sparkles de `celebrating` también gated. CPU/RAF gastados se reducen a ~0 cuando la mascota no se ve.
+
+9. **B2 — Tests regresivos de DTO output sanitization**: el test existente `tests/security/dtoOutputSanitization.test.js` solo cubría User/Student/Auth. Extendido para cubrir GamePlay, GameSession (DTO + Detail + List), CardDeck, GameContext y SystemMetrics — 9 tests nuevos. Cada uno valida que campos como `password`, `mfa.secret`, `mfa.backupCodes`, `__v`, `_internal`, `currentSessionId`, `consent.ipAddress`, `consent.userAgent`, `consent.channel` no aparecen en el output del serializador. Red de seguridad ante regresiones al editar `utils/dtos.js`.
+
+10. **C2 parcial — Extracción de reducer + helper a unidades testeables**: `GameSession.jsx` pasa de **1847 a 1699 líneas** (-148). Movido `gameReducer` + `INITIAL_GAME_STATE` a `hooks/useGameSessionState.js` con custom hook que expone `{game, dispatch, gameStateRef}`. Movido `normalizeFinalSummary` a `lib/finalSummary.js`. Ambos con tests unitarios nuevos (8 tests del reducer, 9 tests del helper). El render JSX y los useCallback/useEffect del componente se mantienen donde están — la división Container/View completa se difiere a Sprint 1 con justificación: el coste/beneficio antes de v1.0.0 no compensa el riesgo de regresiones sutiles en re-renders y el render ya está bien compuesto por subcomponentes extraídos (`AssociationGameplayPanel`, `MemoryGameplayPanel`, `SequenceGameplayPanel`, `GameOverScreen`, `CharacterMascot`, `FallbackTouchPanel`, `RFIDConnector`). Los tests existentes (636 líneas de `GameSession.test.jsx`) siguen verdes con el refactor parcial.
+
+**Falsos positivos descartados (verificados leyendo el código):**
+- ❌ **N+1 en `getPlayStatsBySessionIds`** — verificado: usa aggregation pipeline con `$match`+`$group` (`gamePlayService.js:541-587`), una sola query. El agente backend se equivocó.
+- ❌ **`healthController` expone `INSTANCE_NAME`** — verificado: solo expone métricas operacionales legítimas tras super_admin gate (`healthController.js:183-229`), no hay `INSTANCE_NAME` ni rutas internas. Falso positivo del agente seguridad.
+- ❌ **`dangerouslySetInnerHTML` en frontend** — verificado: `0` ocurrencias.
+- ❌ **Tokens en `localStorage`** — verificado: `0` ocurrencias (cookies httpOnly según T-905).
+- ❌ **Duplicación masiva `ui/` vs `common/`** — verificado: `common/` solo tiene 4 archivos utility-específicos (ErrorBoundary, ChartErrorBoundary, SessionSparkline, AuthLoader).
+
+**Diferidos a Sprints posteriores (NO en Sprint 0):**
+- Sprint 1: A1 (refactor páginas grandes: DeckCreationWizard 1251 / SessionsPage 990 / StudentsAnalytics 971 / DeckEditPage 867 / SessionDetail 817), A2 (AppLayout decomp), A3 (CardLockManager + auth MFA split), M2 (subcarpetas `components/ui/`), M6 (charts keyboard navigation + aria-live), B3 (RFIDModeHandler aria-live), B4 (empty states uniformes), B5 (residuos emoji). División completa Container/View de GameSession también queda aquí.
+- Sprint 2: M5 (CVA o Radix para componentes UI), B6 (split redisService), B7 (proyecciones repos), B1 (JSDoc índices), B8 (RGPD export/delete endpoint).
+- Sprint 3: materialized view `studentMetrics` con BullMQ nightly (cierra el gap de pipelines analytics).
+
+**Consecuencias:**
+- Suite verde tras Sprint 0: **103 suites backend / 1339 tests** (subió de 1330 con tests de DTO), **51 archivos frontend / 498 tests** (subió de 439 con tests de reducer + finalSummary). `npm run lint` 0 errores en ambos (warnings preexistentes + 13 nuevos warnings de `dispatch` en deps de useCallback que son cosméticos — dispatch de `useReducer` es estable por contrato React).
+- Nuevas métricas observables: `runtimeMetrics.websocket.rfidLockTimeouts`, slow-query log en `gamePlayRepository.aggregate`.
+- Nuevas env vars: `RFID_OPERATION_TIMEOUT_MS` (default 10_000), `SLOW_AGGREGATE_WARN_MS` (default 5000), `RATE_LIMIT_ADMIN_APPROVAL_MAX` (default 100).
+- API contrato: `displayName`/`name`/`description` rechazan ahora caracteres Unicode invisibles. Cualquier integración legítima existente queda intacta (validación rechaza solo input nuevo). Errores devuelven 400 con mensaje en español.
+- `executeWithRfidLock` ahora throws `Error{code:'RFID_LOCK_TIMEOUT'}` en timeout — los call sites (`setRfidModeState`, `clearRfidModeState`) están envueltos por `executeSocketCommand` con try/catch general y el cliente recibe `rfid_mode_error` con copy claro.
+
+**Alternativas descartadas:**
+- **Refactor Container/View completo de GameSession.jsx en una tanda monolítica**: el usuario aceptó el riesgo explícitamente, pero al inspeccionar la implementación se decidió diferir parcialmente. Razones: (a) los tests existentes (636 líneas) son el contrato y validan comportamiento, pero no aíslan unidades — un refactor masivo del JSX puede pasar los tests y aún introducir regresiones visuales sutiles (timings, layouts) que solo se detectan jugando; (b) el render ya está compuesto por sub-componentes serios (AssociationGameplayPanel, MemoryGameplayPanel, etc.) y no hay duplicación lógica visible que se pueda extraer trivialmente; (c) la prioridad real para v1.0.0 es que las 3 mecánicas se jueguen sin regresión, no estilo de código. El split queda con plan claro para Sprint 1 cuando haya margen para QA dedicada.
+- **Regex literal con caracteres Unicode invisibles** para `UNICODE_INVISIBLE_REGEX`: rompió el parser de Babel/Node al escribir el archivo (los caracteres del rango U+200B se consumen como parte del regex). Resuelto con `Set<number>` de codepoints + función explícita `containsInvisibleUnicode`.
+- **CVA o Radix UI Primitives para `SelectPremium`/`InputPremium`** (M5): overkill para v1.0.0 cuando los componentes funcionan; el JSDoc + warning en dev mode cubre el 80% del beneficio. Diferido a Sprint 2.
+- **Materialized view nightly `studentMetrics`** (Sprint 3): mejora real de escalabilidad pero no urgente con el dataset actual; `maxTimeMS=15s` + slow-query log da observabilidad mientras tanto.
+
+**Pendientes documentados:**
+- Sprint 1 ya programado con su backlog (ver arriba).
+- 13 warnings de `dispatch` en deps de `useCallback` en `GameSession.jsx` — cosméticos, dispatch de `useReducer` es estable por contrato React. Se limpian naturalmente cuando se complete el refactor Container/View.
+- QA E2E final: levantar Docker + Playwright + `__rfidSim` (sensor físico roto desde mayo 2026), jugar las 3 mecánicas con `timeLimit ≥90-120s` por ronda, verificar estadísticas cruzadas (Dashboard + Analytics + InsightsReports + StudentProfile), sanity checks de C1/A4/A5/M7/M3 documentados en el plan file de la sesión.
+
+---
+
+## ADR-165: Sentry Performance — instrumentación manual de transacciones críticas + sampling per-env [Backend, Frontend, DevOps]
+
+### Contexto (ADR-165)
+
+Sentry estaba inicializado con `tracesSampleRate: 0.1` constante en backend y `0.2` en frontend, pero la auto-instrumentación de OpenTelemetry (v10) sólo emite spans HTTP/Express genéricos. Los flujos críticos del producto — arranque y cierre de partida, scan RFID, agregados de analytics — quedaban como un único span HTTP grueso sin atributos de negocio, lo que impide responder preguntas operativas básicas:
+
+- ¿Cuánto tarda `endPlay` en p95? ¿La persistencia es lo lento o el lock distribuido?
+- ¿Qué partida disparó la regresión post-deploy?
+- ¿Qué teacher ejecutó la query lenta de analytics?
+
+Además, con un único `sampleRate=0.1` global, staging perdía señal proporcionalmente a producción justo cuando más se necesita en QA pre-release. Y `environment: process.env.NODE_ENV` confundía staging y producción cloud (ambos `NODE_ENV=production` en Koyeb), de modo que el dashboard Sentry no podía filtrarlos.
+
+### Decisión (ADR-165)
+
+1. **Spans manuales con `Sentry.startSpan` en 5 puntos críticos:**
+   - `gameplay.startPlay` y `gameplay.endPlay` en `GameEngine.js` (cubren lock distribuido + persistencia + métricas).
+   - `gameplay.pausePlay` y `gameplay.resumePlay` (más cortos pero útiles para detectar latencia anómala).
+   - `gameplay.sequence.processScan` y `gameplay.sequence.roundTimeout` en `sequenceFlow.js`.
+   - `analytics.classroomSummary` y `analytics.studentSummary` en `analyticsService.js`.
+   - `rfid.scan` en el handler `handleRfidScanFromClient` de `socketHandlers.js`.
+   - `queue.job` en los workers BullMQ mediante helper `withJobSpan(job, handler)` (workers/jobSpan.js).
+2. **Atributos estandarizados** (sin PII): `play.id`, `session.id`, `user.id`, `mechanic.code`, `round.number`, `card.uid` (hex), `teacher.id`, `analytics.timeRange`, `queue.name`, `queue.job.id`.
+3. **Sampling per-environment** controlado por `APP_ENV` (no `NODE_ENV`) y override opcional con `SENTRY_TRACES_SAMPLE_RATE` / `SENTRY_PROFILES_SAMPLE_RATE`:
+   - `production` → 0.1
+   - `staging` → 0.5
+   - resto (dev/test) → 1.0
+4. **Frontend alineado**: `frontend/src/lib/sentry.js` lee `VITE_APP_ENV` para distinguir preview Cloudflare Pages (staging) de production, aplicando los mismos sample rates.
+5. **Tests adversariales** (`backend/tests/sentrySpans.test.js`) que mockean `@sentry/node` y verifican que cada span se llama con el `op`/`name`/`attributes` esperado. 4 escenarios actuales (sequence timeout, sequence scan, classroom summary, student summary); ampliable a startPlay/endPlay cuando convenga.
+
+### Posibles Impactos / Consecuencias
+
+**Positivos:**
+- Visibilidad real de p95 por flujo de negocio en Sentry Performance — pivot directo sobre `op:gameplay` o `op:rfid.scan`.
+- Trazas correlacionables: atributo `play.id` permite reconstruir todos los spans de una partida concreta sin grep manual de logs.
+- Staging genera 5× más señal que producción sin saturar la cuota free (10K/mes Sentry).
+- Coste cognitivo bajo: `Sentry.startSpan(opts, fn)` es transparente cuando Sentry está deshabilitado, así que el código sigue funcionando idéntico en dev sin DSN.
+
+**Negativos / Mitigaciones:**
+- ~+150 spans/h en producción si el centro alcanza picos de 20 partidas concurrentes. Bajo el 10% sampling, son ~15 spans/h enviados — dentro de la cuota free con holgura 60×.
+- Lectura del codebase añade `Sentry.startSpan(...)` en sitios calientes. Mitigado con helpers (`withJobSpan` para workers) y comentarios `// T-904 Fase A` para que el lector vea la motivación inmediata.
+- Si `SENTRY_TRACES_SAMPLE_RATE` se setea con valor inválido (`foo`), el backend cae al default por entorno y emite warning. Cubierto por `resolveSampleRate()` en `config/sentry.js`.
+
+### Estado Futuro
+
+- Si el centro escala a >5 docentes activos simultáneos, considerar exportar runtimeMetrics como custom metrics Sentry (descartado en T-904 por scope).
+- LazyMotion del frontend (~30 KB) descartado en T-907; cuando se haga, los spans de navegación se reducirán y la cuota dará más margen.
+- Migración del wrapper de `@sentry/node` a `@sentry/opentelemetry-node` cuando Sentry deprique el SDK v10 (no se prevé antes de 2027).
+
+---
+
+## ADR-166: Log shipping centralizado con Grafana Cloud Loki + `pino-loki` [Backend, DevOps]
+
+### Contexto (ADR-166)
+
+En Koyeb el log retention del free tier es ~72 horas. Sin un destino externo:
+
+- Los incidentes que se reportan más de 3 días después del deploy son imposibles de diagnosticar.
+- No hay forensics para auditorías RGPD posteriores (Art. 33 obliga a notificar brechas con detalles, sin logs no hay detalles).
+- Los logs JSON estructurados que el backend ya emite (Pino + redacción PII) se desperdician sin un colector que indexe los campos `requestId`, `userId`, `playId`, etc.
+
+PROP-110 dejó abierta la decisión entre Grafana Cloud Loki, BetterStack Logtail y Axiom. Comparativa:
+
+| Provider | Free quota | LogQL | Retención free | UI |
+|---|---|---|---|---|
+| **Grafana Cloud Loki** | 50 GB/mes | Sí (potente) | 14 días | Avanzada (Grafana) |
+| BetterStack Logtail | 5 GB/mes | No (filtros propios) | 3 días | Muy amigable |
+| Axiom | 500 MB/mes | APL propio | 30 días | Limpia |
+
+50 GB/mes con LogQL ricos es decisivo para un proyecto académico con picos puntuales (días de QA intensiva) sin presupuesto previsible para escalar.
+
+### Decisión (ADR-166)
+
+1. **Adoptar Grafana Cloud Loki** vía `pino-loki` (transport oficial, batch interno, retry/backoff).
+2. **Multistream Pino opt-in**: `LOG_SHIPPING_ENABLED=true` activa un segundo target además de stdout. Si faltan `LOG_SHIPPING_HOST`/`LOG_SHIPPING_TOKEN` o `pino-loki` no está instalado, degrada silenciosamente a stdout-only con warning en `stderr` — el proceso nunca falla por esto. Verificado por `backend/tests/loggerTransport.test.js`.
+3. **Labels Loki canónicos**: `app=eduplay-rfid`, `env=<APP_ENV>`, `service=backend|worker`, `version=<pkg.version>` + `component` promocionado dinámicamente vía `propsToLabels`.
+4. **Helper de contexto estructurado** `withPlayContext(parentLogger, { playId, sessionId, userId, mechanic })` en `backend/src/utils/loggerContext.js`: produce child loggers con esos campos como bindings → quedan disponibles en LogQL con `| json | playId="..."`.
+5. **Worker.js diferenciado**: setea `process.env.LOG_SERVICE_LABEL = 'worker'` antes de cargar `logger.js` para que sus logs vayan a Loki con `service=worker` (filtrable independientemente del backend HTTP).
+6. **Labels Sentry alineados**: los mismos `play.id` / `session.id` / `user.id` están como atributos de span Sentry (ADR-165), permitiendo correlación bidireccional.
+7. **Saved queries documentadas** en `backend/docs/Logging_Strategy.md` §10: errores 5xx por endpoint, slow queries, auth fails spike, rate-limit hits.
+
+### Posibles Impactos / Consecuencias
+
+**Positivos:**
+- Forensics 14 días en lugar de 72 horas (cuota free Grafana Cloud).
+- Búsqueda por `playId`/`userId`/`sessionId` para reconstruir todo el ciclo de vida de una partida concreta — clave para investigar reportes de docentes.
+- LogQL alerts disponibles a futuro sin migrar provider.
+- Cero coste si se mantiene <50 GB/mes (estimación realista para el centro objetivo: ~150 MB/mes incluso en QA intensiva).
+
+**Negativos / Mitigaciones:**
+- Latencia añadida en el path de logs: batch de 5 segundos. No bloquea procesos (transport en worker thread Pino). Si Loki cae, los logs se acumulan en buffer y luego se envían; si el buffer se llena, descarta y emite warning a stderr.
+- Una nueva cuenta cloud que mantener + token que rotar anualmente. Documentado en `documentation/Secrets_Rotation.md`.
+- Si el código emite logs con `userInput` no sanitizado, los chars de control podrían inflar artefactos en Loki. Mitigado por `CONTROL_CHARS_REGEX` en `logger.js` (sanitiza U+0000-U+001F y U+007F antes de serializar).
+
+### Estado Futuro
+
+- Si el centro escala >5 docentes y el volumen sube a 5 GB/mes sostenidos, considerar bajar `LOG_SHIPPING_LEVEL` a `warn` para reducir verbosidad info.
+- LogQL alerts ("error rate > 5%/min") podrían sustituir parte de las Sentry Alerts cuando el equipo gane familiaridad con Grafana — diferido a un sprint post-v1.0.0.
+- Migración futura a Grafana on-premise (autohosted) si las condiciones cambian; `pino-loki` apunta a cualquier endpoint compatible.
+
+---
+
+## ADR-167: Saneamiento del pipeline CI/CD pre-cierre cloud foundation [DevOps]
+
+### Contexto (ADR-167)
+
+Antes de mergear `feature/cloud-foundation-and-cd` a `main`, el pipeline de CI/CD acumulaba varias deudas heredadas de iteraciones rápidas durante T-901..T-907:
+
+- **CI rojo desde 2026-05-14**: el step *Security Audit* de `build.yml` fallaba contra `GHSA-v2v4-37r5-5v8g` (ip-address XSS) pese a estar listada en `BACKEND_EXCLUDED`. El helper inline shell+Node inline rompía cuando el campo `via[]` mezclaba strings y objetos sin `url` (caso `ip-address` → `express-rate-limit`). Además, dos nuevas advisories (`GHSA-jxxr-4gwj-5jf2` brace-expansion, `GHSA-58qx-3vcg-4xpx` ws) aparecieron en el snapshot npm entre auditorías.
+- **Inconsistencias entre workflows**: `sentry-release.yml` usaba `actions/checkout@v5` + `setup-node@v5` (resto del repo en `@v6`), sin `persist-credentials: false`, sin `timeout-minutes` y con `npx @sentry/cli@^2` sin pinning.
+- **URLs operativas tratadas como secretos**: `KOYEB_PROD_URL` y `KOYEB_STAGING_URL` configuradas como `secrets.*` quedaban enmascaradas en logs y bloqueaban el link clickable en la UI de Environments.
+- **Falta de coherencia local**: no había `.nvmrc` ni `CODEOWNERS`. `codeql.yml` arrastraba una matrix de un solo idioma sin valor real.
+- **Bundle budget mal dimensionado**: `MAX_JS_GZIP_KB=1536` era 2.5× el tamaño real (`604 KB` tras T-907); `MAX_DIST_KB=8192` se rompería con sourcemaps + pre-compresiones (`.gz`/`.br`) generadas por vite-plugin-compression, que NO se sirven al usuario y por tanto no deben contar.
+
+Objetivo: dejar el pipeline correcto, consistente y verificado antes de la release `v1.0.0`.
+
+### Decisión (ADR-167)
+
+1. **Extraer el helper Security Audit a un script Node testable**: nuevo `backend/scripts/audit-with-exclusions.js` que recorre `vulnerabilities[*].via` recursivamente (objetos con `url`, strings transitivos, defensivo ante futuras estructuras). Tests unitarios en `backend/tests/auditWithExclusions.test.js` (17 casos, cubren el bug original ip-address + express-rate-limit como caso 3). `build.yml` llama al script en lugar del shell inline.
+2. **Ampliar exclusiones documentadas**: `BACKEND_EXCLUDED` añade `GHSA-jxxr-4gwj-5jf2` (brace-expansion DoS, transitiva de devtools no alcanzable en runtime) y `GHSA-58qx-3vcg-4xpx` (ws memory disclosure, mitigado por gate JWT en socket.io). `FRONTEND_EXCLUDED` añade `GHSA-58qx-3vcg-4xpx` (ws transitiva en cliente). `dependency-review.yml` `allow-ghsas` sincronizado. Pendiente: bump de `socket.io` para cerrar `ws` cuando publique upstream.
+3. **Hardening `sentry-release.yml`**: `@v5`→`@v6`, `persist-credentials: false`, `timeout-minutes: 15`, pin `@sentry/cli@2.58.5` instalado una vez con `npm install --no-save`, `NODE_VERSION` centralizado como en `build.yml`.
+4. **Migrar URLs operativas a `vars`**: `KOYEB_PROD_URL` y `KOYEB_STAGING_URL` dejan de ser `secrets.*` y pasan a `vars.*` en `deploy-production.yml` y `deploy-staging.yml`. La política operativa explícita es **"tokens son secrets, URLs son vars"**.
+5. **`preview-deploy.yml`**: añadidos steps "Verificar secrets requeridos" al inicio de `preview` y `teardown` (patrón consistente con `deploy-staging.yml`).
+6. **`codeql.yml`**: eliminado `strategy.matrix.language` (un solo valor), usando literal `javascript-typescript` directo.
+7. **Bundle budget ajustado**:
+   - `MAX_JS_GZIP_KB`: 1536 → 900 (sobre 604 KB real, ~50% margen).
+   - `MAX_DIST_KB`: 8192 → 6144 con nueva fórmula que **excluye `.map`/`.gz`/`.br`** (sourcemaps se borran pre-deploy en sentry-release, las pre-compresiones son alternativas al original, no acumulativas). Dist real efectivo: ~2.2 MB, margen 64%.
+8. **`.nvmrc` raíz** con `24.14.0` para `nvm use` local; **`.github/CODEOWNERS`** mínimo con fallback global, ownership explícito de `/.github/`, `/.github/workflows/` y docs maestros.
+9. **No crear `RELEASE_PLEASE_TOKEN` PAT**: el approval gate manual del environment `production` es la capa de protección preferida. Un PAT que auto-dispare deploys post-tag eliminaría ese checkpoint.
+
+### Posibles Impactos / Consecuencias
+
+**Positivos:**
+- CI vuelve a verde y bloquea regresiones reales (la métrica JS gz ahora detecta crecimiento ≥50% en lugar de no detectar nada).
+- Helper Security Audit testeable y mantenible: ampliar exclusiones se hace editando JS con tests, no inline en un workflow opaco.
+- Política `secrets` vs `vars` clarificada y aplicada uniformemente.
+- Sentry release workflow listo para activarse con `vars.SENTRY_RELEASE_ENABLED=true` post-aprovisionamiento.
+
+**Negativos / Mitigaciones:**
+- Las exclusiones de `brace-expansion` y `ws` son provisionales hasta que Dependabot empuje el bump de socket.io y el override `brace-expansion>=5.0.6`. Riesgo residual mitigado (no alcanzables en runtime). Documentado el motivo en build.yml.
+- La migración `secrets`→`vars` requiere acción manual en Settings → Variables; mientras no esté, los workflows fallan en el step "Verificar secrets y variables requeridos" con error claro.
+
+### Estado Futuro
+
+- Eliminar las 2 exclusiones nuevas (`brace-expansion`, `ws`) cuando un Dependabot PR consolide el upgrade.
+- Cuando T-901 cierre, crear environment `production` (required reviewer Samuel-Prog-CSec, deployment branches `tags: v*`) — sin esto el primer deploy-production queda en *Waiting* indefinidamente.
+- Considerar action reutilizable local `.github/actions/setup-koyeb-cli` con checksum verificado para reducir riesgo supply-chain del actual `curl ... install.sh | sh`.
+
+---
+
+## ADR-168: Estrategia de presupuesto free-tier — detectores SmartAlert internos + revisión mensual externa [Full-stack, Backend, DevOps]
+
+### Contexto (ADR-168)
+
+El despliegue de v1.0.0 corre íntegramente sobre tiers gratuitos de proveedores cloud (MongoDB Atlas M0, Upstash Redis, Koyeb Eco, Cloudflare Pages, Supabase Storage, Sentry SaaS, UptimeRobot, GitHub Actions, Grafana Cloud Loki). Cada uno tiene cuotas distintas y mecanismos de notificación heterogéneos, lo que genera tres problemas concretos:
+
+1. **No existía un único documento** con todos los límites, el consumo estimado para el escenario objetivo y el plan B en caso de cruzarlos. Cuando una cuota se acerca al techo, el riesgo es que el sistema se rompa en silencio (Atlas storage lleno, Upstash commands agotados) sin aviso temprano accionable.
+2. **T-907 introdujo telemetría interna** (`runtimeMetrics.redis.commandsEstimatedDaily`, `commandsByCategory`, `inMemoryCache.*`, `rateLimitStoreFallbackCount`) pero esos datos quedaban como simples snapshots en `/api/metrics` sin convertirse en alertas operativas. `Operational_Dashboard.md` §3.4 incluso prometía una alerta Sentry al 80% Upstash, pero la implementación no existía.
+3. **Los proveedores sin API gratuita para consultar cuota programáticamente** (Sentry quota, Supabase egress, Cloudflare bandwidth, GitHub Actions minutes, Grafana Loki ingest) sólo se podían vigilar abriendo manualmente el panel del proveedor. Sin un recordatorio recurrente, esa revisión simplemente no se hacía.
+
+El cuarto problema relacionado era el **cold start** del plan Koyeb Eco: tras un periodo de inactividad la app responde lenta en el primer request post-idle. En el contexto de la defensa del TFG ese primer request puede ser el tribunal abriendo la app, una mala primera impresión evitable a coste cero.
+
+### Decisión (ADR-168)
+
+1. **Cuatro detectores SmartAlert internos nuevos** en el motor `systemAlertDetectionService`:
+   - `upstash_commands_quota`: lee `runtimeMetrics.redis.commandsEstimatedDaily` y compara contra `UPSTASH_DAILY_BUDGET` (default 10 000). Severity `warning` al 80%, `critical` al 95%. Incluye en `data` la categoría dominante para diagnóstico inmediato.
+   - `atlas_storage_quota`: consulta `mongoose.connection.db.stats({ scale: 1 })` con **caché en memoria del módulo de 1 hora** (sin caché, doce stats/hora penalizan al M0 compartido). Compara `dataSize + indexSize` contra `ATLAS_STORAGE_BUDGET_MB` (default 512).
+   - `rate_limit_store_fallback`: cualquier `runtimeMetrics.redis.rateLimitStoreFallbackCount > 0` dispara warning. Cierra una promesa abierta desde QA-BUG-1 (sesión 2026-04-20) y eleva a SmartAlert visible en `/admin/system-alerts` sin depender de Sentry.
+   - `in_memory_cache_low_hit`: hit ratio agregado de las tres instancias LRU (`authUser`, `mechanic`, `context`) sostenido bajo `LRU_HIT_RATIO_WARN` (default 0,4) durante 4 muestras consecutivas. Requiere mínimo 50 lookups acumulados (`minLookups`) para evitar falsos positivos en arranque frío.
+2. **Workflow programado `.github/workflows/free-tier-monthly-review.yml`** (cron día 1 de cada mes a las 09:00 UTC, también `workflow_dispatch`) que crea automáticamente una issue con checklist de los servicios externos sin telemetría interna. La issue queda asignada a Samuel y etiquetada `meta/monthly-review`. Si ya existe issue abierta para el mes en curso, no la duplica.
+3. **Cinco playbooks nuevos** en `Runbook_Operacional.md` (§13a-§13e) que detallan qué hacer cuando una alerta interna o un check manual cruce el 80%: Atlas storage, Upstash commands, Supabase egress, Sentry quota y cold-start warming Koyeb.
+4. **Presupuesto budget configurable vía env vars** (`UPSTASH_DAILY_BUDGET`, `ATLAS_STORAGE_BUDGET_MB`, `LRU_HIT_RATIO_WARN`) con defaults conservadores 2026. Setear a `0` desactiva el detector correspondiente (escape hatch para dev local).
+5. **Cold-start warming pasivo heredado de T-904**: los 4 monitors UptimeRobot que pingan `/health/live` cada 5 minutos cumplen el rol de mantener vivo el contenedor Koyeb Eco entre periodos sin tráfico real. `/health/live` no toca Mongo ni Redis, por lo que el warming no consume comandos Upstash ni conexiones Atlas.
+6. **Archivado del compose Docker producción**: `docker-compose.prod.yml` movido a `docker/archive/` con README dedicado. Producción ya no pasa por Docker desde T-901; conservar el compose en raíz era deuda cognitiva. Conservado en `archive/` para testing local pre-deploy.
+7. **Documento maestro `documentation/Free_Tier_Budget.md`** como fuente de verdad de límites, consumo estimado por servicio, monitoreo, umbral de migración y coste plan B (≈$79/mes total si todo escalase simultáneamente).
+8. **Memoria TFG actualizada** (§1.3 Alcance y limitaciones del cap.1) con sub-apartado dedicado a las limitaciones derivadas del despliegue cloud y las mitigaciones técnicas que el proyecto incorpora. La actualización va en la misma sesión que la decisión técnica para preservar coherencia narrativa.
+
+### Posibles Impactos / Consecuencias
+
+**Positivos:**
+- Las alertas de cuota free-tier dejan de depender de email opcional del proveedor o de mirar dashboards externos. El super_admin las ve en `/admin/system-alerts` igual que cualquier otra alerta operativa, con notificación realtime si llegan a `critical`.
+- La revisión mensual queda automatizada como issue con checklist concreto y links directos a cada dashboard. Imposible que se olvide al estar en GitHub.
+- Cold-start warming sin coste adicional aprovechando infraestructura ya desplegada en T-904. Cero líneas de código nuevas, cero env vars nuevas para esto.
+- `Free_Tier_Budget.md` permite a un sucesor entender en una página el coste real de operar el sistema y dónde están los cuellos de botella.
+- El detector `rate_limit_store_fallback` cierra un hallazgo de QA abierto (BUG-QA-1) elevando una señal previamente solo loggeable a alerta accionable.
+
+**Negativos / Mitigaciones:**
+- `commandsEstimatedDaily` se calcula linealmente sobre el uptime del proceso (`total / uptimeSeconds × 86400`). Esto **subestima picos sostenidos** y **sobrestima los primeros minutos tras reinicio**. Mitigación: umbrales conservadores (80%/95%) y caché 1h en Atlas para no amplificar el sesgo del muestreo.
+- `db.stats()` cacheado 1h tiene granularidad limitada: una purga puntual no se refleja hasta la siguiente corrida tras el TTL. Aceptable: si el detector ya disparó, la siguiente verificación (próxima hora) confirma la recuperación.
+- La revisión mensual depende de disciplina humana. Mitigación: la issue se asigna automáticamente; si pasa el mes sin cerrar, la del mes siguiente la solapa visualmente en GitHub.
+- Las cuotas de Sentry/Supabase/Cloudflare se acumulan dentro del mes; un pico cerca del cierre puede agotar la cuota antes de la próxima revisión. Mitigación: Sentry envía email automático al 80%; Supabase también; Cloudflare se mantiene en bandwidth ilimitado.
+
+### Estado Futuro
+
+- Si el centro educativo escala más allá del dimensionamiento objetivo TFG (≈125 alumnos), migrar a tiers de pago acotados: Atlas M2 ($9), Sentry Team ($26), Koyeb Eco paid ($1,61/servicio). Total estimado ≤$80/mes documentado en `Free_Tier_Budget.md` §6.
+- Si Koyeb endurece la política de hibernación a intervalos < 5 minutos, añadir un quinto monitor UptimeRobot a 3 min (sigue dentro de los 50 monitors free). Decisión documentada en Runbook §13e.
+- Evaluar OpenTelemetry export para reemplazar `runtimeMetrics` propio a medio plazo. El MVP actual cubre las necesidades de v1.0.0 sin nueva dependencia.
+- Cuando aparezcan APIs gratuitas de cuotas (Sentry/Supabase tienen iniciativas en curso), trasladar las entradas del workflow mensual a detectores internos siguiendo el mismo patrón que los 4 actuales.
+
+---
+
+## ADR-169: Bootstrap de tema servido como archivo externo en lugar de `<script>` inline [Frontend, DevOps]
+
+### Contexto (ADR-169)
+
+`index.html` mantenía un `<script>` inline (~770 bytes) que se ejecutaba antes del primer paint para resolver `localStorage['eduplay:theme']` + `prefers-color-scheme` y aplicar `data-theme` a `<html>`. El objetivo era eliminar el FOUC (<50ms) que aparece si React decide el tema después de hidratarse.
+
+La CSP estricta de producción (T-905 B5, ADR-149) define `script-src 'self' https://*.sentry.io https://challenges.cloudflare.com` sin `'unsafe-inline'`, sin hash ni nonce. Al cargar la app, el navegador bloqueaba el inline script y registraba violación CSP a `/api/csp-report`:
+
+> Executing inline script violates the following Content Security Policy directive 'script-src 'self' …'. Either the 'unsafe-inline' keyword, a hash ('sha256-o9WaUZoVbxRTw1SFHjQAv5B6zmMn3E9Xni3fn18r7qo='), or a nonce ('nonce-…') is required to enable inline execution. The action has been blocked.
+
+Detectado en QA del 2026-05-21 (BUG-QA-1). El bootstrap nunca llegaba a ejecutarse en producción y el tema caía a la rama `catch` (`document.documentElement.dataset.theme = 'dark'`), descartando la preferencia del usuario en cada carga fría.
+
+Opciones evaluadas:
+
+1. **Mantener inline + añadir hash SHA-256 a CSP**: defensivo. El hash debe regenerarse cada vez que cambia el contenido del script (Vite no lo hace automáticamente), y es sensible a line endings (CRLF vs LF). Mantenimiento frágil.
+2. **CSP nonce por request**: requiere SSR/edge function que inyecte un `nonce` en el script y propague al header `Content-Security-Policy`. La SPA actual es estática (Nginx + Cloudflare Pages), no SSR. Implementar SSR sólo para esto desproporcionado.
+3. **`'unsafe-inline'` en `script-src`**: anularía la defensa CSP frente a XSS. Descartado por política de seguridad (T-905 B5).
+4. **Mover el bootstrap a `/theme-bootstrap.js`**: archivo externo en `frontend/public/`, referenciado con `<script src="/theme-bootstrap.js"></script>` sin `defer`/`async` para que se ejecute síncronamente antes del primer paint. Coste: 1 fetch HTTP adicional (mismo origen, cacheable, ~0.6 KB gzip).
+
+### Decisión (ADR-169)
+
+Adoptamos la opción 4. `frontend/public/theme-bootstrap.js` contiene el bootstrap. Sin `defer`/`async` mantiene la garantía pre-paint. Encaja en `script-src 'self'` sin modificación de la política. Vite copia `public/` tal cual al `dist/` y el plugin `vite-plugin-compression` genera variantes `.gz`/`.br` automáticamente. El archivo cae bajo la regla `expires 1y; Cache-Control "public, immutable"` de Nginx (frontend/nginx.conf §5.59-62), por lo que sólo se fetcha en la primera carga y queda en cache HTTP del navegador para subsiguientes.
+
+### Consecuencias (ADR-169)
+
+**Positivos:**
+- CSP estricta intacta. Cero violaciones en producción (verificable en `/api/csp-report`).
+- Bootstrap volverá a ejecutarse en prod: el tema persistido respeta `prefers-color-scheme` y la elección manual del usuario.
+- Sin mantenimiento de hash: el archivo cambia con el código, no hace falta sincronizar nada en otro sitio.
+- Lint estándar aplica al archivo (ESLint `no-var`, `sonarjs/no-nested-conditional`); inline script no se lintea.
+
+**Negativos / Mitigaciones:**
+- Una request extra (~0.6 KB gz). Mitigación: caché 1 año + immutable header; sólo 1 fetch en primera visita.
+- Microscópica ventana de ejecución posterior al inline equivalente (parsing del HTML descubre el `<script>` y dispara fetch). En la práctica, en localhost ~3-5ms; en producción con HTTP/2 multiplexed ~10-15ms. Sigue por debajo del umbral FOUC perceptible (50ms).
+- Si en el futuro se añade Cloudflare Workers o cualquier capa que reescriba HTML, el `src="/theme-bootstrap.js"` no debe romperse. La referencia es relativa al root, mismo origen.
+
+### Estado Futuro
+
+- Si la app migra a SSR (Next.js, Astro, etc.) el bootstrap se inyectará server-side y este archivo dejará de hacer falta.
+- Si en algún momento se necesitan hashes para otros scripts inline críticos (ej. analytics third-party que no admite carga diferida), establecer un build script que regenere los hashes y los inyecte en `nginx.conf` + `helmet.contentSecurityPolicy.directives.scriptSrc`.

@@ -107,9 +107,14 @@ class UnauthorizedError extends AppError {
 class ForbiddenError extends AppError {
   /**
    * @param {string} [message='Acceso denegado'] - Mensaje de error personalizado
+   * @param {string} [code] - Código semántico opcional para que el cliente
+   *   distinga subtipos (`CAPTCHA_REQUIRED`, `CAPTCHA_INVALID`, etc.).
    */
-  constructor(message = 'Acceso denegado') {
+  constructor(message = 'Acceso denegado', code) {
     super(message, 403);
+    if (code) {
+      this.code = code;
+    }
   }
 }
 

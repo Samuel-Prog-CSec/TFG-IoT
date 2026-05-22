@@ -254,7 +254,9 @@ function AdminContextCard({ context, onEdit, onDelete }) {
           variant="outline"
           size="sm"
           onClick={() => onDelete(context)}
-          className="border-error-base/60 text-error-base hover:bg-error-base hover:text-white hover:border-error-base focus-visible:bg-error-base focus-visible:text-white"
+          // BUG-A11Y-ADMIN-DELETE-BTN (QA Sprint 0): text-error-base sobre
+          // card dark daba 4.13-4.35:1. red-300 en dark + error-dark en light.
+          className="border-error-base/60 text-error-on-alpha hover:bg-error-base hover:text-white hover:border-error-base focus-visible:bg-error-base focus-visible:text-white"
         >
           <Trash2 size={14} className="mr-1" /> Eliminar
         </ButtonPremium>
@@ -312,7 +314,7 @@ function renderContextsSection({
         title={search ? 'Sin resultados' : 'No hay contextos'}
         description={
           search
-            ? 'Prueba con otros terminos de busqueda.'
+            ? 'Prueba con otros términos de búsqueda.'
             : 'Crea el primer contexto para empezar.'
         }
       />
@@ -473,7 +475,10 @@ export default function AdminContexts() {
           <div>
             {/* Eyebrow "BIBLIOTECA" — signature de página admin alineada
                 con ApprovalPanel ("DIRECCIÓN") y StudentManagement. */}
-            <p className="text-[11px] uppercase tracking-[0.18em] text-brand-base font-bold mb-0.5">Biblioteca</p>
+            {/* BUG-A11Y-ADMIN-BIBLIOTECA (QA Sprint 0): text-brand-base daba
+                4.46:1 dark (just below AA). brand-light en dark + brand-dark
+                en light. */}
+            <p className="text-[11px] uppercase tracking-[0.18em] text-brand-on-alpha font-bold mb-0.5">Biblioteca</p>
             <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary leading-tight">Contextos del centro</h1>
             <p className="text-sm text-text-muted">
               Crea y mantiene los temas (Geografía, Animales, Colores…) que los docentes usan en sus mazos.

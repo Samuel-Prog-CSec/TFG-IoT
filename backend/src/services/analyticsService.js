@@ -4,7 +4,19 @@
  */
 
 const mongoose = require('mongoose');
+const Sentry = require('@sentry/node');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
+
+/**
+ * Timeout aplicado a las agregaciones más pesadas del flujo de informes
+ * (`reportDataService.getClassroomReport` / `getStudentReport`). Marca el
+ * límite que protege el pool de Mongoose si una sub-agregación se cuelga:
+ * sin esto, el race en `Promise.race` rechazaba la promesa pero la query
+ * seguía corriendo zombie hasta los 15 s del default. Mantenemos margen de
+ * 1 s sobre `REPORT_TIMEOUT_MS=8000` para que MongoDB aborte antes que
+ * `Promise.race` y el caller reciba el error real con `codeName`.
+ */
+const REPORT_AGGREGATE_TIMEOUT_MS = 7000;
 
 /**
  * Obtiene la evolución del rendimiento de un estudiante a lo largo del tiempo.
@@ -155,6 +167,22 @@ async function getStudentDifficulties(studentId) {
  * @returns {Promise<Object>} KPIs calculados
  */
 async function getClassroomSummary(teacherId) {
+  // T-904 Fase A: span manual sobre el agregado completo (lookup+facet pueden
+  // ser caros en datasets grandes; visibilidad de p95 imprescindible para
+  // detectar regresiones de Mongo Atlas M0).
+  return Sentry.startSpan(
+    {
+      name: 'analytics.classroomSummary',
+      op: 'analytics',
+      attributes: {
+        'teacher.id': teacherId?.toString()
+      }
+    },
+    () => _getClassroomSummaryImpl(teacherId)
+  );
+}
+
+async function _getClassroomSummaryImpl(teacherId) {
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
   const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
   const teacherOid = new mongoose.Types.ObjectId(teacherId);
@@ -209,7 +237,7 @@ async function getClassroomSummary(teacherId) {
   // producía discrepancias entre el contador (9) y la cuenta de filas con badge
   // EN RIESGO (8). Ahora ambas vistas leen la misma fuente.
   const [results, studentsInRisk] = await Promise.all([
-    gamePlayRepository.aggregate(pipeline),
+    gamePlayRepository.aggregate(pipeline, { maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS }),
     userRepository.count({
       createdBy: teacherOid,
       role: 'student',
@@ -641,7 +669,12 @@ async function getClassroomStudents(
         totalCorrectAnswers: metrics.totalCorrectAnswers || 0,
         totalErrors: metrics.totalErrors || 0,
         averageResponseTime: metrics.averageResponseTime || 0,
-        lastPlayedAt: metrics.lastPlayedAt || null
+        lastPlayedAt: metrics.lastPlayedAt || null,
+        // Métricas específicas de Secuencia (T-922 criterio 7 — columna
+        // comparativa "Mejor Secuencia" en StudentsAnalytics). 0/null si
+        // el alumno aún no ha jugado partidas de esta mecánica.
+        maxSequenceLengthAchieved: metrics.maxSequenceLengthAchieved || 0,
+        sequencesCompleted: metrics.sequencesCompleted || 0
       }
     };
   });
@@ -815,7 +848,9 @@ async function getClassroomTrends(teacherId, timeRange = '7d') {
     }
   ];
 
-  const [result] = await gamePlayRepository.aggregate(pipeline);
+  const [result] = await gamePlayRepository.aggregate(pipeline, {
+    maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS
+  });
 
   const curr = result.current[0] || {};
   const prev = result.previous[0] || {};
@@ -908,6 +943,22 @@ async function getClassroomTrends(teacherId, timeRange = '7d') {
  * @returns {Promise<Object>} Resumen con últimas partidas, rendimiento por contexto/mecánica y comparativa
  */
 async function getStudentSummary(studentId, timeRange = '30d') {
+  // T-904 Fase A: span manual sobre el resumen del alumno (cyclomatic 46 según
+  // T-907, beneficio alto de observabilidad de p95 para detectar consultas lentas).
+  return Sentry.startSpan(
+    {
+      name: 'analytics.studentSummary',
+      op: 'analytics',
+      attributes: {
+        'student.id': studentId?.toString(),
+        'analytics.timeRange': timeRange
+      }
+    },
+    () => _getStudentSummaryImpl(studentId, timeRange)
+  );
+}
+
+async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
   const { currentStart } = getDateRange(timeRange);
   const studentOid = new mongoose.Types.ObjectId(studentId);
 

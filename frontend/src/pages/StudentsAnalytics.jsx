@@ -12,6 +12,7 @@ import {
   ArrowUp,
   ArrowDown,
   GraduationCap,
+  ListOrdered,
 } from "lucide-react";
 import { getMechanicTheme, MECHANIC_KEYS } from "../lib/mechanicTheme";
 import {
@@ -73,7 +74,12 @@ function MechanicTierChip({ mechanicKey, data }) {
     score !== null ? ` · ${score}%` : "" 
     } · ${data.gamesPlayed} ${data.gamesPlayed === 1 ? "partida" : "partidas"}`;
   return (
+    // BUG-A11Y-SPAN-LABEL-A (QA Sprint 0 post-v0.5.0): span con aria-label sin
+    // role provoca aria-prohibited-attr (axe serious). Añadir role="img" para
+    // que el chip de mecánica (icono + dot tier + texto sr-only) tenga nombre
+    // accesible válido.
     <span
+      role="img"
       className={`inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[9px] font-semibold uppercase tracking-wider border ${theme.accentBgSoftClass} ${theme.accentBorderClass}`}
       title={tooltip}
       aria-label={tooltip}
@@ -113,13 +119,20 @@ function getTierBadge(tier) {
     case "average":
       return {
         label: "Promedio",
+        // BUG-A11Y-CONTRAST-AVG-A (QA Sprint 0 post-v0.5.0): text-warning-base
+        // sobre bg-warning-dark/15 daba 3.11 light / 3.6 dark. Igual que en
+        // StudentsList: dark usa warning-base luminoso, light usa warning-dark.
         className:
-          "bg-warning-dark/15 text-warning-base border-warning-dark/25",
+          "bg-warning-dark/15 text-warning-on-alpha border-warning-dark/25",
       };
     case "risk":
       return {
         label: "En Riesgo",
-        className: "bg-error-dark/15 text-error-base border-error-dark/25",
+        // BUG-A11Y-RISK-BADGE-A (QA Sprint 0 post-v0.5.0): para alcanzar AA
+        // 4.5:1 en dark theme usamos text-red-300 (oklch ~80% — más luminoso
+        // que error-base 65%) sobre bg-background-surface sólido + borde
+        // rojo. light:text-error-base mantiene legibilidad en tema claro.
+        className: "bg-background-surface text-error-on-alpha border-error-base/60",
       };
     default:
       return {
@@ -213,6 +226,7 @@ const CSV_COLUMNS = [
   { key: "averageScore", label: "Puntuación" },
   { key: "accuracyRate", label: "Tasa Acierto" },
   { key: "avgResponseTime", label: "Tiempo Respuesta" },
+  { key: "maxSequenceLengthAchieved", label: "Mejor Secuencia" },
   { key: "lastPlayedAt", label: "Última Actividad" },
   { key: "tier", label: "Nivel" },
 ];
@@ -236,7 +250,10 @@ const TABLE_COLUMNS = [
   { key: "averageScore", label: "Score", sortable: true },
   { key: "accuracyRate", label: "Tasa Acierto", sortable: true },
   { key: "avgResponseTime", label: "Tiempo Resp", sortable: true },
-  { key: "lastPlayedAt", label: "Ultima Actividad", sortable: true },
+  // T-922 criterio 7: vista comparativa con "Mejor Secuencia". Tooltip
+  // explica que es la longitud máxima de secuencia reproducida correctamente.
+  { key: "maxSequenceLengthAchieved", label: "Mejor Secuencia", sortable: true },
+  { key: "lastPlayedAt", label: "Última Actividad", sortable: true },
   { key: "tier", label: "Nivel", sortable: true },
 ];
 
@@ -345,6 +362,10 @@ export default function StudentsAnalytics() {
       lastPlayedAt: s.lastPlayedAt ?? s.studentMetrics?.lastPlayedAt ?? null,
       avgResponseTime:
         s.avgResponseTime ?? s.studentMetrics?.averageResponseTime ?? null,
+      maxSequenceLengthAchieved:
+        s.maxSequenceLengthAchieved ??
+        s.studentMetrics?.maxSequenceLengthAchieved ??
+        0,
     }));
 
     // Apply search filter
@@ -425,6 +446,10 @@ export default function StudentsAnalytics() {
       averageScore: s.averageScore ?? 0,
       accuracyRate: s.accuracyRate != null ? `${s.accuracyRate}%` : "-",
       avgResponseTime: formatResponseTime(s.avgResponseTime),
+      // BUG-CSV-SEQUENCE-A (QA Sprint 0 post-v0.5.0): CSV_COLUMNS declara
+      // `maxSequenceLengthAchieved` pero el mapeo lo omitía → columna "Mejor
+      // Secuencia" siempre vacía en el CSV exportado.
+      maxSequenceLengthAchieved: s.maxSequenceLengthAchieved ?? "-",
       lastPlayedAt: s.lastPlayedAt
         ? new Date(s.lastPlayedAt).toLocaleDateString("es-ES")
         : "Sin actividad",
@@ -486,7 +511,7 @@ export default function StudentsAnalytics() {
           key="content"
           {...motionVariants}
           className="page-container py-[var(--space-fluid-section)] space-y-8"
-          aria-label="Pagina de analisis de alumnos"
+          aria-label="Página de análisis de alumnos"
         >
           <ChartErrorBoundary>
             {/* ─── Header ─────────────────────────────────────────── */}
@@ -681,7 +706,7 @@ export default function StudentsAnalytics() {
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : 0.25 }}
                 className="flex flex-col sm:flex-row gap-4"
-                aria-label="Filtros de busqueda"
+                aria-label="Filtros de búsqueda"
               >
                 {/* Search input */}
                 <div className="relative flex-1">
@@ -696,6 +721,7 @@ export default function StudentsAnalytics() {
                     onChange={(e) => setSearchQuery(e.target.value)}
                     placeholder="Buscar alumno por nombre..."
                     aria-label="Buscar alumno por nombre"
+                    data-global-search="true"
                     className="w-full h-11 pl-10 pr-4 rounded-xl bg-background-elevated/80 backdrop-blur-sm border border-border-default text-text-primary placeholder:text-text-muted text-sm transition-colors duration-300 focus:outline-none focus:border-brand-base/50 focus:ring-2 focus:ring-brand-base/20 hover:border-border-strong"
                   />
                 </div>
@@ -729,10 +755,14 @@ export default function StudentsAnalytics() {
                       <thead>
                         <tr className="border-b border-border-subtle">
                           {TABLE_COLUMNS.map((col) => (
+                            // BUG-A11Y-CONTRAST-TH (QA Sprint 0 post-v0.5.0):
+                            // text-text-muted en th sobre gradient header
+                            // daba 2.58-3.92:1. text-text-secondary (más
+                            // luminoso) pasa AA en ambos temas.
                             <th
                               key={col.key}
                               scope="col"
-                              className="px-4 py-3 text-left text-xs font-semibold text-text-muted uppercase tracking-wider whitespace-nowrap"
+                              className="px-4 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap"
                               aria-sort={(() => {
                                 if (col.sortable && sortField === col.key)
                                   return sortOrder === "asc"
@@ -893,6 +923,25 @@ function StudentRow({ student, navigate }) {
         {formatResponseTime(student.avgResponseTime)}
       </td>
 
+      {/* Mejor Secuencia (T-922 criterio 7) — longitud máxima reproducida */}
+      <td
+        className="px-4 py-3 text-center whitespace-nowrap"
+        title={
+          student.maxSequenceLengthAchieved > 0
+            ? `Longitud máxima reproducida: ${student.maxSequenceLengthAchieved} cartas`
+            : "Sin partidas de Secuencia"
+        }
+      >
+        {student.maxSequenceLengthAchieved > 0 ? (
+          <span className="inline-flex items-center gap-1.5 text-accent-amber font-semibold">
+            <ListOrdered size={14} aria-hidden="true" />
+            {student.maxSequenceLengthAchieved}
+          </span>
+        ) : (
+          <span className="text-text-muted">—</span>
+        )}
+      </td>
+
       {/* Last activity */}
       <td className="px-4 py-3 whitespace-nowrap">
         <div className="flex items-center gap-2">
@@ -955,7 +1004,7 @@ function EmptyState({ shouldReduceMotion }) {
         transition={{ delay: 0.1 }}
         className="text-text-primary text-lg font-semibold"
       >
-        Aun no tienes alumnos registrados
+        Aún no tienes alumnos registrados
       </motion.p>
       <motion.p
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}

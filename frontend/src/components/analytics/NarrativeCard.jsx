@@ -89,8 +89,8 @@ function NarrativeCard({ interpretation, title = 'Resumen del Alumno' }) {
         </div>
       ) : (
         <div className="py-4 text-center">
-          <p className="text-sm text-text-muted">Se necesitan mas partidas para generar insights.</p>
-          <p className="text-xs text-text-disabled mt-1">Los insights se generan automaticamente con suficientes datos.</p>
+          <p className="text-sm text-text-muted">Se necesitan más partidas para generar insights.</p>
+          <p className="text-xs text-text-disabled mt-1">Los insights se generan automáticamente con suficientes datos.</p>
         </div>
       )}
     </GlassCard>

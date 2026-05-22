@@ -49,6 +49,24 @@ const mechanicMethodNotAllowed = (req, res) => {
  * @desc    Obtener solo mecánicas activas (público para frontend)
  * @access  Public (con auth opcional)
  * @validation query: emptyObjectSchema
+ *
+ * @openapi
+ * /mechanics/active:
+ *   get:
+ *     tags: [Mechanics]
+ *     summary: Listar mecánicas activas (público)
+ *     description: Endpoint público. El frontend lo consulta antes del login para mostrar mecánicas habilitadas.
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Lista de mecánicas activas
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: array, items: { $ref: '#/components/schemas/Mechanic' } }
  */
 router.get(
   '/active',
@@ -62,6 +80,44 @@ router.get(
  * @desc    Obtener lista de mecánicas con filtros
  * @access  Private (Teacher, Super Admin)
  * @validation query: gameMechanicQuerySchema
+ *
+ * @openapi
+ * /mechanics:
+ *   get:
+ *     tags: [Mechanics]
+ *     summary: Listar todas las mecánicas
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: isActive
+ *         schema: { type: boolean }
+ *     responses:
+ *       200:
+ *         description: Lista completa
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: array, items: { $ref: '#/components/schemas/Mechanic' } }
+ *       401: { $ref: '#/components/responses/UnauthorizedError' }
+ */
+
+/**
+ * @openapi
+ * /mechanics:
+ *   post:
+ *     tags: [Mechanics]
+ *     summary: Crear mecánica (no permitido)
+ *     description: Las mecánicas son inmutables vía API — solo se gestionan por seeders/migraciones del backend.
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     responses:
+ *       405:
+ *         description: Method Not Allowed
+ *         content:
+ *           application/json:
+ *             schema: { $ref: '#/components/schemas/ApiError' }
  */
 router.get(
   '/',
@@ -76,6 +132,30 @@ router.get(
  * @desc    Obtener mecánica por ID o nombre
  * @access  Private (Teacher, Super Admin)
  * @validation params: gameMechanicParamsSchema | query: emptyObjectSchema
+ *
+ * @openapi
+ * /mechanics/{id}:
+ *   get:
+ *     tags: [Mechanics]
+ *     summary: Obtener mecánica por ID o slug (association|memory|sequence)
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Mecánica encontrada
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { $ref: '#/components/schemas/Mechanic' }
+ *       401: { $ref: '#/components/responses/UnauthorizedError' }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
  */
 router.get(
   '/:id',

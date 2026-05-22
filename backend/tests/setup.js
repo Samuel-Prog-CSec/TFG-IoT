@@ -1,6 +1,20 @@
 const mongoose = require('mongoose');
 const logger = require('../src/utils/logger');
 
+// T-905 cleanup: Sentry + Mongoose + Pino + graceful shutdown registran cada uno
+// listeners sobre `process` (SIGTERM/SIGINT/exit). En la suite de Jest se acumulan
+// (especialmente al importar el server) y disparan MaxListenersExceededWarning.
+// Subir el límite específicamente para tests — no afecta runtime de producción.
+process.setMaxListeners(50);
+
+// T-905 B7: opt-out de MFA enforcement por defecto en tests. Los tests legacy
+// de endpoints super_admin (lockout unlock, etc.) no preparan MFA token en sus
+// fixtures; cuando `.env` del entorno trae `MFA_REQUIRED_FOR_SUPER_ADMIN=true`
+// (QA, staging) la suite falla porque `requireMfa` devuelve 428 antes de la
+// lógica del endpoint. Los tests específicos de MFA (`requireMfa.test.js`) y
+// los de mfaController override esta env localmente cuando necesitan enforcement.
+process.env.MFA_REQUIRED_FOR_SUPER_ADMIN = 'false';
+
 // Mock de Redis ANTES de importar cualquier módulo que lo use
 // Usar prefijo 'mock' para que Jest permita la referencia
 require('ioredis-mock');

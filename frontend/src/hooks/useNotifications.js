@@ -171,6 +171,22 @@ export default function useNotifications({ pageSize = DEFAULT_PAGE_SIZE } = {}) 
           setUnreadCount((c) => c + 1);
         }
         setPushTick((t) => t + 1);
+
+        // T-941: cuando llega una notificación de tipo `student_at_risk`
+        // (emitida por alertDetectionService al detectar critical nueva),
+        // disparamos un evento DOM para que AlertsHub / AlertsPanel
+        // refresquen sin necesidad de reload.
+        if (payload.type === 'student_at_risk' && typeof window !== 'undefined') {
+          try {
+            window.dispatchEvent(
+              new CustomEvent('smartalert:created', {
+                detail: { alertId: payload.metadata?.alertId, payload }
+              })
+            );
+          } catch {
+            // Entornos sin CustomEvent — no-op
+          }
+        }
       }
     };
     socketService.on(NOTIFICATION_EVENT, handler);

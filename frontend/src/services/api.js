@@ -8,6 +8,7 @@
 
 import axios from 'axios';
 import { captureException } from '../lib/sentry';
+import * as mfaTokenStore from './mfaTokenStore';
 
 // ============================================
 // CONFIGURACIÓN
@@ -125,10 +126,17 @@ api.interceptors.request.use(
         config.headers['X-CSRF-Token'] = csrfToken;
       }
     }
-    
+
+    // T-905 B7: añadir X-MFA-Token automáticamente si está vigente — los endpoints
+    // protegidos por `requireMfa` lo necesitan; los que no, ignoran este header.
+    const mfaToken = mfaTokenStore.getMfaToken();
+    if (mfaToken) {
+      config.headers['X-MFA-Token'] = mfaToken;
+    }
+
     // Añadir timestamp para debugging
     config.metadata = { startTime: Date.now() };
-    
+
     return config;
   },
   (error) => {
@@ -174,6 +182,18 @@ api.interceptors.response.use(
         return handleTokenRefresh(originalRequest);
       }
 
+      // T-905 B7: códigos MFA (TOTP/backup invalido o token MFA expirado/invalido)
+      // NO son fallos de la sesión principal — el usuario solo se equivocó en el
+      // segundo factor. Propagamos el error sin disparar logout para que la UI
+      // (modal MfaChallenge, formularios) muestre el mensaje y permita reintentar.
+      const isMfaSecondaryFailure =
+        errCode === 'MFA_CODE_INVALID' ||
+        errCode === 'MFA_TOKEN_EXPIRED' ||
+        errCode === 'MFA_TOKEN_INVALID';
+      if (isMfaSecondaryFailure) {
+        throw error;
+      }
+
       // Si no hay refresh token o el refresh falló, emitir evento.
       // Nota: el 401 en /auth/refresh sin tokens activos es comportamiento
       // esperado (usuario sin sesion previa). El AuthContext usa un session
@@ -202,9 +222,79 @@ api.interceptors.response.use(
       return handleRateLimitError(error, originalRequest);
     }
 
+    // 428 - MFA token requerido o expirado (T-905 B7)
+    if (status === 428 && !originalRequest._mfaRetry) {
+      const code = data?.code;
+      if (code === 'MFA_TOKEN_REQUIRED' || code === 'MFA_TOKEN_EXPIRED') {
+        return handleMfaChallenge(originalRequest, code);
+      }
+      if (code === 'MFA_ENROLLMENT_REQUIRED') {
+        // No tiene MFA habilitado — emitir evento para que UI redirija a setup.
+        globalThis.dispatchEvent(
+          new CustomEvent('mfa:enrollment-required', { detail: { code } })
+        );
+        throw error;
+      }
+    }
+
     throw error;
   }
 );
+
+// ============================================
+// MFA CHALLENGE — T-905 B7
+// ============================================
+
+/**
+ * Cuando el servidor responde 428 MFA_TOKEN_REQUIRED/EXPIRED, este handler:
+ * 1. Emite evento global `mfa:challenge-required` con detalles.
+ * 2. Espera a que el componente modal (`MfaChallengeModal`) resuelva tras pedir
+ *    el código TOTP al usuario y guardar el nuevo MFA token en `mfaTokenStore`.
+ * 3. Reintenta el request original (que automáticamente añadirá el nuevo
+ *    `X-MFA-Token` via el interceptor de request).
+ *
+ * @param {object} originalRequest - request config que falló
+ * @param {string} code - código semántico (MFA_TOKEN_REQUIRED/EXPIRED)
+ * @returns {Promise}
+ */
+const handleMfaChallenge = (originalRequest, code) => {
+  return new Promise((resolve, reject) => {
+    const resolved = { done: false };
+
+    const onTokenAcquired = ({ detail }) => {
+      if (resolved.done) return;
+      resolved.done = true;
+      globalThis.removeEventListener('mfa:token-acquired', onTokenAcquired);
+      globalThis.removeEventListener('mfa:challenge-cancelled', onCancel);
+      originalRequest._mfaRetry = true;
+      // El nuevo token ya está en mfaTokenStore; el request interceptor lo
+      // añadirá automáticamente como `X-MFA-Token`.
+      api.request(originalRequest).then(resolve).catch(reject);
+      // Telemetría opcional
+      if (import.meta.env.DEV && detail) {
+        // eslint-disable-next-line no-console -- dev-only debug
+        console.debug('[MFA] retry tras challenge OK', detail);
+      }
+    };
+    const onCancel = () => {
+      if (resolved.done) return;
+      resolved.done = true;
+      globalThis.removeEventListener('mfa:token-acquired', onTokenAcquired);
+      globalThis.removeEventListener('mfa:challenge-cancelled', onCancel);
+      const err = new Error('MFA challenge cancelado por el usuario');
+      err.code = 'MFA_CANCELLED';
+      reject(err);
+    };
+
+    globalThis.addEventListener('mfa:token-acquired', onTokenAcquired);
+    globalThis.addEventListener('mfa:challenge-cancelled', onCancel);
+    globalThis.dispatchEvent(
+      new CustomEvent('mfa:challenge-required', {
+        detail: { code, url: originalRequest.url, method: originalRequest.method }
+      })
+    );
+  });
+};
 
 // ============================================
 // MANEJO DE REFRESH TOKEN
@@ -446,8 +536,11 @@ export const authAPI = {
 
   /**
    * Iniciar sesión
-   * @param {Object} credentials - { email, password }
-  * @returns {Promise} Respuesta con user y accessToken
+   * @param {Object} credentials - { email, password, captchaToken? }
+   * @returns {Promise} Respuesta con user y accessToken
+   *
+   * T-905 B6: `captchaToken` opcional. Lo adjunta `Login.jsx` cuando el widget
+   * Turnstile genera un token (a partir del 3er fallo previo).
    */
   login: (credentials) => api.post('/auth/login', credentials),
 
@@ -482,6 +575,52 @@ export const authAPI = {
    * @returns {Promise} Respuesta con nuevos tokens
    */
   refreshToken: () => api.post('/auth/refresh', {}),
+
+  // ============================================
+  // MFA TOTP (T-905 B7) — super_admin
+  // ============================================
+
+  /**
+   * Estado actual del MFA del super_admin: { enabled, enabledAt, lastUsedAt,
+   * backupCodesTotal, backupCodesRemaining }. Driver del panel de gestión vs wizard.
+   */
+  mfaStatus: () => api.get('/auth/mfa/status'),
+
+  /**
+   * Iniciar setup MFA. Devuelve otpauthUrl + secret base32 + issuer.
+   */
+  mfaSetupInit: () => api.post('/auth/mfa/setup-init', {}),
+
+  /**
+   * Confirmar setup MFA con primer código TOTP. Devuelve backup codes (única vez).
+   * @param {string} code - 6 dígitos
+   */
+  mfaSetupVerify: (code) => api.post('/auth/mfa/setup-verify', { code }),
+
+  /**
+   * Solicitar MFA token corto (5min) presentando un código TOTP válido.
+   * @param {string} code
+   * @returns {Promise} { mfaToken, expiresIn }
+   */
+  mfaChallenge: (code) => api.post('/auth/mfa/challenge', { code }),
+
+  /**
+   * Alternativa al challenge: usar un backup code one-time.
+   * @param {string} backupCode - formato XXXX-XXXX-XXXX-XXXX
+   */
+  mfaVerifyBackupCode: (backupCode) =>
+    api.post('/auth/mfa/verify-backup-code', { backupCode }),
+
+  /**
+   * Regenerar los 8 backup codes (invalida los anteriores). Requiere MFA reciente.
+   */
+  mfaRegenerateBackupCodes: () => api.post('/auth/mfa/backup-codes/regenerate', {}),
+
+  /**
+   * Deshabilitar MFA. Requiere MFA reciente + password reentry.
+   * @param {string} password
+   */
+  mfaDisable: (password) => api.delete('/auth/mfa', { data: { password } })
 };
 
 // ============================================
@@ -513,6 +652,20 @@ export const adminAPI = {
    */
   rejectTeacher: (userId, reason = '') =>
     api.post(`/admin/users/${userId}/reject`, { reason }),
+
+  /**
+   * Desbloquear cuenta bloqueada por intentos fallidos de login.
+   *
+   * El backend (T-905 B7) exige header `X-MFA-Token` reciente del super_admin.
+   * Si falta, el interceptor responde 428 `MFA_TOKEN_REQUIRED` y el
+   * `MfaChallengeModal` global aparece automáticamente para que el admin
+   * introduzca el TOTP. Tras validar, la petición se reintenta.
+   *
+   * @param {string} email - Email de la cuenta a desbloquear (case-insensitive en backend)
+   * @returns {Promise} Respuesta `{ unlocked: boolean }`
+   */
+  unlockAccount: (email) =>
+    api.post('/admin/lockouts/unlock', { email }),
 };
 
 // ============================================

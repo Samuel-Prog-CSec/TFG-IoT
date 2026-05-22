@@ -5,7 +5,12 @@
   "main": "src/server.js",
   "scripts": {
     "start": "node src/server.js",
+    "start:prod": "cross-env NODE_ENV=production node src/server.js",
+    "bootstrap": "node scripts/bootstrap.js",
     "dev": "nodemon src/server.js",
+    "dev:multi-1": "cross-env PORT=5000 INSTANCE_NAME=node-A MONGO_URI=mongodb://localhost:27017/rfid_games_db REDIS_URL=redis://:devRedis123!@localhost:6379 node src/server.js",
+    "dev:multi-2": "cross-env PORT=5001 INSTANCE_NAME=node-B MONGO_URI=mongodb://localhost:27017/rfid_games_db REDIS_URL=redis://:devRedis123!@localhost:6379 node src/server.js",
+    "test:multi-instance": "node scripts/test-socket-multiinstance.js",
     "seed": "node seeders/index.js",
     "seed:reset": "node seeders/index.js --reset",
     "seed:if-empty": "node scripts/seed-if-empty.js",
@@ -16,6 +21,8 @@
     "migrate:birthdate": "node scripts/migrateBirthdate.js",
     "migrate:assets-uploadedby": "node scripts/migrate-assets-uploadedby.js",
     "migrate:clamp-scores": "node scripts/migrate-clamp-scores.js",
+    "migrate:alerts-backfill": "node scripts/migrate-alerts-backfill.js",
+    "migrate:alerts-backfill:dry-run": "node scripts/migrate-alerts-backfill.js --dry-run",
     "data:audit": "node scripts/dataAudit.js",
     "data:retention": "node scripts/dataRetention.js",
     "data:retention:dry-run": "node scripts/dataRetention.js --dry-run",
@@ -75,9 +82,12 @@
     "music-metadata": "^11.12.3",
     "pino": "^10.3.1",
     "pino-http": "^11.0.0",
+    "pino-loki": "^3.0.0",
     "rate-limit-redis": "^4.3.1",
     "sharp": "^0.34.5",
     "socket.io": "^4.8.3",
+    "swagger-jsdoc": "^6.2.8",
+    "swagger-ui-express": "^5.0.1",
     "zod": "^4.4.1"
   },
   "devDependencies": {
@@ -102,7 +112,9 @@
   },
   "overrides": {
     "brace-expansion": ">=5.0.5",
-    "socket.io-parser": "^4.2.6"
+    "socket.io-parser": "^4.2.6",
+    "@apidevtools/json-schema-ref-parser": "^14.0.1",
+    "@apidevtools/swagger-parser": "^12.1.0"
   },
   "engines": {
     "node": ">=18.0.0"

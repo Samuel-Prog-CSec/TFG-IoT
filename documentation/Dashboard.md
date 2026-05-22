@@ -121,3 +121,31 @@ El equipo de BI debe diseñar un prototipo previo (boceto basado en las especifi
 2. **Wireframe:** Estructura visual ("esqueleto"). Muestra ubicación de gráficos, filtros y menús, pero sin diseño gráfico ni funcionalidad. Blanco y negro/grises.
 3. **Storyboard:** Define la **acción** y el flujo. Muestra cómo el usuario interactúa paso a paso con la aplicación para realizar un análisis (secuencia de pantallas).
 4. **Mock-up (Maqueta):** Representación visual **estática** del diseño final. Incluye colores, iconos, tipografía real. Parece la app final pero no funciona. _Nota:_ Muchas herramientas BI modernas saltan este paso y crean directamente un prototipo funcional.
+
+---
+
+## Widget `AlertsPanel` post-T-941 (ADR-161)
+
+Componente: `frontend/src/components/dashboard/AlertsPanel.jsx`.
+
+### Comportamiento post-T-941
+
+- Consume `analyticsService.getAlerts({ limit: 5 })` y acepta el nuevo shape `{ items, nextCursor }` (con fallback al legacy `{ alerts }` por compatibilidad).
+- Muestra hasta **5 alertas activas** ordenadas por: `pinned: -1, detectedAt: -1` (ordenación servidor — los pinned aparecen siempre primero).
+- Cada `AlertCard`:
+  - `detectedAt` real con `formatRelativeTime` (antes de T-941 mostraba "Hace 7 min" para todas porque las alertas se calculaban on-the-fly).
+  - Icono Lucide por tipo (importado desde `constants/alertTypes.js`).
+  - Glow rojo + pulse (1.5 s loop, respeta `prefers-reduced-motion`) si `severity === 'critical'`.
+  - Borde dorado + `shadow-[0_0_10px_rgba(251,191,36,0.18)]` si `pinned === true`.
+  - Badge `Pause` si `status === 'snoozed'`.
+  - Footer adicional `· Lleva Nd` en `text-warning-base` si `daysActive > 7`.
+- Botón "Ver todas" → `/analytics/insights` (tab Alertas).
+- Empty state success-tinted: "Todo marcha bien".
+
+### Refresco realtime
+
+`Dashboard.jsx` registra un listener para el evento DOM `smartalert:created` (disparado por `useNotifications` cuando llega una notificación `student_at_risk`). El handler llama `analyticsService.getAlerts({ limit: 5 })` y refresca `alertsData` sin recargar la página. Esto da feedback inmediato al docente cuando aparece una nueva alerta crítica sin tener que hacer F5.
+
+### DRY con `AlertsHub`
+
+`AlertsPanel` y `AlertsHub` comparten `ALERT_TYPE_ICONS`, `ALERT_TYPE_LABELS`, `SEVERITY_STYLES` y `PIN_ICON` desde `frontend/src/constants/alertTypes.js`. Antes de T-941 cada componente mantenía sus propios mapeos (~80 líneas duplicadas).

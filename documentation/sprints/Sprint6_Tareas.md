@@ -12,7 +12,7 @@
 
 Sprint **final** del TFG. El Sprint 5 cerró con la versión 0.5.0 (release intermedia, Docker-first, foco gameplay y protección de datos). Sprint 6 transforma esa base en una **release v1.0.0 desplegada en cloud, públicamente accesible y operable** — el corte definitivo de entrega del TFG. Cinco ejes:
 
-1. **Release v1.0.0 cloud completa**: deploy en Koyeb (backend + worker BullMQ) + Cloudflare Pages (frontend) + MongoDB Atlas M0 + Upstash Redis + Supabase Storage. CD pipeline completo (staging auto-deploy + prod via tag semver con approval gate), observabilidad (Sentry Performance, log shipping, alerting externo), seguridad endurecida (CSP/HSTS, OWASP ZAP, MFA super_admin), backups con restore drill, performance/escalabilidad (Cloudflare WAF, command budget Upstash), testing pre-release (E2E Playwright, load test k6, chaos), docs v1.0.0 (README raíz, OpenAPI, runbook operacional) y housekeeping (free tier budget, deprecación de Docker prod, cold-start warming).
+1. **Release v1.0.0 cloud completa**: deploy en Koyeb (backend + worker BullMQ) + Cloudflare Pages (frontend) + MongoDB Atlas M0 + Upstash Redis + Supabase Storage. CD pipeline completo (staging auto-deploy + prod via tag semver con approval gate), observabilidad (Sentry Performance, log shipping, alerting externo), seguridad endurecida (CSP/HSTS, OWASP ZAP, MFA super_admin), performance/escalabilidad (Cloudflare WAF, command budget Upstash), testing pre-release (E2E Playwright, load test k6, chaos), docs v1.0.0 (README raíz, OpenAPI, runbook operacional) y housekeeping (free tier budget, deprecación de Docker prod, cold-start warming).
 2. **Cierre del alcance gameplay con la mecánica Secuencia**: implementación end-to-end (backend + gameEngine + frontend + analytics) de la tercera y última mecánica del proyecto, hoy bloqueada como "Próximamente" en `SESSION_ENABLED_MECHANICS`. Incluye una **auditoría integral de estadísticas y visualizaciones** posterior a la implementación para garantizar que la nueva mecánica se trata de forma coherente en todos los endpoints, charts, filtros, seeders y documentación de analytics. Hace que la v1.0.0 entregue las tres mecánicas originales del TFG (Asociación, Memoria, Secuencia) en lugar de cortar con dos.
 3. **Redis avanzado**: materialización de leaderboards (ZSET) y `studentMetrics` (Hash) con reconciliación nocturna, ya planificada como deuda en ADR-080 y diferida a este sprint.
 4. **Analytics avanzado y alertas con ciclo de vida**: persistencia real de alertas inteligentes (modelo `SmartAlert` con `active|resolved|dismissed`), vista cruzada Mecánica × Contexto, dashboard admin global para super_admin y zona Informes funcional, más campaña de cobertura SonarCloud para alcanzar el Quality Gate.
@@ -94,7 +94,7 @@ Aprovisionar los recursos managed (MongoDB Atlas M0, Upstash Redis, Koyeb apps) 
 14. Crear 2 DBs Upstash: `eduplay-prod` y `eduplay-staging`, región `eu-west-1`.
 15. Variables: `REDIS_URL` con formato `rediss://default:pass@...upstash.io:6379` (TLS nativo).
 16. `keyPrefix: 'eduplay:'` en ioredis para separar entornos en caso de compartir DB en algún edge case.
-17. Verificar BullMQ queues caben en 256 MB bajo carga normal (data-retention, backup-mongo-daily de T-906).
+17. Verificar BullMQ queues caben en 256 MB bajo carga normal (data-retention).
 18. Inventario explícito de namespaces Redis activos tras la retirada de feature flags: `rl:*` (rate-limiters), `session:*` (Socket.IO/Mongo), `play:init:*` (idempotencia startPlay), `auth:user:*` (cache slim-user), `cache:analytics:*` (cache-aside analytics), `bull:*` (BullMQ). **Sin `ff:*` — el sistema de flags fue retirado en el cierre de Sprint 5.**
 19. Smoke test: correr el backend local contra Upstash staging por 24h y verificar commands/day en el dashboard.
 
@@ -282,7 +282,39 @@ Automatizar el ciclo completo de despliegue: cada push a `Maintenance` despliega
 
 ---
 
-### T-904: ☁️ Observabilidad producción (Sentry Performance + log shipping + alerting + dashboard ops) 📋
+### T-904: ☁️ Observabilidad producción (Sentry Performance + log shipping + alerting + dashboard ops) ✅ DONE
+
+**Cierre:** 2026-05-20. Implementado en alcance completo (4 fases originales + workflow Sentry sourcemaps opcional + ampliación de la guía operativa personal). Decisión PROP-110: Grafana Cloud Loki vía `pino-loki`. ADR-165 (Sentry Performance) + ADR-166 (Log shipping Loki).
+
+| Fase | Implementación | Verificación |
+|---|---|---|
+| A — Sentry Performance | `Sentry.startSpan` en 10 puntos: `startPlay`, `endPlay`, `pausePlay`, `resumePlay`, `gameplay.sequence.processScan`, `gameplay.sequence.roundTimeout`, `analytics.classroomSummary`, `analytics.studentSummary`, `rfid_scan_from_client`, `queue.job` (workers BullMQ vía helper `withJobSpan`). `APP_ENV` + `SENTRY_TRACES_SAMPLE_RATE` env vars con defaults 0.1 prod / 0.5 staging / 1.0 dev. Frontend alineado vía `VITE_APP_ENV`. | 4 tests adversariales en `backend/tests/sentrySpans.test.js` (4/4 verde) + smoke en config con env vars distintos confirma sampling per-env. |
+| B — Log shipping | `pino-loki` integrado como target opcional del multistream Pino en `backend/src/utils/logger.js`. Helper `withPlayContext({playId, sessionId, userId, mechanic})` en `loggerContext.js` para child loggers correlables. `worker.js` setea `LOG_SERVICE_LABEL=worker` para separar service en Loki. Degradación silenciosa si `LOG_SHIPPING_ENABLED!=true` o faltan credenciales. | `backend/tests/loggerTransport.test.js` cubre 5 escenarios del switch (8/8 verde). `backend/tests/loggerContext.test.js` cubre 6 escenarios del helper (6/6 verde). Smoke: `LOG_SHIPPING_ENABLED=true` sin token degrada con warning + boot OK. |
+| C — Alerting externo | Tabla de 4 alertas Sentry documentada en `Operational_Dashboard.md` §5.1 + Runbook playbook 17 con sub-procedimientos 17.1/17.2/17.3/17.4. Tabla de 4 monitors UptimeRobot en `Operational_Dashboard.md` §5.2 + Runbook playbook 18.1/18.2. Apuntan a `/health/live` (no `/health/ready`) para evitar gastar commands Upstash y falsos positivos por circuit breaker abierto. | Setup operativo manual documentado paso a paso en `development/DEPLOY_GUIA_COMPLETA.md` Bloques 9 (Sentry) y 10 (UptimeRobot/smoke). |
+| D — Dashboard operativo | `documentation/Operational_Dashboard.md` nuevo con: tabla de las 6 consolas + status page pública `https://stats.uptimerobot.com/eduplay-rfid` + saved queries LogQL (5 ejemplos) + verificación post-deploy (6 pasos) + onboarding rápido + rotación credenciales. | Enlazado desde `README.md` sección "Operational status" y desde `CLAUDE.md` catalog. |
+| Extras | Workflow opcional `.github/workflows/sentry-release.yml` (`workflow_dispatch` por defecto) para subir sourcemaps frontend al release Sentry. Activación opt-in vía repo variable `SENTRY_RELEASE_ENABLED=true`. | Documentado en Bloque 2.3 de la guía personal con instrucciones de generación de `SENTRY_AUTH_TOKEN`. |
+
+**Tests post-cierre:** 1357 tests backend (incluye 18 nuevos en `loggerContext`, `loggerTransport`, `sentrySpans`) + 546 frontend. Lint backend + frontend 0 errores. Build frontend `index.js` 60.67 KB gzipped.
+
+**Documentación afectada (cierre 2026-05-20):**
+- **Nuevos:** `documentation/Operational_Dashboard.md`, `.github/workflows/sentry-release.yml`, `backend/src/utils/loggerContext.js`, `backend/src/workers/jobSpan.js`, `backend/tests/loggerContext.test.js`, `backend/tests/loggerTransport.test.js`, `backend/tests/sentrySpans.test.js`.
+- **Modificados código:** `backend/src/config/sentry.js`, `backend/src/utils/logger.js`, `backend/src/services/gameEngine/GameEngine.js`, `backend/src/services/gameEngine/sequenceFlow.js`, `backend/src/services/analyticsService.js`, `backend/src/realtime/socketHandlers.js`, `backend/worker.js`, `backend/src/workers/dataRetentionWorker.js`, `backend/src/workers/alertDetectionWorker.js`, `backend/src/workers/systemAlertDetectionWorker.js`, `frontend/src/lib/sentry.js`, `.env.example`, `backend/package.json` (+ `pino-loki`).
+- **Modificados docs:** `documentation/Architecture_Decisions.md` (+ADRs 165/166 + actualizar índice), `backend/docs/Logging_Strategy.md` (sección §10 nueva sobre log shipping Loki), `documentation/Runbook_Operacional.md` (playbooks 17 y 18 + tabla referencias), `CLAUDE.md` (catalog), `README.md` (sección "Operational status"), `development/DEPLOY_GUIA_COMPLETA.md` (12 cambios: pre-flight ítem nuevo, Bloque 2.3 ampliado, Bloque 2.7 nuevo Grafana Loki, Bloque 2.6 env vars, Bloque 2.7→2.8, Bloque 3 secrets opcionales, Bloque 8.3 reemplazado, Bloques 9 y 10 nuevos, troubleshooting +5 filas, resumen visual +2 bloques, "¿Atascado?" +1 punto).
+
+**Pasos manuales pendientes** (operativos, no de código — documentados en `development/DEPLOY_GUIA_COMPLETA.md` Bloques 2.3 / 2.7 / 8.3 / 9 / 10):
+1. Crear cuenta Grafana Cloud + obtener `LOG_SHIPPING_HOST/USER/TOKEN`.
+2. Crear proyecto Sentry "EduPlay v1.0.0" + DSN backend/frontend + (opcional) `SENTRY_AUTH_TOKEN` + `SENTRY_ORG_SLUG`.
+3. Cargar secrets en Koyeb (incluyendo `LOG_SHIPPING_ENABLED=true` en prod).
+4. Configurar 4 alertas Sentry en UI.
+5. Crear 4 monitors UptimeRobot + status page pública.
+6. Smoke test end-to-end (Bloque 10): partida en staging + verificar Sentry Performance + Grafana Loki + UptimeRobot status page.
+
+**Diferidos a follow-up (no bloquean v1.0.0):**
+- Custom metrics `runtimeMetrics` → Sentry — sin proyecto Sentry activo no se puede dimensionar; el endpoint `/api/metrics` + LogQL en Loki cubren el caso actual.
+- LogQL alerts en Grafana Cloud Loki (complementarías a Sentry Alerts). Las 4 Sentry Alerts cubren el 80% de casos críticos para v1.0.0.
+- Slack integration en Sentry — email suficiente para un super_admin único.
+
+**ADRs:** ADR-165 (Sentry Performance instrumentación + sampling per-env), ADR-166 (Log shipping centralizado con Grafana Cloud Loki + pino-loki).
 
 **Consolida:** PROP-109 + PROP-110 + PROP-111 + PROP-112
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-901, T-902
@@ -319,14 +351,13 @@ Cuatro capas complementarias de observabilidad: Sentry Performance (trazas + p95
     - "Auth failures spike > 20/min"
     - "Rate limit fallback store counter > 0" (regresión de ADR-068)
 14. Notificaciones: email (canal bloqueante), Slack opcional.
-15. Cada tipo de alerta enlaza a procedimiento en `Runbook_DR.md` (T-906).
 
 **Fase D — Dashboard operativo (ex PROP-112):**
 
-16. `documentation/Operational_Dashboard.md` con enlaces y screenshots a Atlas Charts (slow queries, connections), Upstash Console (memory, commands/day), Koyeb metrics (CPU, RAM, network), Cloudflare Analytics (traffic, cache hit ratio), Sentry Performance (p95, error rate), UptimeRobot status page.
-17. Saved queries en Atlas Charts y Sentry con filtros útiles.
-18. Status page pública en UptimeRobot para usuarios finales.
-19. Screenshots de referencia incluidos en memoria TFG como evidencia.
+15. `documentation/Operational_Dashboard.md` con enlaces y screenshots a Atlas Charts (slow queries, connections), Upstash Console (memory, commands/day), Koyeb metrics (CPU, RAM, network), Cloudflare Analytics (traffic, cache hit ratio), Sentry Performance (p95, error rate), UptimeRobot status page.
+16. Saved queries en Atlas Charts y Sentry con filtros útiles.
+17. Status page pública en UptimeRobot para usuarios finales.
+18. Screenshots de referencia incluidos en memoria TFG como evidencia.
 
 **Criterios de Aceptación:**
 
@@ -343,9 +374,28 @@ Cuatro capas complementarias de observabilidad: Sentry Performance (trazas + p95
 
 ---
 
-### T-905: ☁️ Seguridad producción (CSP/HSTS + rate limits recalibrados + OWASP ZAP + MFA super_admin) 📋
+### T-905: ☁️ Seguridad producción (CSP/HSTS + rate limits recalibrados + OWASP ZAP + MFA super_admin) ✅ DONE
 
-**Consolida:** PROP-113 + PROP-114 + PROP-115 + PROP-116
+**Cierre:** 2026-05-17. Implementado en alcance ampliado (4 fases originales + 6 hardenings adicionales). Ver `documentation/SECURITY.md` (maestro consolidado, 20 secciones) + ADR-148 a ADR-157.
+
+| Bloque | Descripción | ADR |
+|---|---|---|
+| B1 | JWT algorithms whitelist + entropy + account lockout per-user | 148 |
+| B2 | AES-256-GCM cryptoUtils + DTO sanitization + Cache-Control anti-leak + Pino/Sentry redact comprehensive | 149 |
+| B3 | Magic bytes multer + health endpoint sanitization | 150 |
+| B4 | Rate limits recalibrados + Nginx edge `limit_req_zone` | 151 |
+| B5 | Helmet split dev/prod + CSP strict + `/api/csp-report` endpoint | 152 |
+| B6 | Open redirect whitelist + Cloudflare Turnstile backend + política divulgación | 153 |
+| B7 | MFA TOTP super_admin (totp.js propio + AES-256-GCM secret + 8 backup codes) — backend completo + frontend funcional | 154 |
+| B8 | RFID firmware HMAC-SHA256 + counter EEPROM + anti-replay backend (flag migración) | 155 |
+| B9 | Suite tests seguridad adversariales (~140 tests en `backend/tests/security/`) | 156 |
+| B10 | OWASP ZAP workflow + ejecución local procedure | 157 |
+| B11 | QA E2E con sensor RFID simulado — procedimiento documentado en SECURITY.md §16.8 (manual, sensor físico roto) | — |
+| B12 | Consolidación `documentation/SECURITY.md` maestro (20 secciones, absorbe 4 .md) + ADRs 148-157 + actualización CLAUDE.md catalog | — |
+
+**Tests post-cierre:** 1249+ tests backend (`security/`: 11 suites, ~140 tests) + 439 frontend. 0 errores lint.
+
+**Consolida:** PROP-113 + PROP-114 + PROP-115 + PROP-116 + (ampliado: B1, B2, B3, B6, B8, B9)
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-901, T-903
 **Origen:** Headers actuales permisivos para HMR de dev; rate limits pensados para 1 profesor; MFA inexistente para super_admin con poder total
 
@@ -410,64 +460,7 @@ Cuatro frentes de hardening de seguridad para prod: CSP/HSTS endurecidos (objeti
 
 ---
 
-### T-906: ☁️ Backup + DR (BullMQ backup diario + runbook DR + restore-e2e automatizado) 📋
-
-**Consolida:** PROP-117 + PROP-118 + PROP-119
-**Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-901, T-902
-**Origen:** Atlas M0 no incluye backups automáticos fiables; sin runbook un incidente se gestiona improvisando; sin drill automatizado los backups se asumen sin verificar
-
-**Descripción:**
-Tres pilares de continuidad de servicio: backup diario automatizado de MongoDB con rotación a Supabase Storage, runbook escrito de DR para los 6 escenarios de fallo más probables, y script de restore end-to-end automatizado que corre mensualmente y valida que los backups son realmente útiles.
-
-**Sub-tareas:**
-
-**Fase A — Política de backups (ex PROP-117):**
-
-1. Nuevo BullMQ job `backup-mongo-daily` en `backend/src/jobs/`.
-2. Ejecuta `mongodump --uri=$MONGODB_URI --archive --gzip` stream-to-buffer (evitar FS intermediario en Koyeb que tiene FS efímero).
-3. Sube a bucket Supabase `backups/mongo/YYYY-MM-DD.gz`.
-4. Rotación: borrar backups > 7 días.
-5. Upstash: similar pero menor prioridad (cache reconstruible — solo backup semanal opcional).
-6. Documento `documentation/Backup_Policy.md` con procedimiento de restore paso a paso manual.
-7. Calendario recurrente para drill mensual (issue auto-creado).
-
-**Fase B — Runbook DR (ex PROP-118):**
-
-8. Documento `documentation/Runbook_DR.md` con procedimiento paso-a-paso para 6 escenarios:
-   - Atlas M0 no responde
-   - Upstash cuota commands excedida
-   - Koyeb service down / crashed
-   - Cloudflare DNS issue
-   - Supabase Storage error
-   - BullMQ worker crashed en bucle
-9. Por escenario: síntomas, diagnóstico en 2 min, mitigación inmediata, postmortem.
-10. Objetivos RTO 1h, RPO 24h acordes al free tier.
-11. Revisión tras cada incidente real (meta: runbook vivo).
-
-**Fase C — Restore e2e automatizado (ex PROP-119):**
-
-12. Script `backend/scripts/restore-test.js`.
-13. Workflow `.github/workflows/restore-drill.yml` con schedule `0 3 1 * *` (día 1 del mes a las 3am UTC).
-14. Ejecuta contra `eduplay-staging` (destruye y recrea datos staging).
-15. Smoke suite mínima: login teacher → list decks → create session → start play → verify analytics endpoint.
-16. Alerta email si falla.
-
-**Criterios de Aceptación:**
-
-- [ ] Job `backup-mongo-daily` corre diariamente en BullMQ y sube a Supabase
-- [ ] Rotación elimina backups > 7 días automáticamente
-- [ ] `Backup_Policy.md` documenta procedimiento manual de restore
-- [ ] `Runbook_DR.md` cubre 6 escenarios con RTO/RPO declarados
-- [ ] Workflow `restore-drill.yml` corre mensualmente y valida smoke suite
-- [ ] Test verifica que un backup intencionalmente corrupto falla el drill
-
-**ADR:** ADR-100 (Política de backups + restore drill).
-
-**Archivos afectados:** `backend/src/jobs/backupMongo.js` (nuevo), `backend/scripts/restore-test.js` (nuevo), `documentation/Backup_Policy.md` (nuevo), `documentation/Runbook_DR.md` (nuevo), `.github/workflows/restore-drill.yml` (nuevo).
-
----
-
-### T-907: ☁️ Performance + escalabilidad (Cloudflare rules + bundle analysis + Socket.IO multi-instancia + command budget Upstash) 📋
+### T-907: ☁️ Performance + escalabilidad (Cloudflare rules + bundle analysis + Socket.IO multi-instancia + command budget Upstash) ✅ DONE
 
 **Consolida:** PROP-120 + PROP-121 + PROP-122 + PROP-123
 **Prioridad:** P0 | **Tamaño:** L (1-2 días) | **Dependencias:** T-901, T-903
@@ -487,7 +480,6 @@ Cuatro mejoras de performance y escalabilidad: configuración Cloudflare (cache 
 2. Security → WAF → Managed Rules → OWASP Core Ruleset (free).
 3. Security → Rate limiting: 30 req/10s por IP a `/api/*`.
 4. Bot Fight Mode activado.
-5. Documentación en `documentation/Cloudflare_Setup.md`.
 
 **Fase B — Bundle analysis (ex PROP-121):**
 
@@ -529,9 +521,23 @@ Cuatro mejoras de performance y escalabilidad: configuración Cloudflare (cache 
 - [ ] Commands/día en staging < 5K tras 1 semana de uso típico
 - [ ] Lighthouse score frontend ≥ 90 en Performance
 
-**ADR:** ADR-101 (Optimización command budget Upstash con pipelining).
+**ADR:** ADR-158 (Telemetría comandos Upstash + LRU memoria + pipeline helper), ADR-159 (Bundle frontend reduction: Recharts lazy + Sentry dynamic + Brotli + visualizer + sourcemap hidden), ADR-160 (Estrategia Cloudflare cache + WAF + rate-limit edge).
 
-**Archivos afectados:** `frontend/vite.config.js`, `frontend/src/App.jsx` (lazy routes), `backend/src/config/redis.js`, `backend/src/config/security.js`, `documentation/Cloudflare_Setup.md` (nuevo), `frontend/docs/Frontend_Chunking_Vite_Optimization.md`, `backend/docs/WebSockets-ExtendedUsage.md`.
+**Archivos afectados (cierre 2026-05-17):**
+- **Backend nuevos:** `backend/src/utils/redisCommandTracker.js`, `backend/src/utils/inMemoryCache.js`, `backend/scripts/test-socket-multiinstance.js`.
+- **Backend modificados:** `backend/src/services/redisService.js` (instrumentación + `runPipeline` helper + SCAN COUNT documentado), `backend/src/utils/runtimeMetrics.js` (bloques `commandsByCategory`, `inMemoryCache`, métricas socket cache), `backend/src/middlewares/auth.js` (LRU memoria en `fetchUserForAuth` + `invalidateUserCache` cross-layer), `backend/src/realtime/socketHandlers.js` (métricas hit/miss caches socket), `backend/src/models/GamePlay.js` (console.warn → logger.warn), `backend/src/services/analytics/reportDataService.js` (timeout duro con `Promise.race`), `backend/package.json` (scripts `dev:multi-1`, `dev:multi-2`, `test:multi-instance`).
+- **Frontend nuevos:** ninguno (lazy se aplicó en componentes existentes).
+- **Frontend modificados:** `frontend/vite.config.js` (visualizer condicional + compression Brotli/Gzip + `sourcemap: 'hidden'` en prod + chunks `sentry`/`qrcode`), `frontend/src/main.jsx` (Sentry dynamic import + `requestIdleCallback`), `frontend/index.html` (`preload as=style` para Google Fonts), `frontend/src/pages/Dashboard.jsx` (Suspense + SkeletonChart en `StudentProgressChart`/`ClassroomOverview`/`DifficultyHeatmap`/`ActivityHeatmap`), `frontend/src/pages/admin/MfaSetup.jsx` (lazy `QRCodeSVG`), `frontend/src/components/game/CharacterMascot.jsx` (`memo`), `frontend/package.json` (devDeps `rollup-plugin-visualizer`, `vite-plugin-compression2`).
+- **Documentación nueva:** ninguna (procedimiento Cloudflare consolidado en ADR-160).
+- **Documentación actualizada:** `documentation/Architecture_Decisions.md` (+ADRs 158/159/160), `backend/docs/Performance_Notes.md` (sección "T-907 — Performance + escalabilidad pre-v1.0.0"), `frontend/docs/Frontend_Chunking_Vite_Optimization.md` (sección "11. Iteración E — T-907"), `backend/docs/Arquitectura_Redis.md` (telemetría + LRU memoria), `backend/docs/WebSockets-ExtendedUsage.md` (validación multi-instancia).
+
+**Diferidos (documentados como follow-up en ADR-158 / Performance_Notes):**
+- Refactor pipeline en `middlewares/auth.authenticate` (combinar 3 GETs en 1 round-trip) — beneficio latencia, no comandos; el LRU memoria ya logra el ahorro principal.
+- LazyMotion para Framer (~30 KB) — requiere migración global `motion.X` → `m.X`.
+- Cache `analyticsService.abandonmentDetails` 10 min — requiere identificar invalidación.
+- Sharding BullMQ `data-retention` por rango fecha.
+- Pub/sub `cache:invalidate` para LRU memoria cross-instance.
+- Audit `populate(` + `.select(...)` en 4-5 repositorios.
 
 ---
 
@@ -631,23 +637,22 @@ Suite documental completa para v1.0.0: README raíz como carta de presentación 
    - Crear nuevo entorno de testing
    - Aplicar parche de seguridad urgente
    - Cambiar política de retención
-7. Índice cruzado con `Runbook_DR.md` (T-906).
-8. Actualización continua a medida que se aprenden operaciones nuevas.
+7. Actualización continua a medida que se aprenden operaciones nuevas.
 
 **Fase C — OpenAPI 3.1 (ex PROP-129):**
 
-9. Integrar `swagger-jsdoc` + `swagger-ui-express`.
-10. Anotar todas las rutas con JSDoc `@openapi`: `auth`, `users`, `cards`, `mechanics`, `contexts`, `sessions`, `plays`, `decks`, `admin`, `analytics`, **secuencia (T-921)**.
-11. Generar spec estática `openapi.json` en build para descarga.
-12. Ruta `/api/docs`: pública en staging, con auth super_admin en prod.
-13. URL pública enlazada desde README.
+8. Integrar `swagger-jsdoc` + `swagger-ui-express`.
+9. Anotar todas las rutas con JSDoc `@openapi`: `auth`, `users`, `cards`, `mechanics`, `contexts`, `sessions`, `plays`, `decks`, `admin`, `analytics`, **secuencia (T-921)**.
+10. Generar spec estática `openapi.json` en build para descarga.
+11. Ruta `/api/docs`: pública en staging, con auth super_admin en prod.
+12. URL pública enlazada desde README.
 
 **Fase D — CHANGELOG automation (ex PROP-130):**
 
-14. Generar CHANGELOG retroactivo (subset) desde primer commit semver para tener base en release-please PR inicial.
-15. Release-please mantiene actualizado automáticamente (T-903).
-16. `CONTRIBUTING.md` con política semver + conventional commits documentada.
-17. README enlaza CHANGELOG.
+13. Generar CHANGELOG retroactivo (subset) desde primer commit semver para tener base en release-please PR inicial.
+14. Release-please mantiene actualizado automáticamente (T-903).
+15. `CONTRIBUTING.md` con política semver + conventional commits documentada.
+16. README enlaza CHANGELOG.
 
 **Criterios de Aceptación:**
 
@@ -662,10 +667,39 @@ Suite documental completa para v1.0.0: README raíz como carta de presentación 
 
 ---
 
-### T-910: ☁️ Housekeeping (free tier budget + deprecar Docker prod + cold-start warming) 📋
+### T-910: ☁️ Housekeeping (free tier budget + deprecar Docker prod + cold-start warming) ✅ DONE
 
-**Consolida:** PROP-131 + PROP-132 + PROP-133
-**Prioridad:** P0 | **Tamaño:** M (4-8h) | **Dependencias:** T-901, T-904
+**Cierre:** 2026-05-21. Implementado en alcance ampliado (3 fases originales A/B/C + 6 fases adicionales D/F/G/H/I/J). Decisión del usuario: cubrir adaptaciones para los 8 servicios free-tier en uso, no solo Koyeb. ADR-168 (Free-tier budget strategy).
+
+| Fase | Implementación | Verificación |
+|---|---|---|
+| A — Detectores SmartAlert internos | 4 detectores nuevos en `backend/src/services/analytics/systemDetectors/`: `upstashCommandsQuota`, `atlasStorageQuota` (con caché 1h `db.stats()`), `rateLimitStoreFallback`, `inMemoryCacheLowHit`. Catálogo extendido a 16 tipos en `config/systemAlerts.js` con budgets configurables vía `UPSTASH_DAILY_BUDGET` / `ATLAS_STORAGE_BUDGET_MB` / `LRU_HIT_RATIO_WARN`. Espejo UI en `frontend/src/constants/systemAlertTypes.js` (iconos Lucide Gauge/HardDrive/Network/Cpu). | 4 tests unitarios (16 casos) + asserts actualizados en `systemAlertConfig.test.js`. Suite analytics: 75/75. |
+| B — `documentation/Free_Tier_Budget.md` | Documento maestro nuevo (~370 líneas) con 9 servicios × 5 columnas (límite duro / consumo estimado / monitoreo / umbral migración / coste plan B). §3 dimensionamiento objetivo TFG (1 centro × 5 docentes × 25 alumnos), §4 alertas tempranas, §5 checklist mensual, §6 plan B total ≈$79/mes. | Linkeado desde `README.md` (sección "Operational status") y `Operational_Dashboard.md` §1. |
+| C — Archivado Docker prod | `docker-compose.prod.yml` → `docker/archive/` con README dedicado. Banner en `docker/README.md`. 5 referencias actualizadas: `CLAUDE.md`, `docker/README.md`, `backend/docs/Arquitectura_Redis.md`, `backend/docs/Redis_Optimization_Analysis.md`, `backend/seeders/README.md`. Workflows CI no afectados (no usaban el compose). | `Grep "docker-compose.prod.yml"` solo devuelve coincidencias en `docker/archive/`, histórico de sprints/propuestas y `Architecture_Decisions.md` contextual. |
+| D — Playbooks Runbook 13a-13e | 5 playbooks nuevos en `documentation/Runbook_Operacional.md` (Atlas storage al 80%, Upstash commands al 80%, Supabase egress al 80%, Sentry quota al 80%, Cold-start warming Koyeb). Tabla de playbooks al inicio actualizada. | Formato consistente con playbooks existentes (síntoma / diagnóstico / pasos / verificación / rollback). |
+| F — Workflow mensual GitHub Actions | `.github/workflows/free-tier-monthly-review.yml` con cron día 1 a las 09:00 UTC + `workflow_dispatch`. Job único con `actions/github-script@v8` que abre issue checklist con la label `meta/monthly-review`, asignada a `Samuel-Prog-CSec`. Crea la label si no existe; deduplica si ya hay issue abierta para el mes. | Sintaxis YAML válida. Pendiente smoke test manual: `gh workflow run free-tier-monthly-review.yml`. |
+| G — Cold-start warming docs | `Operational_Dashboard.md` §5.3 nueva ("Cold-start warming Koyeb") explica el rol dual de los 4 monitors UptimeRobot (T-904). `DEPLOY_GUIA_COMPLETA.md` §8.3.5 nueva sub-bloque inmediato a la configuración UptimeRobot. Cero código nuevo: documenta capacidad ya desplegada. | Enlazado desde Runbook §13e. |
+| H — ADR-168 | `documentation/Architecture_Decisions.md` append. Contexto + Decisión (8 puntos) + Impactos + Estado Futuro. Documenta limitación lineal de `commandsEstimatedDaily` y caché 1h de `db.stats()` como trade-offs aceptados. | ADR-167 ya estaba ocupado por CI/CD pipeline; renumerado a ADR-168 con coherencia en todas las referencias cruzadas. |
+| J — Memoria TFG cap.1 § Limitaciones | `memoria/chapters/01-intro.tex` renombra `\subsection*{Limitaciones}` → `\subsection*{Limitaciones generales}` y añade `\subsection*{Limitaciones derivadas del despliegue en cloud}` con dos bloques (restricciones inherentes / mitigaciones técnicas). `memoria/misc/acro.tex` añade `\acro{TLS}{Transport Layer Security}`. Registrado en `development/MEMORIA_CAMBIOS.md` siguiendo formato sesión. | Voz académica impersonal, sin IDs internos en .tex, sin nombres de funciones/archivos del código, referencias a estándares (RGPD, TLS) sobre detalles de implementación. |
+| I — Verificación E2E + cierre | Backend lint 0 errores. Backend tests **1396/1396** (111 suites). Frontend lint 0 errores. Frontend tests **546/546** (57 archivos). Build frontend OK (index.js 60.83 KB gz). | Smoke E2E con detectores umbrales bajos queda como paso operativo manual post-merge. |
+
+**Tests post-cierre:** 1396 backend (+nuevos detectores e indexación) + 546 frontend. 0 errores lint en ambos. Build frontend OK (60.83 KB gz inicial).
+
+**Pasos manuales pendientes (post-merge, no bloquean v1.0.0):**
+1. Setear env vars en Koyeb si se quiere personalizar budgets: `UPSTASH_DAILY_BUDGET`, `ATLAS_STORAGE_BUDGET_MB`, `LRU_HIT_RATIO_WARN` (los defaults bastan).
+2. Verificar que la label `meta/monthly-review` existe en GitHub repo (la crea el workflow en su primer disparo si no existe).
+3. Disparar manualmente el workflow `free-tier-monthly-review.yml` vía `gh workflow run` para validar formato issue antes del primer cron real.
+4. Esperar al día 1 del próximo mes para el primer cron.
+
+**Diferidos a follow-up (no bloquean v1.0.0):**
+- Detectores automáticos para Sentry/Supabase/Cloudflare cuotas externas — requieren credenciales paid o tokens OAuth no triviales; revisión manual mensual via workflow cubre el caso.
+- Cloudflare cache de assets Supabase — requiere dominio propio bajo proxy; T-908 ya aplica `Cache-Control: max-age=31536000` y el CDN nativo Supabase basta para el dimensionamiento objetivo.
+- Telemetría real de Koyeb cold start (no hay API gratuita).
+
+**ADR:** ADR-168 (Estrategia de presupuesto free-tier — detectores SmartAlert internos + revisión mensual externa).
+
+**Consolida:** PROP-131 + PROP-132 + PROP-133 (alcance original) + extensión a todos los servicios free-tier (decisión del usuario, 2026-05-21).
+**Prioridad:** P0 | **Tamaño:** M (ampliado a ~12 h reales por scope) | **Dependencias:** T-901, T-904
 **Origen:** Sin budget docs un límite se cruza sin aviso; Docker prod queda como deuda cognitiva; cold start de Koyeb free puede romper la primera demo si no hay warming
 
 **Descripción:**
@@ -975,7 +1009,7 @@ Pasada exhaustiva por todo el área analytics (backend + frontend + seeders + do
 
 ## P1 — Prioridad Alta
 
-### T-941: 📊 Persistencia de alertas inteligentes con ciclo de vida activo/resuelto/desestimado 📋
+### T-941: 📊 Persistencia de alertas inteligentes con ciclo de vida activo/resuelto/desestimado ✅
 
 **Consolida:** PROP-78
 **Prioridad:** P1 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-901 (BullMQ ya operativo desde Sprint 5)
@@ -1022,9 +1056,26 @@ Hoy `analyticsService.getClassroomAlerts` recorre partidas recientes y deriva al
 - [ ] Script de migración backfill genera alertas históricas correctamente
 - [ ] Tests unitarios + E2E pasando
 
-**ADR:** ADR-103 (Persistencia de alertas con ciclo de vida).
+**ADR:** ADR-161 (Persistencia de alertas inteligentes con ciclo de vida y motor por detectores).
 
-**Archivos afectados:** `backend/src/models/SmartAlert.js` (nuevo), `backend/src/services/alertDetectionService.js` (nuevo), `backend/src/jobs/alertDetectionJob.js` (nuevo), `backend/src/services/analyticsService.js` (refactor del cálculo on-the-fly), `backend/src/controllers/analyticsController.js`, `backend/src/routes/analytics.js`, `backend/src/validators/analyticsValidator.js`, `backend/scripts/migrate-alerts.js` (nuevo), `frontend/src/components/dashboard/AlertsHub.jsx`, `frontend/src/components/dashboard/AlertsPanel.jsx`, `frontend/src/services/analytics.js`, tests asociados.
+**Implementación entregada (ampliada respecto al sprint):**
+
+- **Modelo SmartAlert** con todos los campos del sprint + extensiones (pinning, severityHistory[], notificationId, missedRuns, studentPseudoId RGPD).
+- **6 detectores migrados** a Strategy pattern (`backend/src/services/analytics/detectors/`) + **fix divide-by-zero** en `decliningPerformance` (BUG-T941-1) + test de regresión.
+- **7 detectores nuevos**: `plateauDetected` (cierra TODO histórico), `engagementDrop`, `recoveryAfterDrop` (positivo), `masteryMilestone` (positivo, único en el proyecto), `mechanicSpecificStruggle` (cross-mecánica), `sequenceStagnation` y `sequenceOrderErrors` (cierran criterio de aceptación pendiente de T-923).
+- **Worker BullMQ** `alertDetectionWorker.js` (`backend/src/workers/`) + queue `alert-detection` registrada en `queues/index.js` (cron `*/15 * * * *`, env-configurable).
+- **Endpoints REST extendidos**: además de los 3 del sprint, añadidos `GET /alerts/effectiveness` (H.3 dashboard interno), `GET /alerts/:id`, `GET /alerts/:id/history` (H.2 audit log), `PATCH /alerts/:id/pin|unpin` (H.1 pinning), `POST /alerts/bulk-action` (bulk hasta 100, 207 Multi-Status). Validators Zod en `validators/alertsValidator.js`.
+- **Frontend lifecycle completo**: refactor DRY a `constants/alertTypes.js` (~80 líneas duplicadas eliminadas), `<AlertStatusFilter />`, `<AlertActionsMenu />`, `<EscalationBadge />`, `<AlertBulkBar />`, `<AlertHistoryModal />`, `<AlertsEffectivenessPanel />`, hook `useAlertActions` con dismiss + undo toast 5 s vía `sonner`. `AlertsHub` muestra `detectedAt` real con `formatRelativeTime`, escalation visible, pinning con borde dorado, `aria-live="polite"`.
+- **Realtime push**: notificación `student_at_risk` al docente cuando aparece critical nueva o escalada; el hook `useNotifications` dispara `CustomEvent('smartalert:created')` y Dashboard refresca sin reload.
+- **RGPD**: `loadActiveStudentsForTeacher` filtra `consent.withdrawnAt`; defensa en profundidad en el orquestador; `studentPseudoId` obligatorio; logs Pino sin PII.
+- **Hard-delete cron** (H.4) integrado en `dataRetentionService.runDataRetention` (sin nueva queue). Default 365 d vía env.
+- **Auto-reabrir dismissed críticas** (H.5) tras 60 d vía env `SMART_ALERT_REOPEN_AFTER_DAYS`.
+- **Cache Redis** dedicada `cache:alerts` TTL 60 s con invalidación granular por teacher (nueva utilidad `cacheInvalidatePattern`).
+- **Script de backfill** `backend/scripts/migrate-alerts-backfill.js` + npm scripts `migrate:alerts-backfill[:dry-run]`. 4 pasadas (90/60/30 d/ahora) reconstruyen historial para la demo del tribunal.
+- **Tests**: backend +24 (alertDetectionService, decliningPerformance, plateauDetected, analyticsHelpers actualizado). Frontend +16 (`alertTypes`, `useAlertActions`).
+- **Resultados verificados**: 1293/1293 backend, 455/455 frontend, lint 0 errores en ambos, build OK.
+
+**Archivos afectados:** ver lista exhaustiva en `documentation/Architecture_Decisions.md` ADR-161 y en el plan `~/.claude/plans/hola-me-gustar-i-desarrollar-lovely-spark.md`.
 
 ---
 
@@ -1709,7 +1760,6 @@ T-901 (cloud scaffolding + Atlas + Upstash + secrets + staging)
   ├──► T-903 (CD pipeline) ◄──── T-902
   ├──► T-904 (observabilidad: Sentry + log shipping + alerting)
   ├──► T-905 (seguridad prod: CSP + rate limits + ZAP + MFA)
-  ├──► T-906 (backup + DR + restore-e2e)
   ├──► T-907 (performance: Cloudflare + bundle + multi-instance + budget)
   ├──► T-908 (testing: E2E + load + chaos)  ◄──── T-902, T-905
   └──► T-910 (housekeeping: free tier + deprecar Docker + warming) ◄──── T-904
@@ -1819,7 +1869,6 @@ La **ruta crítica del sprint es la cadena T-901 → T-902 → T-903 → T-908**
 | **T-903** | PROP-104 + PROP-105 + PROP-106 + PROP-107 + PROP-108 |
 | **T-904** | PROP-109 + PROP-110 + PROP-111 + PROP-112 |
 | **T-905** | PROP-113 + PROP-114 + PROP-115 + PROP-116 |
-| **T-906** | PROP-117 + PROP-118 + PROP-119 |
 | **T-907** | PROP-120 + PROP-121 + PROP-122 + PROP-123 |
 | **T-908** | PROP-124 + PROP-125 + PROP-126 |
 | **T-909** | PROP-127 + PROP-128 + PROP-129 + PROP-130 |
@@ -1867,3 +1916,38 @@ El Sprint 6 se considera completado cuando:
 - **Mecánica Secuencia como cierre de alcance:** tras esta release el TFG entrega las tres mecánicas anunciadas (Asociación + Memoria + Secuencia). No se planifican más mecánicas para v1.0.0.
 - **Backlog post-v1.0.0:** este sprint absorbe el 100% de las propuestas pendientes. Si el sprint corta antes de completar P3, las tareas pendientes pasan a un nuevo `propuestas-mejora.md` post-v1.0.0 (o se cierran como descartadas).
 - **No puedo hacer merge ni commit:** esas acciones siguen reservadas para desarrolladores humanos. Mi rol queda en redacción, implementación y verificación con `npm test` / `npm run lint`.
+
+---
+
+## Post-cierre — Auditoría 2026-05-19 (ADR-163)
+
+Tras cerrar las tareas T-921/T-922/T-923/T-901/T-902/T-903/T-909/T-905/T-907/T-951/T-952/T-953/T-954/T-955 (Sprint 6), una sesión de auditoría con 3 agentes Explore en paralelo + verificación manual detectó 8 findings reales y 5 mejoras adicionales aplicadas en la misma sesión sobre la rama `feature/cloud-foundation-and-cd`. Sin abrir ramas paralelas. Detalle completo en **ADR-163**.
+
+### Fixes aplicados (P0)
+
+| Tarea | Fix | Archivos |
+|---|---|---|
+| **T-921** | `sequence_phase_memorizing`/`sequence_phase_reproducing` emiten `mechanicType:'sequence'` (simetría con card_result/round_result) | `backend/src/services/gameEngine/sequenceFlow.js` |
+| **T-922** | `PhaseTransitionOverlay` countdown sincronizado con `gracePeriodMs` del backend (prop `durationMs`) | `frontend/src/components/game/sequence/PhaseTransitionOverlay.jsx`, `SequenceBoard.jsx`, `SequenceGameplayPanel.jsx`, `pages/GameSession.jsx` |
+| **T-922 criterio 7** | Columna "Mejor Secuencia" en StudentsAnalytics + `maxSequenceLengthAchieved`/`sequencesCompleted` en `getClassroomStudents` | `backend/src/services/analyticsService.js`, `frontend/src/pages/StudentsAnalytics.jsx` |
+| **T-951 criterio `/`** | Atajo `/` enfoca búsqueda global (Slack/GitHub) + `data-global-search` en 4 inputs | `frontend/src/components/system/GlobalShortcuts.jsx`, `pages/{CardDecksPage,admin/StudentManagement,ContextsPage,StudentsAnalytics}.jsx` |
+| **T-951** | `ThemeContext.toggleTheme` con `MIN_LOCK_MS=350` + timer seguridad 650ms (anti-triple-tap) | `frontend/src/context/ThemeContext.jsx` |
+| **T-952** | `StudentProgressChart` envuelto con `memo()` (re-render Dashboard) | `frontend/src/components/dashboard/StudentProgressChart.jsx` |
+| **T-909** | OpenAPI spec completa: 9 schemas reutilizables + anotaciones `@openapi` en 9 routers (≥40 ops) | `backend/src/config/swagger.js`, `backend/src/routes/{users,mechanics,contexts,sessions,plays,decks,notifications,analytics,admin}.js` |
+
+### Mejoras P1 aplicadas
+
+- **`envValidator.validateRedisKeyPrefixForEnv()`** — warning si `APP_ENV` definido y `REDIS_KEY_PREFIX` no contiene el nombre del entorno (evita data contamination en Upstash compartido).
+- **`.env.example`** — bloque explícito documentando `eduplay:staging:` vs `eduplay:prod:` con porqué.
+- **Runbook playbook 16** — preview deploys desde PR (workflow ya existía, ahora documentado).
+- **OnboardingOverlay `measure()`** — debounce 120ms + RAF + listeners passive (jank en tablets eliminado).
+
+### Diferidos a Sprint 7
+
+- **`InlineEditableText` grouped props refactor** (14 props → `editorProps`/`uiProps`). Riesgo medio.
+- **Test integración SIGTERM** (`backend/tests/integration/gracefulShutdown.test.js`). Spy `process.exit` + verificar orden cierre.
+- **Extracción opcional `useChartMotion` a `frontend/src/hooks/`** (hoy vive en `ChartsTheme.jsx`).
+
+### Falsos positivos descartados (no actuados, ver ADR-163)
+
+`useInlineSuccess` en DeckEditPage, hero transition `layoutId` en DeckCard, scroll parallax en AppLayout, endpoint `/api/openapi.json`, `commonAxisProps`/`commonGridProps` en ChartsTheme — todos verificados ya implementados.

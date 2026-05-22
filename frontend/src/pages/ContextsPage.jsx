@@ -246,6 +246,7 @@ export default function ContextsPage() {
             onChange={e => setSearchTerm(e.target.value)}
             icon={<Search size={18} />}
             className="md:w-96"
+            data-global-search="true"
           />
         </div>
       </motion.div>
@@ -377,7 +378,10 @@ function ContextCard({ context, onClick }) {
               (`/admin/contexts`) porque es útil como identificador; en la vista
               teacher resulta ruido visual y mezcla español con kebab-case (QA 22/04/2026). */}
           {context.isActive ? (
-            <span className="text-xs font-medium text-success-base bg-success-base/10 px-2 py-1 rounded-full">
+            // BUG-A11Y-CONTRAST-CONTEXT-ACTIVE-A (QA Sprint 0 post-v0.5.0):
+            // text-success-base sobre bg-success-base/10 daba 4.44:1 en
+            // light, just below AA. light:text-success-dark cumple.
+            <span className="text-xs font-medium text-success-on-alpha bg-success-base/10 px-2 py-1 rounded-full">
               Activo
             </span>
           ) : (

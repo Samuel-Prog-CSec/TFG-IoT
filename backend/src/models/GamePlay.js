@@ -12,6 +12,7 @@
 
 const mongoose = require('mongoose');
 const { PLAY_STATUS, EVENT_TYPE } = require('../constants/enums');
+const logger = require('../utils/logger').child({ component: 'GamePlayModel' });
 
 const MAX_EVENTS_PER_PLAY = 500;
 
@@ -370,9 +371,12 @@ gamePlaySchema.methods.complete = function () {
  */
 gamePlaySchema.pre('validate', function () {
   if (typeof this.maxScore === 'number' && this.maxScore > 0 && this.score > this.maxScore) {
-    // eslint-disable-next-line no-console -- hook Mongoose sin acceso al logger Pino
-    console.warn(
-      `[GamePlay] Score ${this.score} excede maxScore ${this.maxScore} en partida ${this._id}. Clampeado.`
+    // T-907: cambio de console.warn → logger.warn para cumplir CLAUDE.md (Pino
+    // structured logging obligatorio en producción). El logger child añade el
+    // contexto 'GamePlayModel' al evento para facilitar filtrado en agregadores.
+    logger.warn(
+      { playId: this._id, score: this.score, maxScore: this.maxScore },
+      `Score excede maxScore en partida ${this._id}. Clampeado.`
     );
     this.score = this.maxScore;
   }

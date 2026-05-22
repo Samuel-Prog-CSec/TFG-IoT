@@ -1,5 +1,5 @@
-import { motion, AnimatePresence } from 'framer-motion';
-import { useRef, useMemo } from 'react';
+import { m as motion, AnimatePresence, useInView } from 'framer-motion';
+import { useRef, useMemo, memo } from 'react';
 import PropTypes from 'prop-types';
 import { Star, Sparkles } from 'lucide-react';
 import { cn, EASING } from '../../lib/utils';
@@ -103,16 +103,30 @@ const greetingPool = ['¡Hola!', '¿Jugamos?', '¡Vamos!'];
  *   del fade-scale habitual. Útil al montarse en GameSession por primera
  *   vez para que el alumno note el "saludo" sin necesidad de mood nuevo.
  */
-export default function CharacterMascot({
+// T-907 F: memo evita re-render por cambios irrelevantes de props del padre
+// (GameSession.jsx re-renderiza por cada scan; las props de la mascota solo
+// cambian en eventos significativos — mood, message, mechanicType — y el
+// shallow-compare por defecto detecta eso correctamente).
+function CharacterMascot({
   mood = 'idle',
   message,
   position = 'left',
   mechanicType = null,
   isFirstAppearance = false,
+  noBubble = false,
   className
 }) {
   const { shouldReduceMotion } = useReducedMotion();
   const lastMsgRef = useRef(-1);
+
+  // Sprint 0 pre-v1.0.0 (M3): pausamos los loops `repeat: Infinity` cuando
+  // la mascota está fuera del viewport (típicamente tras navegar a GameOver
+  // o desplazarse). Sin esto, Framer Motion mantiene cada loop activo
+  // gastando CPU/RAF aunque el usuario no lo vea. `once: false` permite
+  // reanudar al volver a entrar (e.g. scroll back).
+  const containerRef = useRef(null);
+  const isInView = useInView(containerRef, { once: false, margin: '0px' });
+  const animationsActive = isInView && !shouldReduceMotion;
 
   const expr = expressions[mood];
 
@@ -147,14 +161,21 @@ export default function CharacterMascot({
     return greetingPool[idx];
   }, [mood]);
 
-  const displayMessage = message || rotatingMessage;
+  // `noBubble` permite usar la mascota como ilustración decorativa sin
+  // bocadillo (OnboardingOverlay, EmptyState, etc. — sitios donde el mensaje
+  // principal ya está en el contenedor padre y la burbuja generaría
+  // redundancia visual + solape con el layout del padre). ADR-163.
+  const displayMessage = noBubble ? null : (message || rotatingMessage);
 
   return (
-    <div className={cn(
-      "relative",
-      position === 'left' ? 'items-start' : 'items-end',
-      className
-    )}>
+    <div
+      ref={containerRef}
+      className={cn(
+        "relative",
+        position === 'left' ? 'items-start' : 'items-end',
+        className
+      )}
+    >
       {/* Speech bubble */}
       <AnimatePresence>
         {displayMessage && (
@@ -197,9 +218,9 @@ export default function CharacterMascot({
             : { x: position === 'right' ? 60 : -60, opacity: 0 }
         }
         animate={
-          shouldReduceMotion
-            ? { x: 0, y: 0, scale: 1, rotate: 0 }
-            : bodyAnimation[expr.bodyAnim]
+          animationsActive
+            ? bodyAnimation[expr.bodyAnim]
+            : { x: 0, y: 0, scale: 1, rotate: 0 }
         }
         transition={
           isFirstAppearance && !shouldReduceMotion
@@ -264,8 +285,10 @@ export default function CharacterMascot({
 
         {/* Extra decorations for celebrating — antes emojis ⭐✨, ahora
             Lucide Star/Sparkles para coherencia con el resto del design
-            system y para que el color rote con --color-warning-base. */}
-        {mood === 'celebrating' && !shouldReduceMotion && (
+            system y para que el color rote con --color-warning-base.
+            Solo se renderiza cuando la mascota está en viewport para no
+            mantener los loops Infinity activos fuera de pantalla (M3). */}
+        {mood === 'celebrating' && animationsActive && (
           <>
             <motion.span
               className="absolute -top-2 -right-2 text-warning-base drop-shadow-[0_0_8px_var(--color-warning-glow)]"
@@ -307,5 +330,11 @@ CharacterMascot.propTypes = {
   mechanicType: PropTypes.oneOf(['memory', 'association', 'sequence', null]),
   // Slide-in lateral en el primer mount (T-953 Fase 2.2).
   isFirstAppearance: PropTypes.bool,
+  // Suprime el bocadillo aunque haya `message` o `rotatingMessage`. Útil
+  // cuando la mascota se usa como ilustración decorativa (OnboardingOverlay,
+  // EmptyState) y el texto principal ya vive en el contenedor padre.
+  noBubble: PropTypes.bool,
   className: PropTypes.string
 };
+
+export default memo(CharacterMascot);

@@ -268,6 +268,7 @@ function SliderRow({ id, icon, label, min, max, step = 1, value, onChange, displ
           max={max}
           step={step}
           value={value}
+          aria-valuetext={`${label}: ${display}`}
           onChange={e => onChange?.(Number.parseInt(e.target.value, 10))}
           className="flex-1 accent-accent-amber"
         />

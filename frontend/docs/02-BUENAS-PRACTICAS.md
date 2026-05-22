@@ -296,3 +296,42 @@ chore: actualizar dependencias
 ---
 
 *Referencia: [React Best Practices](https://github.com/goldbergyoni/nodebestpractices)*
+
+## Sprint 0 pre-v1.0.0 — Perf hooks y cleanup defensivo (ADR-164)
+
+### `useInView` + `useReducedMotion` para gating de loops
+`framer-motion` permite gatear animaciones `repeat: Infinity` con la combinación `useInView(ref)` + `useReducedMotion()`. Aplicado en `CharacterMascot.jsx`:
+
+```jsx
+const containerRef = useRef(null);
+const isInView = useInView(containerRef, { once: false, margin: '0px' });
+const animationsActive = isInView && !shouldReduceMotion;
+
+<motion.div
+  animate={animationsActive ? bodyAnimation[expr.bodyAnim] : { x:0,y:0,scale:1,rotate:0 }}
+/>
+```
+
+Sin esto, los rAF de Framer Motion siguen activos cuando el componente está fuera de viewport (típicamente tras `Jugar de nuevo` → GameOver sigue montado en background, o scroll lejos en Dashboard). Con esto, CPU/rAF gastados se reducen a ~0 fuera de pantalla. `once: false` permite reanudar al volver a entrar.
+
+**Regla:** cualquier componente con `repeat: Infinity` debe combinar `useInView` + `useReducedMotion` o documentar por qué no.
+
+### Auto-cleanup de timers/intervals en custom hooks
+Patrón: si un hook lanza `setInterval`, `setTimeout` o `requestAnimationFrame` que puede sobrevivir al unmount del consumer, almacenar los IDs en un `useRef(new Set())` y limpiar en cleanup de `useEffect([])`. Ver `useConfetti.js`:
+
+```js
+const activeIntervalsRef = useRef(new Set());
+
+useEffect(() => {
+  const intervals = activeIntervalsRef.current;
+  return () => {
+    for (const id of intervals) clearInterval(id);
+    intervals.clear();
+  };
+}, []);
+```
+
+Esto cubre el caso "consumer ignora el cleanup return del callback" (común cuando el callback se llama desde un useEffect del consumer). Compatible con `canvas-confetti` que gestiona su propio rAF interno — solo limpiamos nuestros intervals adicionales.
+
+### Tests regresivos de DTOs (red de seguridad)
+Patrón backend que aplica también al frontend: cuando un serializador (DTO o transformer) tiene la responsabilidad de NO exponer campos, escribir un test que valide `expect(dto).not.toHaveProperty('password')`. Ver `backend/tests/security/dtoOutputSanitization.test.js` para el patrón completo.

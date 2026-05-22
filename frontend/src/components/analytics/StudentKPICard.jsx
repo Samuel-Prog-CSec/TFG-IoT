@@ -100,7 +100,9 @@ function StudentKPICard({
               {icon}
             </div>
           )}
-          <div className={cn("size-2.5 rounded-full", rag.dot, ragStatus !== 'gray' && rag.glow)} aria-label={`Estado: ${ragStatus}`} />
+          {/* BUG-A11Y-KPI-DOT (QA Sprint 0): div con aria-label sin role
+              provoca aria-prohibited-attr. role="img" legitima la etiqueta. */}
+          <div role="img" className={cn("size-2.5 rounded-full", rag.dot, ragStatus !== 'gray' && rag.glow)} aria-label={`Estado: ${ragStatus}`} />
         </div>
       </div>
 

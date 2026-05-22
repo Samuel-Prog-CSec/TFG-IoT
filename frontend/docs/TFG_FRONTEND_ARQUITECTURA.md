@@ -89,3 +89,16 @@ El núcleo del impacto pedagógico del TFG reside en cómo el profesor interacci
 ---
 
 Este enfoque holístico no compila únicamente pantallas; orquesta un sistema de diseño resiliente que asegura escalabilidad para el equipo de desarrollo y aporta un inmenso valor prescriptivo y analítico para el profesorado.
+
+## Sprint 0 pre-v1.0.0 — Reorganización ligera (ADR-164)
+
+Tras la auditoría pre-v1.0.0:
+
+- **Reducer del juego** vive ahora en `hooks/useGameSessionState.js` como custom hook reutilizable + testeable. Antes era inline en `pages/GameSession.jsx`. Reducción de complejidad cognitiva sin cambio de comportamiento.
+- **Normalizador de resumen final** vive en `lib/finalSummary.js` como función pura testeable. Antes era una helper local de 95 líneas dentro de `GameSession.jsx`.
+- **Mascota performance:** `components/game/CharacterMascot.jsx` ahora pausa sus animaciones `repeat: Infinity` fuera del viewport (`useInView` + `useReducedMotion`). Sin esto, la mascota seguía consumiendo CPU/rAF tras navegar a GameOver o scroll lejos.
+- **Confetti cleanup:** `hooks/useConfetti.js` mantiene `Set<intervalId>` y los limpia en unmount, evitando intervals huérfanos si el componente se desmonta mid-celebración.
+
+La estructura general se mantiene (`components/`, `hooks/`, `services/`, `lib/`, `pages/`, `context/`, `constants/`). No se han creado nuevas carpetas porque los nuevos archivos encajan limpio en hooks/ y lib/.
+
+Las 7 páginas restantes con `eslint-disable sonarjs/cyclomatic-complexity` (DeckCreationWizard, SessionsPage, StudentsAnalytics, DeckEditPage, SessionDetail, Dashboard, ChallengeDisplay) + AppLayout y CardDecksPage quedan para Sprint 1 con la misma receta documentada en `01-PATRONES-DISENO.md` § "Extracción incremental".

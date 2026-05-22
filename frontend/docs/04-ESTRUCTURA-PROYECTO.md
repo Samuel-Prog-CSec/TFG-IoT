@@ -280,3 +280,19 @@ import { ButtonPremium, InputPremium } from '@/components/ui';
 ---
 
 *Referencia: [Bulletproof React](https://github.com/alan2207/bulletproof-react)*
+
+## Sprint 0 pre-v1.0.0 — Archivos nuevos extraídos de `GameSession.jsx` (ADR-164)
+
+```
+frontend/src/
+├── hooks/
+│   ├── useGameSessionState.js           ← reducer + INITIAL_GAME_STATE + custom hook
+│   └── __tests__/
+│       └── useGameSessionState.test.js  ← 8 tests reducer + 3 tests hook
+└── lib/
+    ├── finalSummary.js                   ← normalizeFinalSummary (puro)
+    └── __tests__/
+        └── finalSummary.test.js          ← 9 tests cubriendo 3 mecánicas
+```
+
+`pages/GameSession.jsx` pasa de **1847 a 1699 líneas** importando estos módulos. El reducer y el helper ahora son testeables como unidades puras. La división Container/View completa del componente queda diferida a Sprint 1 con justificación en ADR-164: el JSX ya está bien compuesto por subcomponentes extraídos (`AssociationGameplayPanel`, `MemoryGameplayPanel`, `SequenceGameplayPanel`, `GameOverScreen`, `CharacterMascot`, `FallbackTouchPanel`, `RFIDConnector`), y partir el render adicional sin un objetivo de reuso concreto introduce más riesgo (timings, props drilling extra) que beneficio.

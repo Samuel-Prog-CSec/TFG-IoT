@@ -475,8 +475,12 @@ const endSession = async (req, res) => {
   const activePlays = await gamePlayService.countActivePlays(session._id);
 
   if (activePlays > 0) {
+    // Concordancia singular/plural (QA 2026-05-21).
+    const isSingular = activePlays === 1;
+    const playWord = isSingular ? 'partida' : 'partidas';
+    const adjWord = isSingular ? 'activa' : 'activas';
     throw new ConflictError(
-      `No se puede finalizar la sesión: hay ${activePlays} partida(s) activa(s)`
+      `No se puede finalizar la sesión: hay ${activePlays} ${playWord} ${adjWord}`
     );
   }
 

@@ -22,10 +22,34 @@ const logger = require('../utils/logger');
  * await connectDB();
  * // MongoDB conectado y listo para usar
  */
+/**
+ * Opciones de pool y resiliencia para producción.
+ * Tuneadas para MongoDB Atlas M0 free tier (replica set de 3 nodos en red compartida).
+ * - maxPoolSize 10: holgado para 1 instancia api free tier; M0 permite hasta 500 conexiones.
+ * - minPoolSize 2: mantiene 2 conexiones calientes para evitar cold start en cada query tras idle.
+ * - serverSelectionTimeoutMS 10s: tolera cold start ocasional de M0.
+ * - socketTimeoutMS 45s: corta queries colgadas sin matar la conexión.
+ * - heartbeatFrequencyMS 30s: detecta failover del replica set sin saturar.
+ * - retryReads/Writes + w:'majority': requiere replica set (Atlas siempre lo tiene).
+ *
+ * En desarrollo y test se usan defaults de Mongoose para no asumir replica set
+ * (mongodb-memory-server y MongoDB local single-node pueden no soportar w:'majority').
+ */
+const productionConnectOptions = {
+  maxPoolSize: 10,
+  minPoolSize: 2,
+  serverSelectionTimeoutMS: 10_000,
+  socketTimeoutMS: 45_000,
+  heartbeatFrequencyMS: 30_000,
+  retryReads: true,
+  retryWrites: true,
+  w: 'majority'
+};
+
 const connectDB = async () => {
   try {
-    // Mongoose 9.x no requiere opciones adicionales de conexión
-    const conn = await mongoose.connect(process.env.MONGO_URI);
+    const connectOptions = process.env.NODE_ENV === 'production' ? productionConnectOptions : {};
+    const conn = await mongoose.connect(process.env.MONGO_URI, connectOptions);
 
     logger.info(`MongoDB Connected: ${conn.connection.host}`);
 

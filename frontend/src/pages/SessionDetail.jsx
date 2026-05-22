@@ -85,7 +85,9 @@ function SummaryKpi({ icon, label, value, hint }) {
       <p className="text-lg font-semibold text-text-primary font-display tabular-nums mt-1">
         {value ?? '—'}
       </p>
-      {hint && <p className="text-[10px] text-text-muted/70 mt-0.5">{hint}</p>}
+      {/* BUG-A11Y-SESSIONDETAIL-HINT (QA Sprint 0): text-text-muted/70 daba
+          3.12:1 en light. Sin alpha cumple AA. */}
+      {hint && <p className="text-[10px] text-text-muted mt-0.5">{hint}</p>}
     </div>
   );
 }
@@ -439,14 +441,19 @@ export default function SessionDetail() {
             )}
             <div className="border-l border-border-default h-8 mx-1" />
             <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
+              {/* BUG-A11Y-SESSIONDETAIL-ACTIONS (QA Sprint 0): los botones
+                  solo tenían icono; cuando están disabled, axe los marcaba
+                  sin nombre accesible (Tooltip aporta describedby, no label).
+                  Añadidos aria-label explícitos. */}
               <Tooltip content="Editar sesión">
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
                   onClick={() => navigate(ROUTES.SESSION_EDIT(session.id || session._id))}
                   disabled={!canEdit}
+                  aria-label="Editar sesión"
                 >
-                  <Pencil size={14} />
+                  <Pencil size={14} aria-hidden="true" />
                 </ButtonPremium>
               </Tooltip>
               <Tooltip content="Eliminar sesión">
@@ -455,8 +462,9 @@ export default function SessionDetail() {
                   size="sm"
                   onClick={deleteModal.open}
                   disabled={!canDelete}
+                  aria-label="Eliminar sesión"
                 >
-                  <Trash2 size={14} />
+                  <Trash2 size={14} aria-hidden="true" />
                 </ButtonPremium>
               </Tooltip>
             </div>

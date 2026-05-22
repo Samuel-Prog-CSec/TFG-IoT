@@ -11,6 +11,8 @@ T-951 introduce un sistema de atajos de teclado globales para acelerar la navega
 - **Convención `g` + letra** para "go to": Linear / GitHub la usan, los teachers familiarizados con productos modernos no se sorprenden.
 - **`Shift+N`** (no `n` solo) para "Nueva sesión": evita disparar accidentalmente al escribir notas.
 - **`Shift+?`** (no `?` solo): en QWERTY ES `?` requiere `Shift+'`, así que el contrato `Shift+?` cubre el shortcut esperado por el usuario.
+- **`Shift+T`**: alterna tema claro / oscuro. Funciona en todas las pantallas (Login, Register, AppLayout, GameLayout).
+- **`/`**: enfoca el campo de búsqueda de la página actual (convención Slack / GitHub / Linear). Si la página no tiene búsqueda, el atajo no hace nada (no-op silencioso, `preventDefault` impide que `/` se escriba en el contenido). ADR-163.
 - **`Escape`**: tecla de "salida segura" — cierra modales y el propio overlay de ayuda.
 
 ## Guard contra inputs
@@ -40,7 +42,9 @@ El listener inspecciona `event.target.closest('input, textarea, select, [content
 
 | Atajo | Acción |
 |---|---|
+| `Shift+T` | Alternar tema claro / oscuro |
 | `Shift+?` | Abrir overlay de atajos |
+| `/` | Enfocar la búsqueda de la página (Mazos, Contextos, Alumnos del centro, Mis Alumnos) |
 | `Esc` | Cerrar diálogos abiertos |
 
 ## Dirección (`super_admin`)
@@ -57,12 +61,14 @@ El listener inspecciona `event.target.closest('input, textarea, select, [content
 
 | Atajo | Acción |
 |---|---|
+| `Shift+T` | Alternar tema claro / oscuro |
 | `Shift+?` | Abrir overlay de atajos |
+| `/` | Enfocar la búsqueda de la página (Contextos, Alumnado del centro) |
 | `Esc` | Cerrar diálogos abiertos |
 
 ## Decisiones explícitas
 
-- **No hay atajo `/`**: en T-951 no existe búsqueda global en EduPlay. Añadirlo sin destino frustra al usuario. Si una tarea futura introduce búsqueda, se reserva esta tecla para ello.
+- **`/` enfoca la búsqueda de la página actual** (ADR-163, P0-4 plan auditoría Sprint 6). Convención Slack / GitHub / Linear. Si la página actual no tiene un input con `data-global-search`, el handler no-op silencioso para no frustrar. Páginas instrumentadas: `CardDecksPage`, `StudentManagement`, `ContextsPage`, `StudentsAnalytics`.
 - **Chord timeout 1500ms**: tras pulsar `g`, el usuario tiene 1.5 segundos para pulsar la segunda tecla. Si transcurre más, el buffer se vacía y se considera que `g` solo no era intencional.
 - **El overlay no atrapa el foco** dentro de un input de la app — se abre con `Shift+?`, se cierra con `Esc` o clicando fuera. La ARIA del overlay es `role="dialog" aria-modal="true"`.
 

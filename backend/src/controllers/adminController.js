@@ -18,6 +18,7 @@ const { buildFilter } = require('../utils/filterBuilder');
 const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext } = require('../utils/securityLogger');
+const accountLockoutService = require('../services/accountLockoutService');
 
 const pendingTeacherFilterMappings = {
   search: { type: 'search', fields: ['name', 'email'] }
@@ -130,8 +131,48 @@ const rejectTeacher = async (req, res) => {
   sendSuccess(res, { user: toUserDTOV1(target) }, 'Profesor rechazado exitosamente');
 };
 
+/**
+ * Desbloquea manualmente una cuenta bloqueada por intentos fallidos.
+ *
+ * Endpoint de emergencia: si un docente queda bloqueado y necesita acceso urgente
+ * antes de que expire la ventana de lockout (15min por defecto), un super_admin
+ * puede liberar la cuenta. La acción queda registrada como evento de seguridad.
+ *
+ * NOTA (T-905 B7): cuando MFA esté operativo se aplicará `requireMfa` a este
+ * endpoint. De momento el control de acceso es role super_admin + auth.
+ *
+ * POST /api/admin/lockouts/unlock
+ * Body: { email }
+ */
+const unlockAccount = async (req, res) => {
+  const { email } = req.body;
+  const requestContext = getRequestContext(req);
+
+  const cleared = await accountLockoutService.forceUnlock(email, {
+    ...requestContext,
+    triggeredBy: req.user?._id?.toString()
+  });
+
+  if (!cleared) {
+    // No diferenciamos "no existía" vs "no estaba bloqueado" para no facilitar
+    // enumeración; respondemos OK idempotente.
+    logger.info('Unlock account: no había lockout activo (idempotente)', {
+      email,
+      triggeredBy: req.user?._id
+    });
+  } else {
+    logger.info('Unlock account ejecutado por super admin', {
+      email,
+      triggeredBy: req.user?._id
+    });
+  }
+
+  sendSuccess(res, { unlocked: cleared }, 'Cuenta desbloqueada exitosamente');
+};
+
 module.exports = {
   getPendingTeachers,
   approveTeacher,
-  rejectTeacher
+  rejectTeacher,
+  unlockAccount
 };

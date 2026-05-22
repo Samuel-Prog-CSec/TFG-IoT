@@ -25,6 +25,7 @@ const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger
 const { toUserDTOV1, toAuthResponseDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated } = require('../utils/responseHelper');
 const { disconnectUserSockets } = require('../utils/socketUtils');
+const accountLockoutService = require('../services/accountLockoutService');
 const crypto = require('node:crypto');
 
 const REFRESH_COOKIE_NAME = 'refreshToken';
@@ -213,10 +214,25 @@ const login = async (req, res) => {
   const { email, password } = req.body;
   const requestContext = getRequestContext(req);
 
+  // Account lockout (B1 / T-905): bloquea credential stuffing distribuido
+  // donde authRateLimiter por IP no detecta el patrón. Mensaje genérico
+  // para no facilitar enumeración (no diferenciar bloqueado vs inválido).
+  if (await accountLockoutService.isLocked(email)) {
+    logSecurityEvent('AUTH_LOGIN_FAILED', {
+      ...requestContext,
+      reason: 'ACCOUNT_LOCKED',
+      email
+    });
+    throw new UnauthorizedError('Credenciales inválidas');
+  }
+
   // Buscar usuario por email (incluir password para comparación)
   const user = await userRepository.findOne({ email }, { select: '+password' });
 
   if (!user) {
+    // Aún registramos intento fallido aunque el usuario no exista, para que un
+    // atacante no pueda enumerar emails comparando comportamiento (lockout vs no).
+    await accountLockoutService.recordFailedAttempt(email, requestContext);
     logSecurityEvent('AUTH_LOGIN_FAILED', {
       ...requestContext,
       reason: 'USER_NOT_FOUND',
@@ -268,14 +284,19 @@ const login = async (req, res) => {
   const isPasswordValid = await user.comparePassword(password);
 
   if (!isPasswordValid) {
+    const lockoutResult = await accountLockoutService.recordFailedAttempt(email, requestContext);
     logSecurityEvent('AUTH_LOGIN_FAILED', {
       ...requestContext,
       reason: 'INVALID_PASSWORD',
       email,
-      userId: user._id
+      userId: user._id,
+      lockoutAttempts: lockoutResult.attempts
     });
     throw new UnauthorizedError('Credenciales inválidas');
   }
+
+  // Login exitoso: limpiar contador de intentos fallidos
+  await accountLockoutService.clearLockout(email);
 
   // SINGLE SESSION: Invalidar sesión anterior
   const sessionId = crypto.randomUUID();

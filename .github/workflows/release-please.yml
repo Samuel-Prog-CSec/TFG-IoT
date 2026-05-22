@@ -1,0 +1,36 @@
+name: Release Please
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: release-please-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    name: Mantener PR de release
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    steps:
+      - name: release-please action
+        # Mantiene un PR "chore: release vX.Y.Z" con el CHANGELOG generado
+        # desde el último tag. Cuando se mergea ese PR, crea el tag `v*`
+        # que dispara el workflow deploy-production.yml.
+        uses: googleapis/release-please-action@8b8fd2cc23b2e18957157a9d923d75aa0c6f6ad5 # v4
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+          # El token por defecto (GITHUB_TOKEN) tiene permisos suficientes
+          # para crear PRs y tags en el mismo repo. Si en el futuro se
+          # necesita disparar workflows desde los tags que esta action crea
+          # (auto-deploy a prod), reemplazar por un PAT en RELEASE_PLEASE_TOKEN
+          # secret — GITHUB_TOKEN no dispara workflows reactivos por seguridad.
+          token: ${{ secrets.RELEASE_PLEASE_TOKEN || secrets.GITHUB_TOKEN }}

@@ -88,6 +88,11 @@ function getGridCols(length) {
 const EMPTY_SEQUENCE = [];
 const EMPTY_CARD_STATUSES = {};
 
+// Fallback alineado con `SEQUENCE_REPRODUCE_GRACE_MS` del backend. Se usa
+// cuando el evento `sequence_phase_reproducing` no llega con `gracePeriodMs`
+// (tests o backend antiguo). El valor real entra por prop desde GameSession.
+const DEFAULT_OVERLAY_DURATION_MS = 2400;
+
 function SequenceBoard({
   sequence = EMPTY_SEQUENCE,
   length = 0,
@@ -100,7 +105,8 @@ function SequenceBoard({
   totalRounds = 1,
   reduceMotion: reduceMotionProp,
   onCardTap,
-  isCollecting = false
+  isCollecting = false,
+  overlayDurationMs = DEFAULT_OVERLAY_DURATION_MS
 }) {
   const framerPrefersReduced = useFramerReducedMotion();
   const reduceMotion = reduceMotionProp ?? framerPrefersReduced;
@@ -134,10 +140,11 @@ function SequenceBoard({
     lastRoundRef.current = roundNumber;
   }, [roundNumber]);
 
-  // Overlay de transición memorizing → reproducing: aparece 2.4s y se
-  // cierra solo (BUG QA 03/05/2026: con la condición "isReproducing &&
-  // cursor === 0 && cardStatuses vacío" el overlay se quedaba fijo en
-  // pantalla bloqueando al alumno).
+  // Overlay de transición memorizing → reproducing: aparece `overlayDurationMs`
+  // y se cierra solo (BUG QA 03/05/2026: con la condición "isReproducing &&
+  // cursor === 0 && cardStatuses vacío" el overlay se quedaba fijo en pantalla
+  // bloqueando al alumno). La duración entra por prop sincronizada con el
+  // `gracePeriodMs` del backend (P0-2 plan auditoría Sprint 6).
   const [showOverlay, setShowOverlay] = useState(false);
   useEffect(() => {
     if (!isReproducing) {
@@ -145,11 +152,11 @@ function SequenceBoard({
       return undefined;
     }
     setShowOverlay(true);
-    const timer = setTimeout(() => setShowOverlay(false), 2400);
+    const timer = setTimeout(() => setShowOverlay(false), overlayDurationMs);
     return () => clearTimeout(timer);
     // Re-disparamos el overlay al cambiar de ronda (cada vez que pasamos
     // a reproducing una nueva), por eso `roundNumber` está en deps.
-  }, [isReproducing, roundNumber]);
+  }, [isReproducing, roundNumber, overlayDurationMs]);
 
   const variants = reduceMotion ? reducedDealVariants : dealVariants;
 
@@ -176,7 +183,11 @@ function SequenceBoard({
       </header>
 
       <div className="relative w-full">
-        <PhaseTransitionOverlay visible={showOverlay} reduceMotion={reduceMotion} />
+        <PhaseTransitionOverlay
+          visible={showOverlay}
+          reduceMotion={reduceMotion}
+          durationMs={overlayDurationMs}
+        />
 
         <ol
           className={cn(
@@ -259,12 +270,20 @@ function CardCellButton({ item, onCardTap, isInteractive, isFaceUp, reduceMotion
       />
     );
   }
+  // A11y: durante la fase de reproducción las cartas están boca abajo
+  // (isFaceUp=false) y NO debemos revelar `assignedValue` en el aria-label
+  // — equivaldría a hacer trampa a un alumno que use lector de pantalla.
+  // Sólo exponemos el valor cuando la carta está visible.
+  const positionLabel = `posición ${(item.index ?? 0) + 1}`;
+  const ariaLabel = isFaceUp
+    ? `Seleccionar carta: ${item.assignedValue || item.uid}`
+    : `Carta oculta en ${positionLabel}`;
   return (
     <button
       type="button"
       onClick={() => onCardTap?.(item)}
       className="block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded-xl"
-      aria-label={`Seleccionar carta: ${item.assignedValue || item.uid}`}
+      aria-label={ariaLabel}
     >
       <SequenceCard
         uid={item.uid}
@@ -291,7 +310,8 @@ SequenceBoard.propTypes = {
   totalRounds: PropTypes.number,
   reduceMotion: PropTypes.bool,
   onCardTap: PropTypes.func,
-  isCollecting: PropTypes.bool
+  isCollecting: PropTypes.bool,
+  overlayDurationMs: PropTypes.number
 };
 
 CardCellButton.propTypes = {

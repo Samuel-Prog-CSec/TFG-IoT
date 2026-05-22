@@ -135,7 +135,12 @@ const getPlayById = async (req, res) => {
   const play = await gamePlayRepository.findById(id, {
     populate: [
       {
+        // T-907 INT6: select acotado al subset que `toGamePlayDTOV1` consume
+        // (mechanicId, contextId, config, difficulty) — el populate original
+        // traía todos los campos de GameSession (cardMappings, audit, etc.)
+        // que el DTO descarta. Reduce ~30% bytes en este endpoint.
         path: 'sessionId',
+        select: 'mechanicId contextId config difficulty',
         populate: [
           { path: 'mechanicId', select: 'name displayName icon' },
           { path: 'contextId', select: 'contextId name assets' }
@@ -149,6 +154,9 @@ const getPlayById = async (req, res) => {
     throw new NotFoundError('Partida');
   }
 
+  // El select de sessionId arriba no incluye `createdBy` porque el DTO no lo
+  // expone. La comprobación de ownership necesita ese campo, así que hacemos
+  // una lectura aparte y muy ligera (1 campo) en lugar de inflar el populate.
   const session = await gameSessionRepository.findById(play.sessionId._id, {
     select: 'createdBy'
   });
@@ -193,7 +201,13 @@ const createPlay = async (req, res) => {
 const pausePlay = async (req, res) => {
   const { id } = req.params;
 
-  const play = await gamePlayRepository.findById(id, { populate: 'sessionId' });
+  // T-907 INT6: solo necesitamos `createdBy` para `ensureResourceOwnership`;
+  // el populate antes traía toda la sesión incluyendo `cardMappings` (hasta
+  // 50 entries con UID, display, sensorId…). Con el select acotado pasamos
+  // de ~10 KB de payload Mongo a <100 B en el documento populated.
+  const play = await gamePlayRepository.findById(id, {
+    populate: { path: 'sessionId', select: 'createdBy' }
+  });
   if (!play) {
     throw new NotFoundError('Partida');
   }

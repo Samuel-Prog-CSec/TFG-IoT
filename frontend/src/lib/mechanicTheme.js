@@ -78,7 +78,9 @@ const SEQUENCE_THEME = Object.freeze({
   label: 'Secuencia',
   // Ámbar/orange: ritmo, urgencia, secuencia musical.
   accentVar: '--color-accent-orange',
-  accentClass: 'text-accent-amber',
+  // Token `text-accent-amber-on-alpha` cumple AA sobre bg-amber/10 en ambos
+  // temas. Sustituye los workarounds Sprint 0 light:text-orange-800.
+  accentClass: 'text-accent-amber-on-alpha',
   accentBgSoftClass: 'bg-accent-amber/10',
   accentBgClass: 'bg-accent-amber/20',
   accentBorderClass: 'border-accent-amber/30',

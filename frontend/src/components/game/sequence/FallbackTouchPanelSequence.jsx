@@ -23,7 +23,10 @@ function getSortKey(card) {
   return String(card?.assignedValue ?? card?.displayData?.display ?? card?.uid ?? '').toLowerCase();
 }
 
-function FallbackTouchPanelSequence({ cards, onSelectCard }) {
+// Mostramos progreso "carta X de N" SIN revelar cuál es la siguiente: el
+// alumno todavía debe recordar el orden (eso es la mecánica). Resaltar la
+// próxima carta filtraría la `expectedSequence` y rompería la pedagogía.
+function FallbackTouchPanelSequence({ cards, onSelectCard, cursor = 0, sequenceLength = 0 }) {
   const lastTapRef = useRef(0);
 
   const visibleCards = (Array.isArray(cards) ? [...cards] : [])
@@ -48,11 +51,21 @@ function FallbackTouchPanelSequence({ cards, onSelectCard }) {
 
   return (
     <div className="mt-2 w-full max-w-5xl rounded-2xl border border-accent-amber/25 bg-accent-amber/5 p-3 sm:p-4">
-      <div className="flex items-center justify-center gap-2 text-text-secondary mb-3">
-        <Hand size={14} className="shrink-0 text-accent-amber" aria-hidden="true" />
-        <p className="text-xs font-medium">
-          Toca las cartas en el orden que viste para reproducir la secuencia
-        </p>
+      <div className="flex flex-col items-center justify-center gap-1 text-text-secondary mb-3">
+        <div className="flex items-center gap-2">
+          <Hand size={14} className="shrink-0 text-accent-amber" aria-hidden="true" />
+          <p className="text-xs font-medium">
+            Toca las cartas en el orden que viste para reproducir la secuencia
+          </p>
+        </div>
+        {sequenceLength > 0 && (
+          <p
+            className="text-[11px] font-medium text-accent-amber tabular-nums"
+            aria-live="polite"
+          >
+            Carta {Math.min(cursor + 1, sequenceLength)} de {sequenceLength}
+          </p>
+        )}
       </div>
 
       {visibleCards.length > 0 && (
@@ -89,7 +102,9 @@ function FallbackTouchPanelSequence({ cards, onSelectCard }) {
 
 FallbackTouchPanelSequence.propTypes = {
   cards: PropTypes.array,
-  onSelectCard: PropTypes.func.isRequired
+  onSelectCard: PropTypes.func.isRequired,
+  cursor: PropTypes.number,
+  sequenceLength: PropTypes.number
 };
 
 export default memo(FallbackTouchPanelSequence);

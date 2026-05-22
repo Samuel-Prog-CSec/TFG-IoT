@@ -5,7 +5,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { AnimatePresence, motion } from 'framer-motion';
+import { AnimatePresence, m as motion } from 'framer-motion';
 import { Hand, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import PropTypes from 'prop-types';
 import CardAssetPreview from '../ui/CardAssetPreview';

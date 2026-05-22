@@ -14,28 +14,31 @@ import ThemedChartContainer from './ThemedChartContainer';
  * 1.4.1 (Use of Color) — daltonismo rojo-verde distingue estado por
  * forma (check / alert / X) además de color.
  */
+// Tokens `-on-alpha` (index.css) garantizan AA sobre cards dark/light
+// elevated. Sustituyen los workarounds Sprint 0 (text-red-300, text-yellow-300,
+// light:text-{tone}-dark).
 const RAG_STYLES = {
   green: {
     bar: 'bg-success-base/70',
-    text: 'text-success-base',
+    text: 'text-success-on-alpha',
     border: 'border-success-base/40',
     icon: CircleCheck,
   },
   amber: {
     bar: 'bg-warning-base/70',
-    text: 'text-warning-base',
+    text: 'text-warning-on-alpha',
     border: 'border-warning-base/40',
     icon: CircleAlert,
   },
   red: {
     bar: 'bg-error-base/70',
-    text: 'text-error-base',
+    text: 'text-error-on-alpha',
     border: 'border-error-base/40',
     icon: CircleX,
   },
   gray: {
     bar: 'bg-background-surface/40',
-    text: 'text-text-muted',
+    text: 'text-text-secondary',
     border: 'border-border-subtle',
     icon: Circle,
   }
@@ -93,7 +96,7 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
         </div>
         <div className="h-40 flex items-center justify-center">
           <p className="text-sm text-text-muted text-center">
-            Aun no hay suficientes partidas completadas para calcular la efectividad.
+            Aún no hay suficientes partidas completadas para calcular la efectividad.
           </p>
         </div>
       </GlassCard>
@@ -104,10 +107,13 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
   // pantalla anunciar el panorama global sin recorrer cada item.
   const top = items[0];
   const bottom = items[items.length - 1];
+  const isFeminine = groupBy === 'mechanic';
+  const uniqueLabel = isFeminine ? 'única' : 'único';
+  const analyzedLabel = isFeminine ? 'analizadas' : 'analizados';
   const accessibleSummary =
     items.length === 1
-      ? `${dimensionLabel} único: ${top.name} con ${Math.round(top.score)}% en ${top.totalPlays} partidas.`
-      : `${items.length} ${dimensionLabel.toLowerCase()}s analizados. Mejor: ${top.name} (${Math.round(top.score)}%). Peor: ${bottom.name} (${Math.round(bottom.score)}%).`;
+      ? `${dimensionLabel} ${uniqueLabel}: ${top.name} con ${Math.round(top.score)}% en ${top.totalPlays} partidas.`
+      : `${items.length} ${dimensionLabel.toLowerCase()}s ${analyzedLabel}. Mejor: ${top.name} (${Math.round(top.score)}%). Peor: ${bottom.name} (${Math.round(bottom.score)}%).`;
   const accessibleDataTable = items.map((item) => ({
     label: item.name,
     value: `${Math.round(item.score)}% en ${item.totalPlays} partidas`,
@@ -167,14 +173,21 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
                   {item.name}
                 </span>
                 <div className="flex items-center gap-3 flex-shrink-0">
-                  <span className="flex items-center gap-1 text-xs text-text-muted">
+                  {/* BUG-A11Y-CONTRAST-EFFECTIVENESS-A (QA Sprint 0 post-v0.5.0):
+                      text-text-muted (#949fb2) sobre card bg (#293759) daba
+                      4.4:1, just below AA. Subimos a text-text-secondary. */}
+                  <span className="flex items-center gap-1 text-xs text-text-secondary">
                     <Gamepad2 size={12} aria-hidden="true" /> {item.totalPlays}
                   </span>
                   {item.improvement != null && (
+                    // Tokens `-on-alpha` (index.css) garantizan AA sin
+                    // necesidad de variantes light: condicionales.
                     <span
                       className={cn(
                         'flex items-center gap-1 text-xs font-medium',
-                        item.improvement >= 0 ? 'text-success-base' : 'text-error-base'
+                        item.improvement >= 0
+                          ? 'text-success-on-alpha'
+                          : 'text-error-on-alpha'
                       )}
                     >
                       <TrendingUp size={12} className={item.improvement < 0 ? 'rotate-180' : ''} aria-hidden="true" />
@@ -193,7 +206,7 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
                 aria-valuenow={Math.round(item.score)}
                 aria-valuemin={0}
                 aria-valuemax={100}
-                aria-label={`Puntuacion media de ${item.name}: ${Math.round(item.score)}%`}
+                aria-label={`Puntuación media de ${item.name}: ${Math.round(item.score)}%`}
               >
                 <div className={cn('h-full transition-[width] duration-500', styles.bar)} style={{ width: `${widthPct}%` }} />
               </div>

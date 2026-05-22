@@ -8,6 +8,7 @@
  * @module services/gameEngine/sequenceFlow
  */
 
+const Sentry = require('@sentry/node');
 const logger = require('../../utils/logger').child({ component: 'sequenceFlow' });
 const { SEQUENCE_PHASE } = require('../../constants/enums');
 
@@ -78,7 +79,10 @@ function startSequenceMemorizingPhase(engine, playId) {
     sequence: challenge.sequence,
     length: challenge.length,
     displaySeconds: challenge.displaySeconds,
-    score: playState.playDoc.score
+    score: playState.playDoc.score,
+    // Contexto canónico de mecánica para la mascota viva (ADR-D) y
+    // handlers genéricos. Simetría con sequence_card_result/round_result.
+    mechanicType: 'sequence'
   });
 
   logger.debug('Fase memorizing iniciada', {
@@ -189,7 +193,10 @@ function enterSequenceReproducingPhase(engine, playId) {
     // countdown 2400ms ("Reproduce la secuencia"). Le comunicamos el grace
     // para que postponga `awaitingResponse=true` (TimerBar congelada
     // durante el overlay) y para sincronizarse con el `roundTimer` real.
-    gracePeriodMs: SEQUENCE_REPRODUCE_GRACE_MS
+    gracePeriodMs: SEQUENCE_REPRODUCE_GRACE_MS,
+    // Contexto canónico para la mascota viva (ADR-D). Simetría con el resto
+    // de eventos de la mecánica Secuencia.
+    mechanicType: 'sequence'
   });
 
   logger.debug('Fase reproducing iniciada', {
@@ -224,6 +231,22 @@ function enterSequenceReproducingPhase(engine, playId) {
  * @param {Object} scannedCardMapping
  */
 async function processSequenceScan(engine, playId, playState, scannedCardMapping) {
+  // T-904 Fase A: span por escaneo de Secuencia. Atributos básicos (sin PII).
+  return Sentry.startSpan(
+    {
+      name: 'gameplay.sequence.processScan',
+      op: 'gameplay.sequence',
+      attributes: {
+        'play.id': playId,
+        'round.number': playState?.playDoc?.currentRound,
+        'card.uid': scannedCardMapping?.uid
+      }
+    },
+    () => _processSequenceScanImpl(engine, playId, playState, scannedCardMapping)
+  );
+}
+
+async function _processSequenceScanImpl(engine, playId, playState, scannedCardMapping) {
   const result = playState.mechanicStrategy.processScan({
     scannedCard: scannedCardMapping,
     sessionDoc: playState.sessionDoc,
@@ -284,15 +307,26 @@ async function processSequenceScan(engine, playId, playState, scannedCardMapping
  * Cierra la ronda actual al expirar el `roundTimer` de la fase reproducing.
  */
 async function handleSequenceRoundTimeout(engine, playId) {
-  const playState = engine.activePlays.get(playId);
-  if (!playState || playState.mechanicName !== 'sequence') {
-    return;
-  }
-  if (playState.paused) {
-    return;
-  }
+  return Sentry.startSpan(
+    {
+      name: 'gameplay.sequence.roundTimeout',
+      op: 'gameplay.sequence',
+      attributes: {
+        'play.id': playId
+      }
+    },
+    async () => {
+      const playState = engine.activePlays.get(playId);
+      if (!playState || playState.mechanicName !== 'sequence') {
+        return;
+      }
+      if (playState.paused) {
+        return;
+      }
 
-  await finalizeSequenceRound(engine, playId, { timedOut: true });
+      await finalizeSequenceRound(engine, playId, { timedOut: true });
+    }
+  );
 }
 
 /**

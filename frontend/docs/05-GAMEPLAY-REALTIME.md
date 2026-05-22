@@ -274,3 +274,57 @@ El `SequenceBoard` consulta `useReducedMotion` y reemplaza:
 - Highlight numerado animado → cambio de borde sin scale/pulse.
 
 Los SFX se mantienen siempre (sound y motion son ejes a11y independientes según WCAG 2.5).
+
+---
+
+## Alertas inteligentes en tiempo real (T-941 / ADR-161)
+
+Hasta T-941, el docente solo se enteraba de una alerta crítica si abría `/analytics/insights → Alertas`. T-941 conecta el motor de detección con la infraestructura de notificaciones realtime existente (T-955).
+
+### Flujo end-to-end
+
+1. **Worker BullMQ** `alertDetectionWorker` se ejecuta cada 15 minutos (`*/15 * * * *`, env `ALERT_DETECTION_CRON`) e invoca `alertDetectionService.runForAllTeachers()`.
+2. Para cada docente, el orquestador ejecuta los 13 detectores en paralelo. Cada finding se reconcilia con las `SmartAlert` activas existentes (insert / update + severity escalation / auto-resolve).
+3. **Cuando aparece una alerta `critical` nueva** — o cuando una `warning` se promueve a `critical` por escalation automática (≥ 7 días activa con ≥ 3 ocurrencias) — el servicio invoca `notificationService.notify({ type: 'student_at_risk', priority: 'critical', metadata: { alertId, studentId, alertType } })`.
+4. `notificationService` aplica dedup window 60 s (Redis SET NX) y emite `notification:created` al room `user_${teacherId}` con DTO V1.
+5. **Frontend** (`hooks/useNotifications.js`) recibe el evento, lo añade al panel y, si `type === 'student_at_risk'`, dispara un evento DOM custom:
+
+   ```js
+   window.dispatchEvent(
+     new CustomEvent('smartalert:created', {
+       detail: { alertId: payload.metadata?.alertId, payload }
+     })
+   );
+   ```
+
+6. **Dashboard** (`pages/Dashboard.jsx`) y **AlertsHub** (`pages/InsightsReports.jsx > AlertsTabContent`) escuchan el evento y refetchan las alertas sin recarga de página.
+
+### Política "solo critical"
+
+`warning` e `info` NO emiten notificación realtime. Razón: evitar fatiga del docente. Se actualizan en el siguiente refresco natural de la lista (cache `cache:alerts` TTL 60 s + cualquier acción lifecycle que invalide).
+
+### Enlace contextual
+
+El `link` de la notificación es `/students/<studentId>?alertId=<smartAlertId>`. Click navega al perfil del alumno; el `alertId` en query queda disponible para que una futura iteración abra directamente el modal `AlertHistoryModal`.
+
+## Sprint 0 pre-v1.0.0 — Descomposición incremental de `GameSession.jsx` (ADR-164)
+
+Tras la auditoría pre-v1.0.0 que identificó el componente como kitchen-sink (1847 líneas, 9 hooks personalizados, 4 mecanismos de feedback, 3 mecánicas de juego), se aplicó una descomposición **incremental** en lugar del split monolítico Container/View. Razones:
+
+1. **El render JSX ya está bien compuesto**: cada mecánica se renderiza desde su propio sub-componente (`AssociationGameplayPanel`, `MemoryGameplayPanel`, `SequenceGameplayPanel`), el GameOver vive en `GameOverScreen`, la mascota en `CharacterMascot`, el touch fallback en `FallbackTouchPanel`. No hay duplicación lógica visible que se pueda extraer trivialmente.
+2. **Los tests existentes son contrato, no isolation**: 636 líneas de `GameSession.test.jsx` cubren comportamiento end-to-end con socket simulado y eventos mockeados. Pasarlos NO garantiza que el refactor sea visualmente idéntico (timings, layouts).
+3. **Prioridad real para v1.0.0:** que las 3 mecánicas se jueguen sin regresión y las estadísticas se recojan correctamente. Estilo de código es secundario.
+
+### Lo que SÍ se extrajo (testeable como unidad pura)
+
+- **`hooks/useGameSessionState.js`**: reducer + custom hook que expone `{game, dispatch, gameStateRef}`. El `gameStateRef` permite que los callbacks de socket lean el último valor sin re-suscripción.
+- **`lib/finalSummary.js`**: `normalizeFinalSummary(metrics, score, correctAnswers, mechanicMode, gameStartTime, maxScore)` puro, sin dependencias React. Tests cubren las 3 mecánicas y los edge cases.
+
+### Lo que NO se extrajo (diferido a Sprint 1)
+
+- División Container (orquestación + side effects) vs View (render puro memoizable).
+- Extracción de sub-componentes adicionales tipo `<GameSessionHUD>`, `<GameSessionBackdrop>`, `<GameSessionMascotPanel>`. Si en Sprint 1 hay margen para QA dedicada de las 3 mecánicas tras el split, se aborda. Mientras tanto, el archivo queda con `eslint-disable cyclomatic-complexity` documentado.
+
+### Flujos no afectados
+
+Los eventos socket (`new_round`, `validation_result`, `game_over`, `play_state`, `play_paused`, `play_resumed`, `sequence_phase_*`, `sequence_card_result`, `sequence_round_result`) y el flujo RFID (handlers en `useGameSocket` ya extraído desde antes) NO cambian de contrato. El refactor C2 parcial es transparente para el backend y el resto del frontend.

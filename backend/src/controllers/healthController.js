@@ -23,9 +23,89 @@ const mongoose = require('mongoose');
 const { getHealthStatus, getMemoryUsage } = require('../utils/healthCheck');
 const { toSystemMetricsDTOV1 } = require('../utils/dtos');
 const { sendSuccess } = require('../utils/responseHelper');
-const { ping: pingRedis } = require('../config/redis');
+const { ping: pingRedis, isRedisConnected } = require('../config/redis');
+const { getCircuitBreakerState } = require('../services/redisService');
+const { getIsReady, getIsShuttingDown } = require('../utils/serverState');
 const logger = require('../utils/logger');
 const pkg = require('../../package.json');
+
+/**
+ * Liveness probe — el proceso está vivo y respondiendo.
+ *
+ * Devuelve 200 SIEMPRE que el event loop esté libre. NO toca Mongo ni Redis:
+ * la pregunta es "¿debo reiniciar el proceso?", no "¿está sano end-to-end?".
+ * Si el proceso responde, no hace falta reiniciarlo aunque Mongo esté caído
+ * — el shutdown perdería conexiones útiles sin resolver nada.
+ *
+ * Pensado para UptimeRobot, GCP/k8s liveness probe y similares. La verificación
+ * fina de dependencias va en /health/ready.
+ *
+ * @route GET /api/health/live
+ * @route GET /health/live (alias)
+ * @access Public
+ * @param {import('express').Request} _req
+ * @param {import('express').Response} res
+ */
+const livenessCheck = (_req, res) => {
+  res.status(200).json({
+    status: 'alive',
+    pid: process.pid,
+    uptimeSeconds: Math.round(process.uptime()),
+    timestamp: new Date().toISOString()
+  });
+};
+
+/**
+ * Readiness probe — el proceso puede atender tráfico de usuarios.
+ *
+ * Devuelve 503 cuando alguna dependencia crítica está caída (Mongo siempre,
+ * Redis sólo en producción) o cuando el servidor está en shutdown. El
+ * objetivo es que el load balancer (Koyeb) deje de enrutar mientras la
+ * dependencia se recupera o el proceso drena conexiones.
+ *
+ * Verificación vivamente en cada request: Mongoose `readyState === 1` +
+ * `isRedisConnected()` + circuit breaker no abierto. No hace ping de red
+ * (evita generar tráfico cada 5-15s).
+ *
+ * @route GET /api/health/ready
+ * @route GET /health/ready (alias)
+ * @access Public
+ * @param {import('express').Request} _req
+ * @param {import('express').Response} res
+ */
+const readinessCheck = (_req, res) => {
+  const isProduction = process.env.NODE_ENV === 'production';
+
+  const mongoConnected = mongoose.connection.readyState === 1;
+  const redisConnected = isRedisConnected();
+  let redisCircuit = 'unknown';
+  try {
+    redisCircuit = getCircuitBreakerState().state;
+  } catch {
+    // Si el circuit breaker aún no está inicializado (boot temprano), no falla
+    redisCircuit = 'uninitialized';
+  }
+
+  // En producción Redis es crítico: si está down o circuit-open, no estamos ready.
+  // En dev/test toleramos Redis caído porque el código degrada via fallback in-memory.
+  const redisOk = isProduction ? redisConnected && redisCircuit !== 'open' : true;
+
+  const shuttingDown = getIsShuttingDown();
+  const explicitReady = getIsReady();
+
+  const ready = !shuttingDown && explicitReady && mongoConnected && redisOk;
+
+  res.status(ready ? 200 : 503).json({
+    ready,
+    shuttingDown,
+    checks: {
+      mongo: mongoConnected ? 'ok' : 'down',
+      redis: redisConnected ? (redisCircuit === 'open' ? 'degraded' : 'ok') : 'down',
+      redisCircuit
+    },
+    timestamp: new Date().toISOString()
+  });
+};
 
 /**
  * Health check con estado detallado del sistema.
@@ -176,4 +256,11 @@ const getApiInfo = (_req, res) => {
   });
 };
 
-module.exports = { healthCheck, getMetrics, getSystemMetrics, getApiInfo };
+module.exports = {
+  healthCheck,
+  livenessCheck,
+  readinessCheck,
+  getMetrics,
+  getSystemMetrics,
+  getApiInfo
+};

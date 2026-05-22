@@ -1,0 +1,121 @@
+name: Deploy Staging
+
+# Dispara el redeploy de api-staging + worker-staging en Koyeb cuando el
+# workflow CI (build.yml) finaliza con éxito en la rama Maintenance.
+# Encadenar con workflow_run evita disparar deploys si los tests fallan.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [Maintenance]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  # Un solo deploy a staging en curso. Si llega otro push, cancela el anterior:
+  # el nuevo trae más cambios y vamos a redeployar de todas formas.
+  group: deploy-staging
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Redeploy a Koyeb (staging)
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    # Sólo cuando CI verde en Maintenance, no en cualquier completed.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'Maintenance')
+
+    steps:
+      - name: Verificar secrets y variables requeridos
+        # KOYEB_STAGING_URL es Variable (no Secret) — las URLs operativas no son
+        # confidenciales. Tokens y nombres de servicio sí son secretos.
+        env:
+          KOYEB_API_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+          KOYEB_API_STAGING_NAME: ${{ secrets.KOYEB_API_STAGING_NAME }}
+          KOYEB_WORKER_STAGING_NAME: ${{ secrets.KOYEB_WORKER_STAGING_NAME }}
+          KOYEB_STAGING_URL: ${{ vars.KOYEB_STAGING_URL }}
+        run: |
+          set -e
+          for var in KOYEB_API_TOKEN KOYEB_API_STAGING_NAME KOYEB_WORKER_STAGING_NAME KOYEB_STAGING_URL; do
+            if [ -z "${!var}" ]; then
+              echo "::error::Variable/secret $var no está configurado"
+              exit 1
+            fi
+          done
+          echo "Todos los secrets y variables están presentes"
+
+      - name: Instalar Koyeb CLI
+        run: |
+          curl -fsSL https://raw.githubusercontent.com/koyeb/koyeb-cli/master/install.sh | sh
+          echo "$HOME/.koyeb/bin" >> "$GITHUB_PATH"
+
+      - name: Redeploy api-staging + worker-staging (paralelo)
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+        run: |
+          set -e
+          API_NAME="${{ secrets.KOYEB_API_STAGING_NAME }}"
+          WORKER_NAME="${{ secrets.KOYEB_WORKER_STAGING_NAME }}"
+          # Disparamos ambos en paralelo. Koyeb procesa el redeploy en su lado;
+          # esto sólo encola la operación, vuelve rápido.
+          koyeb services redeploy "$API_NAME" --token "$KOYEB_TOKEN" &
+          koyeb services redeploy "$WORKER_NAME" --token "$KOYEB_TOKEN" &
+          wait
+          echo "Redeploy disparado para $API_NAME y $WORKER_NAME"
+
+      - name: Smoke test /health/ready (8 intentos × 15s)
+        id: smoke
+        env:
+          STAGING_URL: ${{ vars.KOYEB_STAGING_URL }}
+        run: |
+          set +e
+          OK=0
+          for i in $(seq 1 8); do
+            sleep 15
+            HTTP_CODE=$(curl -sS -o /tmp/health.json -w "%{http_code}" "${STAGING_URL}/health/ready" || echo "000")
+            echo "Intento $i: HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then
+              OK=$((OK + 1))
+            fi
+            cat /tmp/health.json || true
+            echo ""
+          done
+          echo "ok_count=$OK" >> "$GITHUB_OUTPUT"
+          # Necesitamos al menos 3 de 8 intentos verdes para considerar
+          # el deploy exitoso (los primeros 1-2 pueden caer durante el reroute).
+          if [ "$OK" -lt 3 ]; then
+            echo "::error::Smoke test falló: sólo $OK/8 intentos devolvieron 200"
+            exit 1
+          fi
+          echo "Smoke test OK: $OK/8 intentos verdes"
+
+      - name: Auto-rollback si smoke test falla
+        if: failure() && steps.smoke.outcome == 'failure'
+        env:
+          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
+        run: |
+          set +e
+          API_NAME="${{ secrets.KOYEB_API_STAGING_NAME }}"
+          WORKER_NAME="${{ secrets.KOYEB_WORKER_STAGING_NAME }}"
+          echo "::warning::Disparando rollback automático en $API_NAME y $WORKER_NAME"
+          koyeb services rollback "$API_NAME" --token "$KOYEB_TOKEN"
+          koyeb services rollback "$WORKER_NAME" --token "$KOYEB_TOKEN"
+
+      - name: Resumen del despliegue
+        if: always()
+        run: |
+          {
+            echo "## Deploy a staging"
+            echo "- API: ${{ secrets.KOYEB_API_STAGING_NAME }}"
+            echo "- Worker: ${{ secrets.KOYEB_WORKER_STAGING_NAME }}"
+            echo "- URL: ${{ vars.KOYEB_STAGING_URL }}/health/ready"
+            echo "- Outcome smoke test: ${{ steps.smoke.outcome }}"
+            echo "- /health/ready 200 hits: ${{ steps.smoke.outputs.ok_count }}/8"
+          } >> "$GITHUB_STEP_SUMMARY"

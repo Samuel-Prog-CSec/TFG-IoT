@@ -15,6 +15,7 @@ const { objectIdSchema } = require('../validators/commonValidator');
 const { getRfidState } = require('../states/rfid');
 const { getSocketCommand, getCommandNames } = require('../commands/socket');
 const { findDangerousPayloadPath } = require('../utils/payloadSecurity');
+const rfidHmacValidator = require('../utils/rfidHmacValidator'); // T-905 B8
 const { socketConnectionLimits } = require('../config/socketRateLimits');
 const { getRedis } = require('../config/redis');
 const Sentry = require('@sentry/node');
@@ -50,6 +51,27 @@ const playOwnershipCache = new Map();
 const connectionCountByUserId = new Map();
 /** Mutex por userId para serializar operaciones RFID mode (evita race conditions). */
 const rfidModeLocks = new Map();
+
+/**
+ * Timeout en milisegundos para una operación dentro del lock RFID.
+ *
+ * Sin este timeout, una operación colgada (query Mongo sin índice, Redis
+ * bloqueado, deadlock) deja `releaseLock` sin invocarse y la cola del
+ * userId queda esperando indefinidamente; el socket RFID muere en silencio
+ * y el cliente no recibe `rfid_mode_*` hasta que cierre el navegador.
+ *
+ * 10s cubre con holgura la operación realista más cara (write Mongo +
+ * Redis SET con TTL + emit). Configurable vía env para QA.
+ */
+const RFID_OPERATION_TIMEOUT_MS =
+  Number.parseInt(process.env.RFID_OPERATION_TIMEOUT_MS, 10) || 10_000;
+
+/**
+ * Símbolo opaco para distinguir el rechazo por timeout de cualquier otro
+ * `Error` lanzado por la operación. Evita falsos positivos si la operación
+ * lanza un `Error` cuyo mensaje contenga "timeout".
+ */
+const RFID_LOCK_TIMEOUT_SENTINEL = Symbol('RFID_LOCK_TIMEOUT');
 
 /**
  * Devuelve el número de conexiones Socket.IO activas para un usuario.
@@ -135,9 +157,19 @@ const rfidModeTimers = new Map();
  * Ejecuta una operación RFID con exclusión mutua por userId.
  * Serializa operaciones concurrentes sobre el mismo usuario para evitar race conditions.
  *
+ * Aplica un timeout duro (`RFID_OPERATION_TIMEOUT_MS`) sobre la operación
+ * para que una query/await colgada NO bloquee la cola del usuario de forma
+ * permanente. Si el timeout se dispara:
+ *   1. Se libera el lock (siguiente operación puede arrancar).
+ *   2. Se incrementa la métrica `rfidLockTimeouts`.
+ *   3. Se registra un `SECURITY_EVENT` con `securityLogger` para auditoría.
+ *   4. Se emite `rfid_mode_error` al room del usuario con copy en español.
+ *   5. El caller recibe un `Error` con `code: 'RFID_LOCK_TIMEOUT'`.
+ *
  * @param {string} userId - ID del usuario
  * @param {Function} operation - Operación async a ejecutar
  * @returns {Promise<*>} Resultado de la operación
+ * @throws {Error} Con `code='RFID_LOCK_TIMEOUT'` si la operación supera el límite.
  */
 const executeWithRfidLock = async (userId, operation) => {
   const prevLock = rfidModeLocks.get(userId) || Promise.resolve();
@@ -147,10 +179,46 @@ const executeWithRfidLock = async (userId, operation) => {
   });
   rfidModeLocks.set(userId, lockPromise);
 
+  let timeoutHandle;
+  const timeoutPromise = new Promise((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(RFID_LOCK_TIMEOUT_SENTINEL);
+    }, RFID_OPERATION_TIMEOUT_MS);
+  });
+
   try {
     await prevLock;
-    return await operation();
+    return await Promise.race([operation(), timeoutPromise]);
+  } catch (error) {
+    if (error === RFID_LOCK_TIMEOUT_SENTINEL) {
+      runtimeMetrics.recordRfidLockTimeout();
+      logger.error(
+        {
+          userId,
+          timeoutMs: RFID_OPERATION_TIMEOUT_MS,
+          alert: true
+        },
+        'executeWithRfidLock superó el timeout — liberando lock'
+      );
+      logSecurityEvent('RFID_LOCK_TIMEOUT', {
+        userId,
+        timeoutMs: RFID_OPERATION_TIMEOUT_MS
+      });
+      if (socketServerRef) {
+        socketServerRef.to(`user_${userId}`).emit('rfid_mode_error', {
+          code: 'RFID_LOCK_TIMEOUT',
+          message: 'La operación RFID tardó demasiado y se ha cancelado. Vuelve a intentarlo.'
+        });
+      }
+      const timeoutError = new Error('Operación RFID excedió el timeout');
+      timeoutError.code = 'RFID_LOCK_TIMEOUT';
+      throw timeoutError;
+    }
+    throw error;
   } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
     releaseLock();
     // Limpiar lock si no hay operaciones pendientes posteriores
     if (rfidModeLocks.get(userId) === lockPromise) {
@@ -289,14 +357,17 @@ const getAuthCacheEntry = accessToken => {
 
   const cached = authRevalidationCache.get(accessToken);
   if (!cached) {
+    runtimeMetrics.recordSocketRevalidationCache('miss');
     return null;
   }
 
   if (cached.expiresAt <= Date.now()) {
     authRevalidationCache.delete(accessToken);
+    runtimeMetrics.recordSocketRevalidationCache('miss');
     return null;
   }
 
+  runtimeMetrics.recordSocketRevalidationCache('hit');
   return cached;
 };
 
@@ -330,14 +401,17 @@ const buildOwnershipCacheKey = ({ userId, userRole, playId, includeSessionRuntim
 const getOwnershipCacheEntry = cacheKey => {
   const cached = playOwnershipCache.get(cacheKey);
   if (!cached) {
+    runtimeMetrics.recordPlayOwnershipCache('miss');
     return null;
   }
 
   if (cached.expiresAt <= Date.now()) {
     playOwnershipCache.delete(cacheKey);
+    runtimeMetrics.recordPlayOwnershipCache('miss');
     return null;
   }
 
+  runtimeMetrics.recordPlayOwnershipCache('hit');
   return cached.value;
 };
 
@@ -720,7 +794,7 @@ const validatePlayId = (socket, playId, eventName) => {
 
   socket.emit('error', {
     code: 'VALIDATION_ERROR',
-    message: 'playId invalido'
+    message: 'playId inválido'
   });
   logSocketSecurityEvent('SECURITY_SOCKET_EVENT_INVALID', socket, {
     eventName,
@@ -732,7 +806,7 @@ const validatePlayId = (socket, playId, eventName) => {
 
 const requireSocketRole = (socket, allowedRoles, eventName) => {
   if (!socket?.data?.userId) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       eventName,
       reason: 'AUTH_REQUIRED'
@@ -756,7 +830,7 @@ const requireSocketRole = (socket, allowedRoles, eventName) => {
 const revalidateSocketAuth = async (socket, eventName) => {
   const accessToken = socket.data.accessToken;
   if (!accessToken) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       eventName,
       reason: 'TOKEN_MISSING'
@@ -782,7 +856,12 @@ const revalidateSocketAuth = async (socket, eventName) => {
     // Usar cache-aside Redis (slim-user, TTL 60s) en vez de hit directo a Mongo
     // por cada revalidación WebSocket. El cache local authRevalidationCache
     // sigue actuando como primer nivel (TTL 30s, per-process).
-    const user = await fetchUserForAuth(decoded.id, 'role status accountStatus +currentSessionId');
+    // T-905 B7 fix: usamos el select por defecto para compartir entrada de
+    // `authUserCache` con `authenticate` HTTP. Si pasamos un select inclusivo
+    // (`role status …`) Mongoose responde solo esos campos y la entrada cacheada
+    // pierde `mfa`, rompiendo `requireMfa` cuando luego entra una request HTTP
+    // del mismo usuario y consume el cache slim del socket.
+    const user = await fetchUserForAuth(decoded.id);
 
     if (!user) {
       throw new Error('Usuario no encontrado');
@@ -801,7 +880,7 @@ const revalidateSocketAuth = async (socket, eventName) => {
     }
 
     if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
-      throw new Error('Sesion invalida');
+      throw new Error('Sesión inválida');
     }
 
     socket.data.userId = user._id.toString();
@@ -816,7 +895,7 @@ const revalidateSocketAuth = async (socket, eventName) => {
 
     return true;
   } catch (error) {
-    socket.emit('error', { code: 'AUTH_INVALID', message: 'Autenticacion invalida' });
+    socket.emit('error', { code: 'AUTH_INVALID', message: 'Autenticación inválida' });
     logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
       eventName,
       reason: error.message
@@ -830,7 +909,7 @@ const requirePlayOwnership = async (socket, playId, eventName, options = {}) => 
   const includeSessionRuntime = options.includeSessionRuntime === true;
 
   if (!socket?.data?.userId) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       playId,
       eventName,
@@ -929,7 +1008,7 @@ const parseRfidClientPayload = (socket, data) => {
   const firstError = parsed.error.issues?.[0];
   socket.emit('error', {
     code: 'VALIDATION_ERROR',
-    message: firstError?.message || 'Payload RFID invalido'
+    message: firstError?.message || 'Payload RFID inválido'
   });
   logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
     eventName: 'rfid_scan_from_client',
@@ -1087,43 +1166,74 @@ const ensureRfidSensorConsistency = (socket, modeState, payload) => {
   return true;
 };
 
-const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, logger) => {
-  if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'rfid_scan_from_client')) {
-    return;
-  }
+const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, logger) =>
+  // T-904 Fase A: span manual para todo el procesamiento del scan
+  // (HMAC, mode lookup, validación de owner, ingest). Atributos básicos sin PII.
+  Sentry.startSpan(
+    {
+      name: 'rfid_scan_from_client',
+      op: 'rfid.scan',
+      attributes: {
+        'user.id': socket.data?.userId?.toString(),
+        'rfid.sensorId': data?.sensorId,
+        'rfid.hasHmac': Boolean(data?.hmac)
+      }
+    },
+    async () => {
+      if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'rfid_scan_from_client')) {
+        return;
+      }
 
-  if (!isRfidClientSourceEnabled(socket)) {
-    return;
-  }
+      if (!isRfidClientSourceEnabled(socket)) {
+        return;
+      }
 
-  const payload = parseRfidClientPayload(socket, data);
-  if (!payload) {
-    return;
-  }
+      const payload = parseRfidClientPayload(socket, data);
+      if (!payload) {
+        return;
+      }
 
-  const { modeState, state } = await getRfidStateForSocket(socket, logger);
-  if (!validateRfidStateForRead(socket, modeState, state)) {
-    return;
-  }
+      // T-905 B8: validación HMAC + counter anti-replay (gated por RFID_HMAC_ENABLED).
+      // Si la flag está off, retorna `valid:true` siempre — coexisten firmware
+      // viejo y nuevo durante la migración.
+      const hmacResult = await rfidHmacValidator.validate(payload);
+      if (!hmacResult.valid) {
+        logSecurityEvent('SECURITY_RFID_EVENT_INVALID', {
+          userId: socket.data?.userId,
+          reason: hmacResult.reason,
+          sensorId: payload.sensorId,
+          uid: payload.uid
+        });
+        socket.emit('rfid_scan_error', {
+          code: 'RFID_HMAC_INVALID',
+          reason: hmacResult.reason
+        });
+        return;
+      }
 
-  if (!validateRfidSensorAuthorization(socket, modeState, payload, gameEngine)) {
-    return;
-  }
+      const { modeState, state } = await getRfidStateForSocket(socket, logger);
+      if (!validateRfidStateForRead(socket, modeState, state)) {
+        return;
+      }
 
-  if (!ensureRfidSensorConsistency(socket, modeState, payload)) {
-    return;
-  }
+      if (!validateRfidSensorAuthorization(socket, modeState, payload, gameEngine)) {
+        return;
+      }
 
-  // Refrescar el watchdog: actividad legítima del modo RFID.
-  refreshRfidModeActivity(socket.data.userId, modeState.socketId || socket.id);
+      if (!ensureRfidSensorConsistency(socket, modeState, payload)) {
+        return;
+      }
 
-  rfidService.ingestEvent({
-    event: 'card_detected',
-    mode: modeState.mode,
-    ...payload
-  });
-};
+      // Refrescar el watchdog: actividad legítima del modo RFID.
+      refreshRfidModeActivity(socket.data.userId, modeState.socketId || socket.id);
 
+      rfidService.ingestEvent({
+        event: 'card_detected',
+        mode: modeState.mode,
+        ...payload
+      });
+    }
+  );
 /**
  * Crea middleware de autenticación reutilizable para namespaces Socket.IO.
  * Valida token JWT, origen, estado del usuario y límite de conexiones.
@@ -1172,15 +1282,14 @@ const createAuthMiddleware =
           reason: 'TOKEN_INVALID',
           tokenSource
         });
-        return next(new Error('Token invalido'));
+        return next(new Error('Token inválido'));
       }
 
       // Cache-aside Redis (slim-user, TTL 60s) en el handshake de Socket.IO.
       // Reduce queries repetidas a Mongo en reconexiones rápidas (WiFi inestable de aulas).
-      const user = await fetchUserForAuth(
-        decoded.id,
-        'role status accountStatus +currentSessionId'
-      );
+      // T-905 B7 fix: select por defecto para compartir cache con `authenticate`
+      // HTTP (ver explicación en revalidatePerEvent).
+      const user = await fetchUserForAuth(decoded.id);
       if (!user) {
         logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
           reason: 'USER_NOT_FOUND',
@@ -1220,7 +1329,7 @@ const createAuthMiddleware =
           tokenSource,
           userId: user._id
         });
-        return next(new Error('Sesion invalida'));
+        return next(new Error('Sesión inválida'));
       }
 
       const userId = user._id.toString();
@@ -1236,7 +1345,7 @@ const createAuthMiddleware =
             currentCount,
             limit: socketConnectionLimits.maxConnectionsPerUser
           });
-          return next(new Error('Limite de conexiones alcanzado'));
+          return next(new Error('Límite de conexiones alcanzado'));
         }
         incrementConnectionCount(userId);
       }
@@ -1254,7 +1363,7 @@ const createAuthMiddleware =
       logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
         reason: error.message
       });
-      return next(new Error('Autenticacion invalida'));
+      return next(new Error('Autenticación inválida'));
     }
   };
 
@@ -1348,6 +1457,39 @@ const registerSocketHandlers = ({
       userId: socket.data.userId,
       role: socket.data.userRole
     });
+
+    // T-907 OP2: handlers de validación del Socket.IO Redis adapter en
+    // escenario multi-instancia. Solo activos fuera de producción para que
+    // el script `test:multi-instance` pueda usar el namespace `/game` real
+    // sin acoplarse a la lógica de juego ni añadir endpoints HTTP de test.
+    // En producción quedan desactivados — son rutas inertes que no exponen
+    // datos ni superficie de ataque.
+    if (process.env.NODE_ENV !== 'production') {
+      socket.on('test:join', (payload = {}, ack) => {
+        const room = typeof payload.room === 'string' ? payload.room : null;
+        if (!room) {
+          if (typeof ack === 'function') {
+            ack({ ok: false, error: 'room required' });
+          }
+          return;
+        }
+        socket.join(room);
+        if (typeof ack === 'function') {
+          ack({ ok: true, room, socketId: socket.id });
+        }
+      });
+
+      socket.on('test:broadcast', (payload = {}) => {
+        const room = typeof payload.room === 'string' ? payload.room : null;
+        const event = typeof payload.event === 'string' ? payload.event : null;
+        if (!room || !event) {
+          return;
+        }
+        // Adapter Redis publica este emit a todas las instancias y sus
+        // sockets en la room reciben el mensaje, esté donde esté cada uno.
+        gameNsp.to(room).emit(event, payload.data ?? null);
+      });
+    }
 
     const sensitiveEvents = new Set([
       'join_play',

@@ -13,6 +13,7 @@
     "test": "vitest run --no-file-parallelism",
     "test:watch": "vitest",
     "test:coverage": "vitest run --no-file-parallelism --coverage",
+    "test:accesibilidad": "vitest run --no-file-parallelism src/__tests__/accesibilidad",
     "audit:full": "npm audit",
     "audit:prod": "npm audit --omit=dev",
     "audit:full:json": "npm audit --json",
@@ -32,10 +33,12 @@
     "framer-motion": "^12.38.0",
     "lucide-react": "^1.14.0",
     "prop-types": "^15.8.1",
+    "qrcode.react": "^4.2.0",
     "react": "^19.2.5",
     "react-dom": "^19.2.5",
     "react-is": "^19.2.5",
     "react-router-dom": "^7.14.2",
+    "react-turnstile": "^1.1.5",
     "recharts": "^3.8.1",
     "socket.io-client": "^4.8.3",
     "sonner": "^2.0.7",
@@ -66,8 +69,11 @@
     "eslint-plugin-sonarjs": "^4.0.2",
     "fake-indexeddb": "^6.2.5",
     "globals": "^17.5.0",
+    "jest-axe": "^10.0.0",
     "jsdom": "^29.1.1",
+    "rollup-plugin-visualizer": "^7.0.1",
     "vite": "^8.0.10",
+    "vite-plugin-compression2": "^2.5.3",
     "vitest": "^4.1.5"
   }
 }

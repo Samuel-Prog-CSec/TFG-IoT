@@ -34,44 +34,10 @@ const PERFORMANCE_TIERS = [
   { tier: 'excellent', label: 'Excelente (90-100)', min: 90, max: 100 }
 ];
 
-/**
- * Tipos de alerta soportados con su configuración por defecto.
- */
-const ALERT_TYPES = {
-  declining_performance: {
-    label: 'Rendimiento en descenso',
-    thresholds: { warning: 10, critical: 20 }
-  },
-  inactivity: {
-    label: 'Inactividad',
-    thresholds: { info: 7, warning: 14 }
-  },
-  sudden_score_drop: {
-    label: 'Caída repentina de puntuación',
-    thresholds: { warning: 30 }
-  },
-  consistent_timeout: {
-    label: 'Timeouts consistentes',
-    thresholds: { warning: 0.3 }
-  },
-  improving_fast: {
-    label: 'Mejora rápida',
-    thresholds: { info: 15 }
-  },
-  plateau_detected: {
-    label: 'Estancamiento detectado',
-    thresholds: { info: 5 }
-  },
-  high_abandonment: {
-    label: 'Alto abandono',
-    thresholds: { warning: 0.25 }
-  }
-};
-
-/**
- * Severidades de alertas, ordenadas de mayor a menor urgencia.
- */
-const ALERT_SEVERITIES = ['critical', 'warning', 'info'];
+// ALERT_TYPES y ALERT_SEVERITIES se trasladaron a `config/alerts.js` (T-941).
+// Para conservar la API pública sin romper imports antiguos, re-exportamos
+// desde el nuevo módulo.
+const { ALERT_TYPES, ALERT_SEVERITIES } = require('../../config/alerts');
 
 // ══════════════════════════════════════════════════════════════════════
 // Funciones de clasificación

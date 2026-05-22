@@ -548,7 +548,21 @@ abordados en la propia sesion — ver `memory/project_qa_2026_04_22.md`.
 
 ---
 
-## PROP-78: Persistencia real de alertas inteligentes con createdAt historico
+## PROP-78: Persistencia real de alertas inteligentes con createdAt historico ✅ IMPLEMENTADA (T-941, ADR-161)
+
+**Estado:** Cerrada en Sprint 6 vía T-941 con ampliación profunda. Implementación entrega no solo la persistencia básica (`SmartAlert` con lifecycle active/resolved/dismissed/snoozed) sino también:
+
+- 7 detectores nuevos (incluye `plateau_detected` que arrastraba TODO, `sequence_stagnation`/`sequence_order_errors` que cerraron criterio pendiente de T-923, y un detector cross-mecánica único en el proyecto).
+- Pinning, audit log endpoint, dashboard interno de eficacia, hard-delete cron, auto-reapertura de dismissed.
+- Notificación realtime al docente cuando aparece critical.
+- Fix de seguridad RGPD (filtro `consent.withdrawnAt`) + fix de bug crítico (divide-by-zero en `decliningPerformance`).
+- Eliminación completa del código legacy (no fachada, no flag).
+
+Ver detalles completos en `documentation/Architecture_Decisions.md` ADR-161.
+
+---
+
+### Descripción original (histórica)
 
 **Descripcion:** Hoy las alertas que muestra `AlertsHub.jsx` y
 `AlertsPanel.jsx` provienen de `getClassroomAlerts` en
@@ -1531,7 +1545,7 @@ ruidosamente cuando se rompe. Evidencia de DR real para memoria TFG.
 
 ---
 
-## PROP-120 [ALTA]: Cloudflare rules (cache + WAF + DDoS + rate limit)
+## PROP-120 [ALTA]: Cloudflare rules (cache + WAF + DDoS + rate limit) ✅ CERRADA (T-907 / ADR-160, 2026-05-17)
 
 **Descripcion:** Cloudflare Pages incluye proxy Cloudflare por defecto.
 Configurar reglas: **cache** (estaticos con TTL largo, HTML always
@@ -1550,13 +1564,12 @@ del backend sin coste, ahorra queries al free tier Upstash.
 - Security → WAF → Managed Rules → OWASP Core Ruleset (free).
 - Security → Rate limiting: 30 req/10s por IP a `/api/*`.
 - Bot Fight Mode activado.
-- Documentacion en `documentation/Cloudflare_Setup.md`.
 
 **Esfuerzo:** S (1 dia).
 
 ---
 
-## PROP-121 [MEDIA]: Bundle analysis + tree-shaking final frontend
+## PROP-121 [MEDIA]: Bundle analysis + tree-shaking final frontend ✅ CERRADA (T-907 / ADR-159, 2026-05-17)
 
 **Descripcion:** Auditar el bundle final de produccion con
 `rollup-plugin-visualizer`. Identificar deps grandes (Recharts, Framer
@@ -1581,7 +1594,7 @@ pre-release. Los findings son documentables en memoria TFG como
 
 ---
 
-## PROP-122 [ALTA]: Validar Socket.IO adapter con multiples instancias Koyeb
+## PROP-122 [ALTA]: Validar Socket.IO adapter con multiples instancias Koyeb ✅ CERRADA (T-907, 2026-05-17 — scripts `dev:multi-1/2` + `test:multi-instance` + doc en `WebSockets-ExtendedUsage.md`)
 
 **Descripcion:** Aunque Koyeb free solo permite 1 instancia always-on
 por app, validar que el **Socket.IO Redis adapter** (ya integrado)
@@ -1607,7 +1620,7 @@ para la memoria TFG.
 
 ---
 
-## PROP-123 [ALTA]: Optimizacion command budget Upstash
+## PROP-123 [ALTA]: Optimizacion command budget Upstash ✅ CERRADA (T-907 / ADR-158, 2026-05-17 — telemetría comandos por categoría + LRU memoria slim-user / mechanic / context. Sub-tareas refactor pipeline auth y `runPipeline` adopción quedan documentadas como follow-up)
 
 **Descripcion:** Medir commands/dia consumidos en staging durante 1
 semana. Si se acercan a 10K/dia, aplicar optimizaciones: pipelining
@@ -1927,3 +1940,67 @@ sprint da margen.
    staging + smoke test manual + iteracion de fixes.
 5. Corte v1.0.0: tag + deploy prod + monitoreo cercano primeras 48h.
 6. Backlog post-release: ALTA primero, MEDIA despues.
+
+---
+
+## Sprint 0 pre-v1.0.0 — Implementado y diferido (ADR-164)
+
+Auditoría exhaustiva con 3 agentes Explore + verificación manual. 14 findings reales (+ 5 falsos positivos descartados). Sprint 0 ejecuta el bloque CRÍTICO/ALTO; el resto va a Sprints 1-3.
+
+### Implementado en Sprint 0
+- **PROP-AUD-C1** [SEC, ALTO] `executeWithRfidLock` con `Promise.race` + timeout 10s + métrica + Sentry alert.
+- **PROP-AUD-C2-parcial** [ARQ] Extracción de `gameReducer` + `INITIAL_GAME_STATE` + `normalizeFinalSummary` de `GameSession.jsx` a hooks/lib testeables. -148 líneas.
+- **PROP-AUD-A4** [SEC] Sanitización Unicode invisibles/direccionales + maxLength en `commonValidator.sanitizedString()`. Aplicado a contextos, mazos, sesiones, usuarios, consentimientos, anuncios.
+- **PROP-AUD-A5** [INT] UID duplicate validator en `GameSession.cardMappings` (espejo del de `CardDeck`).
+- **PROP-AUD-A6** [DRY] `cardMappingSchema` consolidado en `commonValidator.js`.
+- **PROP-AUD-M1** [PERF] `SLOW_AGGREGATE_WARN_MS=5000` slow-query log en `gamePlayRepository.aggregate`.
+- **PROP-AUD-M3** [PERF/A11Y] `CharacterMascot` gated con `useInView` + `useReducedMotion`.
+- **PROP-AUD-M7** [SEC] `adminApprovalRateLimiter` 100/h por super_admin para `/approve` y `/reject`.
+- **PROP-AUD-M8** [PERF/MEMORY] `useConfetti` auto-cleanup de intervals via `Set<id>` en `useEffect` cleanup.
+- **PROP-AUD-B2** [REGRESS] Cobertura tests DTO output extendida a GamePlay/GameSession/CardDeck/GameContext/SystemMetrics.
+
+### Diferido a Sprint 1 (post v1.0.0)
+- **PROP-AUD-C2-completo** División Container/View completa de `GameSession.jsx` y resto de páginas grandes (DeckCreationWizard 1251 / SessionsPage 990 / StudentsAnalytics 971 / DeckEditPage 867 / SessionDetail 817 / Dashboard / ChallengeDisplay).
+- **PROP-AUD-A2** Descomposición de `AppLayout` (788 líneas) en SidebarLayout + LayoutHeader + LayoutBackdrop + OnboardingHost.
+- **PROP-AUD-A3** Extracción de `CardLockManager` de `GameEngine.js` y MFA TOTP + deviceFingerprint de `auth.js` middleware.
+- **PROP-AUD-M2** Subcarpetas en `components/ui/` (cards/, forms/, feedback/, overlays/, rfid/, media/).
+- **PROP-AUD-M6** Charts con keyboard navigation completa + aria-live + tabla sr-only.
+- **PROP-AUD-B3** `RFIDModeHandler` con `aria-live="polite"` para anuncio de cambios de estado.
+- **PROP-AUD-B4** Empty states uniformes en StudentManagement, InsightsReports, etc.
+- **PROP-AUD-B5** Barrido final de residuos de emojis usados como iconos.
+
+### Diferido a Sprint 2 (v1.2.0)
+- **PROP-AUD-M5** CVA o Radix UI Primitives para SelectPremium/InputPremium/ButtonPremium.
+- **PROP-AUD-B6** Split de `redisService.js` en redisService/locks.js + cache.js si crece >2000 líneas.
+- **PROP-AUD-B7** Proyecciones explícitas en repos con `findOne`/`findById` (documentar en baseRepository.js).
+- **PROP-AUD-B1** JSDoc en cada `.index()` de modelos Mongoose explicando el caso de uso.
+- **PROP-AUD-B8** RGPD endpoint `GET /api/users/:id/export` y `DELETE /api/users/:id` con anonimización (si no existe ya).
+
+### Diferido a Sprint 3 (v1.3.0)
+- Materialized view `studentMetrics.*` con BullMQ nightly. Pre-aggregation de `getStudentDifficulties` y `getStudentSummary`. Reduce las queries analytics costosas a `findById().select()` O(1).
+
+### Falsos positivos descartados (NO se actuó)
+- ❌ N+1 en `getPlayStatsBySessionIds` — usa aggregation pipeline `$match`+`$group`, una sola query.
+- ❌ `healthController` expone `INSTANCE_NAME` — no aparece en el código, solo expone métricas operacionales legítimas.
+- ❌ `dangerouslySetInnerHTML` en frontend — 0 ocurrencias.
+- ❌ Tokens en `localStorage` — 0 ocurrencias (cookies httpOnly por T-905).
+- ❌ Duplicación masiva `ui/` vs `common/` — `common/` solo tiene 4 archivos utility específicos.
+
+---
+
+## PROP-Q1 [MEDIA · UX, no bug]: Agrupar alertas inteligentes por alumno en Alertas Hub
+
+**Origen:** QA 2026-05-21 — Sesión de auditoría integral pre-release v1.0.0.
+
+**Observación:** la lista de `/analytics/insights` → tab Alertas muestra a varios alumnos repetidos consecutivamente (Emilia Domínguez ×2, Valentina López ×2, Victoria Ruiz ×2 — top y bottom). Cada repetición corresponde a una alerta de tipo distinto (descenso, abandono, etc.) sobre el mismo alumno, pero a primera vista parece duplicación de filas.
+
+**Propuesta:** opciones no excluyentes:
+1. **Agrupar por alumno** (collapsible): una fila por estudiante con un contador "3 alertas activas" y un caret que despliega los detalles. Reduce ruido visual sin perder información.
+2. **Etiquetar el tipo de alerta** con un badge prominente al inicio de la fila: `[Descenso]`, `[Abandono]`, `[Mejora rápida]`. El nombre del alumno queda secundario porque ya está en el badge contextual.
+3. **Ordenación inteligente**: poner contiguas todas las alertas del mismo alumno (sort: alumno, fecha desc) en lugar del orden actual por fecha. Lo más simple, sin cambios de estructura.
+
+**Recomendación:** opción 3 + opción 2 (ordenación por alumno + badge tipo al inicio). Mínimo cambio de UI, máxima ganancia de claridad. La opción 1 (agrupación con collapsible) queda como segunda iteración si la 3+2 no resuelve.
+
+**No es bug funcional**: los datos son correctos, sólo es percepción de duplicación. Por eso queda como propuesta, no en el fix-en-bloque de la QA del 21/05.
+
+**Esfuerzo estimado:** S (1 día). Cambio frontal en `AlertsHub.jsx` (o el componente equivalente de `/analytics/insights`).

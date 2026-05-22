@@ -6,7 +6,7 @@
  * @module components/game/ChallengeDisplay
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { HelpCircle, Sparkles } from 'lucide-react';

@@ -5,7 +5,7 @@
  */
 
 const { z } = require('zod');
-const { objectIdSchema, userFiltersSchema } = require('./commonValidator');
+const { objectIdSchema, userFiltersSchema, sanitizedString } = require('./commonValidator');
 const { ROLES, USER_STATUS, CONSENT_PURPOSES } = require('../constants/enums');
 
 /**
@@ -32,11 +32,7 @@ const passwordSchema = z
  */
 const createUserSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres'),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }),
 
     email: emailSchema.optional(),
 
@@ -113,11 +109,7 @@ const createUserSchema = z
  */
 const createStudentSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres'),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }),
 
     profile: z.object({
       avatar: z.string().url('URL de avatar inválida').optional(),
@@ -146,11 +138,7 @@ const createStudentSchema = z
             'El consentimiento parental debe ser otorgado para crear un alumno (Art. 8 RGPD + Art. 7 LOPDGDD)'
         })
       }),
-      grantedBy: z
-        .string()
-        .trim()
-        .min(2, 'El nombre del tutor debe tener al menos 2 caracteres')
-        .max(100, 'El nombre del tutor no puede exceder 100 caracteres'),
+      grantedBy: sanitizedString({ min: 2, max: 100, label: 'El nombre del tutor' }),
       purposes: z.array(z.enum([...CONSENT_PURPOSES])).optional(),
       policyVersion: z.string().trim().optional()
     })
@@ -163,11 +151,7 @@ const createStudentSchema = z
  */
 const registerTeacherSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres'),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }),
 
     email: emailSchema,
 
@@ -191,12 +175,7 @@ const registerTeacherSchema = z
  */
 const updateUserSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres')
-      .optional(),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }).optional(),
 
     email: emailSchema.optional(),
 
@@ -221,7 +200,10 @@ const updateUserSchema = z
 const loginSchema = z
   .object({
     email: emailSchema,
-    password: z.string().min(1, 'La contraseña es requerida')
+    password: z.string().min(1, 'La contraseña es requerida'),
+    // T-905 B6: opcional, Turnstile siteverify lo procesa el middleware turnstileGuard.
+    // Frontend lo adjunta cuando el widget Turnstile genera un token (≥3 fallos).
+    captchaToken: z.string().max(2048).optional()
   })
   .strict();
 
@@ -238,12 +220,8 @@ const userQuerySchema = userFiltersSchema.extend({
 const transferStudentSchema = z
   .object({
     newTeacherId: objectIdSchema,
-    newClassroom: z
-      .string()
-      .trim()
-      .min(1, 'newClassroom es requerido')
-      .max(50, 'newClassroom no puede exceder 50 caracteres'),
-    reason: z.string().trim().max(200, 'reason no puede exceder 200 caracteres').optional()
+    newClassroom: sanitizedString({ min: 1, max: 50, label: 'newClassroom' }),
+    reason: sanitizedString({ min: 0, max: 200, label: 'reason', allowMultiline: true }).optional()
   })
   .strict();
 
@@ -280,12 +258,7 @@ const teacherStudentsQuerySchema = z
 const updateConsentSchema = z
   .object({
     granted: z.boolean(),
-    grantedBy: z
-      .string()
-      .trim()
-      .min(2, 'El nombre del tutor debe tener al menos 2 caracteres')
-      .max(100, 'El nombre del tutor no puede exceder 100 caracteres')
-      .optional(),
+    grantedBy: sanitizedString({ min: 2, max: 100, label: 'El nombre del tutor' }).optional(),
     purposes: z.array(z.enum([...CONSENT_PURPOSES])).optional(),
     policyVersion: z.string().trim().optional()
   })

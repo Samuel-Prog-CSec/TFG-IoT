@@ -57,8 +57,29 @@ function validateDeckMappingsStructure(cardMappings) {
   if (new Set(uids).size !== uids.length) {
     throw new ValidationError('Los UIDs en cardMappings deben ser únicos');
   }
-  if (new Set(assignedValues).size !== assignedValues.length) {
-    throw new ValidationError('No puede haber valores asignados duplicados en cardMappings');
+
+  // BUG-DECK-MEMORY-A (QA Sprint 0 post-v0.5.0): los mazos para Memoria
+  // necesitan parejas (dos cartas con el mismo `assignedValue` para que
+  // el alumno empareje). Antes el validator rechazaba CUALQUIER duplicado,
+  // bloqueando la creación de mazos Memoria desde el wizard del frontend
+  // (el seed los creaba directamente con `Model.create()` saltándose este
+  // check, lo que confirma que el patrón es legítimo).
+  //
+  // Política actual: aceptar tanto "valores únicos" (Asociación/Secuencia)
+  // como "todos en parejas exactas de 2" (Memoria). Cualquier otra
+  // distribución sigue rechazándose.
+  const valueCounts = assignedValues.reduce((acc, v) => {
+    acc[v] = (acc[v] || 0) + 1;
+    return acc;
+  }, {});
+  const counts = Object.values(valueCounts);
+  const allUnique = counts.every(c => c === 1);
+  const allPairs = counts.every(c => c === 2);
+  if (!allUnique && !allPairs) {
+    throw new ValidationError(
+      'Valores asignados no válidos: todas las cartas deben aparecer 1 vez ' +
+        '(Asociación/Secuencia) o exactamente 2 veces (parejas para Memoria).'
+    );
   }
 
   // Normalizar los UIDs en el propio array para persistir coherente

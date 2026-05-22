@@ -773,7 +773,7 @@ const updateMyOnboarding = async (req, res) => {
     userId,
     { $set: update },
     {
-      new: true,
+      returnDocument: 'after',
       runValidators: true
     }
   );

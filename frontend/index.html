@@ -41,28 +41,17 @@
            producto educativo: tiene calidez sin ser infantil. Sustituye a Outfit (mas generico). -->
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <!-- preload as=style baja la prioridad de bloqueo del CSS sin perder el descubrimiento temprano:
+         el navegador empieza a descargar la hoja en paralelo a HTML parsing en lugar de esperar al
+         <link rel=stylesheet>. Combinado con display=swap evita FOIT y reduce el LCP percibido. -->
+    <link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&display=swap">
     <link href="https://fonts.googleapis.com/css2?family=Inter+Tight:wght@400;500;600;700&family=Bricolage+Grotesque:opsz,wght@12..96,500;12..96,600;12..96,700;12..96,800&display=swap" rel="stylesheet">
 
-    <!-- Tema inicial pre-React (FOUC < 50ms).
-         Lee localStorage['eduplay:theme'] (auto|light|dark), resuelve
-         "auto" con prefers-color-scheme, y aplica el atributo data-theme
-         a <html> antes del primer paint. Sincroniza también la meta
-         theme-color (T-951 Fase 1). -->
-    <script>
-      (function () {
-        try {
-          var stored = localStorage.getItem('eduplay:theme');
-          var mode = stored === 'light' || stored === 'dark' || stored === 'auto' ? stored : 'auto';
-          var prefersLight = window.matchMedia && window.matchMedia('(prefers-color-scheme: light)').matches;
-          var resolved = mode === 'light' ? 'light' : mode === 'dark' ? 'dark' : prefersLight ? 'light' : 'dark';
-          document.documentElement.dataset.theme = resolved;
-          var meta = document.querySelector('meta[name="theme-color"]');
-          if (meta) meta.setAttribute('content', resolved === 'light' ? '#fbf7ee' : '#0f172a');
-        } catch (e) {
-          document.documentElement.dataset.theme = 'dark';
-        }
-      })();
-    </script>
+    <!-- Tema inicial pre-React (FOUC < 50ms). Servido como archivo externo
+         para no romper la CSP estricta de produccion (sin 'unsafe-inline'
+         ni hash). Debe ser sincrono (sin defer/async) para ejecutarse antes
+         del primer paint. QA 2026-05-21 BUG-QA-1. -->
+    <script src="/theme-bootstrap.js"></script>
   </head>
   <body class="antialiased">
     <noscript>

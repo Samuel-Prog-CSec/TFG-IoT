@@ -24,7 +24,7 @@ class BaseRfidState {
   }
 
   getRoomMismatchMessage() {
-    return 'Modo RFID invalido';
+    return 'Modo RFID inválido';
   }
 
   getRoomMismatchReason() {

@@ -1,4 +1,4 @@
-import { useState, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search, Gamepad2 } from 'lucide-react';
@@ -30,173 +30,17 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useSoundEffects } from '../hooks/useSoundEffects';
 import { useGameTimer } from '../hooks/useGameTimer';
 import { useGameSocket } from '../hooks/useGameSocket';
+import { useGameSessionState } from '../hooks/useGameSessionState';
+import { normalizeFinalSummary } from '../lib/finalSummary';
 import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from '../lib/sessionSnapshot';
 
 const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
 const FLOAT_DELAY_NONE = { animationDelay: '0s' };
 
-function normalizeFinalSummary(rawMetrics, score, correctAnswers, mechanicMode, gameStartTime, maxScore = null) {
-  const metrics = rawMetrics && typeof rawMetrics === 'object' ? rawMetrics : {};
-  const totalAttempts = Number(metrics.totalAttempts || 0);
-  const averageResponseTimeMs = Number(metrics.averageResponseTime || 0);
-  // El backend persiste el tiempo total como `completionTime` (estándar
-  // del modelo GamePlay). Aceptamos también `totalTimePlayed`/`playDuration`
-  // como alias por compatibilidad. Sin esta lectura, en Secuencia el
-  // gameStartTimeRef nunca se setea (no emite `new_round`) y el cálculo
-  // local fallaba a 0 → "Tiempo total: —" en GameOver.
-  const rawTotalTime = Number(
-    metrics.completionTime || metrics.totalTimePlayed || metrics.playDuration || 0
-  );
-
-  // Si no hay tiempo del servidor, calcular a partir del inicio local (en ms)
-  const elapsedMs = gameStartTime ? Date.now() - gameStartTime : 0;
-  const totalTimePlayed = rawTotalTime > 0 ? rawTotalTime : elapsedMs;
-
-  // Errors y timeouts vienen desglosados desde el backend cuando estan
-  // disponibles. Antes calculabamos errors = totalAttempts - correctAnswers,
-  // pero el `correctAnswers` del reducer local puede llegar desincronizado
-  // si el evento `game_over` se procesa antes que el ultimo `response_*`
-  // (race entre eventos del socket). Usar `metrics.errorAttempts` como fuente
-  // de verdad evita falsos positivos como "Incorrectas: 5" en una partida
-  // de 4 aciertos + 1 fallo (QA 26/04/2026).
-  const errorAttempts = metrics.errorAttempts !== undefined ? Number(metrics.errorAttempts) : null;
-  const correctAttempts =
-    metrics.correctAttempts !== undefined ? Number(metrics.correctAttempts) : null;
-  const errors = Number.isFinite(errorAttempts)
-    ? Math.max(0, errorAttempts)
-    : Math.max(0, totalAttempts - correctAnswers);
-  const finalCorrect = Number.isFinite(correctAttempts) ? correctAttempts : correctAnswers;
-
-  // Resumen base común a todas las mecánicas. Las métricas específicas de
-  // Secuencia (sequencesCompleted, maxSequenceLengthAchieved, ...) se
-  // mergean tal cual desde `metrics` para que el sub-componente de stats
-  // (`GameOverStatsSequence`) las consuma.
-  // ADR-114: `maxScore` viene del backend (calculado en GamePlay al crear
-  // la partida con fórmula propia de cada mecánica). El GameOverScreen
-  // lo usa para pintar `score / maxScore (Z%)` y dar contexto al alumno.
-  const numericMaxScore = Number(maxScore);
-  const safeMaxScore = Number.isFinite(numericMaxScore) && numericMaxScore > 0 ? numericMaxScore : null;
-  const summary = {
-    score,
-    maxScore: safeMaxScore,
-    correctAnswers: finalCorrect,
-    errors,
-    attempts: totalAttempts,
-    averageResponseTimeMs: Number.isFinite(averageResponseTimeMs) ? averageResponseTimeMs : 0,
-    totalTimePlayed: Number.isFinite(totalTimePlayed) ? totalTimePlayed : 0,
-    mode: mechanicMode || 'association'
-  };
-
-  if (mechanicMode === 'sequence') {
-    summary.sequencesCompleted = Number(metrics.sequencesCompleted || 0);
-    summary.sequencesBlocked = Number(metrics.sequencesBlocked || 0);
-    summary.sequencesTimedOut = Number(metrics.sequencesTimedOut || 0);
-    summary.maxSequenceLengthAchieved = Number(metrics.maxSequenceLengthAchieved || 0);
-    summary.partialReproductions = Number(metrics.partialReproductions || 0);
-    summary.partialRounds = Number(metrics.partialRounds || 0);
-    summary.averageReproductionTimeMs = Number(metrics.averageReproductionTimeMs || 0);
-    summary.blockedCardsTotal = Number(metrics.blockedCardsTotal || 0);
-    summary.hintsUsed = Number(metrics.hintsUsed || 0);
-  } else if (mechanicMode === 'memory' && metrics.memory && typeof metrics.memory === 'object') {
-    // Sub-objeto Memory persistido en GameEngine.endPlay (ADR-A/B). El
-    // hero "Mejor racha" del GameOver lo lee desde aquí.
-    summary.memory = {
-      groupsMatched: Number(metrics.memory.groupsMatched || 0),
-      peakStreak: Number(metrics.memory.peakStreak || 0),
-      averageMatchTimeMs: Number(metrics.memory.averageMatchTimeMs || 0),
-      attemptsToFirstMatch: metrics.memory.attemptsToFirstMatch ?? null,
-      groupSize: Number(metrics.memory.groupSize || 2)
-    };
-  } else if (
-    mechanicMode === 'association' &&
-    metrics.association &&
-    typeof metrics.association === 'object'
-  ) {
-    // Sub-objeto Association persistido (ADR-A/B). El hero "Tu categoría
-    // más fuerte" usa categoryDominance; los pills inferiores ya consumen
-    // los campos `errors`/`averageResponseTimeMs` del summary base.
-    summary.association = {
-      peakStreak: Number(metrics.association.peakStreak || 0),
-      quickestCorrectMs: metrics.association.quickestCorrectMs ?? null,
-      slowestCorrectMs: metrics.association.slowestCorrectMs ?? null,
-      byValueAccuracy:
-        metrics.association.byValueAccuracy &&
-        typeof metrics.association.byValueAccuracy === 'object'
-          ? metrics.association.byValueAccuracy
-          : {},
-      categoryDominance: metrics.association.categoryDominance ?? null
-    };
-  }
-
-  return summary;
-}
-
-// Estado inicial del juego (campos coordinados que deben transicionar atómicamente)
-const INITIAL_GAME_STATE = {
-  gameState: 'waiting',      // 'waiting' | 'playing' | 'paused' | 'finished'
-  currentRound: 1,
-  score: 0,
-  correctAnswers: 0,
-  isAwaitingResponse: false,
-};
-
-/**
- * Reducer para estado coordinado del juego.
- * Garantiza transiciones atómicas entre estados y evita desincronización
- * cuando eventos de socket y timeouts llegan simultáneamente.
- */
-function gameReducer(state, action) {
-  switch (action.type) {
-    case 'SET_GAME_STATE':
-      return { ...state, gameState: action.value };
-    case 'SET_SCORE':
-      return { ...state, score: action.value };
-    case 'SET_ROUND':
-      return { ...state, currentRound: action.value };
-    case 'AWAIT_RESPONSE':
-      return { ...state, isAwaitingResponse: action.value };
-    case 'ANSWER_CORRECT':
-      return {
-        ...state,
-        score: action.score,
-        correctAnswers: state.correctAnswers + 1,
-        isAwaitingResponse: false,
-      };
-    case 'ANSWER_INCORRECT':
-      return {
-        ...state,
-        score: action.score,
-        isAwaitingResponse: false,
-      };
-    case 'NEW_ROUND':
-      return {
-        ...state,
-        gameState: 'playing',
-        currentRound: action.round,
-        score: action.score,
-        isAwaitingResponse: true,
-      };
-    case 'PAUSE':
-      return { ...state, gameState: 'paused', isAwaitingResponse: false };
-    case 'RESUME':
-      return { ...state, gameState: 'playing', isAwaitingResponse: true };
-    case 'FINISH':
-      return { ...state, gameState: 'finished', isAwaitingResponse: false, score: action.score };
-    case 'PLAY_STATE_SYNC': {
-      // Sincronización parcial desde el servidor: solo actualiza campos presentes
-      const next = { ...state };
-      if (action.gameState !== undefined) next.gameState = action.gameState;
-      if (action.currentRound !== undefined) next.currentRound = action.currentRound;
-      if (action.score !== undefined) next.score = action.score;
-      if (action.isAwaitingResponse !== undefined) next.isAwaitingResponse = action.isAwaitingResponse;
-      return next;
-    }
-    case 'RESET':
-      return { ...INITIAL_GAME_STATE };
-    default:
-      return state;
-  }
-}
+// `gameReducer` + `INITIAL_GAME_STATE` extraídos a `hooks/useGameSessionState.js`
+// y `normalizeFinalSummary` a `lib/finalSummary.js` (Sprint 0 pre-v1.0.0 C2)
+// para reducir la complejidad cognitiva de este archivo y testear las unidades
+// puras por separado. Los imports están al inicio del fichero.
 
 /**
  * Pantalla principal de juego para niños de 4-8 años.
@@ -226,8 +70,8 @@ export default function GameSession() {
   const roundTimeRef = useRef(ROUND_TIME);
   const socketSessionRef = useRef(null); // Ref al objeto session del socket hook
 
-  // --- Estado coordinado del juego (reducer) ---
-  const [game, dispatch] = useReducer(gameReducer, INITIAL_GAME_STATE);
+  // --- Estado coordinado del juego (extraído a hooks/useGameSessionState) ---
+  const { game, dispatch } = useGameSessionState();
   const { gameState, currentRound, score, correctAnswers, isAwaitingResponse } = game;
 
   // Señaliza al GameLayout que hay una partida activa para que la salida
@@ -697,11 +541,19 @@ export default function GameSession() {
   }, [setTimeLeft, clearAnnouncedThresholds]);
 
   const handleSequencePhaseReproducing = useCallback(payload => {
+    // Sincronizar `overlayDurationMs` con el `gracePeriodMs` del backend para
+    // que PhaseTransitionOverlay y el setTimeout interno de SequenceBoard usen
+    // exactamente la misma duración. Si el evento no trae el campo (test o
+    // backend antiguo), SequenceBoard/Overlay caen al fallback (2400ms).
+    const gracePeriodMsForOverlay = Number(payload?.gracePeriodMs);
     setSequenceState(prev => ({
       ...prev,
       phase: 'reproducing',
       cursor: 0,
-      length: typeof payload?.length === 'number' ? payload.length : prev.length
+      length: typeof payload?.length === 'number' ? payload.length : prev.length,
+      overlayDurationMs: Number.isFinite(gracePeriodMsForOverlay) && gracePeriodMsForOverlay > 0
+        ? gracePeriodMsForOverlay
+        : prev.overlayDurationMs
     }));
 
     // Reiniciar la barra a la duración real de esta ronda. El backend acaba
@@ -813,7 +665,13 @@ export default function GameSession() {
       (payload?.results || []).forEach(item => {
         finalStatuses[item.uid] = TYPE_TO_STATUS[item.status] || 'correct';
       });
-      return { ...prev, phase: 'completed', cardStatuses: finalStatuses };
+      // cursor: 0 cierra cualquier render intermedio (overlay, transición a
+      // memorizing) que pintara el indicador "Carta X de N" del fallback
+      // panel con el cursor de la ronda recién terminada. La nueva ronda
+      // entra siempre desde 0 y `handleSequencePhaseMemorizing`/`Reproducing`
+      // lo confirman; este reset es defensa-en-profundidad para evitar que
+      // un race condition exponga el cursor de la ronda anterior.
+      return { ...prev, phase: 'completed', cardStatuses: finalStatuses, cursor: 0 };
     });
     // La ronda ha terminado: paramos el timer del cliente para que la
     // barra no siga decrementando durante el respiro entre rondas (el

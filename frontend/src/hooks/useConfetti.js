@@ -1,16 +1,39 @@
 /**
- * Hook centralizado para efectos de confetti
- * Usa canvas-confetti (Canvas 2D con aceleracion hardware)
- * Respeta preferencia de movimiento reducido
+ * Hook centralizado para efectos de confetti.
+ * Usa canvas-confetti (Canvas 2D con aceleracion hardware).
+ * Respeta preferencia de movimiento reducido.
+ *
+ * Sprint 0 pre-v1.0.0 (M8): registra los intervals lanzados por
+ * `fireFireworks` y los cancela en unmount, evitando que un componente
+ * desmontado mid-celebración deje un setInterval activo que siga
+ * pintando partículas hasta el `durationMs`. canvas-confetti gestiona
+ * su propio rAF interno (autopara cuando las partículas mueren), por
+ * lo que solo necesitamos limpiar nuestros intervals.
  */
 import confetti from 'canvas-confetti';
-import { useCallback } from 'react';
+import { useCallback, useEffect, useRef } from 'react';
 import { useReducedMotion } from './useReducedMotion';
 
 const BRAND_COLORS = ['#8b5cf6', '#22d3ee', '#f472b6', '#facc15', '#4ade80'];
 
 export function useConfetti() {
   const { shouldReduceMotion } = useReducedMotion();
+  /**
+   * Set de intervalos activos lanzados desde `fireFireworks`. Los limpiamos
+   * todos en el cleanup de useEffect para que un unmount durante la
+   * celebración no deje setIntervals huérfanos.
+   */
+  const activeIntervalsRef = useRef(new Set());
+
+  useEffect(() => {
+    const intervals = activeIntervalsRef.current;
+    return () => {
+      for (const id of intervals) {
+        clearInterval(id);
+      }
+      intervals.clear();
+    };
+  }, []);
 
   const fireConfetti = useCallback((options = {}) => {
     if (shouldReduceMotion) return;
@@ -90,9 +113,11 @@ export function useConfetti() {
     if (shouldReduceMotion) return () => {};
     const palette = options?.colors || BRAND_COLORS;
     const end = Date.now() + durationMs;
+    const intervals = activeIntervalsRef.current;
     const interval = setInterval(() => {
       if (Date.now() > end) {
         clearInterval(interval);
+        intervals.delete(interval);
         return;
       }
       // Dos rafagas (izquierda/derecha) por tick para densidad visual.
@@ -125,7 +150,11 @@ export function useConfetti() {
         disableForReducedMotion: true,
       });
     }, 280);
-    return () => clearInterval(interval);
+    intervals.add(interval);
+    return () => {
+      clearInterval(interval);
+      intervals.delete(interval);
+    };
   }, [shouldReduceMotion]);
 
   return { fireConfetti, fireBurst, fireSuccess, fireFromElement, fireFireworks };

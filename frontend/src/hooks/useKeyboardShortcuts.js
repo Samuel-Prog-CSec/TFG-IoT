@@ -55,7 +55,7 @@ function eventToCanonical(event) {
   let { key } = event;
   if (!key) return null;
 
-  const isLetter = /^[a-zA-Z]$/.test(key);
+  const isLetter = /^[a-z]$/i.test(key);
   // Si es una letra SIN shift, normalizamos a minúscula para que el
   // canonical sea estable (`'g'` independientemente de Caps Lock). Si hay
   // Shift, preservamos la mayúscula que ya viene de event.key para que el

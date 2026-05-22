@@ -362,6 +362,9 @@ gameSessionSchema.pre('save', function () {
  * Asegura que:
  * 1. El array no esté vacío
  * 2. El número de mapeos coincida con config.numberOfCards
+ * 3. Los UIDs sean únicos dentro del mazo (no se puede usar la misma tarjeta dos veces).
+ *    Replica el check existente en CardDeck.path('cardMappings').validate(...) para
+ *    cerrar el flanco contra inserts que bypaseen Zod (seed manual, migraciones).
  *
  * @param {Array<CardMapping>} value - El array de cardMappings a validar
  * @returns {boolean} true si la validación es exitosa, false en caso contrario
@@ -375,8 +378,13 @@ gameSessionSchema.path('cardMappings').validate(function (value) {
     return false;
   }
 
+  const uids = value.map(m => m.uid).filter(Boolean);
+  if (new Set(uids).size !== uids.length) {
+    return false;
+  }
+
   return true;
-}, 'El número de cardMappings no es válido o está vacío.');
+}, 'cardMappings no es válido: revisa cantidad de tarjetas o UIDs duplicados.');
 
 gameSessionSchema.path('boardLayout').validate(function (value) {
   if (!Array.isArray(value) || value.length === 0) {

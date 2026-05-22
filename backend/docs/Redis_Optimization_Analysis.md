@@ -514,7 +514,7 @@ Ver sección "Mejoras Redis Sprint 6" en `documentation/propuestas-mejora.md` (P
 
 ### Contexto del hallazgo
 
-QA final pre-release v0.5.0 detectó que Redis arrancaba con `maxmemory-policy=allkeys-lru` en `docker-compose.yml` y `docker-compose.prod.yml`. BullMQ avisa explícitamente de este desajuste en cada conexión:
+QA final pre-release v0.5.0 detectó que Redis arrancaba con `maxmemory-policy=allkeys-lru` en `docker-compose.yml` y en el antiguo `docker-compose.prod.yml` (archivado tras T-910 en `docker/archive/`). BullMQ avisa explícitamente de este desajuste en cada conexión:
 
 ```
 IMPORTANT! Eviction policy is allkeys-lru. It should be "noeviction"
@@ -542,7 +542,7 @@ El bug es de "fallo diferido": funciona perfecto en dev (256MB nunca se llenan) 
 Dos líneas, en dos archivos:
 
 ```yaml
-# docker-compose.yml (dev) y docker-compose.prod.yml (prod)
+# docker-compose.yml (dev) y docker/archive/docker-compose.prod.yml (testing local pre-deploy)
 command: >
   redis-server
   ...

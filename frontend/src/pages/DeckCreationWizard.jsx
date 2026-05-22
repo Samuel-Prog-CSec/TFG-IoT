@@ -655,15 +655,13 @@ function StepCards({
     setManualUid('');
   }, [manualUid, onRFIDScan]);
 
+  // "Generar UID" rellena el input con el siguiente UID secuencial sugerido.
+  // El usuario revisa y luego pulsa "Agregar". Antes anadia la carta directamente,
+  // lo que dejaba el boton "Agregar" disabled y rompia la expectativa del flujo
+  // (QA 2026-05-21 BUG-QA-8: el placeholder cambiaba pero el value seguia vacio).
   const handleGenerateUid = useCallback(() => {
-    const uid = nextSuggestedUid;
-    onRFIDScan({
-      _id: `manual-${uid}`,
-      uid,
-      type: 'MANUAL',
-      scannedAt: new Date()
-    });
-  }, [nextSuggestedUid, onRFIDScan]);
+    setManualUid(nextSuggestedUid);
+  }, [nextSuggestedUid]);
 
   return (
     <GlassCard className="p-6">

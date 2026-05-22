@@ -12,9 +12,66 @@ const userRepository = require('../../repositories/userRepository');
 const studentTrajectoryService = require('./studentTrajectoryService');
 const engagementService = require('./engagementService');
 const sessionAnalysisService = require('./sessionAnalysisService');
-const alertsService = require('./alertsService');
+const alertDetectionService = require('./alertDetectionService');
 const contentEffectivenessService = require('./contentEffectivenessService');
 const { toObjectId, classifyTier, calcAccuracyRate, enrichMetric } = require('./analyticsHelpers');
+const logger = require('../../utils/logger').child({ component: 'reportDataService' });
+const { Sentry } = require('../../config/sentry');
+
+/**
+ * Timeout duro para la orquestación paralela del reporte. Sin esto, si una
+ * sub-agregación cuelga (Atlas M0 con cluster saturado), el request HTTP
+ * queda colgado indefinidamente bloqueando un slot del pool Mongoose. 8s es
+ * generoso para queries normales (~200-800ms) y suficientemente breve para
+ * que el usuario reciba un error claro en vez de un timeout HTTP de 30s+.
+ *
+ * Configurable via env `REPORT_TIMEOUT_MS`.
+ *
+ * @type {number}
+ */
+const REPORT_TIMEOUT_MS = Number.parseInt(process.env.REPORT_TIMEOUT_MS, 10) || 8000;
+
+class ReportTimeoutError extends Error {
+  constructor(label) {
+    super(`Reporte excedió ${REPORT_TIMEOUT_MS}ms (${label})`);
+    this.name = 'ReportTimeoutError';
+    this.isOperational = true;
+    this.statusCode = 504;
+    this.code = 'REPORT_TIMEOUT';
+  }
+}
+
+/**
+ * Envuelve una promesa con un timeout duro. Si vence, rechaza con
+ * `ReportTimeoutError` y notifica a Sentry con un tag dedicado para que el
+ * dashboard de errores muestre la tasa de timeouts del módulo de informes.
+ *
+ * @param {Promise<any>} promise
+ * @param {string} label - Etiqueta para logging/Sentry.
+ * @returns {Promise<any>}
+ */
+const withReportTimeout = (promise, label) => {
+  let timer;
+  const timeoutPromise = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const err = new ReportTimeoutError(label);
+      logger.warn({ label, timeoutMs: REPORT_TIMEOUT_MS }, 'reportDataService timeout');
+      Sentry.captureException(err, {
+        tags: { module: 'reportDataService', report: 'timeout', label }
+      });
+      reject(err);
+    }, REPORT_TIMEOUT_MS);
+    // `.unref()` evita que el timer mantenga el proceso vivo al shutdown.
+    if (timer.unref) {
+      timer.unref();
+    }
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  });
+};
 
 // ══════════════════════════════════════════════════════════════════════
 // E17 — Reporte completo de un estudiante
@@ -66,7 +123,7 @@ async function getStudentReport(studentId, { timeRange = '30d', format = 'summar
     );
   }
 
-  const results = await Promise.all(promises);
+  const results = await withReportTimeout(Promise.all(promises), `studentReport:${studentId}`);
 
   // Estructura jerárquica: Summary → Trends → Details (framework BI)
   const report = {
@@ -153,7 +210,7 @@ async function getClassroomReport(teacherId, { timeRange = '30d', format = 'summ
     engagementService.getClassroomEngagement(teacherId, {
       timeRange: timeRange === '7d' ? '30d' : timeRange
     }),
-    alertsService.getAlertsSummary(teacherId)
+    alertDetectionService.summaryForTeacher(teacherId)
   ];
 
   if (format === 'detailed') {
@@ -164,7 +221,10 @@ async function getClassroomReport(teacherId, { timeRange = '30d', format = 'summ
     );
   }
 
-  const results = await Promise.all(basePromises);
+  const results = await withReportTimeout(
+    Promise.all(basePromises),
+    `classroomReport:${teacherId}`
+  );
 
   // Enriquecer studentSummaries con averageScore de studentMetrics para que el
   // ranking "Mejores/En Riesgo" coincida con la tabla "Mis Alumnos" (que tambien

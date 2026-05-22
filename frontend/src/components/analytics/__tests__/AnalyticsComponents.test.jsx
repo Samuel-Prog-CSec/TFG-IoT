@@ -187,14 +187,14 @@ describe('GameHistoryTable', () => {
   it('muestra mensaje vacio cuando games es null', () => {
     render(<GameHistoryTable games={null} />);
     expect(
-      screen.getByText('Este alumno aun no tiene partidas registradas.')
+      screen.getByText('Este alumno aún no tiene partidas registradas.')
     ).toBeTruthy();
   });
 
   it('muestra mensaje vacio cuando games es un array vacio', () => {
     render(<GameHistoryTable games={[]} />);
     expect(
-      screen.getByText('Este alumno aun no tiene partidas registradas.')
+      screen.getByText('Este alumno aún no tiene partidas registradas.')
     ).toBeTruthy();
   });
 
@@ -316,7 +316,7 @@ describe('NarrativeCard', () => {
     render(<NarrativeCard interpretation={null} />);
     expect(
       screen.getByText(
-        'Se necesitan mas partidas para generar insights.'
+        'Se necesitan más partidas para generar insights.'
       )
     ).toBeTruthy();
   });
@@ -325,7 +325,7 @@ describe('NarrativeCard', () => {
     render(<NarrativeCard interpretation={{}} />);
     expect(
       screen.getByText(
-        'Se necesitan mas partidas para generar insights.'
+        'Se necesitan más partidas para generar insights.'
       )
     ).toBeTruthy();
   });

@@ -6,7 +6,7 @@
  */
 
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 
 /**
  * Loader de autenticación con animaciones premium

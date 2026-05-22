@@ -584,6 +584,7 @@ export default function CardDecksPage() {
                 value={filters.searchQuery}
                 onChange={(e) => dispatchFilters({ type: 'SET_SEARCH', payload: e.target.value })}
                 placeholder="Buscar mazos…"
+                data-global-search="true"
                 className={cn(
                   'w-full pl-10 pr-4 py-2.5 rounded-xl',
                   'bg-background-elevated/50 border border-border-default',

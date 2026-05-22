@@ -4,7 +4,7 @@
  */
 
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from './GlassCard';
@@ -54,7 +54,7 @@ export default function EmptyState({
           transition={{ duration: DURATION.stateChange, ease: EASING.outQuart }}
           className="inline-flex items-center gap-1.5 rounded-full border border-warning-base/30 bg-warning-base/10 px-3 py-1 text-xs font-medium text-warning-base mb-4"
         >
-          Sin resultados para tu busqueda
+          Sin resultados para tu búsqueda
         </motion.span>
       )}
 

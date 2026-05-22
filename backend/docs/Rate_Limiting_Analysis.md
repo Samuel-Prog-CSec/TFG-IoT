@@ -445,3 +445,27 @@ El frontend (`useGameSocket.js`) aplica el mismo mapa **y envía explícitamente
 ### Tests
 
 `backend/tests/socketRateLimiter.test.js` cubre los 5 escenarios principales (cooldown corto que permite, cooldown corto que bloquea, hardware mantiene su cooldown largo, fuente ausente cae en default, sources distintos no se ahogan entre sí).
+
+## Admin approval limiter — defensa-en-profundidad (ADR-164, M7)
+
+`adminApprovalRateLimiter` aplicado a `POST /api/admin/users/:id/approve` y `/api/admin/users/:id/reject` en `backend/src/routes/admin.js`.
+
+| Característica | Valor |
+|---|---|
+| Window | 1 hora |
+| Max prod | 100 |
+| Max dev | 1000 |
+| Env var | `RATE_LIMIT_ADMIN_APPROVAL_MAX` |
+| keyGenerator | `userOrIpKeyGenerator` (post-auth: userId; pre-auth: IP normalizada) |
+| Store | Redis distribuido (con fallback MemoryStore + métrica) |
+| Mensaje 429 | "Demasiadas acciones administrativas, espera un momento" |
+
+**Justificación:**
+1. **No molestar al super_admin legítimo:** 100 aprobaciones por hora cubren incluso el caso de bulk approval tras un fin de semana de registros (un centro típico tiene 1-5 super_admins y aprueba 10-30 docentes/mes). Headroom 3× sobre el peor caso realista.
+2. **Romper escenarios de abuso:** un super_admin comprometido o un bug de UI que dispare bucles infinitos quedan limitados a 100/h, no a la capacidad teórica del endpoint.
+3. **Limiter específico, no compartir con `authLooseRateLimiter`:** evita que un super_admin agote el límite compartido con sus refreshes de token o consultas a `/me`.
+
+**Endpoints relacionados sin rate limit específico:**
+- `POST /api/admin/lockouts/unlock` — heredaba `authLooseRateLimiter` y requiere `requireMfa` reciente (T-905 B7), por lo que el rate limiting natural es la fricción del MFA. Si se observa abuso en producción, se puede añadir `adminApprovalRateLimiter` aquí también sin coste adicional.
+
+**Tests:** sanity check manual en QA — 101 llamadas a `/approve` desde el mismo super_admin en 1h → la 101ª devuelve 429 con `Retry-After`. Cubierto E2E con Playwright.

@@ -237,26 +237,8 @@ const learningCurvesQuerySchema = z
   })
   .strict();
 
-/**
- * Query params para GET /api/analytics/alerts
- */
-const alertsQuerySchema = z
-  .object({
-    severity: z.enum(['critical', 'warning', 'info']).optional(),
-    type: z
-      .enum([
-        'declining_performance',
-        'inactivity',
-        'sudden_score_drop',
-        'consistent_timeout',
-        'improving_fast',
-        'plateau_detected',
-        'high_abandonment'
-      ])
-      .optional(),
-    limit: z.coerce.number().int().min(1).max(50).optional().default(20)
-  })
-  .strict();
+// (alertsQuerySchema reemplazado por listAlertsQuerySchema en
+//  validators/alertsValidator.js — T-941)
 
 /**
  * Query params para GET /api/analytics/reports/student/:id y /reports/classroom
@@ -303,7 +285,6 @@ module.exports = {
   contentEffectivenessQuerySchema,
   cardDifficultyQuerySchema,
   learningCurvesQuerySchema,
-  alertsQuerySchema,
   reportQuerySchema,
   reportExportQuerySchema
 };

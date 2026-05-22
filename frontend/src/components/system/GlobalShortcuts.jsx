@@ -1,4 +1,4 @@
-import { useCallback, useMemo, useState } from 'react';
+import { useMemo } from 'react';
 import { useTheme } from '../../context/ThemeContext';
 import {
   useShortcutRegistry,
@@ -28,13 +28,33 @@ import KeyboardShortcutsOverlay from '../ui/KeyboardShortcutsOverlay';
  *     actual (global solo en Login/Register; global + navegación + acciones
  *     en AppLayout teacher, etc.).
  */
+/**
+ * Busca el primer input de búsqueda visible en la página actual marcado con
+ * `data-global-search`. Si no existe (p. ej. en una página sin búsqueda) no
+ * hace nada — el atajo se consume silenciosamente para que la "/" no acabe
+ * escrita en el contenido. Patrón usado por Slack/GitHub/Linear.
+ */
+function focusGlobalSearch() {
+  const target = document.querySelector('[data-global-search]');
+  if (target && typeof target.focus === 'function') {
+    target.focus();
+    // Si es un input con valor, situar el cursor al final para que el
+    // usuario pueda añadir tokens sin sobreescribir lo escrito.
+    if (typeof target.setSelectionRange === 'function' && target.value) {
+      const end = target.value.length;
+      try {
+        target.setSelectionRange(end, end);
+      } catch {
+        // Algunos inputs (search) no soportan setSelectionRange; ignorar.
+      }
+    }
+  }
+}
+
 export default function GlobalShortcuts() {
   const { toggleTheme } = useTheme();
   const registry = useShortcutRegistry();
-  const [shortcutsOpen, setShortcutsOpen] = useState(false);
-
-  const openShortcutsOverlay = useCallback(() => setShortcutsOpen(true), []);
-  const closeShortcutsOverlay = useCallback(() => setShortcutsOpen(false), []);
+  const { shortcutsOpen, openShortcuts, closeShortcuts } = registry;
 
   // Sección "Sistema": disponible en cualquier pantalla. El handler de
   // `Escape` se marca `allowInInput: true` para que cierre el overlay
@@ -53,18 +73,28 @@ export default function GlobalShortcuts() {
           {
             key: 'Shift+?',
             description: 'Mostrar atajos de teclado',
-            handler: openShortcutsOverlay,
+            handler: openShortcuts,
+          },
+          {
+            // Atajo de búsqueda global (T-951 criterio explícito). Convención
+            // ya consolidada en Slack, GitHub y Linear: "/" enfoca el campo de
+            // búsqueda de la página actual. Si no hay input marcado con
+            // `data-global-search`, el handler no-op silencioso y el
+            // `preventDefault` del hook evita que "/" se escriba.
+            key: '/',
+            description: 'Enfocar la búsqueda de la página',
+            handler: focusGlobalSearch,
           },
           {
             key: 'Escape',
             description: 'Cerrar diálogos abiertos',
-            handler: closeShortcutsOverlay,
+            handler: closeShortcuts,
             allowInInput: true,
           },
         ],
       },
     ],
-    [toggleTheme, openShortcutsOverlay, closeShortcutsOverlay],
+    [toggleTheme, openShortcuts, closeShortcuts],
   );
 
   useRegisterShortcutSource('global', systemSections);
@@ -76,7 +106,7 @@ export default function GlobalShortcuts() {
   return (
     <KeyboardShortcutsOverlay
       isOpen={shortcutsOpen}
-      onClose={closeShortcutsOverlay}
+      onClose={closeShortcuts}
       sections={registry.sections}
     />
   );

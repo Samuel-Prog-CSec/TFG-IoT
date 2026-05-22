@@ -30,12 +30,21 @@ async function checkMongoDBHealth() {
       3: 'disconnecting'
     };
 
+    // T-905 B3: en producción no exponemos host/database para evitar revelar
+    // infraestructura interna (Atlas cluster name, DB name) en respuestas que
+    // pueden capturarse por proxies o scraper bots. En dev/staging son útiles
+    // para diagnóstico.
+    const isProd = process.env.NODE_ENV === 'production';
     return {
       status: state === 1 ? 'healthy' : 'unhealthy',
       state: stateNames[state],
       responseTime: `${responseTime}ms`,
-      host: mongoose.connection.host,
-      database: mongoose.connection.name
+      ...(isProd
+        ? {}
+        : {
+            host: mongoose.connection.host,
+            database: mongoose.connection.name
+          })
     };
   } catch (error) {
     logger.error('Error en MongoDB health check:', error);

@@ -9,6 +9,11 @@
  */
 
 const { startDataRetentionWorker, stopDataRetentionWorker } = require('./dataRetentionWorker');
+const { startAlertDetectionWorker, stopAlertDetectionWorker } = require('./alertDetectionWorker');
+const {
+  startSystemAlertDetectionWorker,
+  stopSystemAlertDetectionWorker
+} = require('./systemAlertDetectionWorker');
 const logger = require('../utils/logger').child({ component: 'workers' });
 
 const startedWorkers = [];
@@ -23,6 +28,8 @@ const startAllWorkers = () => {
   startedWorkers.length = 0;
 
   startedWorkers.push(startDataRetentionWorker());
+  startedWorkers.push(startAlertDetectionWorker());
+  startedWorkers.push(startSystemAlertDetectionWorker());
 
   // Las queues `gdpr-exports` y `notifications` están registradas pero sin
   // worker hasta que se implemente la generación de archivos + email.
@@ -37,7 +44,11 @@ const startAllWorkers = () => {
  * @returns {Promise<void>}
  */
 const stopAllWorkers = async () => {
-  await Promise.allSettled([stopDataRetentionWorker()]);
+  await Promise.allSettled([
+    stopDataRetentionWorker(),
+    stopAlertDetectionWorker(),
+    stopSystemAlertDetectionWorker()
+  ]);
   startedWorkers.length = 0;
   logger.info('workers: todos los workers cerrados');
 };

@@ -54,6 +54,7 @@ const CARDS = [
     label: 'Geografía',
     tint: 'var(--color-theme-geography)',
     tintAlt: 'var(--color-theme-geography-alt)',
+    tintText: 'var(--color-theme-geography-text)',
     // Esquina superior izquierda — protagonista, el scan ring se
     // ancla aquí.
     style: { top: '5%', left: '3%' },
@@ -66,6 +67,7 @@ const CARDS = [
     label: 'Formas',
     tint: 'var(--color-theme-default)',
     tintAlt: 'var(--color-theme-default-alt)',
+    tintText: 'var(--color-theme-default-text)',
     // Esquina superior derecha de la columna hero (no toca el form).
     style: { top: '6%', left: '38%' },
     rotate: 10,
@@ -77,6 +79,7 @@ const CARDS = [
     label: 'Animales',
     tint: 'var(--color-theme-animals)',
     tintAlt: 'var(--color-theme-animals-alt)',
+    tintText: 'var(--color-theme-animals-text)',
     // Peek desde el borde izquierdo, mid altura. El translateX
     // negativo en CSS la deja medio fuera para sensación "deck pile".
     style: { top: '40%', left: '-3%' },
@@ -89,6 +92,7 @@ const CARDS = [
     label: 'Números',
     tint: 'var(--color-theme-numbers)',
     tintAlt: 'var(--color-theme-numbers-alt)',
+    tintText: 'var(--color-theme-numbers-text)',
     // Esquina inferior izquierda.
     style: { top: '74%', left: '4%' },
     rotate: 6,
@@ -100,6 +104,7 @@ const CARDS = [
     label: 'Colores',
     tint: 'var(--color-theme-colors)',
     tintAlt: 'var(--color-theme-colors-alt)',
+    tintText: 'var(--color-theme-colors-text)',
     // Centro-derecha inferior, antes del form.
     style: { top: '76%', left: '34%' },
     rotate: -4,
@@ -126,6 +131,7 @@ function ConstellationCard({
   label,
   tint,
   tintAlt,
+  tintText,
   style,
   rotate,
   delay,
@@ -162,6 +168,7 @@ function ConstellationCard({
           // Custom properties para que el CSS por tema modifique fondo/borde
           '--card-tint': tint,
           '--card-tint-alt': tintAlt,
+          '--card-tint-text': tintText || tint,
         }}
       >
         {/* Washi-tape (light) o glow strip (dark) */}
@@ -217,10 +224,13 @@ function ConstellationCard({
             aria-hidden="true"
           />
         </div>
-        {/* Etiqueta inferior */}
+        {/* Etiqueta inferior — BUG-A11Y-AUTH-CARD-LABEL (QA Sprint 0):
+            usar `--card-tint-text` (variante específica para texto, AA en
+            ambos temas). Antes usaba `--card-tint` que mezcla bg/borde y no
+            está garantizado a contraste 4.5:1. */}
         <span
           className="block text-[11px] font-bold tracking-widest uppercase text-center"
-          style={{ color: 'var(--card-tint)' }}
+          style={{ color: 'var(--card-tint-text, var(--card-tint))' }}
         >
           {label}
         </span>
@@ -234,6 +244,7 @@ ConstellationCard.propTypes = {
   label: PropTypes.string.isRequired,
   tint: PropTypes.string.isRequired,
   tintAlt: PropTypes.string.isRequired,
+  tintText: PropTypes.string,
   style: PropTypes.object.isRequired,
   rotate: PropTypes.number.isRequired,
   delay: PropTypes.number.isRequired,
@@ -319,6 +330,7 @@ export default function AuthBackground({ variant = 'login' }) {
                 label={card.label}
                 tint={card.tint}
                 tintAlt={card.tintAlt}
+                tintText={card.tintText}
                 style={mirroredStyle}
                 rotate={flipped ? -card.rotate : card.rotate}
                 delay={card.delay}

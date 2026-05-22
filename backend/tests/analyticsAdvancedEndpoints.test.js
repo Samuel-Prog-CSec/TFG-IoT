@@ -773,31 +773,14 @@ describe('Analytics Advanced Endpoints', () => {
   // ════════════════════════════════════════════════════════════════════
 
   describe('GET /api/analytics/alerts', () => {
-    it('debe retornar alertas como array con summary', async () => {
+    it('debe retornar alertas paginadas con cursor (shape T-941)', async () => {
       const res = await request(app).get('/api/analytics/alerts').set(makeAuthHeaders(token));
 
       expect(res.statusCode).toBe(200);
       expect(res.body.success).toBe(true);
-      expect(res.body.data).toHaveProperty('alerts');
-      expect(res.body.data).toHaveProperty('summary');
-      expect(Array.isArray(res.body.data.alerts)).toBe(true);
-      expect(res.body.data.summary).toHaveProperty('critical');
-      expect(res.body.data.summary).toHaveProperty('warning');
-      expect(res.body.data.summary).toHaveProperty('info');
-      expect(res.body.data.summary).toHaveProperty('total');
-    });
-
-    it('debe filtrar por severity', async () => {
-      const res = await request(app)
-        .get('/api/analytics/alerts?severity=warning')
-        .set(makeAuthHeaders(token));
-
-      expect(res.statusCode).toBe(200);
-      expect(res.body.success).toBe(true);
-      // Todas las alertas retornadas deben ser de severidad warning
-      for (const alert of res.body.data.alerts) {
-        expect(alert.severity).toBe('warning');
-      }
+      expect(res.body.data).toHaveProperty('items');
+      expect(res.body.data).toHaveProperty('nextCursor');
+      expect(Array.isArray(res.body.data.items)).toBe(true);
     });
 
     it('debe respetar el parametro limit', async () => {
@@ -806,7 +789,7 @@ describe('Analytics Advanced Endpoints', () => {
         .set(makeAuthHeaders(token));
 
       expect(res.statusCode).toBe(200);
-      expect(res.body.data.alerts.length).toBeLessThanOrEqual(2);
+      expect(res.body.data.items.length).toBeLessThanOrEqual(2);
     });
 
     it('debe requerir autenticacion', async () => {
@@ -817,7 +800,7 @@ describe('Analytics Advanced Endpoints', () => {
   });
 
   describe('GET /api/analytics/alerts/summary', () => {
-    it('debe retornar resumen con estructura correcta', async () => {
+    it('debe retornar resumen con estructura correcta (T-941 shape)', async () => {
       const res = await request(app)
         .get('/api/analytics/alerts/summary')
         .set(makeAuthHeaders(token));
@@ -825,11 +808,14 @@ describe('Analytics Advanced Endpoints', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body.success).toBe(true);
       expect(res.body.data).toHaveProperty('total');
+      expect(res.body.data).toHaveProperty('activeTotal');
       expect(res.body.data).toHaveProperty('bySeverity');
+      expect(res.body.data).toHaveProperty('byStatus');
       expect(res.body.data).toHaveProperty('byType');
       expect(res.body.data.bySeverity).toHaveProperty('critical');
       expect(res.body.data.bySeverity).toHaveProperty('warning');
       expect(res.body.data.bySeverity).toHaveProperty('info');
+      expect(res.body.data.byStatus).toHaveProperty('active');
       expect(typeof res.body.data.total).toBe('number');
     });
 
@@ -1075,17 +1061,16 @@ describe('Analytics Advanced Endpoints', () => {
       expect(res.body.data).toHaveProperty('favoriteDayOfWeek');
     });
 
-    it('alerts: cada alerta debe tener id, type, severity, message', async () => {
+    it('alerts: cada alerta tiene id, type, severity, description (T-941)', async () => {
       const res = await request(app).get('/api/analytics/alerts').set(makeAuthHeaders(token));
 
       expect(res.statusCode).toBe(200);
-      if (res.body.data.alerts.length > 0) {
-        const alert = res.body.data.alerts[0];
+      if (res.body.data.items.length > 0) {
+        const alert = res.body.data.items[0];
         expect(alert).toHaveProperty('id');
         expect(alert).toHaveProperty('type');
         expect(alert).toHaveProperty('severity');
-        expect(alert).toHaveProperty('message');
-        expect(alert).toHaveProperty('recommendation');
+        expect(alert).toHaveProperty('description');
         expect(alert).toHaveProperty('detectedAt');
         expect(['critical', 'warning', 'info']).toContain(alert.severity);
       }

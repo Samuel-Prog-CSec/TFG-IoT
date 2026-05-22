@@ -47,7 +47,9 @@ const defaultJobOptions = {
 const QUEUE_NAMES = Object.freeze({
   DATA_RETENTION: 'data-retention',
   GDPR_EXPORTS: 'gdpr-exports',
-  NOTIFICATIONS: 'notifications'
+  NOTIFICATIONS: 'notifications',
+  ALERT_DETECTION: 'alert-detection',
+  SYSTEM_ALERT_DETECTION: 'system-alert-detection'
 });
 
 const dataRetentionQueue = new Queue(QUEUE_NAMES.DATA_RETENTION, {
@@ -68,7 +70,25 @@ const notificationsQueue = new Queue(QUEUE_NAMES.NOTIFICATIONS, {
   defaultJobOptions
 });
 
-const allQueues = [dataRetentionQueue, gdprExportsQueue, notificationsQueue];
+const alertDetectionQueue = new Queue(QUEUE_NAMES.ALERT_DETECTION, {
+  connection,
+  prefix: `${KEY_PREFIX}bull`,
+  defaultJobOptions
+});
+
+const systemAlertDetectionQueue = new Queue(QUEUE_NAMES.SYSTEM_ALERT_DETECTION, {
+  connection,
+  prefix: `${KEY_PREFIX}bull`,
+  defaultJobOptions
+});
+
+const allQueues = [
+  dataRetentionQueue,
+  gdprExportsQueue,
+  notificationsQueue,
+  alertDetectionQueue,
+  systemAlertDetectionQueue
+];
 
 /**
  * Programa el cron diario de retención de datos. Idempotente: usar siempre el
@@ -76,21 +96,139 @@ const allQueues = [dataRetentionQueue, gdprExportsQueue, notificationsQueue];
  *
  * Patrón: cada noche a las 03:00 (zona del servidor).
  *
+ * T-907 INT4 (sharding): si `DATA_RETENTION_SHARDS > 1`, se encolan N jobs
+ * `daily-retention-shard-{i}-cron` que procesan rangos temporales disjuntos
+ * en paralelo. El rango total cubierto es el mismo que con N=1, dividido en
+ * N ventanas iguales desde el inicio del proyecto (fija: 2024-01-01) hasta
+ * el cutoff por defecto del service. Útil cuando el job único tarda >30 min
+ * en producción y queremos repartirlo entre varios workers con `concurrency`
+ * subido (el worker se queda con concurrency 1 por defecto; activar via env
+ * `DATA_RETENTION_WORKER_CONCURRENCY`).
+ *
  * @returns {Promise<void>}
  */
+const SHARDING_EPOCH = new Date('2024-01-01T00:00:00.000Z');
+
+const buildShardWindows = shardCount => {
+  if (shardCount <= 1) {
+    return [{ shardIndex: 0, shardCount: 1, windowStart: null, windowEnd: null }];
+  }
+  const now = Date.now();
+  const startMs = SHARDING_EPOCH.getTime();
+  const sliceMs = Math.floor((now - startMs) / shardCount);
+  return Array.from({ length: shardCount }, (_, i) => ({
+    shardIndex: i,
+    shardCount,
+    windowStart: new Date(startMs + i * sliceMs),
+    windowEnd: i === shardCount - 1 ? null : new Date(startMs + (i + 1) * sliceMs)
+  }));
+};
+
 const scheduleDataRetentionCron = async () => {
+  const shardCount = Math.max(1, Number.parseInt(process.env.DATA_RETENTION_SHARDS, 10) || 1);
+
   try {
-    await dataRetentionQueue.add(
-      'daily-retention',
+    if (shardCount === 1) {
+      // Path original — mismo jobId y semántica que antes.
+      await dataRetentionQueue.add(
+        'daily-retention',
+        { triggeredAt: new Date().toISOString() },
+        {
+          jobId: 'daily-retention-cron',
+          repeat: { pattern: '0 3 * * *' }
+        }
+      );
+      logger.info('queues: cron diario de retención programado (03:00)');
+      return;
+    }
+
+    const windows = buildShardWindows(shardCount);
+    for (const win of windows) {
+      await dataRetentionQueue.add(
+        'daily-retention',
+        {
+          triggeredAt: new Date().toISOString(),
+          shardIndex: win.shardIndex,
+          shardCount: win.shardCount,
+          windowStart: win.windowStart?.toISOString() || null,
+          windowEnd: win.windowEnd?.toISOString() || null
+        },
+        {
+          jobId: `daily-retention-shard-${win.shardIndex}-cron`,
+          repeat: { pattern: '0 3 * * *' }
+        }
+      );
+    }
+    logger.info('queues: cron diario de retención programado con sharding', {
+      shardCount,
+      windowsCount: windows.length
+    });
+  } catch (err) {
+    logger.warn('queues: no se pudo programar el cron de retención', {
+      error: err.message,
+      shardCount
+    });
+  }
+};
+
+/**
+ * Programa el cron del detector de alertas (T-941).
+ *
+ * Patrón por defecto: cada 15 minutos (env `ALERT_DETECTION_CRON`).
+ * Idempotente — el `jobId` fijo evita duplicados ante reinicios del backend.
+ *
+ * @returns {Promise<void>}
+ */
+const scheduleAlertDetectionCron = async () => {
+  // Cargamos config justo aquí para no introducir dependencia circular si el
+  // arranque carga queues antes de los services.
+  const { DETECTION_CONFIG } = require('../config/alerts');
+  try {
+    await alertDetectionQueue.add(
+      'periodic-alert-detection',
       { triggeredAt: new Date().toISOString() },
       {
-        jobId: 'daily-retention-cron',
-        repeat: { pattern: '0 3 * * *' }
+        jobId: 'alert-detection-cron',
+        repeat: { pattern: DETECTION_CONFIG.cronPattern }
       }
     );
-    logger.info('queues: cron diario de retención programado (03:00)');
+    logger.info('queues: cron de detección de alertas programado', {
+      pattern: DETECTION_CONFIG.cronPattern
+    });
   } catch (err) {
-    logger.warn('queues: no se pudo programar el cron de retención', { error: err.message });
+    logger.warn('queues: no se pudo programar el cron de alertas', {
+      error: err.message
+    });
+  }
+};
+
+/**
+ * Programa el cron del detector de alertas de sistema (T-942).
+ *
+ * Patrón por defecto: cada 5 minutos (env `SYSTEM_ALERT_DETECTION_CRON`).
+ * Más frecuente que el de teacher porque las señales operacionales (Redis
+ * lento, memoria al límite) necesitan respuesta más rápida.
+ *
+ * @returns {Promise<void>}
+ */
+const scheduleSystemAlertDetectionCron = async () => {
+  const { SYSTEM_DETECTION_CONFIG } = require('../config/systemAlerts');
+  try {
+    await systemAlertDetectionQueue.add(
+      'periodic-system-alert-detection',
+      { triggeredAt: new Date().toISOString() },
+      {
+        jobId: 'system-alert-detection-cron',
+        repeat: { pattern: SYSTEM_DETECTION_CONFIG.cronPattern }
+      }
+    );
+    logger.info('queues: cron de detección de system-alerts programado', {
+      pattern: SYSTEM_DETECTION_CONFIG.cronPattern
+    });
+  } catch (err) {
+    logger.warn('queues: no se pudo programar el cron de system-alerts', {
+      error: err.message
+    });
   }
 };
 
@@ -116,6 +254,10 @@ module.exports = {
   dataRetentionQueue,
   gdprExportsQueue,
   notificationsQueue,
+  alertDetectionQueue,
+  systemAlertDetectionQueue,
   scheduleDataRetentionCron,
+  scheduleAlertDetectionCron,
+  scheduleSystemAlertDetectionCron,
   closeAllQueues
 };

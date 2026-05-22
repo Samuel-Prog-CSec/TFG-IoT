@@ -10,6 +10,7 @@
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
+import Turnstile from 'react-turnstile';
 import {
   LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock,
   ShieldCheck, ArrowRight, Sparkles, Wifi,
@@ -25,6 +26,12 @@ import InputPremium from '../components/ui/InputPremium';
 import ThemeToggle from '../components/ui/ThemeToggle';
 import AuthBackground from '../components/auth/AuthBackground';
 import { ROUTES } from '../constants/routes';
+
+// T-905 B6: CAPTCHA Turnstile tras 3 fallos previos.
+// Si la env var no está set (típico en dev), la verificación queda off — el
+// backend tampoco la exigirá porque `TURNSTILE_SECRET` server-side va emparejada.
+const TURNSTILE_SITE_KEY = import.meta.env.VITE_TURNSTILE_SITEKEY || '';
+const TURNSTILE_THRESHOLD = 3;
 
 // ============================================
 // CONSTANTES DE RATE LIMITING
@@ -98,6 +105,9 @@ export default function Login() {
 
   const [rateLimitState, setRateLimitStateLocal] = useState(getRateLimitState);
   const [countdown, setCountdown] = useState(0);
+  // T-905 B6: captchaToken válido de Turnstile (vigente 5min según Cloudflare).
+  // Se resetea al reset de rate limit y a cada submit fallido (un token es one-shot).
+  const [captchaToken, setCaptchaToken] = useState(null);
 
   const registrationSuccess = location.state?.registrationSuccess;
   const sessionInvalidated = location.state?.sessionInvalidated;
@@ -129,10 +139,14 @@ export default function Login() {
     return () => clearInterval(interval);
   }, [rateLimitState.lockoutUntil]);
 
-  useEffect(() => {
-    if (error) clearError();
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [formData.email, formData.password]);
+  // BUG (QA 2026-05-16): este efecto borraba el error de credenciales
+  // inmediatamente después del fallo, porque el handler de submit limpia
+  // `formData.password` para forzar al usuario a reescribirla (BUG-LOGIN-1)
+  // y eso disparaba el efecto, ejecutando clearError() antes de que el
+  // mensaje "Credenciales inválidas" llegara a renderizarse al usuario.
+  // El comportamiento deseado es limpiar el error sólo cuando el usuario
+  // edita el campo manualmente — ahora lo hacemos desde `handleChange`
+  // que sólo se invoca en eventos de teclado, no en resets programáticos.
 
   useEffect(() => {
     if (registrationSuccess || sessionInvalidated) {
@@ -160,6 +174,9 @@ export default function Login() {
     if (validationErrors[name]) {
       setValidationErrors((prev) => ({ ...prev, [name]: null }));
     }
+    // Limpiar el error general sólo cuando el usuario edita manualmente
+    // — los resets programáticos (catch del submit) no deben borrarlo.
+    if (error) clearError();
   };
 
   const handleSubmit = async (e) => {
@@ -169,9 +186,12 @@ export default function Login() {
     if (!validateForm()) return;
     setIsSubmitting(true);
     try {
-      await login(formData.email.trim().toLowerCase(), formData.password);
+      // T-905 B6: pasamos captchaToken si el widget Turnstile lo ha generado.
+      // El backend lo exige solo si TURNSTILE_SECRET está set Y hubo ≥3 fallos.
+      await login(formData.email.trim().toLowerCase(), formData.password, captchaToken);
       resetRateLimit();
       setRateLimitStateLocal({ attempts: 0, lockoutUntil: null });
+      setCaptchaToken(null);
     } catch {
       const result = recordFailedAttempt();
       setRateLimitStateLocal({
@@ -185,10 +205,18 @@ export default function Login() {
       // que el usuario sólo reescriba la contraseña; limpiar la contraseña
       // por seguridad y para enfocar la corrección.
       setFormData((prev) => ({ ...prev, password: '' }));
+      // Turnstile genera tokens one-shot: tras cada fallo, resetear para que
+      // el widget pida nueva verificación si vuelve a ser necesario.
+      setCaptchaToken(null);
     } finally {
       setIsSubmitting(false);
     }
   };
+
+  // T-905 B6: el widget Turnstile aparece a partir del 3er fallo (alineado con
+  // backend TURNSTILE_FAILURE_THRESHOLD=3). Si la sitekey no está configurada
+  // (dev sin Turnstile), no se renderiza nada — el guard backend tampoco aplica.
+  const showCaptcha = Boolean(TURNSTILE_SITE_KEY) && rateLimitState.attempts >= TURNSTILE_THRESHOLD;
 
   const isLocked = rateLimitState.lockoutUntil && Date.now() < rateLimitState.lockoutUntil;
 
@@ -352,8 +380,12 @@ export default function Login() {
                   exit={{ opacity: 0, y: -10, height: 0 }}
                   className="mb-4"
                 >
-                  <div className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/30">
-                    <Clock className="size-5 text-error-base flex-shrink-0 mt-0.5" />
+                  <div
+                    role="alert"
+                    aria-live="assertive"
+                    className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/30"
+                  >
+                    <Clock className="size-5 text-error-base flex-shrink-0 mt-0.5" aria-hidden="true" />
                     <div>
                       <p className="text-error-base font-medium text-sm">
                         Demasiados intentos fallidos
@@ -394,12 +426,15 @@ export default function Login() {
                 <AnimatePresence>
                   {error && (
                     <motion.div
+                      key="login-error"
+                      role="alert"
+                      aria-live="assertive"
                       initial={{ opacity: 0, y: -10, height: 0 }}
                       animate={{ opacity: 1, y: 0, height: 'auto' }}
                       exit={{ opacity: 0, y: -10, height: 0 }}
                       className="flex items-start gap-3 p-3.5 rounded-xl bg-error-base/10 border border-error-base/30"
                     >
-                      <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
+                      <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" aria-hidden="true" />
                       <p className="text-error-base text-sm">{error}</p>
                     </motion.div>
                   )}
@@ -452,6 +487,31 @@ export default function Login() {
                   </button>
                 </motion.div>
 
+                {/* T-905 B6: widget CAPTCHA Turnstile tras 3 fallos previos.
+                    Si VITE_TURNSTILE_SITEKEY no está set en build, no se
+                    renderiza nada (backend tampoco exige captcha). */}
+                {showCaptcha && (
+                  <motion.div
+                    variants={shouldReduceMotion ? {} : formFieldVariants(3)}
+                    className="flex flex-col items-center gap-2 py-2"
+                    role="region"
+                    aria-label="Verificación anti-robot"
+                  >
+                    <p className="text-xs text-text-muted text-center">
+                      Detectamos varios intentos. Confirma que no eres un robot para continuar.
+                    </p>
+                    <Turnstile
+                      sitekey={TURNSTILE_SITE_KEY}
+                      onVerify={setCaptchaToken}
+                      onExpire={() => setCaptchaToken(null)}
+                      onError={() => setCaptchaToken(null)}
+                      theme="auto"
+                      retry="auto"
+                      refreshExpired="auto"
+                    />
+                  </motion.div>
+                )}
+
                 {/* Botón submit */}
                 <motion.div variants={shouldReduceMotion ? {} : formFieldVariants(3)}>
                   <ButtonPremium
@@ -460,7 +520,7 @@ export default function Login() {
                     size="lg"
                     className="w-full"
                     loading={isSubmitting || isLoading}
-                    disabled={isSubmitting || isLoading || isLocked}
+                    disabled={isSubmitting || isLoading || isLocked || (showCaptcha && !captchaToken)}
                     icon={<LogIn className="size-5" />}
                   >
                     {isSubmitting ? 'Iniciando sesión…' : 'Iniciar sesión'}

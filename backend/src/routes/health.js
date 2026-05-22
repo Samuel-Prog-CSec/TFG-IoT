@@ -20,6 +20,8 @@ const router = express.Router();
 const { authenticate, requireRole } = require('../middlewares/auth');
 const {
   healthCheck,
+  livenessCheck,
+  readinessCheck,
   getMetrics,
   getSystemMetrics,
   getApiInfo
@@ -28,11 +30,77 @@ const { validateQuery } = require('../middlewares/validation');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const asyncHandler = require('../utils/asyncHandler');
 
+// NOTA: la ruta /health/live se registra ANTES que /health para que Express
+// no intente matchear /health/* contra la handler de /health.
 /**
- * @route   GET /api/health
- * @desc    Health check con estado detallado del sistema
- * @access  Public
- * @validation query: emptyObjectSchema
+ * @openapi
+ * /health/live:
+ *   get:
+ *     tags: [Health]
+ *     summary: Liveness probe — proceso vivo
+ *     description: |
+ *       Devuelve 200 mientras el event loop responda. No toca Mongo ni Redis.
+ *       Pensado para UptimeRobot y liveness probes de Kubernetes/Koyeb.
+ *     security: []
+ *     responses:
+ *       200:
+ *         description: Proceso vivo
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 status: { type: string, example: 'alive' }
+ *                 pid: { type: integer }
+ *                 uptimeSeconds: { type: integer }
+ *                 timestamp: { type: string, format: date-time }
+ */
+router.get('/health/live', validateQuery(emptyObjectSchema), livenessCheck);
+
+/**
+ * @openapi
+ * /health/ready:
+ *   get:
+ *     tags: [Health]
+ *     summary: Readiness probe — listo para tráfico
+ *     description: |
+ *       Devuelve 200 si Mongo (siempre) y Redis (sólo en producción) están conectados
+ *       y el servidor no está en proceso de shutdown. 503 en cualquier otro caso.
+ *       Pensado para Koyeb routing y readiness probes de Kubernetes.
+ *     security: []
+ *     responses:
+ *       200: { description: Listo para tráfico }
+ *       503:
+ *         description: Alguna dependencia caída o shutdown en curso
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 ready: { type: boolean, example: false }
+ *                 shuttingDown: { type: boolean }
+ *                 checks:
+ *                   type: object
+ *                   properties:
+ *                     mongo: { type: string, enum: [ok, down] }
+ *                     redis: { type: string, enum: [ok, degraded, down] }
+ */
+router.get('/health/ready', validateQuery(emptyObjectSchema), readinessCheck);
+
+/**
+ * @openapi
+ * /health:
+ *   get:
+ *     tags: [Health]
+ *     summary: Health check detallado (legacy)
+ *     description: |
+ *       Estado completo del sistema: Mongo, Redis, RFID service, memoria y CPU.
+ *       Mantenido por compatibilidad con dashboards admin. Para load balancers
+ *       usar /health/live o /health/ready según corresponda.
+ *     security: []
+ *     responses:
+ *       200: { description: Sistema healthy o degraded }
+ *       503: { description: Alguna dependencia crítica caída }
  */
 router.get('/health', validateQuery(emptyObjectSchema), asyncHandler(healthCheck));
 

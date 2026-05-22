@@ -1,6 +1,11 @@
 /**
  * @fileoverview Overlay que aparece entre la fase memorizing y reproducing
- * con un mensaje + cuenta atrás 2s ("Reproduce la secuencia").
+ * con un mensaje + cuenta atrás ("Reproduce la secuencia").
+ *
+ * La duración del countdown se deriva del `durationMs` recibido por prop,
+ * que el frontend toma del evento `sequence_phase_reproducing.gracePeriodMs`
+ * (backend `SEQUENCE_REPRODUCE_GRACE_MS`, hoy 2400ms). Si el backend ajusta
+ * el grace, el overlay queda sincronizado sin tocar el frontend.
  *
  * Respeta `prefers-reduced-motion`: sin la animación de scale, sólo fade.
  * Usa `aria-live="polite"` para que el lector de pantalla anuncie la
@@ -11,22 +16,30 @@ import PropTypes from 'prop-types';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Eye } from 'lucide-react';
 
-const COUNTDOWN_SECONDS = 2;
+// Fallback usado si el backend no envía `gracePeriodMs` (eventos antiguos
+// o tests). Coincide con `SEQUENCE_REPRODUCE_GRACE_MS` del backend.
+const DEFAULT_DURATION_MS = 2400;
 
-function PhaseTransitionOverlay({ visible, label = 'Reproduce la secuencia', reduceMotion = false }) {
-  const [count, setCount] = useState(COUNTDOWN_SECONDS);
+function PhaseTransitionOverlay({
+  visible,
+  label = 'Reproduce la secuencia',
+  reduceMotion = false,
+  durationMs = DEFAULT_DURATION_MS
+}) {
+  const initialCount = Math.max(1, Math.ceil(durationMs / 1000));
+  const [count, setCount] = useState(initialCount);
 
   useEffect(() => {
     if (!visible) {
-      setCount(COUNTDOWN_SECONDS);
+      setCount(initialCount);
       return undefined;
     }
-    setCount(COUNTDOWN_SECONDS);
+    setCount(initialCount);
     const interval = setInterval(() => {
       setCount(prev => Math.max(0, prev - 1));
     }, 1000);
     return () => clearInterval(interval);
-  }, [visible]);
+  }, [visible, initialCount]);
 
   return (
     <AnimatePresence>
@@ -65,7 +78,8 @@ function PhaseTransitionOverlay({ visible, label = 'Reproduce la secuencia', red
 PhaseTransitionOverlay.propTypes = {
   visible: PropTypes.bool.isRequired,
   label: PropTypes.string,
-  reduceMotion: PropTypes.bool
+  reduceMotion: PropTypes.bool,
+  durationMs: PropTypes.number
 };
 
 export default memo(PhaseTransitionOverlay);

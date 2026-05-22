@@ -24,8 +24,10 @@ import SkeletonShimmer, { SkeletonChart } from '../components/ui/SkeletonShimmer
 import ErrorState from '../components/ui/ErrorState';
 import ContentEffectivenessMatrix from '../components/analytics/ContentEffectivenessMatrix';
 import AlertsHub from '../components/analytics/AlertsHub';
+import AlertsEffectivenessPanel from '../components/analytics/AlertsEffectivenessPanel';
 import ReportGenerator from '../components/analytics/ReportGenerator';
 import { useChartMotion } from '../components/analytics/ChartsTheme';
+import ThemedChartContainer from '../components/analytics/ThemedChartContainer';
 
 /**
  * Definicion de tabs disponibles.
@@ -135,29 +137,42 @@ function LearningCurvesSection({ data, loading }) {
         </div>
         <div className="h-[200px] flex items-center justify-center">
           <p className="text-sm text-text-muted text-center">
-            Se necesitan mas datos de partidas repetidas para generar las curvas de aprendizaje.
+            Se necesitan más datos de partidas repetidas para generar las curvas de aprendizaje.
           </p>
         </div>
       </GlassCard>
     );
   }
 
+  // Resumen accesible para lectores de pantalla: anuncia el número de
+  // curvas y el rango de intentos visualizados, sin tener que recorrer
+  // cada punto del AreaChart.
+  const accessibleSummary = (() => {
+    if (curveNames.length === 0) return 'Curvas de aprendizaje sin datos.';
+    const intentos = chartData.length;
+    const curvasLabel = curveNames.length === 1 ? '1 curva' : `${curveNames.length} curvas`;
+    return `${curvasLabel} de aprendizaje a lo largo de ${intentos} intento${intentos === 1 ? '' : 's'}. Mejora del rendimiento con la repetición.`;
+  })();
+
+  // Tabla sr-only: por cada curva, el valor en el último intento (insight
+  // útil para lector de pantalla sin recorrer todos los puntos).
+  const dataTable = curveNames.map(name => {
+    const ultimoPunto = chartData[chartData.length - 1];
+    const valor = ultimoPunto?.[name];
+    return {
+      label: name,
+      value: typeof valor === 'number' ? `${Math.round(valor)}% en intento ${ultimoPunto?.attempt ?? '—'}` : 'Sin datos'
+    };
+  });
+
   return (
     <GlassCard variant="default" padding="none" className="p-5">
-      <div className="flex items-center gap-3 mb-4">
-        <div className="p-2 rounded-lg bg-brand-base/10">
-          <TrendingUp size={20} className="text-brand-base" aria-hidden="true" />
-        </div>
-        <div>
-          <h3 className="text-base font-semibold text-text-primary font-display">
-            Curvas de Aprendizaje
-          </h3>
-          <p className="text-xs text-text-muted mt-0.5">
-            Mejora del rendimiento con la repeticion
-          </p>
-        </div>
-      </div>
-
+      <ThemedChartContainer
+        title="Curvas de Aprendizaje"
+        summary={accessibleSummary}
+        dataTable={dataTable}
+        dataTableCaption="Puntuación final por curva de aprendizaje"
+      >
       {/* Altura y margenes ajustados: el label "Intento" del eje X chocaba
           con la leyenda inferior. Solucion definitiva: leyenda arriba del
           chart (verticalAlign top) y margin top mayor para reservarle espacio.
@@ -228,6 +243,7 @@ function LearningCurvesSection({ data, loading }) {
           </AreaChart>
         </ResponsiveContainer>
       </div>
+      </ThemedChartContainer>
     </GlassCard>
   );
 }
@@ -328,11 +344,14 @@ export default function InsightsReports() {
           analyticsService.getAlertsSummary({ signal: controller.signal }),
         ]);
 
-        const alertList = alerts?.alerts || alerts || [];
+        // T-941: shape `{ items, nextCursor }`. Compat con snapshot legacy.
+        const alertList = alerts?.items || alerts?.alerts || alerts || [];
         setAlertsData(alertList);
 
-        const total = summary?.total ?? (
-          (summary?.critical || 0) + (summary?.warning || 0) + (summary?.info || 0)
+        const total = summary?.activeTotal ?? summary?.total ?? (
+          (summary?.bySeverity?.critical || summary?.critical || 0) +
+          (summary?.bySeverity?.warning || summary?.warning || 0) +
+          (summary?.bySeverity?.info || summary?.info || 0)
         );
         setAlertsCount(Array.isArray(alertList) ? alertList.length : total || 0);
       } catch (err) {
@@ -375,8 +394,10 @@ export default function InsightsReports() {
     const fetchCount = async () => {
       try {
         const summary = await analyticsService.getAlertsSummary({ signal: controller.signal });
-        const total = summary?.total ?? (
-          (summary?.critical || 0) + (summary?.warning || 0) + (summary?.info || 0)
+        const total = summary?.activeTotal ?? summary?.total ?? (
+          (summary?.bySeverity?.critical || summary?.critical || 0) +
+          (summary?.bySeverity?.warning || summary?.warning || 0) +
+          (summary?.bySeverity?.info || summary?.info || 0)
         );
         setAlertsCount(total || 0);
       } catch (err) {
@@ -451,8 +472,10 @@ export default function InsightsReports() {
         />
       </header>
 
-      {/* Tab navigation */}
-      <div className="flex items-center gap-1 border-b border-border-subtle" role="tablist" aria-label="Secciones de insights">
+      {/* Tab navigation — BUG-A11Y-INSIGHTS-TABS-A (QA Sprint 0 post-v0.5.0):
+          fondo sólido (background-elevated) para que el texto del tab no caiga
+          sobre la aurora púrpura del AppLayout (lo cual rompía contraste). */}
+      <div className="flex items-center gap-1 border-b border-border-subtle bg-background-elevated/95 backdrop-blur-sm rounded-t-lg px-2" role="tablist" aria-label="Secciones de insights">
         {TABS.map((tab) => {
           const isActive = activeTab === tab.id;
           const TabIcon = tab.icon;
@@ -480,23 +503,27 @@ export default function InsightsReports() {
                   document.querySelector(`[aria-controls="panel-${prevTab.id}"]`)?.focus();
                 }
               }}
+              // BUG-A11Y-INSIGHTS-TABS-A (QA Sprint 0 post-v0.5.0): los tabs
+              // se mostraban sobre la aurora púrpura del backdrop y text-muted
+              // daba 1.79:1. Cambiar a text-secondary (más luminoso) + bg
+              // sutil en el tab inactivo asegura contraste estable.
               className={cn(
                 'relative flex items-center gap-2 px-4 py-3 text-sm font-medium transition-colors duration-200',
                 'focus-ring rounded-t-lg -mb-px border-b-2 border-transparent',
-                isActive ? 'text-brand-base' : 'text-text-muted hover:text-text-secondary'
+                isActive ? 'text-brand-on-alpha' : 'text-text-secondary hover:text-text-primary'
               )}
             >
               <TabIcon size={16} aria-hidden="true" />
               <span>{tab.label}</span>
               {showBadge && (
+                // BUG-A11Y-INSIGHTS-BADGE-A (QA Sprint 0 post-v0.5.0): el badge
+                // de alertas tenía 1.32:1 sobre el bg de tab inactivo púrpura.
+                // Cambiar a bg sólido + texto blanco/error según estado.
                 <span className={cn(
-                  // min-w-[1.25rem] + text-center fija el ancho del badge
-                  // para evitar layout shift cuando el conteo pasa de 1 a 2
-                  // o más dígitos durante re-renders.
                   'ml-1 inline-flex items-center justify-center min-w-[1.25rem] px-1.5 py-0.5 text-[10px] font-bold rounded-full tabular-nums',
                   isActive
-                    ? 'bg-brand-base/20 text-brand-base'
-                    : 'bg-error-base/20 text-error-base'
+                    ? 'bg-brand-dark text-white'
+                    : 'bg-error-dark text-white'
                 )}>
                   {alertsCount}
                 </span>
@@ -549,7 +576,7 @@ export default function InsightsReports() {
             transition={{ duration: DURATION.stateChange, ease: EASING.outQuart }}
           >
             <AlertsTabContent
-              alerts={alertsData}
+              initialAlerts={alertsData}
               loading={alertsLoading}
               error={alertsError}
               onRetry={fetchAlerts}
@@ -616,12 +643,54 @@ function EffectivenessTabContent({ effectivenessData, learningCurvesData, loadin
 }
 
 /**
- * Contenido del tab de Alertas.
+ * Contenido del tab de Alertas (T-941).
+ *
+ * Maneja statusFilter local + refetch per estado. Incluye el panel de
+ * eficacia del propio sistema de alertas (H.3).
  */
-function AlertsTabContent({ alerts, loading, error, onRetry }) {
+function AlertsTabContent({ initialAlerts, loading: initialLoading, error, onRetry }) {
+  const [statusFilter, setStatusFilter] = useState('active');
+  const [alerts, setAlerts] = useState(initialAlerts || []);
+  const [statusCounts, setStatusCounts] = useState({});
+  const [loading, setLoading] = useState(initialLoading);
+
+  const fetchForStatus = useCallback(async (status) => {
+    setLoading(true);
+    try {
+      const [data, summary] = await Promise.all([
+        analyticsService.getAlerts({ status, limit: 100 }),
+        analyticsService.getAlertsSummary()
+      ]);
+      const list = data?.items || data?.alerts || data || [];
+      setAlerts(Array.isArray(list) ? list : []);
+      setStatusCounts(summary?.byStatus || {});
+    } catch {
+      // ErrorState arriba ya maneja error inicial
+    } finally {
+      setLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    // Cuando el statusFilter cambia (o se monta con un status distinto del default), refetch
+    fetchForStatus(statusFilter);
+  }, [statusFilter, fetchForStatus]);
+
   if (error) {
     return <ErrorState title="Error al cargar alertas" message={error} onRetry={onRetry} />;
   }
 
-  return <AlertsHub alerts={alerts || []} loading={loading} />;
+  return (
+    <div className="space-y-6">
+      <AlertsHub
+        alerts={alerts}
+        loading={loading}
+        statusFilter={statusFilter}
+        onStatusChange={setStatusFilter}
+        statusCounts={statusCounts}
+        onRefetch={() => fetchForStatus(statusFilter)}
+      />
+      <AlertsEffectivenessPanel days={30} />
+    </div>
+  );
 }

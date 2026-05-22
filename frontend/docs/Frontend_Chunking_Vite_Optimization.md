@@ -157,3 +157,144 @@ Configuración vigente en:
 Comando de verificación usado:
 
 - `npm --prefix frontend run build`
+
+---
+
+## 11. Iteración E — T-907 pre-release v1.0.0 (2026-05-17)
+
+Tras Iteración D el bundle estaba en buena forma estructural (chunks granulares por librería) pero seguía cargando Sentry, Recharts y `qrcode.react` antes del primer paint útil. Iteración E consolida cinco optimizaciones de bajo riesgo + alto retorno orientadas al primer arranque tras login.
+
+### 11.1 Cambios aplicados
+
+**A. Visualizer condicional (`rollup-plugin-visualizer`)**
+
+```js
+// vite.config.js
+shouldAnalyze &&
+  visualizer({
+    filename: 'dist/stats.html',
+    gzipSize: true,
+    brotliSize: true,
+    open: false,
+    template: 'treemap'
+  })
+```
+
+Activación: `BUILD_ANALYZE=true npm run build`. Genera `dist/stats.html` con treemap por chunk. Comparación visual entre commits.
+
+**B. Compresión pre-built (`vite-plugin-compression2`)**
+
+```js
+isProd &&
+  compression({ algorithm: 'brotliCompress', threshold: 1024, deleteOriginalAssets: false }),
+isProd &&
+  compression({ algorithm: 'gzip', threshold: 1024, deleteOriginalAssets: false })
+```
+
+Genera `<asset>.br` y `<asset>.gz` junto al original. Cloudflare Pages / CDN sirven la variante adecuada por `Accept-Encoding` sin coste runtime → ~20-30% menos peso transferido sin tocar el origen.
+
+**C. `sourcemap: 'hidden'` en producción**
+
+```js
+build: {
+  sourcemap: isProd ? 'hidden' : true,
+  ...
+}
+```
+
+`sentryVitePlugin` sigue subiendo los maps a Sentry; el navegador no los descarga porque no quedan enlazados en los bundles. Ahorra ~15-25% del peso transferido y evita exponer código fuente original.
+
+**D. Sentry init no bloqueante (`main.jsx`)**
+
+Antes:
+```js
+import { initSentry } from './lib/sentry'
+initSentry()
+```
+
+Ahora:
+```js
+const initSentryDeferred = () => {
+  import('./lib/sentry').then((m) => m.initSentry()).catch(() => {});
+};
+if ('requestIdleCallback' in window) {
+  window.requestIdleCallback(initSentryDeferred, { timeout: 2000 });
+} else {
+  setTimeout(initSentryDeferred, 200);
+}
+```
+
+El SDK Sentry queda en un chunk independiente (`sentry` definido en `manualChunks`) que se descarga **después** del primer paint. Errores en los primeros ~200 ms son raros (módulos ya validados) y `window.onerror` nativo los recoge igual antes de que Sentry se anexe.
+
+**E. Charts del Dashboard via `lazy()` con `Suspense + SkeletonChart`**
+
+`Dashboard.jsx` ahora:
+```js
+const StudentProgressChart = lazy(() => import('../components/dashboard/StudentProgressChart'));
+const ClassroomOverview = lazy(() => import('../components/dashboard/ClassroomOverview'));
+const DifficultyHeatmap = lazy(() => import('../components/dashboard/DifficultyHeatmap'));
+const ActivityHeatmap = lazy(() => import('../components/analytics/ActivityHeatmap'));
+```
+
+Cada uno se envuelve en `<Suspense fallback={<SkeletonChart height={...} />}>`. KPIs hero y AlertsPanel aparecen antes de que el chunk `charts` (Recharts) termine de descargarse. El usuario percibe el Dashboard útil en menos tiempo.
+
+**F. `qrcode.react` lazy en `MfaSetup.jsx`**
+
+```js
+const QRCodeSVG = lazy(() =>
+  import('qrcode.react').then((mod) => ({ default: mod.QRCodeSVG }))
+);
+```
+
+Solo se descarga cuando el wizard llega al paso `Step.QR`. El chunk `qrcode` (~12 KB gzipped) queda separado del bundle de la página.
+
+**G. `<link rel="preload" as="style">` para Google Fonts (`index.html`)**
+
+```html
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="preload" as="style" href="https://fonts.googleapis.com/css2?family=Inter+Tight...">
+<link href="https://fonts.googleapis.com/css2?family=Inter+Tight..." rel="stylesheet">
+```
+
+El navegador descubre y descarga la hoja CSS antes del CSSOM tree → reduce FOUT/FOIT manteniendo `display=swap`.
+
+**H. Nuevos chunks en `manualChunks`**
+
+```js
+if (id.includes('@sentry/')) return 'sentry';
+if (id.includes('qrcode.react') || id.includes('/qrcode/')) return 'qrcode';
+```
+
+Separación explícita para que el split lazy de Sentry y qrcode sea limpio en lugar de ir al chunk `vendor` generic.
+
+**I. Memo en componentes hot del gameplay**
+
+`CharacterMascot.jsx` (re-renderiza con cada scan RFID por prop drilling desde `GameSession.jsx`) ahora se exporta como `memo(CharacterMascot)`. Las props (`mood`, `message`, `mechanicType`) son primitivas o estables, así que el shallow compare por defecto detecta cuándo no hay cambio real.
+
+`TimerBar` y `CurrentPlayMetrics` ya estaban memoizados desde sprints anteriores; documentado por completitud.
+
+### 11.2 Lo que NO se aplicó (y por qué)
+
+- **LazyMotion de Framer Motion (`<LazyMotion features={domAnimation} strict>`)**: aportaría ~25-30 KB de reducción del bundle base, pero requiere migrar todas las llamadas `motion.X` → `m.X` en ~100 archivos. Sin la migración global, con `strict={false}` Framer carga el bundle completo dinámicamente al detectar un `motion.X` interno — el beneficio es cero. La migración cae fuera del scope de T-907 por riesgo de regresión visual; queda documentado como tarea independiente.
+- **Lazy wrappers individuales por chart Recharts**: la arquitectura actual ya separa Recharts en chunk `charts` via `manualChunks` y todas las páginas que lo consumen (Analytics, etc.) son lazy en `App.jsx`. Crear wrappers individuales por chart añadiría un `Suspense fallback` adicional por componente sin reducir el bundle (Recharts ya se descarga 1 vez y se reutiliza). Cambio descartado por relación coste/beneficio.
+- **Sustituir Recharts por librería más ligera**: cambio masivo, riesgo alto de regresión visual en 11 charts distintos. Fuera de scope.
+
+### 11.3 Verificación
+
+```bash
+npm --prefix frontend run build
+BUILD_ANALYZE=true npm --prefix frontend run build  # abre dist/stats.html para revisar
+```
+
+Tras la build, comprobar:
+- `dist/assets/*.br` y `dist/assets/*.gz` se generan.
+- `dist/assets/index-*.js.map` existe pero el bundle `.js` no contiene `sourceMappingURL` (sourcemap hidden).
+- `dist/stats.html` muestra chunks `react-core`, `motion`, `icons`, `dnd`, `charts`, `socket`, `http`, `sentry`, `qrcode`, `ui-utils` separados.
+
+### 11.4 Compatibilidad
+
+- 396 tests frontend (`npm run test`) siguen verdes tras los cambios.
+- Lint frontend (`npm run lint`): 0 errores.
+- Sin cambios en componentes o animaciones — solo carga diferida.
+- Compatible con Cloudflare Pages (sirve `.br`/`.gz` automáticamente por `Accept-Encoding`).

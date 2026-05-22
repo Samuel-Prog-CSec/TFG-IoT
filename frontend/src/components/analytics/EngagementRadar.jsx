@@ -131,7 +131,7 @@ function EngagementRadar({ engagement }) {
         .join(', ');
       parts.push(`desglose: ${desglose}`);
     }
-    return parts.join('. ') + '.';
+    return `${parts.join('. ')  }.`;
   })();
 
   const accessibleDataTable = chartData.map((d) => ({

@@ -23,6 +23,9 @@ const ThemeContext = createContext(null);
 
 const REDUCED_MOTION_STORAGE_KEY = 'eduplay:reduced-motion';
 const FALLBACK_TRANSITION_MS = 280;
+// Mínimo tiempo que `isTogglingRef` permanece levantado tras un toggleTheme,
+// incluso si el View Transition resuelve antes. Suprime triple-tap rápido.
+const MIN_LOCK_MS = 350;
 
 /**
  * Lectura síncrona de la preferencia de reduced-motion para uso fuera de
@@ -159,6 +162,12 @@ export function ThemeProvider({ children }) {
     // usuario que mantiene pulsado Shift+T encadene transiciones solapadas.
     if (isTogglingRef.current) return;
     isTogglingRef.current = true;
+    // P0-7 plan auditoría Sprint 6: además del guard binario, garantizamos
+    // un "minimum hold" de MIN_LOCK_MS para que un triple-tap rápido (Shift+T
+    // pulsado 3 veces en 400ms) no encadene transiciones aunque el View
+    // Transition haya resuelto `finished` antes — caso real en páginas
+    // ligeras (Login/Register) donde el fade nativo apenas tarda 200ms.
+    const lockStartedAt = Date.now();
 
     const nextTheme = resolvedTheme === 'light' ? 'dark' : 'light';
     // El callback del View Transition es síncrono y el navegador necesita
@@ -181,12 +190,23 @@ export function ThemeProvider({ children }) {
     const release = () => {
       isTogglingRef.current = false;
     };
+    // Garantiza que el ref se mantiene levantado al menos MIN_LOCK_MS antes
+    // de soltarse. Si la transición termina antes (fade nativo rápido),
+    // posponemos el release hasta cumplir el mínimo.
+    const releaseRespectingMinHold = () => {
+      const elapsed = Date.now() - lockStartedAt;
+      if (elapsed >= MIN_LOCK_MS) {
+        release();
+        return;
+      }
+      globalThis.setTimeout(release, MIN_LOCK_MS - elapsed);
+    };
 
     const reduceMotion = readReducedMotionPreference();
 
     if (typeof document === 'undefined' || reduceMotion) {
       apply();
-      release();
+      releaseRespectingMinHold();
       return;
     }
 
@@ -195,10 +215,10 @@ export function ThemeProvider({ children }) {
       // CSS de ::view-transition-old/new(root) declarado en index.css.
       const transition = document.startViewTransition(apply);
       // `finished` resuelve cuando la animación termina o se cancela. Soltamos
-      // el lock ahí; si por alguna razón nunca resuelve (caso patológico),
-      // un timer de seguridad libera a los 500ms.
-      transition.finished.then(release, release);
-      globalThis.setTimeout(release, 500);
+      // el lock respetando MIN_LOCK_MS; si por alguna razón nunca resuelve
+      // (caso patológico), un timer de seguridad libera a los 650ms.
+      transition.finished.then(releaseRespectingMinHold, releaseRespectingMinHold);
+      globalThis.setTimeout(release, 650);
       return;
     }
 
@@ -210,7 +230,7 @@ export function ThemeProvider({ children }) {
     apply();
     globalThis.setTimeout(() => {
       delete root.dataset.themeSwitching;
-      release();
+      releaseRespectingMinHold();
     }, FALLBACK_TRANSITION_MS);
   }, [resolvedTheme, setMode]);
 

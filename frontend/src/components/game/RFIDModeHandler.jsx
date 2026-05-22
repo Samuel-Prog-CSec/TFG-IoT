@@ -9,7 +9,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
   WifiOff,
-  Settings,
+  Minus,
   Gamepad2,
   CreditCard,
   AlertCircle,
@@ -112,18 +112,14 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                     {isConnected ? 'Sensor Conectado' : 'Sensor Desconectado'}
                   </span>
                 </div>
-                {!isConnected && (
-                  <button
-                    onClick={() => setExpanded(false)}
-                    className="text-text-muted cursor-pointer hover:text-text-primary transition-colors"
-                    aria-label="Minimizar widget RFID"
-                  >
-                    <Settings size={14} />
-                  </button>
-                )}
-                {isConnected && (
-                  <Settings size={14} className="text-text-muted cursor-pointer hover:text-text-primary transition-colors" />
-                )}
+                <button
+                  type="button"
+                  onClick={() => setExpanded(false)}
+                  className="text-text-muted cursor-pointer hover:text-text-primary transition-colors focus-ring rounded"
+                  aria-label="Minimizar widget RFID"
+                >
+                  <Minus size={14} aria-hidden="true" />
+                </button>
               </div>
 
               {/* Estado del Modo */}

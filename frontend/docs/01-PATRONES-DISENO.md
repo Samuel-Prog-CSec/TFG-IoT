@@ -467,3 +467,40 @@ Referencias: ADR-136, ADR-070, ADR-069, skill `frontend-design`.
 ---
 
 *Referencia: [React Patterns](https://reactpatterns.com/)*
+
+## Sprint 0 pre-v1.0.0 — Extracción incremental sobre `GameSession.jsx` (ADR-164)
+
+`pages/GameSession.jsx` venía con `eslint-disable cyclomatic-complexity` y 1847 líneas. Sprint 0 aplica una **extracción de unidades puras testeables** sin partir el render JSX (Container/View split queda para Sprint 1 con justificación de riesgo).
+
+### Custom Hook + Reducer (`useGameSessionState`)
+Patrón: `hooks/useGameSessionState.js` expone el reducer del juego como hook reutilizable.
+
+```js
+import { useReducer, useRef } from 'react';
+
+export function useGameSessionState() {
+  const [game, dispatch] = useReducer(gameReducer, INITIAL_GAME_STATE);
+  const gameStateRef = useRef(game.gameState);
+  gameStateRef.current = game.gameState; // espejo para closures de socket
+  return { game, dispatch, gameStateRef };
+}
+```
+
+Beneficios:
+- Reducer testeable independiente del JSX (tests unitarios cubren cada acción).
+- `gameStateRef` espejado permite que callbacks de socket lean el último estado sin re-suscripción.
+- **No envuelve en Context** porque el state solo se consume dentro de `GameSession.jsx`. Promover a Context cuando hermanos lo necesiten.
+
+### Helper puro extraído (`normalizeFinalSummary`)
+`lib/finalSummary.js` exporta una función pura que normaliza el `metrics` del backend en el shape esperado por `GameOverScreen`. Cubre las inconsistencias conocidas:
+- `correctAnswers` del reducer local puede desincronizarse con `game_over` event → prioriza `metrics.correctAttempts`.
+- Tiempo total acepta `completionTime` / `totalTimePlayed` / `playDuration` como alias.
+- `maxScore` (ADR-114) validado como número finito positivo o `null`.
+
+Tests cubren los 3 modos (`memory`, `association`, `sequence`) y los edge cases (rawMetrics null, maxScore inválido, etc.).
+
+### Cuándo extraer
+- **Sí extraer:** reducer + actions, helpers puros, hooks reutilizables, sub-componentes con responsabilidad clara y reutilizable.
+- **No extraer trivialmente:** lógica enredada en useCallback/useEffect que captura muchas closures distintas (Container/View artificial). Mover esto sin un objetivo claro genera "shadow API" entre componentes y aumenta el riesgo de regresión sin reducir la complejidad real.
+
+Esta heurística aplica también a las 7 páginas restantes con `eslint-disable cyclomatic-complexity` (Sprint 1).

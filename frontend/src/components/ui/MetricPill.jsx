@@ -20,8 +20,13 @@ import { memo } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 
+// BUG (QA 2026-05-16): el tono neutral usaba `text-white` hardcoded. En
+// modo claro el fondo es claro y los números (T. medio, Tiempo, Errores)
+// quedaban invisibles sobre `bg-background-elevated/60`. Cambiamos a
+// `text-text-primary` que respeta el tema activo (oscuro: blanco-cálido,
+// claro: gris oscuro) garantizando contraste WCAG en ambos.
 const TONE_CLASSES = Object.freeze({
-  neutral: 'bg-background-elevated/60 border-border-subtle text-white',
+  neutral: 'bg-background-elevated/60 border-border-subtle text-text-primary',
   success: 'bg-success-base/10 border-success-base/20 text-success-base',
   error: 'bg-error-base/10 border-error-base/20 text-error-base',
   amber: 'bg-accent-amber/10 border-accent-amber/20 text-accent-amber',

@@ -8,7 +8,8 @@ import {
   Shield, Layers, X, Menu, LogOut,
   LayoutDashboard, CalendarClock, Palette, PlusCircle,
   UserCheck, ArrowRightLeft, Users, TrendingUp, Zap, ZapOff,
-  ChevronRight, GraduationCap, PanelLeftClose, PanelLeft
+  ChevronRight, GraduationCap, PanelLeftClose, PanelLeft, Keyboard,
+  KeyRound, ShieldAlert
 } from 'lucide-react';
 import EduPlayIcon from '../icons/EduPlayIcon';
 
@@ -22,7 +23,9 @@ const ICON_MAP = {
   ArrowRightLeft,
   Users,
   Shield,
+  ShieldAlert,
   TrendingUp,
+  KeyRound,
 };
 import { useAuth } from '../../context/AuthContext';
 import { cn, motionConfig } from '../../lib/utils';
@@ -35,7 +38,24 @@ import NotificationBell from '../notifications/NotificationBell';
 import OnboardingOverlay from '../onboarding/OnboardingOverlay';
 import { useOnboarding } from '../../hooks/useOnboarding';
 import { getTrackForRole } from '../../constants/onboardingTracks';
-import { useRegisterShortcutSource } from '../../context/ShortcutRegistryContext';
+import { useRegisterShortcutSource, useShortcutRegistry } from '../../context/ShortcutRegistryContext';
+import TeacherAnnouncementBanner from './TeacherAnnouncementBanner';
+import { useActiveAnnouncements } from '../../hooks/useActiveAnnouncements';
+
+/**
+ * Slot que carga y renderiza los avisos del super_admin. Aislado en su
+ * propio componente para que el hook `useActiveAnnouncements` solo se
+ * ejecute para teachers (cuando el AppLayout decide montar el slot).
+ */
+function BannerSlot() {
+  const { announcements, dismissOne } = useActiveAnnouncements();
+  if (!announcements?.length) return null;
+  return (
+    <div className="relative z-20 px-4 md:px-6 pt-3">
+      <TeacherAnnouncementBanner announcements={announcements} onDismiss={dismissOne} />
+    </div>
+  );
+}
 
 // eslint-disable-next-line sonarjs/cyclomatic-complexity -- layout principal con sidebar, hooks de tema, atajos, onboarding, modal y mascota
 export default function AppLayout() {
@@ -84,6 +104,9 @@ export default function AppLayout() {
   // del ShortcutRegistry haría setSources continuamente → "Maximum update
   // depth exceeded".
   const sidebarToggle = sidebar.toggle;
+  // T-952 Fase 1bis: el state del overlay vive en el contexto para que el
+  // botón "Atajos" del sidebar pueda abrirlo sin depender del atajo Shift+?.
+  const { openShortcuts } = useShortcutRegistry();
   const layoutShortcutSections = useMemo(
     () =>
       isSuperAdmin
@@ -94,6 +117,7 @@ export default function AppLayout() {
                 { key: 'g x', description: 'Ir a Aprobaciones', handler: () => navigate(ROUTES.ADMIN_APPROVALS) },
                 { key: 'g a', description: 'Ir al alumnado del centro', handler: () => navigate(ROUTES.STUDENT_MANAGEMENT) },
                 { key: 'g c', description: 'Ir a Contextos', handler: () => navigate(ROUTES.ADMIN_CONTEXTS) },
+                { key: 'g r', description: 'Ir a Alertas y avisos', handler: () => navigate(ROUTES.ADMIN_SYSTEM_ALERTS) },
               ],
             },
             {
@@ -234,25 +258,30 @@ export default function AppLayout() {
           La clase `.aurora-layer` aplica el modo de mezcla correcto: `screen`
           en dark, `multiply` en light (evita las manchas grises del screen
           sobre fondo claro). */}
-      <div className="aurora-layer fixed inset-0 pointer-events-none overflow-hidden opacity-25">
+      {/* BUG-A11Y-AURORA-OPACITY (QA Sprint 0 + tuning post): mezclamos cada
+          blob con bg-base via color-mix para que axe samplee un bg cercano
+          al neutral. Tras tuning iterativo, 18%/15%/15% es el último set que
+          mantiene 0 violaciones en SessionDetail (mecánica Secuencia amber
+          es el peor caso) — la firma de atmósfera se nota más sin romper AA. */}
+      <div className="aurora-layer fixed inset-0 pointer-events-none overflow-hidden">
         <motion.div
-          className="absolute top-0 left-1/4 size-96 rounded-full blur-[128px] opacity-80"
+          className="absolute top-0 left-1/4 size-96 rounded-full blur-[128px]"
           style={{
-            backgroundColor: 'var(--color-atmosphere-aurora-1)',
+            backgroundColor: 'color-mix(in oklab, var(--color-atmosphere-aurora-1) 18%, var(--color-background-base))',
             y: shouldReduceMotion ? 0 : auroraOffset1
           }}
         />
         <motion.div
-          className="absolute bottom-0 right-1/4 size-96 rounded-full blur-[128px] opacity-60"
+          className="absolute bottom-0 right-1/4 size-96 rounded-full blur-[128px]"
           style={{
-            backgroundColor: 'var(--color-atmosphere-aurora-2)',
+            backgroundColor: 'color-mix(in oklab, var(--color-atmosphere-aurora-2) 15%, var(--color-background-base))',
             y: shouldReduceMotion ? 0 : auroraOffset2
           }}
         />
         <motion.div
-          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px] opacity-50 size-[clamp(320px,40vw,600px)]"
+          className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px] size-[clamp(320px,40vw,600px)]"
           style={{
-            backgroundColor: 'var(--color-atmosphere-aurora-3)',
+            backgroundColor: 'color-mix(in oklab, var(--color-atmosphere-aurora-3) 15%, var(--color-background-base))',
             y: shouldReduceMotion ? 0 : auroraOffset3
           }}
         />
@@ -352,12 +381,13 @@ export default function AppLayout() {
             isCompact
               ? 'mx-3 mt-2 mb-1 p-2 rounded-lg hover:bg-background-surface/50'
               : cn(
-                  // Floating: pegado al borde derecho del sidebar, centrado
-                  // sobre la linea del borde (translate-x-1/2 le hace
-                  // sobresalir mitad-mitad). z alto para vencer el card
-                  // user-info adyacente. Tamano sm + circulo para que se
-                  // lea como "control de panel" y no como item de menu.
-                  'absolute top-7 right-0 translate-x-1/2 z-30',
+                  // Control pegado al borde derecho del sidebar pero DENTRO
+                  // (right-3 = 12px de margen interno). Antes salía mitad-mitad
+                  // con translate-x-1/2 y se solapaba con el h1 de paginas
+                  // admin que no aplicaban su propio padding-x (QA 2026-05-21
+                  // BUG-QA-NUEVO-2). Mantenemos el look "control de panel"
+                  // sin invadir el area del main content.
+                  'absolute top-7 right-3 z-30',
                   'size-7 rounded-full bg-background-elevated',
                   'border border-border-default shadow-[var(--shadow-md)]',
                   'hover:bg-background-surface hover:border-border-emphasis'
@@ -390,8 +420,8 @@ export default function AppLayout() {
                     className={cn(
                       'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider',
                       isSuperAdmin
-                        ? 'bg-warning-base/15 text-warning-base border border-warning-base/30'
-                        : 'bg-brand-base/15 text-brand-light border border-brand-base/30'
+                        ? 'bg-warning-base/15 text-warning-on-alpha border border-warning-base/30'
+                        : 'bg-brand-base/15 text-brand-on-alpha border border-brand-base/30'
                     )}
                   >
                     {isSuperAdmin ? 'Dirección' : 'Docente'}
@@ -424,7 +454,7 @@ export default function AppLayout() {
           {isSuperAdmin && (
             <>
               {!isCompact && (
-                <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-warning-base uppercase tracking-widest flex items-center gap-2">
+                <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-warning-on-alpha uppercase tracking-widest flex items-center gap-2">
                   <Shield size={10} /> Gestión del centro
                 </p>
               )}
@@ -502,12 +532,27 @@ export default function AppLayout() {
             aria-label="Animaciones"
             title={shouldReduceMotion ? 'Activar animaciones' : 'Reducir animaciones'}
             className={cn(
-              'flex items-center w-full px-4 py-2 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors duration-200',
+              // py-3 (antes py-2) para igualar la altura visual del resto de
+              // items del footer (Tutorial, Atajos, Privacidad, Cerrar
+              // sesión). Sin esto, en modo rail el toggle queda más bajo y
+              // su icono se ve "minúsculo" al lado del resto (QA 2026-05-16).
+              'flex items-center w-full px-4 py-3 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors duration-200',
               isCompact ? 'justify-center' : 'justify-between'
             )}
           >
             <span className={cn('flex items-center', isCompact ? '' : 'gap-3')}>
-              {shouldReduceMotion ? <ZapOff size={16} aria-hidden="true" /> : <Zap size={16} aria-hidden="true" />}
+              {/* size=20 alinea con GraduationCap/Keyboard/Shield/LogOut
+                  del resto de items del footer. Antes era 16 → se veía
+                  "minúsculo" en modo rail (QA 2026-05-16). */}
+              {/* `shrink-0` evita que el SVG se aplaste cuando es hijo
+                  directo de un contenedor flex sin texto al lado (modo rail).
+                  Sin esto, el icono renderizaba a 7px de ancho en lugar de
+                  20px porque flex-shrink default lo encogía (QA 2026-05-16). */}
+              {shouldReduceMotion ? (
+                <ZapOff size={20} aria-hidden="true" className="shrink-0" />
+              ) : (
+                <Zap size={20} aria-hidden="true" className="shrink-0" />
+              )}
               {!isCompact && (
                 <span className="font-medium text-xs uppercase tracking-wider text-text-secondary">
                   Animaciones
@@ -545,10 +590,40 @@ export default function AppLayout() {
                 isCompact ? 'justify-center' : 'gap-3'
               )}
             >
-              <GraduationCap size={20} />
+              <GraduationCap size={20} className="shrink-0" />
               {!isCompact && <span className="font-medium text-sm">Ver tutorial</span>}
             </button>
           )}
+
+          {/* Atajos de teclado — botón visible para descubribilidad (T-952
+              Fase 1bis). El overlay también se abre con Shift+?. Las
+              secciones que muestra dependen del rol porque `AppLayout`
+              registra distintos `sourceId` (app-layout-admin vs
+              app-layout-teacher) en `ShortcutRegistry`; un super_admin no
+              ve los atajos `g s`/`g m`/Shift+N del docente y viceversa. */}
+          <button
+            type="button"
+            onClick={openShortcuts}
+            title="Ver lista de atajos de teclado (Shift + ?)"
+            aria-haspopup="dialog"
+            className={cn(
+              'flex items-center w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200',
+              isCompact ? 'justify-center' : 'gap-3'
+            )}
+          >
+            <Keyboard size={20} className="shrink-0" />
+            {!isCompact && (
+              <span className="flex items-center justify-between flex-1">
+                <span className="font-medium text-sm">Atajos de teclado</span>
+                <kbd
+                  className="ml-2 hidden md:inline-flex items-center px-1.5 py-0.5 rounded-md border border-border-default bg-background-elevated/60 font-mono text-[10px] text-text-muted"
+                  aria-hidden="true"
+                >
+                  ⇧?
+                </kbd>
+              </span>
+            )}
+          </button>
 
           <NavLink
             to="/privacy"
@@ -558,7 +633,7 @@ export default function AppLayout() {
               isCompact ? 'justify-center' : 'gap-3'
             )}
           >
-            <Shield size={20} />
+            <Shield size={20} className="shrink-0" />
             {!isCompact && <span className="font-medium text-sm">Privacidad</span>}
           </NavLink>
           <button
@@ -572,7 +647,7 @@ export default function AppLayout() {
               isLoggingOut && 'opacity-60 cursor-not-allowed pointer-events-none'
             )}
           >
-            <LogOut size={20} />
+            <LogOut size={20} className="shrink-0" />
             {!isCompact && (
               <span className="font-medium text-sm">
                 {isLoggingOut ? 'Cerrando sesión…' : 'Cerrar Sesión'}
@@ -586,6 +661,12 @@ export default function AppLayout() {
           (PROP-100). El `pb-16` sigue reservando margen bajo el widget RFID
           flotante para que no tape la última fila de la página. */}
       <main id="main-content" className="flex-1 relative pb-16 min-w-0">
+        {/* Banner con avisos del centro publicados por super_admin (T-942).
+            Solo se renderiza para roles teacher; super_admin gestiona los
+            avisos pero no los recibe como banner. */}
+        {!isSuperAdmin && (
+          <BannerSlot />
+        )}
         {/* Subtle Grid Pattern for Depth */}
         <div className="absolute inset-0 bg-grid opacity-20 pointer-events-none" />
 
@@ -656,7 +737,7 @@ function NavItem({ to, icon, label, dataTour, compact = false }) {
           'flex items-center rounded-xl transition-colors duration-200 group relative overflow-hidden',
           compact ? 'justify-center px-2 py-3' : 'gap-3 px-4 py-3',
           (isActive || isParentOf)
-            ? 'text-brand-light font-medium bg-brand-base/10 border border-brand-base/20'
+            ? 'text-brand-on-alpha font-medium bg-brand-base/10 border border-brand-base/20'
             : 'text-text-secondary hover:text-text-primary hover:bg-background-surface/50 font-medium'
         )
       }

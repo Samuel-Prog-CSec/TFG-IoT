@@ -536,16 +536,22 @@ export default function DeckEditPage() {
               onClick={() => dispatchUI({ type: 'SET_ACTIVE_TAB', payload: tab.id })}
               className={cn(
                 'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                // BUG-A11Y-DECKEDIT-TAB (QA Sprint 0): accent-indigo a 60%
+                // luminancia da 4.07:1 con white. Subimos a indigo-700
+                // (Tailwind) que es más oscuro y cumple AA.
                 ui.activeTab === tab.id
-                  ? 'bg-accent-indigo text-text-primary'
-                  : 'text-text-muted hover:text-text-primary'
+                  ? 'bg-indigo-700 text-white'
+                  : 'text-text-secondary hover:text-text-primary'
               )}
             >
               <tab.icon size={16} />
               {tab.label}
               {tab.count && (
+                // BUG-A11Y-DECKEDIT-COUNT (QA Sprint 0): text-text-muted
+                // sobre bg-background-surface daba 4.23:1. text-secondary
+                // pasa AA y mantiene el rol terciario del badge.
                 <span className={cn(
-                  'text-xs px-1.5 py-0.5 rounded-full',
+                  'text-xs px-1.5 py-0.5 rounded-full text-text-secondary',
                   ui.activeTab === tab.id ? 'bg-border-strong' : 'bg-background-surface'
                 )}>
                   {tab.count}
@@ -591,18 +597,23 @@ export default function DeckEditPage() {
                       layout
                       className="relative p-4 rounded-xl bg-background-elevated/50 border border-border-default group"
                     >
+                      {/* BUG-A11Y-REMOVE-BUTTON (QA Sprint 0): el botón
+                          sólo contiene icono X — sin aria-label el botón no
+                          tiene nombre accesible (Tooltip aporta title visual
+                          pero no aria-labelledby). */}
                       <Tooltip content="Quitar carta">
                         <button
                           onClick={() => handleRemoveCard(card.uid)}
                           disabled={selectedCards.length <= MIN_CARDS}
+                          aria-label={`Quitar carta ${card.uid}`}
                           className={cn(
                             'absolute -top-2 -right-2 size-6 rounded-full',
-                            'bg-error-base text-text-primary flex items-center justify-center',
+                            'bg-error-base text-white flex items-center justify-center',
                             'opacity-0 group-hover:opacity-100 transition-opacity',
-                            'hover:bg-error-base/80 disabled:opacity-50 disabled:cursor-not-allowed'
+                            'hover:bg-error-dark disabled:opacity-50 disabled:cursor-not-allowed'
                           )}
                         >
-                          <X size={12} />
+                          <X size={12} aria-hidden="true" />
                         </button>
                       </Tooltip>
                       
@@ -843,7 +854,10 @@ export default function DeckEditPage() {
           >
             <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-warning-base/20 border border-warning-base/50 backdrop-blur-lg">
               <AlertTriangle size={18} className="text-warning-base" />
-              <span className="text-sm text-warning-base/80">Tienes cambios sin guardar</span>
+              {/* BUG-A11Y-DECKEDIT-UNSAVED (QA Sprint 0): warning-base sólido
+                  cumple en dark pero falla en light (3.03). light:text-warning-dark
+                  resuelve ambos temas. */}
+              <span className="text-sm text-warning-on-alpha">Tienes cambios sin guardar</span>
               <ButtonPremium
                 size="sm"
                 onClick={handleSave}

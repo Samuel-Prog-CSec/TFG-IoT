@@ -357,6 +357,31 @@ const userSchema = new mongoose.Schema(
       default: null,
       select: false // No exponer por defecto por seguridad
     },
+
+    /**
+     * MFA TOTP (T-905 B7). Solo aplicable a super_admin actualmente.
+     * - secret: TOTP secret base32 cifrado con AES-256-GCM (cryptoUtils.encryptField, AAD 'mfa').
+     *   `select: false` para que NUNCA se serialice por defecto en queries.
+     * - backupCodes: hash bcrypt de 8 códigos one-time. `usedAt` marca consumo.
+     * - enabledAt / lastUsedAt: audit trail.
+     */
+    mfa: {
+      enabled: { type: Boolean, default: false },
+      secret: { type: String, default: null, select: false },
+      backupCodes: {
+        type: [
+          {
+            hash: { type: String, required: true },
+            usedAt: { type: Date, default: null }
+          }
+        ],
+        default: [],
+        select: false
+      },
+      enabledAt: { type: Date, default: null },
+      lastUsedAt: { type: Date, default: null }
+    },
+
     lastLoginAt: Date
   },
   {

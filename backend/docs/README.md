@@ -13,7 +13,7 @@ Documentacion tecnica del backend. Incluye decisiones de arquitectura, seguridad
 - Performance_Notes.md: notas de rendimiento y optimizaciones.
 - RFID_Protocol.md: contrato y eventos RFID.
 - RFID_Runtime_Flows.md: flujos runtime RFID (autoridad, secuencias y errores esperados).
-- Security_Logging.md: eventos y estrategia de logging de seguridad.
+- Security_Logging.md: **MOVIDO** a `/documentation/SECURITY.md` §11 (T-905 B12).
 - WebSerial_Architecture.md: arquitectura Web Serial.
 - WebSockets-ExtendedUsage.md: eventos y patrones de WebSocket.
 - diagrams/: diagramas de arquitectura.
