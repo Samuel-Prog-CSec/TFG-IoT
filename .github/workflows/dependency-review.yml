@@ -42,12 +42,14 @@ jobs:
           fail-on-severity: moderate
           # Licencias permitidas (open-source compatibles con MIT/Apache).
           # Si necesitas añadir una, justifícalo en el PR description.
+          # NOTA: dependency-review-action v4 considera mutuamente excluyentes
+          # `allow-licenses` y `deny-licenses`. Usamos allowlist (más estricto):
+          # cualquier licencia no listada aquí — incluidas las copyleft fuertes
+          # como GPL-2.0/3.0, AGPL-*, LGPL-3.0, EUPL-1.2 y MPL-2.0 — falla el PR.
           allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, CC0-1.0, Unlicense, Python-2.0, BlueOak-1.0.0
-          # Licencias explícitamente prohibidas (copyleft fuerte).
-          deny-licenses: GPL-2.0, GPL-3.0, AGPL-1.0, AGPL-3.0, LGPL-3.0, EUPL-1.2, MPL-2.0
           # Comentar el resumen en el PR para visibilidad rápida.
           comment-summary-in-pr: on-failure
           # Permitir advisories ya documentados como no alcanzables en build.yml
           # (ver comentarios en el step "Security gate (producción)"). Mantener
           # esta lista sincronizada con BACKEND_EXCLUDED + FRONTEND_EXCLUDED.
-          allow-ghsas: GHSA-w5hq-g745-h8pq, GHSA-v2v4-37r5-5v8g, GHSA-jxxr-4gwj-5jf2, GHSA-58qx-3vcg-4xpx, GHSA-3p68-rc4w-qgx5, GHSA-fvcv-3m26-pcqx, GHSA-r4q5-vmmm-2653
+          allow-ghsas: GHSA-58qx-3vcg-4xpx

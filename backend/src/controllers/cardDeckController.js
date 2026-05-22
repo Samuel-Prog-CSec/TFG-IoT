@@ -68,10 +68,12 @@ function validateDeckMappingsStructure(cardMappings) {
   // Política actual: aceptar tanto "valores únicos" (Asociación/Secuencia)
   // como "todos en parejas exactas de 2" (Memoria). Cualquier otra
   // distribución sigue rechazándose.
+  // Object.create(null) evita que un assignedValue como "__proto__" o "constructor"
+  // resuelva contra Object.prototype y falsee el conteo de duplicados.
   const valueCounts = assignedValues.reduce((acc, v) => {
     acc[v] = (acc[v] || 0) + 1;
     return acc;
-  }, {});
+  }, Object.create(null));
   const counts = Object.values(valueCounts);
   const allUnique = counts.every(c => c === 1);
   const allPairs = counts.every(c => c === 2);
