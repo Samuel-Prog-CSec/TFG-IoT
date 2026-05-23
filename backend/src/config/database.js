@@ -31,6 +31,14 @@ const logger = require('../utils/logger');
  * - socketTimeoutMS 45s: corta queries colgadas sin matar la conexión.
  * - heartbeatFrequencyMS 30s: detecta failover del replica set sin saturar.
  * - retryReads/Writes + w:'majority': requiere replica set (Atlas siempre lo tiene).
+ * - A.7 (pre-v1.0.0) — compressors ['snappy','zstd']: Atlas M0 acepta ambos. El
+ *   driver negocia transparentemente; si el cluster los rechaza cae a wire sin
+ *   compresión. Reduce 30-50% bytes wire-level en aggregations grandes
+ *   (`$lookup` con cardMappings[], etc.).
+ * - A.7 — maxIdleTimeMS 60s: libera conexiones idle del pool tras 60s sin
+ *   uso. Bajo carga normal mantiene minPoolSize=2 vivas; bajo carga puntual
+ *   permite re-uso eficiente sin acaparar el budget de 100 conn del cluster.
+ *   Relevante para escala horizontal futura (T-908 multi-pod).
  *
  * En desarrollo y test se usan defaults de Mongoose para no asumir replica set
  * (mongodb-memory-server y MongoDB local single-node pueden no soportar w:'majority').
@@ -38,12 +46,14 @@ const logger = require('../utils/logger');
 const productionConnectOptions = {
   maxPoolSize: 10,
   minPoolSize: 2,
+  maxIdleTimeMS: 60_000,
   serverSelectionTimeoutMS: 10_000,
   socketTimeoutMS: 45_000,
   heartbeatFrequencyMS: 30_000,
   retryReads: true,
   retryWrites: true,
-  w: 'majority'
+  w: 'majority',
+  compressors: ['snappy', 'zstd']
 };
 
 const connectDB = async () => {

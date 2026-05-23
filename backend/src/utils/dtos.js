@@ -884,6 +884,13 @@ const toSystemMetricsDTOV1 = payload => ({
   // Clave para detectar en producción si el cache y el rate-limit distribuidos
   // están operativos.
   redis: payload.redis,
+  // B.6 (pre-v1.0.0): visibility del modo activo del rate limiter Socket.IO
+  // (Redis ZSET distribuido vs memory-local). Sin esto no se puede validar
+  // en Koyeb prod que el path correcto está en uso.
+  socketRateLimiter: payload.socketRateLimiter,
+  // T-931 (pre-v1.0.0): contadores de la materialización Redis (ZSET
+  // leaderboards + Hash studentMetrics + reconciliación BullMQ nocturna).
+  t931: payload.t931,
   memory: payload.memory
 });
 

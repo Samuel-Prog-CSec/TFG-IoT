@@ -9,6 +9,7 @@
 
 const redisService = require('../services/redisService');
 const logger = require('./logger').child({ component: 'cacheHelper' });
+const { recordCacheLayerOutcome } = require('./runtimeMetrics');
 
 /**
  * TTLs por defecto para cada tipo de cache (en segundos).
@@ -19,6 +20,22 @@ const DEFAULT_TTLS = {
   context: 1800, // 30 minutos — contextos cambian poco
   analytics: 300 // 5 minutos — datos que cambian con cada partida
 };
+
+/**
+ * B.2 (pre-v1.0.0): aplica jitter ±10% al TTL para mitigar thundering herd.
+ * Si 30 dashboards de profes están abiertos al mismo tiempo y todos cachean
+ * `getClassroomSummary` en el mismo segundo, sin jitter expiran en bloque y
+ * disparan 30 aggregations Mongo concurrentes. Con ±10% el storm se diluye
+ * sobre ≈10% del TTL. Floor en 30s para no degenerar.
+ *
+ * @param {number} ttlSeconds
+ * @returns {number} TTL con jitter aplicado, mínimo 30s.
+ */
+const withTtlJitter = ttlSeconds =>
+  // Math.random aquí es performance (jitter contra thundering herd), no
+  // criptografía — sonarjs/pseudo-random no aplica.
+  // eslint-disable-next-line sonarjs/pseudo-random
+  Math.max(30, Math.floor(ttlSeconds + (Math.random() - 0.5) * ttlSeconds * 0.2));
 
 /**
  * Obtiene un valor del cache o lo calcula y cachea.
@@ -34,7 +51,7 @@ const DEFAULT_TTLS = {
  * @returns {Promise<*>} Datos del cache o de fetchFn
  */
 const cacheGet = async (namespace, key, fetchFn, ttlSeconds) => {
-  const ttl = ttlSeconds || DEFAULT_TTLS[namespace.replace('cache:', '')] || 300;
+  const baseTtl = ttlSeconds || DEFAULT_TTLS[namespace.replace('cache:', '')] || 300;
 
   // Intentar obtener del cache
   const cached = await redisService.get(namespace, key);
@@ -42,7 +59,10 @@ const cacheGet = async (namespace, key, fetchFn, ttlSeconds) => {
   if (cached !== null) {
     logger.debug('Cache HIT', { namespace, key });
     try {
-      return JSON.parse(cached);
+      const parsed = JSON.parse(cached);
+      // B.1: hit/miss para diagnosticar eficacia del cache por namespace.
+      recordCacheLayerOutcome(namespace, 'hit');
+      return parsed;
     } catch {
       // Si el valor cacheado no es JSON válido, ignorar y refetch
       logger.warn('Cache: valor no parseable, refetching', { namespace, key });
@@ -50,12 +70,15 @@ const cacheGet = async (namespace, key, fetchFn, ttlSeconds) => {
   }
 
   logger.debug('Cache MISS', { namespace, key });
+  recordCacheLayerOutcome(namespace, 'miss');
 
   // Fetch desde la fuente original
   const data = await fetchFn();
 
-  // Guardar en cache (fire-and-forget, no bloquea la respuesta)
-  redisService.setWithTTL(namespace, key, JSON.stringify(data), ttl).catch(err => {
+  // Guardar en cache (fire-and-forget, no bloquea la respuesta).
+  // B.2: jitter ±10% sobre el TTL para evitar invalidaciones en bloque.
+  const jitteredTtl = withTtlJitter(baseTtl);
+  redisService.setWithTTL(namespace, key, JSON.stringify(data), jitteredTtl).catch(err => {
     logger.warn('Cache: error al guardar', { namespace, key, error: err.message });
   });
 

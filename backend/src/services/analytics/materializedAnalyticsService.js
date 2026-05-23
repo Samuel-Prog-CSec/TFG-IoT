@@ -1,0 +1,858 @@
+/**
+ * @fileoverview T-931 (pre-v1.0.0) — Materialización Redis para hot reads de
+ * analytics.
+ *
+ * Pasa de pagar el coste de `$lookup` con `$facet` en cada lectura del
+ * dashboard a estructuras Redis especializadas:
+ *
+ *   1) **Leaderboards ZSET** — rankings de contextos y mecánicas por
+ *      profesor y rango temporal. Score acumulado y plays count se
+ *      mantienen en sorted sets distintos (`leaderboard:context:score:...`,
+ *      `leaderboard:mechanic:plays:...`, etc.), accedidos con `ZINCRBY`
+ *      en escritura y `ZREVRANGE WITHSCORES` en lectura. Coste lectura
+ *      O(log N + M).
+ *
+ *   2) **studentMetrics Hash** — contadores por alumno
+ *      (`student:metrics:<studentId>`). Cada `endPlay` actualiza con
+ *      `HINCRBY` (atómico, sin race en multi-instancia) los campos
+ *      `totalGamesPlayed`, `totalCorrectAnswers`, `totalErrors`, `sumScores`,
+ *      `sumResponseTimeMs`, `responseTimeSamples`, `lastPlayedAt` y los
+ *      específicos de Secuencia (`maxSequenceLengthAchieved`,
+ *      `sequencesCompleted`).
+ *
+ *   3) **Reconciliación nocturna** — un job BullMQ recalcula desde Mongo
+ *      todas las materializaciones y reporta drift detectado. Si el drift
+ *      supera 5% se loguea como Sentry warning. Se ejecuta a las 00:30
+ *      hora servidor.
+ *
+ * Mongo permanece como fuente de verdad — Redis es caché de lecturas
+ * calientes. Cualquier `endPlay` que falle al escribir en Redis no
+ * compromete el flujo (fire-and-forget con catch silente) porque la
+ * reconciliación nocturna lo arreglará. El consentimiento RGPD se respeta
+ * porque las escrituras pasan por el flujo `endPlay` que ya gatekeepea
+ * con `player.hasConsentFor('performance_analytics')`.
+ *
+ * GDPR Art. 17 — al eliminar un alumno hay que purgar `student:metrics:*`
+ * y miembros en leaderboards. Exportado `purgeStudentMaterialization`.
+ *
+ * @module services/analytics/materializedAnalyticsService
+ */
+
+const mongoose = require('mongoose');
+const redisService = require('../redisService');
+const logger = require('../../utils/logger').child({ component: 'materializedAnalytics' });
+const runtimeMetrics = require('../../utils/runtimeMetrics');
+
+// =============================================================================
+// Constantes
+// =============================================================================
+
+/**
+ * Rangos temporales de leaderboard. Cada uno tiene su propio ZSET para
+ * permitir lecturas O(log N + M) sin necesidad de filtrar por timestamp.
+ * @readonly
+ */
+const LEADERBOARD_TIME_RANGES = ['24h', '7d', '30d'];
+
+/**
+ * Ventana de cada rango en milisegundos (para el job de reconciliación).
+ * @readonly
+ */
+const TIME_RANGE_MS = {
+  '24h': 24 * 60 * 60 * 1000,
+  '7d': 7 * 24 * 60 * 60 * 1000,
+  '30d': 30 * 24 * 60 * 60 * 1000
+};
+
+/**
+ * TTL de los ZSETs en segundos. 8 días = una ventana 7d + margen.
+ * Cuando expira sin reconciliación, el endpoint devuelve fallback Mongo
+ * (transparente para el cliente).
+ * @readonly
+ */
+const LEADERBOARD_TTL_SECONDS = 8 * 24 * 60 * 60;
+
+const NAMESPACES = {
+  LEADERBOARD: 'leaderboard',
+  STUDENT_METRICS: 'student:metrics'
+};
+
+// =============================================================================
+// Helpers internos
+// =============================================================================
+
+const toObjectId = id => {
+  if (!id) {
+    return null;
+  }
+  if (id instanceof mongoose.Types.ObjectId) {
+    return id;
+  }
+  try {
+    return new mongoose.Types.ObjectId(id);
+  } catch {
+    return null;
+  }
+};
+
+const toIdString = id => (typeof id === 'string' ? id : id?.toString?.() || '');
+
+/**
+ * Construye la key Redis para un leaderboard concreto.
+ * Pattern: `<dimension>:<metric>:<teacherId>:<timeRange>`.
+ *   - dimension: `context` | `mechanic`
+ *   - metric:    `score`   | `plays`
+ *
+ * Las cuatro combinaciones se mantienen para evitar derivar plays desde
+ * ZSCORE/avg en lectura — `ZINCRBY` × 2 por dimensión es el precio justo
+ * frente a una aggregation Mongo con dos `$lookup`.
+ *
+ * @param {string} dimension
+ * @param {string} metric
+ * @param {string} teacherId
+ * @param {string} timeRange
+ * @returns {string}
+ */
+const leaderboardId = (dimension, metric, teacherId, timeRange) =>
+  `${dimension}:${metric}:${toIdString(teacherId)}:${timeRange}`;
+
+// =============================================================================
+// Escrituras (invocadas desde endPlay)
+// =============================================================================
+
+/**
+ * Registra una partida completada en TODAS las materializaciones Redis.
+ * Se invoca desde `GameEngine._endPlayInternal` tras `player.updateStudentMetrics`
+ * (fire-and-forget — un fallo Redis no compromete la partida porque la
+ * reconciliación nocturna lo arreglará).
+ *
+ * @param {Object} payload
+ * @param {string} payload.teacherId - createdBy de la session
+ * @param {string} payload.contextId - session.contextId
+ * @param {string} payload.mechanicId - session.mechanicId
+ * @param {string} payload.studentId - playDoc.playerId
+ * @param {number} payload.score - playDoc.score final
+ * @param {number} [payload.maxScore] - playDoc.maxScore (opcional)
+ * @param {number} [payload.correctAttempts]
+ * @param {number} [payload.errorAttempts]
+ * @param {number} [payload.timeoutAttempts]
+ * @param {number} [payload.averageResponseTime] - ms
+ * @param {string} [payload.mechanicName] - 'memory'|'association'|'sequence'
+ * @param {number} [payload.maxSequenceLengthAchieved]
+ * @param {number} [payload.sequencesCompleted]
+ * @returns {Promise<void>}
+ */
+async function recordPlayCompletion(payload) {
+  if (!payload?.teacherId || !payload?.studentId) {
+    return;
+  }
+  const {
+    teacherId,
+    contextId,
+    mechanicId,
+    studentId,
+    score = 0,
+    correctAttempts = 0,
+    errorAttempts = 0,
+    timeoutAttempts = 0,
+    averageResponseTime = 0,
+    mechanicName,
+    maxSequenceLengthAchieved = 0,
+    sequencesCompleted = 0
+  } = payload;
+
+  // Las escrituras pueden fallar de forma silenciosa (Redis caído,
+  // circuit breaker abierto). El job nocturno reconciliará — no
+  // bloqueamos endPlay.
+  try {
+    await redisService.runPipeline(p => {
+      // === ZSETs leaderboards (4 keys × 3 timeRanges = 12 ZINCRBY) ===
+      // Solo si contextId / mechanicId tienen valor.
+      if (contextId) {
+        for (const range of LEADERBOARD_TIME_RANGES) {
+          p.zincrby(
+            redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId('context', 'score', teacherId, range)
+            ),
+            score,
+            toIdString(contextId)
+          );
+          p.zincrby(
+            redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId('context', 'plays', teacherId, range)
+            ),
+            1,
+            toIdString(contextId)
+          );
+          p.expire(
+            redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId('context', 'score', teacherId, range)
+            ),
+            LEADERBOARD_TTL_SECONDS
+          );
+          p.expire(
+            redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId('context', 'plays', teacherId, range)
+            ),
+            LEADERBOARD_TTL_SECONDS
+          );
+        }
+      }
+      if (mechanicId) {
+        for (const range of LEADERBOARD_TIME_RANGES) {
+          p.zincrby(
+            redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId('mechanic', 'score', teacherId, range)
+            ),
+            score,
+            toIdString(mechanicId)
+          );
+          p.zincrby(
+            redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId('mechanic', 'plays', teacherId, range)
+            ),
+            1,
+            toIdString(mechanicId)
+          );
+          p.expire(
+            redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId('mechanic', 'score', teacherId, range)
+            ),
+            LEADERBOARD_TTL_SECONDS
+          );
+          p.expire(
+            redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId('mechanic', 'plays', teacherId, range)
+            ),
+            LEADERBOARD_TTL_SECONDS
+          );
+        }
+      }
+
+      // === Hash studentMetrics — HINCRBY atómico (sin race condition) ===
+      const studentHashKey = redisService.buildKey(
+        NAMESPACES.STUDENT_METRICS,
+        toIdString(studentId)
+      );
+      p.hincrby(studentHashKey, 'totalGamesPlayed', 1);
+      p.hincrby(studentHashKey, 'totalCorrectAnswers', correctAttempts);
+      p.hincrby(studentHashKey, 'totalErrors', errorAttempts);
+      p.hincrby(studentHashKey, 'totalTimeouts', timeoutAttempts);
+      // sumScores / responseTime usan números enteros (multiplicados ×100)
+      // para evitar `HINCRBYFLOAT` (más lento, mantiene precisión decimal
+      // si lo necesitásemos más adelante).
+      p.hincrby(studentHashKey, 'sumScoresHundredths', Math.round(score * 100));
+      p.hincrby(
+        studentHashKey,
+        'sumResponseTimeMs',
+        Math.max(0, Math.round(averageResponseTime || 0))
+      );
+      if (averageResponseTime > 0) {
+        p.hincrby(studentHashKey, 'responseTimeSamples', 1);
+      }
+      p.hset(studentHashKey, 'lastPlayedAt', String(Date.now()));
+      // Secuencia: campos específicos
+      if (mechanicName === 'sequence') {
+        p.hincrby(studentHashKey, 'sequencesCompleted', sequencesCompleted);
+        // maxSequenceLength es MAX, no SUM. Lo guardamos como simple set
+        // condicional: leemos antes en otra operación si fuese estrictamente
+        // necesario, pero como `HINCRBY` no permite max, dejamos al
+        // reconciliador la consolidación correcta. Aquí lo escribimos en
+        // claro con `hset` solo si supera el actual (best-effort).
+        if (maxSequenceLengthAchieved > 0) {
+          // Sin lectura previa: sobrescribimos. Reconcile nocturno corrige.
+          p.hset(studentHashKey, 'maxSequenceLengthAchieved', String(maxSequenceLengthAchieved));
+        }
+      }
+    }, 't931-write');
+
+    if (contextId || mechanicId) {
+      runtimeMetrics.recordT931Write('leaderboard');
+    }
+    runtimeMetrics.recordT931Write('studentMetrics');
+  } catch (err) {
+    // Fire-and-forget — log y seguir.
+    logger.warn('T-931: error registrando partida en Redis (no bloquea endPlay)', {
+      teacherId: toIdString(teacherId),
+      studentId: toIdString(studentId),
+      error: err.message
+    });
+  }
+}
+
+// =============================================================================
+// Lecturas con fallback Mongo
+// =============================================================================
+
+/**
+ * Devuelve el top de contextos por puntuación o plays para un profesor +
+ * timeRange. Si el ZSET no existe (miss / TTL expirado), retorna `null`
+ * para que el caller use el camino aggregation Mongo.
+ *
+ * @param {string} teacherId
+ * @param {Object} options
+ * @param {string} options.timeRange - '24h'|'7d'|'30d'
+ * @param {string} options.dimension - 'context'|'mechanic'
+ * @param {string} options.metric - 'score'|'plays' (cuál es el sort principal)
+ * @param {number} [options.limit=5]
+ * @returns {Promise<Array<{id:string, score:number, plays:number}>|null>}
+ */
+async function getTopFromLeaderboard(teacherId, { timeRange, dimension, metric, limit = 5 } = {}) {
+  if (!teacherId || !LEADERBOARD_TIME_RANGES.includes(timeRange)) {
+    return null;
+  }
+  try {
+    const primaryKey = leaderboardId(dimension, metric, teacherId, timeRange);
+    const otherMetric = metric === 'score' ? 'plays' : 'score';
+    const secondaryKey = leaderboardId(dimension, otherMetric, teacherId, timeRange);
+
+    const primary = await redisService.runPipeline(p => {
+      // ZREVRANGE devuelve [member, score, member, score, ...]
+      p.zrevrange(
+        redisService.buildKey(NAMESPACES.LEADERBOARD, primaryKey),
+        0,
+        limit - 1,
+        'WITHSCORES'
+      );
+      p.exists(redisService.buildKey(NAMESPACES.LEADERBOARD, primaryKey));
+    }, 't931-read');
+
+    if (!primary) {
+      runtimeMetrics.recordT931Read('leaderboard', 'miss');
+      return null;
+    }
+
+    const [rangeReply, existsReply] = primary;
+    const existsCount = existsReply?.[1] ?? 0;
+    if (existsCount === 0) {
+      runtimeMetrics.recordT931Read('leaderboard', 'miss');
+      return null;
+    }
+    const flat = rangeReply?.[1] || [];
+    if (!Array.isArray(flat) || flat.length === 0) {
+      // ZSET existe pero vacío — devolver lista vacía (NO miss, es respuesta
+      // legítima de "no hay datos en este rango").
+      runtimeMetrics.recordT931Read('leaderboard', 'hit');
+      return [];
+    }
+
+    // flat es [member1, score1, member2, score2, ...]
+    const entries = [];
+    for (let i = 0; i < flat.length; i += 2) {
+      entries.push({
+        id: flat[i],
+        primaryScore: Number(flat[i + 1]) || 0
+      });
+    }
+
+    // Resolver la métrica secundaria (plays cuando el primary es score, y
+    // viceversa) con un ZMSCORE pipelined.
+    const memberIds = entries.map(e => e.id);
+    if (memberIds.length > 0) {
+      const secondary = await redisService.runPipeline(p => {
+        p.zmscore(redisService.buildKey(NAMESPACES.LEADERBOARD, secondaryKey), ...memberIds);
+      }, 't931-read');
+      const secondaryScores = secondary?.[0]?.[1] || [];
+      for (let i = 0; i < entries.length; i++) {
+        const v = secondaryScores[i];
+        const num = v === null || v === undefined ? 0 : Number(v) || 0;
+        if (metric === 'score') {
+          entries[i].score = entries[i].primaryScore;
+          entries[i].plays = num;
+        } else {
+          entries[i].plays = entries[i].primaryScore;
+          entries[i].score = num;
+        }
+        delete entries[i].primaryScore;
+      }
+    }
+
+    runtimeMetrics.recordT931Read('leaderboard', 'hit');
+    return entries;
+  } catch (err) {
+    logger.debug('T-931 getTopFromLeaderboard error — fallback Mongo', { error: err.message });
+    runtimeMetrics.recordT931Read('leaderboard', 'miss');
+    return null;
+  }
+}
+
+/**
+ * Lee el Hash `student:metrics:<studentId>` y devuelve los contadores
+ * normalizados, o `null` si no existe (miss → caller usa Mongo).
+ *
+ * @param {string} studentId
+ * @returns {Promise<Object|null>}
+ */
+async function getStudentMetricsMaterialized(studentId) {
+  if (!studentId) {
+    return null;
+  }
+  try {
+    const raw = await redisService.hgetall(NAMESPACES.STUDENT_METRICS, toIdString(studentId));
+    if (!raw || Object.keys(raw).length === 0) {
+      runtimeMetrics.recordT931Read('studentMetrics', 'miss');
+      return null;
+    }
+    const totalGames = Number(raw.totalGamesPlayed) || 0;
+    const sumScoresHundredths = Number(raw.sumScoresHundredths) || 0;
+    const sumResponseTimeMs = Number(raw.sumResponseTimeMs) || 0;
+    const responseSamples = Number(raw.responseTimeSamples) || 0;
+
+    runtimeMetrics.recordT931Read('studentMetrics', 'hit');
+    return {
+      totalGamesPlayed: totalGames,
+      totalCorrectAnswers: Number(raw.totalCorrectAnswers) || 0,
+      totalErrors: Number(raw.totalErrors) || 0,
+      totalTimeouts: Number(raw.totalTimeouts) || 0,
+      averageScore: totalGames > 0 ? Math.round(sumScoresHundredths / totalGames) / 100 : 0,
+      averageResponseTime:
+        responseSamples > 0 ? Math.round(sumResponseTimeMs / responseSamples) : 0,
+      lastPlayedAt: raw.lastPlayedAt ? new Date(Number(raw.lastPlayedAt)) : null,
+      maxSequenceLengthAchieved: Number(raw.maxSequenceLengthAchieved) || 0,
+      sequencesCompleted: Number(raw.sequencesCompleted) || 0
+    };
+  } catch (err) {
+    logger.debug('T-931 getStudentMetricsMaterialized error — fallback Mongo', {
+      error: err.message
+    });
+    runtimeMetrics.recordT931Read('studentMetrics', 'miss');
+    return null;
+  }
+}
+
+// =============================================================================
+// GDPR Art. 17 — purga cross-layer
+// =============================================================================
+
+/**
+ * Purga toda la materialización Redis asociada a un alumno tras Art. 17
+ * (derecho al olvido). Elimina:
+ *   - El Hash `student:metrics:<studentId>`.
+ *   - Las entradas del alumno en TODOS los leaderboards `*:score:*` y
+ *     `*:plays:*` del profesor que lo creó.
+ *
+ * Idempotente: si las keys no existen, `ZREM`/`DEL` simplemente devuelven 0.
+ *
+ * @param {Object} payload
+ * @param {string} payload.studentId
+ * @param {string} [payload.teacherId] - createdBy del alumno. Si no se pasa,
+ *   solo se purga el Hash (los leaderboards quedan pendientes de la
+ *   reconciliación nocturna).
+ * @returns {Promise<{hashDeleted: boolean, leaderboardEntriesRemoved: number}>}
+ */
+async function purgeStudentMaterialization({ studentId, teacherId } = {}) {
+  if (!studentId) {
+    return { hashDeleted: false, leaderboardEntriesRemoved: 0 };
+  }
+  let hashDeleted = false;
+  let entriesRemoved = 0;
+  try {
+    hashDeleted = await redisService.del(NAMESPACES.STUDENT_METRICS, toIdString(studentId));
+
+    if (teacherId) {
+      const studentIdStr = toIdString(studentId);
+      const teacherIdStr = toIdString(teacherId);
+      const result = await redisService.runPipeline(p => {
+        for (const range of LEADERBOARD_TIME_RANGES) {
+          // Por ahora los leaderboards son a nivel context/mechanic, no
+          // student. Mantenemos el helper preparado para futuras versiones
+          // student-leaderboards (T-931 Fase A.5 — pendiente). Aquí solo
+          // limpiamos placeholders si existieran.
+          p.zrem(
+            redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId('student', 'score', teacherIdStr, range)
+            ),
+            studentIdStr
+          );
+          p.zrem(
+            redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId('student', 'plays', teacherIdStr, range)
+            ),
+            studentIdStr
+          );
+        }
+      }, 't931-gdpr');
+      if (Array.isArray(result)) {
+        entriesRemoved = result.reduce((acc, [err, val]) => acc + (err ? 0 : Number(val) || 0), 0);
+      }
+    }
+
+    runtimeMetrics.recordT931GdprPurge();
+    logger.info('T-931 GDPR purge — student materialization', {
+      studentId: toIdString(studentId),
+      teacherId: teacherId ? toIdString(teacherId) : null,
+      hashDeleted,
+      entriesRemoved
+    });
+  } catch (err) {
+    logger.warn('T-931 purgeStudentMaterialization error', {
+      studentId: toIdString(studentId),
+      error: err.message
+    });
+  }
+  return { hashDeleted: Boolean(hashDeleted), leaderboardEntriesRemoved: entriesRemoved };
+}
+
+// =============================================================================
+// Reconciliación nocturna (invocada desde analyticsReconcileJob)
+// =============================================================================
+
+/**
+ * Reconcilia leaderboards Redis contra GamePlay aggregations Mongo. Para
+ * cada (profesor, dimensión, timeRange) recalcula los acumulados desde
+ * Mongo, los compara con el ZSET actual y reescribe Redis con TTL fresco.
+ *
+ * Reporta drift detectado (entries que diferían >5%) — el job invocador
+ * los publica como Sentry warning.
+ *
+ * @param {Object} options
+ * @param {Array<string>} [options.teacherIds] - Si se omite, reconcilia
+ *   TODOS los profesores con sesiones en los últimos 30d.
+ * @returns {Promise<{leaderboardsReconciled:number, driftDetected:number, driftCorrected:number}>}
+ */
+async function reconcileLeaderboards({ teacherIds } = {}) {
+  const gamePlayRepository = require('../../repositories/gamePlayRepository');
+  const gameSessionRepository = require('../../repositories/gameSessionRepository');
+
+  // Si no se pasan teacherIds, deducirlos: profesores que tienen sesiones
+  // con plays completadas en los últimos 30 días.
+  let teachersToProcess = teacherIds;
+  if (!Array.isArray(teachersToProcess) || teachersToProcess.length === 0) {
+    const lastMonth = new Date(Date.now() - TIME_RANGE_MS['30d']);
+    const sessions = await gameSessionRepository.find(
+      { updatedAt: { $gte: lastMonth } },
+      { select: 'createdBy' }
+    );
+    teachersToProcess = [...new Set(sessions.map(s => s.createdBy?.toString()))].filter(Boolean);
+  }
+
+  let totalReconciled = 0;
+  let driftDetected = 0;
+  let driftCorrected = 0;
+
+  for (const teacherId of teachersToProcess) {
+    const teacherOid = toObjectId(teacherId);
+    if (!teacherOid) {
+      continue;
+    }
+
+    for (const range of LEADERBOARD_TIME_RANGES) {
+      const cutoff = new Date(Date.now() - TIME_RANGE_MS[range]);
+      // Aggregation: GamePlay → match sessionId IN teacher sessions →
+      // lookup session → group por context+mechanic. Reusamos el patrón
+      // proyección post-lookup (A.2).
+      try {
+        const teacherSessions = await gameSessionRepository.find(
+          { createdBy: teacherOid },
+          { select: '_id' }
+        );
+        const sessionIds = teacherSessions.map(s => s._id);
+        if (sessionIds.length === 0) {
+          continue;
+        }
+
+        const pipeline = [
+          {
+            $match: {
+              sessionId: { $in: sessionIds },
+              status: 'completed',
+              completedAt: { $gte: cutoff }
+            }
+          },
+          {
+            $lookup: {
+              from: 'game_sessions',
+              localField: 'sessionId',
+              foreignField: '_id',
+              as: 'session'
+            }
+          },
+          { $unwind: '$session' },
+          {
+            $project: {
+              score: 1,
+              'session.contextId': 1,
+              'session.mechanicId': 1
+            }
+          },
+          {
+            $facet: {
+              byContext: [
+                {
+                  $group: {
+                    _id: '$session.contextId',
+                    totalScore: { $sum: '$score' },
+                    plays: { $sum: 1 }
+                  }
+                }
+              ],
+              byMechanic: [
+                {
+                  $group: {
+                    _id: '$session.mechanicId',
+                    totalScore: { $sum: '$score' },
+                    plays: { $sum: 1 }
+                  }
+                }
+              ]
+            }
+          }
+        ];
+
+        const [agg] = await gamePlayRepository.aggregate(pipeline, { maxTimeMS: 10000 });
+        const byContextRaw = agg?.byContext || [];
+        const byMechanicRaw = agg?.byMechanic || [];
+
+        // Comparar contra Redis y reescribir.
+        const reconcileDimension = async (rawRows, dimension) => {
+          if (!rawRows.length) {
+            // No hay datos — pero podríamos tener datos stale en Redis.
+            // Borramos las keys para que no informen valores fantasma.
+            await redisService.del(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId(dimension, 'score', teacherId, range)
+            );
+            await redisService.del(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId(dimension, 'plays', teacherId, range)
+            );
+            return;
+          }
+          const expectedScore = new Map();
+          const expectedPlays = new Map();
+          for (const row of rawRows) {
+            if (!row._id) {
+              continue;
+            }
+            expectedScore.set(row._id.toString(), Number(row.totalScore) || 0);
+            expectedPlays.set(row._id.toString(), Number(row.plays) || 0);
+          }
+
+          // Comparación: leer ZSET actual y medir drift > 5% por miembro.
+          let scoreDrifted = false;
+          let playsDrifted = false;
+          for (const dimensionMember of expectedScore.keys()) {
+            const liveScore = await redisService.runPipeline(p => {
+              p.zscore(
+                redisService.buildKey(
+                  NAMESPACES.LEADERBOARD,
+                  leaderboardId(dimension, 'score', teacherId, range)
+                ),
+                dimensionMember
+              );
+              p.zscore(
+                redisService.buildKey(
+                  NAMESPACES.LEADERBOARD,
+                  leaderboardId(dimension, 'plays', teacherId, range)
+                ),
+                dimensionMember
+              );
+            }, 't931-reconcile');
+            const liveScoreVal = Number(liveScore?.[0]?.[1] || 0);
+            const livePlaysVal = Number(liveScore?.[1]?.[1] || 0);
+            const expScore = expectedScore.get(dimensionMember);
+            const expPlays = expectedPlays.get(dimensionMember);
+            if (Math.abs(liveScoreVal - expScore) > Math.max(1, expScore * 0.05)) {
+              scoreDrifted = true;
+            }
+            if (Math.abs(livePlaysVal - expPlays) > Math.max(1, expPlays * 0.05)) {
+              playsDrifted = true;
+            }
+          }
+          if (scoreDrifted || playsDrifted) {
+            driftDetected += 1;
+            driftCorrected += 1;
+          }
+
+          // Reescribir SIEMPRE (idempotente, evita drift acumulado por
+          // escrituras perdidas durante caída Redis previa). Usamos
+          // pipeline para minimizar round-trips.
+          await redisService.runPipeline(p => {
+            const scoreKey = redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId(dimension, 'score', teacherId, range)
+            );
+            const playsKey = redisService.buildKey(
+              NAMESPACES.LEADERBOARD,
+              leaderboardId(dimension, 'plays', teacherId, range)
+            );
+            p.del(scoreKey);
+            p.del(playsKey);
+            const scoreArgs = [];
+            const playsArgs = [];
+            for (const [member, val] of expectedScore.entries()) {
+              scoreArgs.push(val, member);
+            }
+            for (const [member, val] of expectedPlays.entries()) {
+              playsArgs.push(val, member);
+            }
+            if (scoreArgs.length > 0) {
+              p.zadd(scoreKey, ...scoreArgs);
+              p.expire(scoreKey, LEADERBOARD_TTL_SECONDS);
+            }
+            if (playsArgs.length > 0) {
+              p.zadd(playsKey, ...playsArgs);
+              p.expire(playsKey, LEADERBOARD_TTL_SECONDS);
+            }
+          }, 't931-reconcile');
+          totalReconciled += 1;
+        };
+
+        await reconcileDimension(byContextRaw, 'context');
+        await reconcileDimension(byMechanicRaw, 'mechanic');
+      } catch (err) {
+        logger.warn('T-931 reconcile error (teacher/range)', {
+          teacherId: toIdString(teacherId),
+          range,
+          error: err.message
+        });
+      }
+    }
+  }
+
+  return {
+    leaderboardsReconciled: totalReconciled,
+    driftDetected,
+    driftCorrected
+  };
+}
+
+/**
+ * Reconcilia los `studentMetrics` Hash de Redis contra los `User.studentMetrics`
+ * de Mongo. La fuente de verdad es Mongo; sobrescribimos Redis con valores
+ * canónicos. Solo procesamos alumnos activos en los últimos 30d (los demás
+ * no impactan el dashboard).
+ *
+ * @returns {Promise<{studentsReconciled:number, driftDetected:number, driftCorrected:number}>}
+ */
+async function reconcileStudentMetrics() {
+  const userRepository = require('../../repositories/userRepository');
+
+  const cutoff = new Date(Date.now() - TIME_RANGE_MS['30d']);
+  const activeStudents = await userRepository.find(
+    {
+      role: 'student',
+      status: 'active',
+      'studentMetrics.lastPlayedAt': { $gte: cutoff }
+    },
+    { select: 'studentMetrics' }
+  );
+
+  let driftDetected = 0;
+  let driftCorrected = 0;
+  let processed = 0;
+
+  for (const student of activeStudents) {
+    const m = student.studentMetrics || {};
+    const studentIdStr = student._id.toString();
+
+    try {
+      // Leer materializado actual para medir drift.
+      const live = await redisService.hgetall(NAMESPACES.STUDENT_METRICS, studentIdStr);
+      const liveTotalGames = Number(live?.totalGamesPlayed) || 0;
+      const expectedTotalGames = Number(m.totalGamesPlayed) || 0;
+      if (Math.abs(liveTotalGames - expectedTotalGames) > Math.max(1, expectedTotalGames * 0.05)) {
+        driftDetected += 1;
+        driftCorrected += 1;
+      }
+
+      const sumScoresHundredths = Math.round(
+        (m.averageScore || 0) * (m.totalGamesPlayed || 0) * 100
+      );
+      const sumResponseTimeMs = Math.round(
+        (m.averageResponseTime || 0) * (m.totalGamesPlayed || 0)
+      );
+      const samples = m.totalGamesPlayed || 0;
+
+      await redisService.hset(NAMESPACES.STUDENT_METRICS, studentIdStr, {
+        totalGamesPlayed: String(m.totalGamesPlayed || 0),
+        totalCorrectAnswers: String(m.totalCorrectAnswers || 0),
+        totalErrors: String(m.totalErrors || 0),
+        totalTimeouts: String(m.totalTimeouts || 0),
+        sumScoresHundredths: String(sumScoresHundredths),
+        sumResponseTimeMs: String(sumResponseTimeMs),
+        responseTimeSamples: String(samples),
+        lastPlayedAt: m.lastPlayedAt ? String(new Date(m.lastPlayedAt).getTime()) : '0',
+        maxSequenceLengthAchieved: String(m.maxSequenceLengthAchieved || 0),
+        sequencesCompleted: String(m.sequencesCompleted || 0)
+      });
+      processed += 1;
+    } catch (err) {
+      logger.warn('T-931 reconcileStudentMetrics error (student)', {
+        studentId: studentIdStr,
+        error: err.message
+      });
+    }
+  }
+
+  return {
+    studentsReconciled: processed,
+    driftDetected,
+    driftCorrected
+  };
+}
+
+/**
+ * Punto de entrada del job nocturno. Encadena reconcileLeaderboards +
+ * reconcileStudentMetrics y reporta agregados a runtimeMetrics.
+ *
+ * @returns {Promise<Object>} Resumen agregado de la corrida.
+ */
+async function runFullReconciliation() {
+  const start = Date.now();
+  logger.info('T-931 reconcile job: iniciando');
+
+  const lb = await reconcileLeaderboards({});
+  const sm = await reconcileStudentMetrics();
+
+  const totalDrift = lb.driftDetected + sm.driftDetected;
+  const totalCorrected = lb.driftCorrected + sm.driftCorrected;
+
+  runtimeMetrics.recordT931Reconcile({
+    driftDetected: totalDrift,
+    driftCorrected: totalCorrected
+  });
+
+  const summary = {
+    durationMs: Date.now() - start,
+    leaderboardsReconciled: lb.leaderboardsReconciled,
+    studentsReconciled: sm.studentsReconciled,
+    driftDetected: totalDrift,
+    driftCorrected: totalCorrected
+  };
+
+  if (totalDrift > 0) {
+    logger.warn('T-931 reconcile: drift detectado y corregido', summary);
+  } else {
+    logger.info('T-931 reconcile job completado sin drift', summary);
+  }
+
+  return summary;
+}
+
+module.exports = {
+  // Escrituras
+  recordPlayCompletion,
+  // Lecturas
+  getTopFromLeaderboard,
+  getStudentMetricsMaterialized,
+  // GDPR
+  purgeStudentMaterialization,
+  // Reconciliación
+  reconcileLeaderboards,
+  reconcileStudentMetrics,
+  runFullReconciliation,
+  // Constants exportadas para tests
+  LEADERBOARD_TIME_RANGES,
+  NAMESPACES
+};

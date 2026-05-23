@@ -8934,3 +8934,248 @@ Adoptamos la opción 4. `frontend/public/theme-bootstrap.js` contiene el bootstr
 
 - Si la app migra a SSR (Next.js, Astro, etc.) el bootstrap se inyectará server-side y este archivo dejará de hacer falta.
 - Si en algún momento se necesitan hashes para otros scripts inline críticos (ej. analytics third-party que no admite carga diferida), establecer un build script que regenere los hashes y los inyecte en `nginx.conf` + `helmet.contentSecurityPolicy.directives.scriptSrc`.
+
+---
+
+## ADR-170: Proyección post-`$lookup` + `$match` early en aggregations analytics [Backend, Performance]
+
+### Contexto
+
+Las seis funciones analytics del dashboard (`getClassroomSummary`, `getClassroomComparison`, `getClassroomDifficulties`, `getClassroomHeatmap`, `getTopContextsAndMechanics`, `getClassroomTrends`) seguían el patrón clásico de `$lookup game_sessions → $unwind → $match { session.createdBy }`. El `$lookup` se aplicaba sobre TODA la colección `GamePlay` antes de poder filtrar por profesor. Adicionalmente, el lookup traía el documento completo de session incluyendo `cardMappings[30]`, `boardLayout[30]`, `sequencePlan[]` — campos que ninguna agregación consume realmente.
+
+Bajo Atlas M0 (red compartida + 512 MB RAM cluster) y con scope objetivo 1000 partidas, esto producía:
+- Escaneo full-collection en cada request del dashboard (~10× más docs procesados de lo necesario).
+- 20-30 MB transferred por consulta en `_getStudentSummaryImpl` (6 sub-facets × 3 lookups).
+- Riesgo real de timeout `REPORT_AGGREGATE_TIMEOUT_MS=7000`.
+
+### Decisión
+
+Aplicar dos patrones unificados:
+
+1. **`$match` early con `sessionId: { $in: teacherSessionIds }`** — Introducir helper cacheable `getTeacherSessionIds(teacherId, opts)` (TTL 300s con jitter ±10%) que devuelve la lista de `_id` de sesiones del profesor. El `$match` se inserta como PRIMERA etapa, reduciendo el scan inicial ~50× (de full-collection al subset del profesor). El cache se invalida desde `gameSessionService.createSession`/`createSessionFromDeck` y desde el controller `deleteSession`.
+
+2. **Proyección post-`$lookup`** — Tres constantes top-file (`SESSION_LOOKUP_PROJECTION`, `CONTEXT_LOOKUP_PROJECTION_FIELDS`, `MECHANIC_LOOKUP_PROJECTION_FIELDS`) que se insertan tras cada `$unwind`. Colapsan el documento al sub-set mínimo (`_id`, `contextId`, `mechanicId`, `name`, `displayName`) descartando los campos pesados.
+
+### Consecuencias
+
+**Positivos:**
+- Reducción ~80% bytes transferred inter-stage en pipelines complejos.
+- IXSCAN puro (ratio keys/docs ≈ 1.0 verificado via `explain('executionStats')`).
+- `_getStudentSummaryImpl` pasa de procesar 6 × N docs heavies a 6 × N docs proyectados.
+- Free tier Atlas M0 sostiene scope 1000 partidas sin timeout.
+
+**Negativos / Mitigaciones:**
+- Cache de `teacherSessions` puede quedar stale hasta 300s tras una mutación que no invalide explícitamente. Mitigación: invalidaciones añadidas en los 3 callsites de creación/eliminación.
+- El cache añade 1 query Mongo extra en miss (lista de `_id` sobre índice `{createdBy:1}` de GameSession — coste despreciable).
+
+---
+
+## ADR-171: T-931 — Materialización Redis con ZSET (leaderboards) + Hash (studentMetrics) + reconciliación BullMQ nocturna + purga GDPR cross-layer [Backend, Performance, Data Protection]
+
+### Contexto
+
+`getTopContextsAndMechanics` ejecutaba dos aggregations con `$lookup` × 2 cada una en cada request del dashboard. `getClassroomStudents` calculaba métricas de alumno desde User docs con `populate` ad-hoc. Bajo carga objetivo (1000 partidas concurrentes), estos hot reads saturaban el cluster Atlas M0.
+
+ADR-080 (Sprint 5) ya identificó la solución (materializar en Redis) pero la difirió. Esta sesión pre-v1.0.0 la implementa completa.
+
+### Decisión
+
+Crear `backend/src/services/analytics/materializedAnalyticsService.js` con:
+
+1. **Leaderboards ZSET** — `leaderboard:<dimension>:<metric>:<teacherId>:<timeRange>` × 12 keys (2 dims × 2 metrics × 3 timeRanges). Escritura: `ZINCRBY` en pipeline desde `endPlay`. Lectura: `ZREVRANGE WITHSCORES` O(log N + M) + resolución de nombres con un único `find({_id: {$in: ids}})` (no aggregation).
+
+2. **studentMetrics Hash** — `student:metrics:<studentId>`. Escritura: `HINCRBY` atómico en pipeline desde `endPlay` (sin race condition multi-instancia, a diferencia de `.save()` Mongoose). Lectura: `HGETALL` con fallback Mongo si miss.
+
+3. **Reconciliación nocturna BullMQ** — Queue `analytics-reconcile`, worker `analyticsReconcileWorker.js`, cron `00:30` horario servidor. Recalcula leaderboards + studentMetrics desde Mongo (fuente de verdad) y reescribe Redis con TTL fresco. Reporta drift detectado (>5% delta) como Sentry warning. Eventually consistent.
+
+4. **Purga GDPR cross-layer (Art. 17)** — `purgeStudentMaterialization({ studentId, teacherId })` invocado desde `userService.hardDeleteStudent` y `dataRetentionService.deleteInactiveStudents`. Elimina Hash + entradas en leaderboards student-level (preparado para futura iteración).
+
+### Consecuencias
+
+**Positivos:**
+- Lectura ranking dashboard pasa de O(aggregation + $lookup × 2) a O(log N + M).
+- `endPlay` mantiene Mongo como source of truth; Redis es caché materializada.
+- Reconciliación nocturna garantiza consistencia eventual y permite drift acotado durante caídas Redis breves.
+- GDPR Art. 17 cross-layer cierra el ciclo de derecho al olvido en la misma transacción lógica.
+
+**Negativos / Mitigaciones:**
+- 12 `ZINCRBY` + 1 `HINCRBY` extra por endPlay (~14 comandos Upstash adicionales). Mitigación: están en pipeline (1 RTT). Considerando 30 partidas/día × 14 ≈ 420 cmds/día, despreciable frente al límite 10K free tier.
+- Drift posible si Redis cae más de 24h. Mitigación: reconciliación nocturna lo corrige al día siguiente; las lecturas con miss caen a Mongo (correcto pero más lento).
+- Telemetría `t931.*` en `/api/metrics` permite vigilancia operativa.
+
+---
+
+## ADR-172: Compresión `perMessageDeflate` Socket.IO + refresh JWT proactivo cliente [Full-stack, Performance]
+
+### Contexto
+
+Bajo scope objetivo 1000 partidas:
+- Eventos `game_over` (2-3 KB) y `sequence_round_result` (1-2 KB) se transmitían sin compresión. En multiplicación cliente × eventos × partidas, esto supone egress Koyeb innecesario.
+- El access token JWT expira a los 15 min. Durante partidas largas (≥15 min), el cliente seguía emitiendo eventos al socket sin saber que el handshake del próximo reconnect rechazaría su token. El interceptor 401 solo se disparaba en requests HTTP, no en Socket.IO.
+
+### Decisión
+
+1. **`perMessageDeflate` global con threshold=1024 B** — Configurado en `new Server(...)` en `server.js`. `zlibDeflateOptions.level=3` (sweet spot CPU/ratio para JSON). Eventos pequeños (<500 B como `validation_result`) NO se comprimen (no compensa CPU). Verificable en handshake WebSocket: header `Sec-WebSocket-Extensions: permessage-deflate`.
+
+2. **Refresh JWT proactivo en cliente Socket.IO** — Tras cada `connect` exitoso, programar `setTimeout(refreshAccessToken, JWT_LIFETIME_MS - 60_000)`. Llama a `/auth/refresh` 1 min antes del expiry. Respeta el flag `isRefreshing` del interceptor 401 para evitar race con refresh reactivo. Cancela en `disconnect()`.
+
+### Consecuencias
+
+**Positivos:**
+- ~70% reducción bytes egress en eventos grandes.
+- Elimina desautorizado silencioso durante partidas largas.
+- Cliente mantiene token vivo sin requerir acción HTTP del usuario.
+
+**Negativos / Mitigaciones:**
+- +5-10 ms latencia compresión en eventos grandes. Mitigación: level=3 es CPU-eficiente; threshold descarta eventos pequeños.
+- Si `refreshAccessTokenProactive` falla (red, backend down), el interceptor 401 reactivo cubre el siguiente request HTTP. Sin re-programación tras fallo — el ciclo se reanuda en el siguiente connect.
+
+---
+
+## ADR-173: AbortController universal manual en `useEffect` con fetch [Frontend]
+
+### Contexto
+
+Seis páginas del frontend disparaban GET en `useEffect` sin AbortController:
+`AdminContexts`, `SystemAlertsPage`, `StudentManagement`, `ContextDetailPage`, `ConsentDetailPanel`, `MfaSetup`. Al navegar rápido por el sidebar, las requests anteriores seguían en vuelo en background — consumiendo CPU/memoria cliente, ancho de banda, y potencialmente disparando `setState` sobre componentes desmontados (warning React).
+
+Opciones consideradas:
+1. AbortController manual en cada `useEffect` — cero deps añadidas, patrón estándar.
+2. Migrar a SWR (~12 KB gz, cache global + revalidation).
+3. Migrar a TanStack Query (~36 KB gz, mutations + devtools potentes).
+
+### Decisión
+
+Opción 1 (AbortController manual). Patrón aplicado a las 6 páginas:
+
+```js
+useEffect(() => {
+  const controller = new AbortController();
+  fetchFn(controller.signal)
+    .then(setData)
+    .catch(err => { if (!isAbortError(err)) setError(err) });
+  return () => controller.abort();
+}, [deps]);
+```
+
+Servicio API admite `config.signal` (axios nativo). `isAbortError` ya está exportado en `services/api.js`. Solo aplicar a GET (POST/PUT/DELETE pueden tener efectos secundarios; no se abortan).
+
+### Consecuencias
+
+**Positivos:**
+- Cero dependencias añadidas; bundle inicial se mantiene (60.55-60.60 KB gz tras todos los cambios de la sesión).
+- Patrón consistente con `Dashboard.jsx` y `SessionDetail.jsx` que ya lo usaban.
+- Preserva el principio "Source of Truth Priority" (CLAUDE.md): código entendible sin nueva abstracción global.
+
+**Negativos / Mitigaciones:**
+- Sin cache global automático (cada componente refetch en mount). Mitigación parcial: dedupRequest helper para 3 endpoints calientes (ADR-174).
+- Patrón verbose (4 líneas extra por useEffect). Aceptable a cambio del control fino y la ausencia de runtime overhead de SWR/RQ.
+
+### Estado Futuro
+
+Si el proyecto crece más allá del scope TFG y emergen necesidades de cache global / mutations / infinite queries, evaluar SWR o TanStack Query como ADR específico.
+
+---
+
+## ADR-174: Cap defensivo arrays unbounded en User documents + dedup in-flight selectivo + jitter TTLs [Backend, Frontend, Data Protection]
+
+### Contexto
+
+Tres mitigaciones defensivas que comparten un mismo principio — proteger el sistema contra runaway no-feliz path sin sobre-ingeniería:
+
+1. **`User.consentHistory[]` sin cap**: cada otorgamiento/revocación se persiste para Art. 7.1 RGPD (trazabilidad). Si un tutor revoca/otorga en bucle (bug remoto o uso adversarial), el documento User crece indefinidamente (potencial 1-2 MB).
+
+2. **Cache `cache:analytics` con TTL fijo**: 5 minutos sin jitter. Si N profesores abren dashboard a la misma hora exacta, todos los entries expiran en bloque → spike de aggregations Mongo simultáneas.
+
+3. **`getProfile` / `getContexts` / `getMechanics` sin dedup in-flight**: `AuthContext.checkExistingSession` + `AppLayout.useEffect` post-login pueden disparar `getProfile` en paralelo, golpeando el backend dos veces.
+
+### Decisión
+
+1. **Sliding window `$slice: -100` en `consentHistory`** — En `userService.updateConsent`: `$push: { consentHistory: { $each: [historyEntry], $slice: -100 } }`. 100 entradas × ~200 B = ≤20 KB worst-case. RGPD Art. 7.1 sigue cubierto: 100 entradas cubren >10 años de uso normal (revisión anual + cambios ocasionales).
+
+2. **Jitter ±10% en TTLs cache** — Helper `withTtlJitter(ttlSeconds)` en `cacheHelper.js`:
+   ```js
+   Math.max(30, Math.floor(ttlSeconds + (Math.random() - 0.5) * ttlSeconds * 0.2))
+   ```
+   Aplicado dentro de `cacheGet`. Para `cache:analytics` TTL 300s → rango efectivo [270, 330].
+
+3. **Helper `dedupRequest(key, fetchFn)` en `services/inFlight.js`** — Map<key, Promise> con eliminación al settle. Aplicado selectivamente en `getProfile` (siempre) y en `getContexts`/`getMechanics` (solo cuando se llaman con default params, sin filtros específicos ni signal).
+
+### Consecuencias
+
+**Positivos:**
+- `consentHistory` no puede crecer ilimitadamente; documento User acotado.
+- Stampede prevention contra Mongo: jitter dispersa expiraciones sobre 60s en el peor caso.
+- 2 callers del mismo endpoint reciben la misma promesa — backend ve 1 request en lugar de 2.
+
+**Negativos / Mitigaciones:**
+- Pérdida de history de consentimiento >100 entradas. Mitigación: documentado en el código + 100 entradas son suficientes para el uso real esperado.
+- Si dos callers de `getProfile` quieren signals distintos, la dedup no permite cancel selectivo — el primero "gana". Mitigación: aplicar solo donde la cancelación específica no es crítica (bootstrap endpoints).
+- Telemetría `redis.cacheLayers[*].hitRatePercent` en `/api/metrics` permite vigilar que el jitter no degrade hit rate.
+
+---
+
+## ADR-175: Pub/sub Redis con queue local de reintento + soporte múltiples callbacks `onReconnect` [Backend]
+
+### Contexto
+
+`persistRfidModeToRedis` publicaba cambios de modo RFID al canal `rfid-mode-changes` con `.catch(silenced)`. Si Redis caía 15-30s mientras un profesor cambiaba el modo, la invalidación pub/sub se perdía silenciosamente — las otras instancias del cluster mantenían cache stale hasta que el TTL del modo (60 min) expirara.
+
+Adicionalmente, `config/redis.js` solo permitía registrar UN callback `onReconnect` (el GameEngine ya lo usaba para re-registrar card locks). No había forma de añadir otra reacción a reconexión sin sobrescribirla.
+
+### Decisión
+
+1. **Queue local de invalidaciones pendientes** en `socketHandlers.js`:
+   ```
+   const pendingInvalidations = new Map(); // key: channel:message
+   const MAX_PENDING_INVALIDATIONS = 100;
+   ```
+   Cap 100 con dedup por `channel:message`. Si la queue desborda, descarta la más antigua (FIFO via `Map.keys().next().value`) + emite Sentry warning. En `onReconnect`, flushea secuencialmente; si una publicación falla, deja la entry en queue para el siguiente reconnect.
+
+2. **`onReconnectCallbacks` array en `config/redis.js`** — Reemplaza la variable singular. `onReconnect(callback)` añade al array (con dedup por referencia). En reconexión, ejecuta TODOS los callbacks. Permite múltiples consumidores (GameEngine + socketHandlers + futuros).
+
+### Consecuencias
+
+**Positivos:**
+- Caídas breves de Redis (<60min) no pierden invalidaciones pub/sub.
+- Cluster mantiene consistencia eventual del cache RFID mode tras reconnect.
+- Múltiples módulos pueden reaccionar a reconexión sin coordinarse.
+
+**Negativos / Mitigaciones:**
+- Caídas largas + alto tráfico → overflow queue + descarte. Mitigación: la reconciliación nocturna T-931 (ADR-171) NO cubre RFID mode (modo es transitorio, no persistente), así que invalidaciones perdidas se reconcilian naturalmente al próximo cambio del usuario o al expirar TTL.
+- Memoria: 100 entries × ~200 B = ≤20 KB por instancia. Despreciable.
+
+---
+
+## ADR-176: Pool MongoDB Atlas — `compressors: ['snappy', 'zstd']` + `maxIdleTimeMS=60s` + cleanup pipeline endPlay [Backend, Performance]
+
+### Contexto
+
+Bajo Atlas M0 (red compartida + 100 conexiones máx) y scope 1000 partidas:
+- Las aggregations grandes (`$lookup game_sessions` con cardMappings[], boardLayout[], sequencePlan[]) transferían MB de bytes wire-level sin compresión.
+- El pool Mongoose mantenía `minPoolSize: 2` conexiones siempre vivas, sin liberar conexiones idle — acaparando slots del cluster que podrían reusarse en escalado horizontal futuro (T-908).
+- `endPlay` hacía `DEL PLAY` + `DEL PLAY_INIT_LOCK` + `publish invalidate` como 3 operaciones Redis secuenciales (3 RTT a Upstash).
+- `dataRetentionService.anonymizeOldGamePlays` ejecutaba `updateMany` con `$map` sobre `events[500]` para 100k+ docs. Saturaba M0 CPU y disparaba timeout >2 min, con potencial SIGKILL de Koyeb a los 30s.
+
+### Decisión
+
+1. **`compressors: ['snappy', 'zstd']` + `maxIdleTimeMS: 60_000`** en `config/database.js`. Atlas negocia el primer compressor disponible. Reduce 30-50% bytes wire-level en aggregations grandes. `maxIdleTimeMS` libera conexiones idle tras 60s sin uso.
+
+2. **`endPlay` cleanup pipeline (B.7)** — Las 2 ops `DEL` post-Lua release se coalescen en un único `runPipeline`. De 4 RTT a 2 RTT.
+
+3. **`anonymizeOldGamePlays` en batches** — `BATCH_SIZE=500` con `maxTimeMS=30s` por batch. Cursor con proyección `_id` para minimizar bytes. Idempotente: si falla a mitad, los docs ya anonimizados quedan inmutables.
+
+4. **`exportStudentData` con cursor `.lean()`** — Reemplaza el `find(...)` completo por cursor `for await` con batchSize 50. Reduce el spike de memoria pico al exportar alumnos con 500+ partidas (Art. 20 RGPD).
+
+### Consecuencias
+
+**Positivos:**
+- 30-50% menos bytes Mongo wire-level (especialmente analytics con `$lookup`).
+- Pool más eficiente; preparado para escala horizontal sin acaparar slots cluster.
+- Job nocturno data-retention sostenible con datasets grandes.
+- Export RGPD no bloquea heap del backend.
+
+**Negativos / Mitigaciones:**
+- snappy/zstd añaden CPU compresión al cluster Atlas. Mitigación: snappy es muy eficiente; zstd como fallback solo si Atlas lo prefiere. En M0 negociación es transparente — si rechaza ambos, fallback a wire plain.
+- Cold start ocasional 5-15 ms tras 60s idle pure. Mitigación: en operación normal con tráfico continuo, el pool nunca llega a idle 60s.
+- Batches secuenciales son más lentos en wall clock que `updateMany` único. Mitigación: el job es nocturno y la consistencia/disponibilidad prevalece sobre el throughput total.

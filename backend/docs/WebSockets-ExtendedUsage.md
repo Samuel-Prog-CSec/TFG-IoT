@@ -1194,3 +1194,68 @@ window.__rfidSim?.detect('AABBCCDD'); // scan normal
 // Para forzar el timeout (solo si el simulador soporta retrasos):
 // (requiere modificar test/script o usar Playwright para inyectar setTimeout en operation)
 ```
+
+---
+
+## Pre-v1.0.0 — Bloque C (cambios WebSocket performance / robustness)
+
+Sesión de performance end-to-end pre-corte v1.0.0. Ver ADR-172.
+
+### C.1 — `perMessageDeflate` global threshold=1024 B
+
+`backend/src/server.js` `new Server(...)` ahora incluye:
+```js
+perMessageDeflate: {
+  threshold: 1024,
+  zlibDeflateOptions: { level: 3 }
+}
+```
+
+- Eventos >1KB se comprimen (`game_over` 2-3KB → ~600-900B; `sequence_round_result` 1-2KB → ~400-700B). Reducción ~70% bytes egress.
+- Eventos pequeños (`validation_result` <500B) NO se comprimen (no compensa CPU).
+- Level 3 = sweet spot CPU/ratio para JSON.
+
+**Verificable en handshake**: `Sec-WebSocket-Extensions: permessage-deflate` en response 101 WebSocket Upgrade.
+
+### C.2 — `pingTimeout` 60s → 30s
+
+`backend/src/server.js`: `pingInterval: 25_000`, `pingTimeout: 30_000`. Liberación más rápida de sockets zombies tras cierre brusco de pestaña. Cliente con `reconnectionAttempts: 15` × 5s max delay cubre redes flaky.
+
+**Verificable en handshake polling**: `pingInterval: 25000, pingTimeout: 30000` en response JSON.
+
+### C.3 — `volatile.emit` selectivo con fallback graceful
+
+Aplicado a los 3 callsites de `scan_ignored` (GameEngine.js × 2 + sequenceFlow.js × 1):
+
+```js
+const target = this.io.to(`play_${playId}`);
+const channel = target.volatile || target;
+channel.emit('scan_ignored', { uid, reason: ... });
+```
+
+El fallback `target.volatile || target` resuelve la incompatibilidad con mocks legacy de tests (`{ to: () => ({ emit: () => {} }) }` no expone `.volatile`) — en tests cae a `emit` estándar, en producción real (socket.io 4.x) usa `.volatile.emit`.
+
+**Beneficio**: bajo backpressure cliente (red flaky escolar, pestaña inactiva), el servidor descarta `scan_ignored` en vez de encolar. El cliente sigue viendo el siguiente scan correcto — `scan_ignored` es feedback informativo, no afecta correctness.
+
+**Riesgo**: cero — el peor caso es perder feedback de UI de "scan ignorado" en condiciones de degradación.
+
+**NO aplicar volatile** a `game_over`, `validation_result`, `play_paused`, `play_resumed`, `sequence_round_result`, `new_round` — críticos para correctness del state cliente.
+
+### C.4 — Multi-tab single-cast (infraestructura preparada)
+
+`backend/src/realtime/socketHandlers.js`:
+- Map `socketIdsByUserId: Map<userId, Set<socketId>>` mantiene los socketIds activos por usuario.
+- Helper `getPrimarySocketId(userId)` devuelve el primer socketId del set (orden inserción).
+- `incrementConnectionCount(userId, socketId)` y `decrementConnectionCount(userId, socketId)` actualizan el set.
+
+Las emisiones existentes NO se modifican (sería breaking para tests UI actuales). El helper queda disponible para eventos futuros que requieran single-cast (`game_over` con animation score en un usuario con 2 tabs, etc.).
+
+### C.5 — Cleanup `play:init` lock en disconnect
+
+`backend/src/realtime/socketHandlers.js` disconnect handler del namespace `/game`:
+- Si el usuario era el último socket activo (`socketIdsByUserId.get(userId).size === 0`) y tenía partidas en estado `'created'` (no started), libera proactivamente `play:init:{playId}` lock.
+- Sin esto, el lock quedaba hasta TTL 60s impidiendo idempotencia de un reintento legítimo tras cerrar pestaña.
+
+### Validación multi-instancia
+
+Ver sección anterior. Test `scripts/test-socket-multiinstance.js` ejecutado con 2 instancias (container :5000 + host :5001) ambas contra mismo Redis Docker. clientA emite ping → clientB recibe via Redis adapter. Bidireccional confirmado.

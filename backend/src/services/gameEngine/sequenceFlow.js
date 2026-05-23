@@ -254,7 +254,12 @@ async function _processSequenceScanImpl(engine, playId, playState, scannedCardMa
   });
 
   if (!result || result.type === 'ignored') {
-    engine.io.to(`play_${playId}`).emit('scan_ignored', {
+    // C.3 (pre-v1.0.0): volatile.emit con fallback graceful si el mock
+    // no expone `.volatile` (tests legacy). Perder un `scan_ignored`
+    // bajo backpressure no afecta correctness.
+    const target = engine.io.to(`play_${playId}`);
+    const channel = target.volatile || target;
+    channel.emit('scan_ignored', {
       uid: scannedCardMapping.uid,
       reason: result?.reason || 'sequence_ignored'
     });

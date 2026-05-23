@@ -66,14 +66,19 @@ export default function ContextDetailPage() {
   const deleteAssetConfirm = useConfirmationModal();
   const deleteAudioConfirm = useConfirmationModal();
 
-  const fetchContext = async () => {
+  // D.1 (pre-v1.0.0): AbortController propagado. Una navegación rápida
+  // entre contextos (sidebar profesor) dejaba la primera request colgada;
+  // el setContext del primer fetch llegaba después y mostraba el contexto
+  // anterior. Ahora se aborta limpiamente al cambio de `contextId`.
+  const fetchContext = async (signal) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await contextsAPI.getContextById(contextId);
+      const res = await contextsAPI.getContextById(contextId, { signal });
       const data = extractData(res);
       setContext(data);
     } catch (err) {
+      if (err?.code === 'ERR_CANCELED') return;
       setError(extractErrorMessage(err));
     } finally {
       setLoading(false);
@@ -141,7 +146,9 @@ export default function ContextDetailPage() {
   };
 
   useEffect(() => {
-    fetchContext();
+    const controller = new AbortController();
+    fetchContext(controller.signal);
+    return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchContext is not memoized; only re-run when contextId changes
   }, [contextId]);
 

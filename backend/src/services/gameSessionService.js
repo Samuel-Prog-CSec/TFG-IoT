@@ -12,6 +12,25 @@ const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const mongoose = require('mongoose');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const { cacheInvalidatePattern } = require('../utils/cacheHelper');
+
+/**
+ * A.3 (pre-v1.0.0): invalida el cache `teacherSessions:<teacherId>:*` tras
+ * crear / archivar / eliminar sesiones del profesor. Sin esto, las
+ * aggregations analytics que usan `getTeacherSessionIds` no verían la
+ * sesión recién creada hasta que expire el TTL (300s con jitter).
+ *
+ * Fire-and-forget: no bloquea la operación principal.
+ *
+ * @param {string|import('mongoose').Types.ObjectId} teacherId
+ */
+function invalidateTeacherSessionsCache(teacherId) {
+  if (!teacherId) {
+    return;
+  }
+  const id = typeof teacherId === 'string' ? teacherId : teacherId.toString();
+  cacheInvalidatePattern('cache:analytics', `teacherSessions:${id}:*`).catch(() => {});
+}
 const {
   normalizeMechanicName,
   isMechanicEnabledForSessionCreation,
@@ -271,6 +290,8 @@ async function createSession({
     { path: 'createdBy', select: 'name email' }
   ]);
 
+  invalidateTeacherSessionsCache(createdBy);
+
   logger.info('Sesión creada via service', {
     sessionId: session._id,
     mechanicName: mechanic.name,
@@ -501,6 +522,8 @@ async function createSessionFromDeck({
     { path: 'contextId', select: 'contextId name' },
     { path: 'createdBy', select: 'name email' }
   ]);
+
+  invalidateTeacherSessionsCache(createdBy);
 
   logger.info('Sesión creada desde mazo', {
     sessionId: session._id,

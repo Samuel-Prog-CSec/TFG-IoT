@@ -165,7 +165,18 @@ function StudentsList({ students }) {
                     aria-label={`Avatar de ${student.name}`}
                   >
                     {student.avatar ? (
-                      <img src={student.avatar} alt="" className="size-full rounded-full object-cover" />
+                      // D.4 (pre-v1.0.0): width/height HTML attrs evitan
+                      // CLS al cargar la imagen — el contenedor reserva
+                      // layout box pre-load.
+                      <img
+                        src={student.avatar}
+                        alt=""
+                        width={40}
+                        height={40}
+                        loading="lazy"
+                        decoding="async"
+                        className="size-full rounded-full object-cover"
+                      />
                     ) : (
                       <span aria-hidden="true">{getInitials(student.name)}</span>
                     )}

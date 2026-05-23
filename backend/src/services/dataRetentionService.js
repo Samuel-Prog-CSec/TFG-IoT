@@ -79,23 +79,83 @@ const anonymizeOldGamePlays = async ({
     return { anonymized: 0, candidates };
   }
 
-  const result = await gameplaysCollection.updateMany(filter, [
-    {
-      $set: {
-        playerId: null,
-        events: {
-          $map: {
-            input: '$events',
-            as: 'event',
-            in: { $mergeObjects: ['$$event', { cardUid: null }] }
+  // A.9 (pre-v1.0.0): refactor a batches. El `updateMany` con `$map` sobre
+  // `events[500]` para 100k+ docs satura M0 (CPU MongoDB + memoria
+  // intermedia) y dispara timeout >2 min. Con batches de N=500 cada
+  // updateMany toma <1s, queda margen `maxTimeMS=30s` por batch y el job
+  // total termina sin disparar SIGKILL de Koyeb. Idempotente: si falla a
+  // mitad, los docs ya anonimizados quedan inmutables (campos ya null).
+  const BATCH_SIZE = Number.parseInt(process.env.DATA_RETENTION_BATCH_SIZE, 10) || 500;
+  const BATCH_MAX_TIME_MS =
+    Number.parseInt(process.env.DATA_RETENTION_BATCH_MAX_TIME_MS, 10) || 30_000;
+  let totalModified = 0;
+  let batchIndex = 0;
+
+  // Cursor con proyección _id para minimizar bytes wire-level por batch.
+  const cursor = gameplaysCollection.find(filter, { projection: { _id: 1 } }).batchSize(BATCH_SIZE);
+
+  let batchIds = [];
+  for await (const doc of cursor) {
+    batchIds.push(doc._id);
+    if (batchIds.length >= BATCH_SIZE) {
+      const batchResult = await gameplaysCollection.updateMany(
+        { _id: { $in: batchIds } },
+        [
+          {
+            $set: {
+              playerId: null,
+              events: {
+                $map: {
+                  input: '$events',
+                  as: 'event',
+                  in: { $mergeObjects: ['$$event', { cardUid: null }] }
+                }
+              }
+            }
+          }
+        ],
+        { maxTimeMS: BATCH_MAX_TIME_MS }
+      );
+      totalModified += batchResult.modifiedCount || 0;
+      batchIndex += 1;
+      logger.debug('anonymizeOldGamePlays: batch completado', {
+        batchIndex,
+        batchSize: batchIds.length,
+        modifiedCount: batchResult.modifiedCount
+      });
+      batchIds = [];
+    }
+  }
+  // Procesar último batch parcial.
+  if (batchIds.length > 0) {
+    const batchResult = await gameplaysCollection.updateMany(
+      { _id: { $in: batchIds } },
+      [
+        {
+          $set: {
+            playerId: null,
+            events: {
+              $map: {
+                input: '$events',
+                as: 'event',
+                in: { $mergeObjects: ['$$event', { cardUid: null }] }
+              }
+            }
           }
         }
-      }
-    }
-  ]);
+      ],
+      { maxTimeMS: BATCH_MAX_TIME_MS }
+    );
+    totalModified += batchResult.modifiedCount || 0;
+    batchIndex += 1;
+  }
 
-  logger.info('GamePlays anonimizados', { modifiedCount: result.modifiedCount });
-  return { anonymized: result.modifiedCount, candidates };
+  logger.info('GamePlays anonimizados (en batches)', {
+    modifiedCount: totalModified,
+    batches: batchIndex,
+    batchSize: BATCH_SIZE
+  });
+  return { anonymized: totalModified, candidates };
 };
 
 /**
@@ -145,6 +205,24 @@ const deleteInactiveStudents = async ({
 
   const playsResult = await gameplaysCollection.deleteMany({ playerId: { $in: studentIds } });
   const usersResult = await usersCollection.deleteMany({ _id: { $in: studentIds } });
+
+  // T-931 (pre-v1.0.0): purgar materialización Redis para los alumnos
+  // recién borrados. Hacerlo aquí (no por job nocturno) cierra el
+  // ciclo GDPR Art. 17 en la misma transacción lógica.
+  try {
+    const materializedAnalytics = require('./analytics/materializedAnalyticsService');
+    for (const sid of studentIds) {
+      // No tenemos teacherId aquí (el alumno ya está borrado). Pasamos
+      // solo studentId — el helper purga el Hash, los leaderboards se
+      // limpiarán en el job nocturno de reconciliación.
+      await materializedAnalytics.purgeStudentMaterialization({ studentId: sid });
+    }
+  } catch (purgeErr) {
+    logger.warn('deleteInactiveStudents: error purgando materialización Redis (no bloquea)', {
+      error: purgeErr.message,
+      affectedCount: studentIds.length
+    });
+  }
 
   logger.info('Estudiantes y plays eliminados (Art. 17)', {
     studentsDeleted: usersResult.deletedCount,

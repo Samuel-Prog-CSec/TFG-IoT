@@ -34,7 +34,14 @@ let isConnected = false;
  * Permite al GameEngine re-registrar card locks de partidas activas.
  * @type {Function|null}
  */
-let onReconnectCallback = null;
+/**
+ * B.4 (pre-v1.0.0): cambiamos `onReconnectCallback` (singular) por una
+ * lista de callbacks para que múltiples módulos puedan reaccionar a la
+ * reconexión Redis sin sobrescribirse. Antes solo el GameEngine podía
+ * registrar (re-registrar card locks); ahora también `socketHandlers`
+ * registra el flush de la queue de invalidaciones pendientes (B.4).
+ */
+const onReconnectCallbacks = [];
 
 /**
  * Prefijo para todas las keys del proyecto.
@@ -211,13 +218,17 @@ const connectRedis = async () => {
     isConnected = true;
     logger.info('Redis: Cliente listo para recibir comandos');
 
-    // Si Redis reconecta tras una desconexión, emitir evento para que
-    // el GameEngine pueda re-registrar card locks de partidas activas.
-    if (wasDisconnected && onReconnectCallback) {
-      logger.info('Redis: Reconexión detectada, ejecutando callback de recovery');
-      onReconnectCallback().catch(err => {
-        logger.error('Redis: Error en callback de reconexión', { error: err.message });
+    // Si Redis reconecta tras una desconexión, ejecutar TODOS los callbacks
+    // registrados (GameEngine card locks + B.4 flush invalidaciones, etc.).
+    if (wasDisconnected && onReconnectCallbacks.length > 0) {
+      logger.info('Redis: Reconexión detectada, ejecutando callbacks de recovery', {
+        count: onReconnectCallbacks.length
       });
+      for (const cb of onReconnectCallbacks) {
+        Promise.resolve(cb()).catch(err => {
+          logger.error('Redis: Error en callback de reconexión', { error: err.message });
+        });
+      }
     }
   });
 
@@ -354,13 +365,16 @@ const ping = async () => {
 };
 
 /**
- * Registra un callback que se ejecutará cuando Redis reconecte tras una desconexión.
- * Útil para que el GameEngine re-registre card locks de partidas activas.
+ * Registra un callback que se ejecutará cuando Redis reconecte tras una
+ * desconexión. Múltiples módulos pueden registrarse simultáneamente; los
+ * callbacks se ejecutan en orden de registro al disparar la reconexión.
  *
  * @param {Function} callback - Función async a ejecutar en reconexión
  */
 const onReconnect = callback => {
-  onReconnectCallback = callback;
+  if (typeof callback === 'function' && !onReconnectCallbacks.includes(callback)) {
+    onReconnectCallbacks.push(callback);
+  }
 };
 
 module.exports = {

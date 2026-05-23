@@ -49,7 +49,10 @@ const QUEUE_NAMES = Object.freeze({
   GDPR_EXPORTS: 'gdpr-exports',
   NOTIFICATIONS: 'notifications',
   ALERT_DETECTION: 'alert-detection',
-  SYSTEM_ALERT_DETECTION: 'system-alert-detection'
+  SYSTEM_ALERT_DETECTION: 'system-alert-detection',
+  // T-931 (pre-v1.0.0) — reconciliación nocturna materialización Redis
+  // (ZSET leaderboards + Hash studentMetrics). Cron 00:30 horario servidor.
+  ANALYTICS_RECONCILE: 'analytics-reconcile'
 });
 
 const dataRetentionQueue = new Queue(QUEUE_NAMES.DATA_RETENTION, {
@@ -82,12 +85,19 @@ const systemAlertDetectionQueue = new Queue(QUEUE_NAMES.SYSTEM_ALERT_DETECTION, 
   defaultJobOptions
 });
 
+const analyticsReconcileQueue = new Queue(QUEUE_NAMES.ANALYTICS_RECONCILE, {
+  connection,
+  prefix: `${KEY_PREFIX}bull`,
+  defaultJobOptions
+});
+
 const allQueues = [
   dataRetentionQueue,
   gdprExportsQueue,
   notificationsQueue,
   alertDetectionQueue,
-  systemAlertDetectionQueue
+  systemAlertDetectionQueue,
+  analyticsReconcileQueue
 ];
 
 /**
@@ -233,6 +243,32 @@ const scheduleSystemAlertDetectionCron = async () => {
 };
 
 /**
+ * Programa el cron del reconciliador nocturno T-931 (pre-v1.0.0).
+ *
+ * Patrón: cada noche a las 00:30 (horario servidor). Recalcula
+ * leaderboards ZSET + studentMetrics Hash desde Mongo y reporta drift.
+ *
+ * @returns {Promise<void>}
+ */
+const scheduleAnalyticsReconcileCron = async () => {
+  try {
+    await analyticsReconcileQueue.add(
+      'nightly-analytics-reconcile',
+      { triggeredAt: new Date().toISOString() },
+      {
+        jobId: 'analytics-reconcile-cron',
+        repeat: { pattern: process.env.ANALYTICS_RECONCILE_CRON || '30 0 * * *' }
+      }
+    );
+    logger.info('queues: cron de reconciliación analytics programado (00:30)');
+  } catch (err) {
+    logger.warn('queues: no se pudo programar el cron de reconciliación analytics', {
+      error: err.message
+    });
+  }
+};
+
+/**
  * Cierra todas las queues. Llamado en gracefulShutdown.
  *
  * @returns {Promise<void>}
@@ -256,8 +292,10 @@ module.exports = {
   notificationsQueue,
   alertDetectionQueue,
   systemAlertDetectionQueue,
+  analyticsReconcileQueue,
   scheduleDataRetentionCron,
   scheduleAlertDetectionCron,
   scheduleSystemAlertDetectionCron,
+  scheduleAnalyticsReconcileCron,
   closeAllQueues
 };

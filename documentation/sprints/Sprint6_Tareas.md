@@ -1246,7 +1246,11 @@ Pasada final de calidad UI/UX del proyecto justo antes del corte v1.0.0. Cubre c
 
 ## P2 — Prioridad Media
 
-### T-931: 🔧 Materialización Redis (Leaderboards ZSET + studentMetrics Hash + reconciliación nocturna) 📋
+### T-931: 🔧 Materialización Redis (Leaderboards ZSET + studentMetrics Hash + reconciliación nocturna) ✅ DONE
+
+**Cierre:** 2026-05-23. Implementado dentro de la sesión "Performance end-to-end pre-v1.0.0". Módulo nuevo `backend/src/services/analytics/materializedAnalyticsService.js` (Leaderboards ZSET + Hash studentMetrics + reconciliación nocturna + GDPR purge cross-layer). Worker BullMQ `analyticsReconcileWorker.js` + cron 00:30. Telemetría `t931.*` en `/api/metrics`. Integración con `endPlay` (dual-write) y con `hardDeleteStudent` / `deleteInactiveStudents` (purga GDPR Art. 17). Reconciliación manual verificada en QA: 12 leaderboards + 36 student metrics poblados desde Mongo, drift 48→0 corregido en primera pasada. **Tests: 1396 backend + 546 frontend, lint 0 errores.**
+
+
 
 **Consolida:** PROP-60 + PROP-63
 **Prioridad:** P2 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-901

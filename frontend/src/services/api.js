@@ -9,6 +9,8 @@
 import axios from 'axios';
 import { captureException } from '../lib/sentry';
 import * as mfaTokenStore from './mfaTokenStore';
+// D.2 (pre-v1.0.0): deduplicación in-flight selectiva para hot endpoints.
+import { dedupRequest } from './inFlight';
 
 // ============================================
 // CONFIGURACIÓN
@@ -88,6 +90,57 @@ export const setTokens = (access) => {
  * @returns {string|null} Access token
  */
 export const getAccessToken = () => accessToken;
+
+/**
+ * B.8 (pre-v1.0.0): refresh proactivo del access token desde el cliente
+ * Socket.IO (programado N segundos antes del expiry). Comparte el flag
+ * `isRefreshing` con el path reactivo del interceptor 401 para evitar
+ * dos refreshes paralelos en el mismo segundo (race típica entre
+ * setTimeout y un 401 que llega justo antes).
+ *
+ * Sin esto, durante partidas largas (≥15min) el access token expiraba en
+ * silencio: el cliente seguía emitiendo eventos al socket sin saber que
+ * el handshake del próximo reconnect rechazaría su token. Con refresh
+ * proactivo el cliente siempre tiene un token vivo antes de que expire.
+ *
+ * NO retorna nada útil al caller — fire-and-forget. Si Redis/backend
+ * fallan, el path reactivo del interceptor cogerá el siguiente 401 y
+ * forzará el refresh tradicional.
+ *
+ * @returns {Promise<void>}
+ */
+export const refreshAccessTokenProactive = async () => {
+  if (isRefreshing) {
+    // Otro refresh en curso — esperar a que termine y reutilizar el token.
+    await new Promise((resolve, reject) => {
+      failedQueue.push({ resolve, reject });
+    });
+    return;
+  }
+
+  isRefreshing = true;
+  try {
+    const csrfToken = getCookieValue('csrfToken');
+    const response = await axios.post(
+      `${API_BASE_URL}/auth/refresh`,
+      {},
+      {
+        withCredentials: true,
+        headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
+      }
+    );
+    const { accessToken: newAccessToken } = response.data.data;
+    setTokens(newAccessToken);
+    processQueue(null, newAccessToken);
+  } catch (err) {
+    processQueue(err, null);
+    // No tiramos clearTokens() porque el interceptor 401 lo hará si el
+    // siguiente request HTTP también falla. Aquí queremos best-effort.
+    captureException(err);
+  } finally {
+    isRefreshing = false;
+  }
+};
 
 /**
  * Obtiene el refresh token actual
@@ -554,7 +607,10 @@ export const authAPI = {
    * Obtener perfil del usuario actual
    * @returns {Promise} Respuesta con datos del usuario
    */
-  getProfile: () => api.get('/auth/me'),
+  // D.2 (pre-v1.0.0): dedup in-flight. AuthContext.checkExistingSession +
+  // AppLayout post-login pueden llamarse en paralelo; sin dedup
+  // golpeaban /auth/me dos veces seguidas.
+  getProfile: () => dedupRequest('authAPI.getProfile', () => api.get('/auth/me')),
 
   /**
    * Actualizar perfil del usuario
@@ -584,7 +640,7 @@ export const authAPI = {
    * Estado actual del MFA del super_admin: { enabled, enabledAt, lastUsedAt,
    * backupCodesTotal, backupCodesRemaining }. Driver del panel de gestión vs wizard.
    */
-  mfaStatus: () => api.get('/auth/mfa/status'),
+  mfaStatus: (config = {}) => api.get('/auth/mfa/status', config),
 
   /**
    * Iniciar setup MFA. Devuelve otpauthUrl + secret base32 + issuer.
@@ -851,8 +907,16 @@ export const contextsAPI = {
    * @param {boolean} [params.isActive=true] - Filtrar solo activos
    * @returns {Promise} Respuesta con lista de contextos
    */
-  getContexts: (params, config = {}) => 
-    api.get('/contexts', { params: params ?? ACTIVE_ONLY_PARAMS, ...config }),
+  // D.2 (pre-v1.0.0): dedup solo cuando se llama con `params` por defecto
+  // (caso bootstrap), no para queries específicas con filtros.
+  getContexts: (params, config = {}) => {
+    if (!params && !config.signal) {
+      return dedupRequest('contextsAPI.getContexts:default', () =>
+        api.get('/contexts', { params: ACTIVE_ONLY_PARAMS, ...config })
+      );
+    }
+    return api.get('/contexts', { params: params ?? ACTIVE_ONLY_PARAMS, ...config });
+  },
 
   /**
    * Obtener contexto por ID con sus assets
@@ -967,8 +1031,15 @@ export const mechanicsAPI = {
    * @param {boolean} [params.isActive=true] - Filtrar solo activas
    * @returns {Promise} Respuesta con lista de mecánicas
    */
-  getMechanics: (params, config = {}) => 
-    api.get('/mechanics', { params: params ?? ACTIVE_ONLY_PARAMS, ...config }),
+  // D.2 (pre-v1.0.0): dedup default-params como contextsAPI.
+  getMechanics: (params, config = {}) => {
+    if (!params && !config.signal) {
+      return dedupRequest('mechanicsAPI.getMechanics:default', () =>
+        api.get('/mechanics', { params: ACTIVE_ONLY_PARAMS, ...config })
+      );
+    }
+    return api.get('/mechanics', { params: params ?? ACTIVE_ONLY_PARAMS, ...config });
+  },
 
   /**
    * Obtener mecánica por ID

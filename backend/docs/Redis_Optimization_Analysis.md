@@ -566,3 +566,26 @@ Y la fila correspondiente de `docker/README.md` actualizada con la justificació
 
 - ADR-094 — QA final pre-release v0.5.0 (paquete fixes).
 - `backend/docs/Arquitectura_Redis.md` — sección "Política de evicción" amplía el razonamiento con la matriz completa de namespaces.
+
+---
+
+## Pre-v1.0.0 — Bloque B (cambios de la sesión performance end-to-end)
+
+Resumen de los cambios Redis aplicados antes del corte v1.0.0 (ver ADRs 170-176):
+
+- **B.1 — Telemetría hit/miss cache layer**: `recordCacheLayerOutcome(namespace, outcome)` en `cacheHelper.js → cacheGet`. Expone `redis.cacheLayers.<namespace>.{hits, misses, hitRatePercent}` en `/api/metrics`.
+- **B.2 — Jitter ±10% TTLs**: `withTtlJitter(ttlSeconds)` en `cacheHelper.js`. Aplica `Math.max(30, floor(ttl + (rand-0.5)*ttl*0.2))`. Mitiga thundering herd cuando N dashboards expiran simultáneamente.
+- **B.3 — Pipelining `persistRfidModeToRedis`**: setex/del + publish coalescidos en `redisService.runPipeline`. -50% RTT por transición RFID.
+- **B.4 — Queue local pendingInvalidations + flush on reconnect**: Map cap 100 con dedup `channel:message`. `onReconnect` ahora admite múltiples callbacks (refactor a array).
+- **B.5 — Fallback `setManyIfNotExists` con MULTI/EXEC + WATCH**: optimistic locking para tests / post-SCRIPT FLUSH (defense in depth — Lua atomic sigue siendo el path normal).
+- **B.6 — Telemetría `socketRateLimiter.useRedis`**: visible en `/api/metrics → socketRateLimiter.{useRedis, fallbackCount, redisSuccessCount}`.
+- **B.7 — `endPlay` cleanup pipeline**: `DEL PLAY + DEL PLAY_INIT_LOCK + publish` en 1 RTT (de 4 a 2 RTT post-Lua release).
+- **B.8 — Refresh JWT proactivo cliente Socket.IO**: `setTimeout(refreshAccessTokenProactive, JWT_LIFETIME - 60s)` tras connect. Elimina desautorizado silencioso en partidas largas.
+- **B.9 — Pipelining `middlewares/auth.js`**: ya estaba (T-907 INT1 — verificado en audit).
+- **B.10 — Leaderboards ZSET (T-931 Fase A)**: 12 keys (dimension × metric × timeRange). Escritura `ZINCRBY` en pipeline desde `endPlay`. Lectura `ZREVRANGE` en `getTopContextsAndMechanics`.
+- **B.11 — studentMetrics Hash (T-931 Fase B)**: `student:metrics:<id>` con HINCRBY atómico. `getStudentMetricsMaterialized` con fallback Mongo si miss.
+- **B.12 — Reconciliación nocturna BullMQ (T-931 Fase C)**: queue `analytics-reconcile`, worker, cron `00:30`. Recalcula desde Mongo + GDPR purge cross-layer en `hardDeleteStudent` / `deleteInactiveStudents`.
+
+**Tests añadidos** (`backend/tests/`): `cacheLayerTelemetry.test.js`, `leaderboardZset.test.js`, `studentMetricsMaterialized.test.js`, `pubsubQueueRetry.test.js`, `analyticsReconcile.test.js`. Total 49 nuevos tests.
+
+**Verificación E2E real**: partida Secuencia 6 rondas via Playwright + FallbackTouchPanel → `t931.leaderboardWrites: 1` + `studentMetricsWrites: 1` + `socketRateLimiter.useRedis: true` + `redisSuccessCount: 36` + `fallbackCount: 0`. Confirmado en `/api/metrics`.

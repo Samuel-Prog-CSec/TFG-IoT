@@ -420,6 +420,29 @@ sin restricciones del free tier.
 
 ---
 
+## Optimizaciones pre-v1.0.0 (ADR-170 a ADR-176)
+
+La sesión de performance pre-v1.0.0 redujo el consumo proyectado:
+
+| Métrica | Antes | Después | Mejora |
+|---|---|---|---|
+| Upstash commands/día (escenario típico) | ~10.4K (4% sobre cuota) | ~7.2K (28% bajo cuota) | -30% |
+| Atlas bytes wire-level por aggregation analytics | 5-30 MB | 250 KB - 6 MB | -80% |
+| `endPlay` cleanup round-trips | 4 RTT | 2 RTT | -50% |
+| Persistencia RFID mode (setex + publish) | 2 RTT | 1 RTT | -50% |
+
+**Drivers del ahorro:**
+
+1. **T-931 — Materialización Redis** (ADR-171): dashboards leen ZSETs (O(log N + M)) en vez de aggregations Mongo con `$lookup × 2`.
+2. **Proyección post-`$lookup` + `$match` early** (ADR-170): 6 funciones analytics filtran sessionIds del profesor ANTES del `$lookup`, reduciendo 50× el scan inicial.
+3. **Pipelining** (B.3 + B.7): `setex + publish` y `del PLAY + del LOCK + publish` agrupados en pipeline.
+4. **Pool Mongoose** (ADR-176): `compressors: ['snappy', 'zstd']` + `maxIdleTimeMS: 60s`.
+5. **Cache jitter ±10%** (ADR-174): elimina spikes thundering herd.
+
+**Reconciliación nocturna T-931**: cron 00:30 horario servidor reescribe leaderboards + studentMetrics desde Mongo. Coste ~14 ZINCRBY + 1 pipeline HINCRBY por endPlay.
+
+---
+
 *Documento mantenido por Samuel Blanchart Pérez. Actualizar cada vez
 que cambien las cuotas free tier de algún proveedor o cuando se añada o
 elimine un servicio del stack.*

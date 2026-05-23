@@ -445,18 +445,24 @@ export default function StudentManagement() {
     estimateSize: 232,
   });
 
-  const fetchInitialData = useCallback(async (page = 1) => {
+  // D.1 (pre-v1.0.0): AbortController propagado. La navegación rápida en
+  // el sidebar admin dejaba dos requests `/api/users` colgadas — no graves
+  // pero pulidas para que el contador de comandos Redis no infle.
+  const fetchInitialData = useCallback(async (page = 1, signal) => {
     setLoading(true);
     setError(null);
     try {
       const [studentsRes, teachersRes] = await Promise.all([
-        usersAPI.getUsers({ 
-          role: 'student', 
-          page, 
-          limit: pagination.limit,
-          search: deferredSearch || undefined 
-        }),
-        usersAPI.getUsers({ role: 'teacher', status: 'active', limit: 100 })
+        usersAPI.getUsers(
+          {
+            role: 'student',
+            page,
+            limit: pagination.limit,
+            search: deferredSearch || undefined
+          },
+          { signal }
+        ),
+        usersAPI.getUsers({ role: 'teacher', status: 'active', limit: 100 }, { signal })
       ]);
 
       const studentsData = studentsRes.data;
@@ -486,8 +492,12 @@ export default function StudentManagement() {
   // En React StrictMode (dev) este effect se monta dos veces y dispara
   // dos fetchs idénticos a /api/users. En producción ocurre una sola vez.
   // No hay bug funcional, es el comportamiento documentado de StrictMode.
+  // D.1: AbortController para que la segunda llamada del StrictMode (o la
+  // navegación rápida) no deje requests colgadas en background.
   useEffect(() => {
-    fetchInitialData();
+    const controller = new AbortController();
+    fetchInitialData(1, controller.signal);
+    return () => controller.abort();
   }, [fetchInitialData]);
 
   useRefetchOnFocus({
@@ -620,7 +630,15 @@ export default function StudentManagement() {
       <div className="flex items-center gap-4 mb-4">
         <div className="size-12 rounded-full bg-background-base border border-border-subtle flex items-center justify-center text-xl shadow-inner">
           {student.profile?.avatar ? (
-            <img src={student.profile.avatar} alt="" className="w-full h-full rounded-full object-cover" />
+            <img
+              src={student.profile.avatar}
+              alt=""
+              width={56}
+              height={56}
+              loading="lazy"
+              decoding="async"
+              className="w-full h-full rounded-full object-cover"
+            />
           ) : (
             student.name.charAt(0).toUpperCase()
           )}

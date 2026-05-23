@@ -257,7 +257,7 @@ function AlertsHub({
   const [localAlerts, setLocalAlerts] = useState(alerts);
   // Re-sincronizar con prop cuando cambia desde fuera
   if (localAlerts !== alerts && alerts !== EMPTY_ALERTS) {
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- comparación por referencia intencional
+     
     setLocalAlerts(alerts);
   }
 

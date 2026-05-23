@@ -6,7 +6,7 @@
  */
 
 import { io } from 'socket.io-client';
-import { getAccessToken, AUTH_EVENTS } from './api';
+import { getAccessToken, refreshAccessTokenProactive, AUTH_EVENTS } from './api';
 
 // ============================================
 // CONFIGURACIÓN
@@ -25,6 +25,17 @@ const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
  * que `RFID_MODE_IDLE_TIMEOUT_MS` (5 min en backend).
  */
 const RFID_HEARTBEAT_INTERVAL_MS = 60_000;
+/**
+ * B.8 (pre-v1.0.0): refresh JWT proactivo. El access token expira a los
+ * 15min (configurable via VITE_JWT_ACCESS_LIFETIME_MS, alineado con
+ * JWT_EXPIRES_IN backend). Programamos el refresh 1 min antes para evitar
+ * desautorizado silencioso en partidas largas.
+ */
+const JWT_ACCESS_LIFETIME_MS = Number.parseInt(
+  import.meta.env.VITE_JWT_ACCESS_LIFETIME_MS,
+  10
+) || 15 * 60 * 1000;
+const PROACTIVE_REFRESH_LEAD_MS = 60_000; // 1 minuto antes del expiry
 const IS_DEV = import.meta.env.DEV;
 
 const socketLog = (level, ...args) => {
@@ -107,12 +118,61 @@ class SocketService {
     /** Timer del heartbeat de modo RFID (refresca watchdog del backend). */
     this._rfidHeartbeatTimerId = null;
     /**
+     * B.8 (pre-v1.0.0): timer de refresh proactivo del JWT. Se programa
+     * tras cada `connect` exitoso del socket de sistema y se cancela en
+     * `disconnect()`. Evita que el token expire silenciosamente durante
+     * partidas largas (>15 min) sin que el cliente lo sepa.
+     */
+    this._proactiveRefreshTimerId = null;
+    /**
      * Promise del `connect()` en vuelo. Evita handshakes paralelos cuando
      * dos llamadores casi-simultáneos invocan connect() (ej. login +
      * useGameSocket inmediatamente después de la redirección post-login).
      * Ver BUG-WS-1 en memoria del proyecto.
      */
     this._connectPromise = null;
+  }
+
+  /**
+   * B.8 (pre-v1.0.0): arranca el timer de refresh proactivo (idempotente).
+   * Se llama tras cada `connect` exitoso del socket de sistema. Cancela el
+   * timer previo si existía para que reconexiones no acumulen timers.
+   * @private
+   */
+  _scheduleProactiveRefresh() {
+    if (this._proactiveRefreshTimerId) {
+      clearTimeout(this._proactiveRefreshTimerId);
+    }
+    const delayMs = Math.max(30_000, JWT_ACCESS_LIFETIME_MS - PROACTIVE_REFRESH_LEAD_MS);
+    this._proactiveRefreshTimerId = setTimeout(() => {
+      // Sólo refrescar si seguimos conectados — si el usuario ya hizo
+      // logout/navegó fuera, no tiene sentido tocar el backend.
+      if (!this.isConnected) {
+        return;
+      }
+      refreshAccessTokenProactive()
+        .then(() => {
+          // Reprogramar el siguiente refresh — la cadena se mantiene viva
+          // mientras el socket esté conectado.
+          this._scheduleProactiveRefresh();
+          return undefined;
+        })
+        .catch(() => {
+          // Si el refresh proactivo falla, el path reactivo (interceptor
+          // 401) recuperará al próximo request HTTP. No re-programamos.
+        });
+    }, delayMs);
+  }
+
+  /**
+   * B.8: cancela el timer de refresh proactivo. Se llama en disconnect().
+   * @private
+   */
+  _cancelProactiveRefresh() {
+    if (this._proactiveRefreshTimerId) {
+      clearTimeout(this._proactiveRefreshTimerId);
+      this._proactiveRefreshTimerId = null;
+    }
   }
 
   /**
@@ -279,6 +339,8 @@ class SocketService {
 
           if (isSystem) {
             this.isConnected = true;
+            // B.8: arrancar timer de refresh proactivo JWT.
+            this._scheduleProactiveRefresh();
           } else {
             // Arrancamos heartbeat de modo RFID en el namespace /game.
             this._startRfidHeartbeat();
@@ -366,6 +428,9 @@ class SocketService {
       this.socket.disconnect();
       this.socket = null;
     }
+
+    // B.8: cancelar refresh proactivo al desconectar.
+    this._cancelProactiveRefresh();
 
     // Limpiar socket de juego
     if (this.gameSocket) {

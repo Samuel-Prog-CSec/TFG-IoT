@@ -335,3 +335,60 @@ Esto cubre el caso "consumer ignora el cleanup return del callback" (común cuan
 
 ### Tests regresivos de DTOs (red de seguridad)
 Patrón backend que aplica también al frontend: cuando un serializador (DTO o transformer) tiene la responsabilidad de NO exponer campos, escribir un test que valide `expect(dto).not.toHaveProperty('password')`. Ver `backend/tests/security/dtoOutputSanitization.test.js` para el patrón completo.
+
+---
+
+## Pre-v1.0.0 — Fase D (cliente + FE↔BE)
+
+### D.1 — AbortController universal en `useEffect` con fetch
+
+Patrón aplicado en 6 páginas (`AdminContexts`, `SystemAlertsPage`, `StudentManagement`, `ContextDetailPage`, `ConsentDetailPanel`, `MfaSetup`) — ver ADR-173.
+
+```jsx
+useEffect(() => {
+  const controller = new AbortController();
+  fetchFn(controller.signal)
+    .then(setData)
+    .catch(err => { if (!isAbortError(err)) setError(err) });
+  return () => controller.abort();
+}, [deps]);
+```
+
+Reglas:
+- **Solo GET**. POST/PUT/DELETE NO se abortan (riesgo de efectos secundarios mid-petición).
+- El servicio API recibe `{ signal }` en su `config` (segundo arg de axios). Verificar firma del endpoint:
+  - `usersAPI.getUser(userId, config)` ✓
+  - `contextsAPI.getContexts(params, config)` ✓
+  - `authAPI.mfaStatus(config)` ✓
+- `isAbortError(err)` está exportado en `services/api.js` — silencia el error tras `controller.abort()`.
+
+**No usar** SWR / React Query salvo que emerja necesidad de cache global / mutations / infinite queries. Decisión consciente — ADR-173 documenta el razonamiento.
+
+### D.2 — In-flight dedup helper
+
+`services/inFlight.js` exporta `dedupRequest(key, fetchFn)`. Si dos componentes llaman al mismo endpoint en paralelo, ambos reciben la misma promesa.
+
+Aplicar **selectivamente** en endpoints calientes de bootstrap:
+- `authAPI.getProfile()` — siempre (AuthContext + AppLayout post-login).
+- `contextsAPI.getContexts(params, config)` — solo si `!params && !config.signal` (default call de bootstrap).
+- `mechanicsAPI.getMechanics(params, config)` — idem.
+
+**NO blanket policy**. Solo donde demostradamente hay race condition. Si el caller pasa `signal` o `params` específicos, NO se dedupa.
+
+### D.4 — Width/height en `<img>` para CLS = 0
+
+Cada `<img>` no decorativo lleva HTML attrs `width` + `height` + `loading="lazy"` + `decoding="async"`:
+
+```jsx
+<img
+  src={avatar}
+  alt=""
+  width={40}
+  height={40}
+  loading="lazy"
+  decoding="async"
+  className="size-full rounded-full object-cover"
+/>
+```
+
+Tailwind `size-N` NO sustituye los HTML attrs — el browser usa los atributos HTML para reservar layout box antes del fetch.

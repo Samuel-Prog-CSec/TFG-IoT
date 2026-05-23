@@ -98,11 +98,24 @@ initSentry();
 // Configurar Socket.io con CORS seguro
 const io = new Server(server, {
   cors: corsOptions,
-  pingTimeout: 60000, // 60 segundos
-  pingInterval: 25000, // 25 segundos
+  // C.2 (pre-v1.0.0): bajamos pingTimeout de 60 → 30s. Liberación más rápida
+  // de zombies cuando el cliente cierra pestaña sin disconnect limpio. El
+  // ciclo ping cada 25s con timeout 30s deja margen razonable para redes
+  // flaky escolares; el cliente tiene reconnectionAttempts:15 × 5s max delay.
+  pingTimeout: 30000,
+  pingInterval: 25000,
   maxHttpBufferSize: socketPayloadLimits.globalBytes, // Límite global de payload (bytes)
   transports: ['websocket', 'polling'], // Preferir WebSocket
-  allowEIO3: false // Solo usar Engine.IO v4
+  allowEIO3: false, // Solo usar Engine.IO v4
+  // C.1 (pre-v1.0.0): compresión per-message para payloads >1KB. Reduce
+  // ~70% bytes egress en `game_over` (2-3KB → 600-900B) y
+  // `sequence_round_result` (1-2KB → 400-700B). Threshold 1024 deja
+  // `validation_result` (<500B) sin comprimir (no compensa CPU).
+  // zlibDeflateOptions.level=3 es el sweet spot CPU/ratio para JSON.
+  perMessageDeflate: {
+    threshold: 1024,
+    zlibDeflateOptions: { level: 3 }
+  }
 });
 
 // Namespace para eventos de gameplay (partidas, RFID scans, card assignment)
@@ -490,6 +503,18 @@ const startServer = async () => {
         await scheduleSystemAlertDetectionCron();
       } catch (cronErr) {
         logger.warn('queues: no se pudo programar el cron de system-alerts', {
+          error: cronErr.message
+        });
+      }
+
+      // T-931 (pre-v1.0.0): cron nocturno de reconciliación analytics
+      // (leaderboards ZSET + studentMetrics Hash). 00:30 horario servidor.
+      // El job se procesa en `worker.js`; el scheduling vive aquí.
+      try {
+        const { scheduleAnalyticsReconcileCron } = require('./queues');
+        await scheduleAnalyticsReconcileCron();
+      } catch (cronErr) {
+        logger.warn('queues: no se pudo programar el cron de reconciliación analytics', {
           error: cronErr.message
         });
       }

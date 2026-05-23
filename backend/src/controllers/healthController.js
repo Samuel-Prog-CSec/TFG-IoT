@@ -166,6 +166,11 @@ const getMetrics = (req, res) => {
         service: rfidService.getStatus()
       },
       redis: snapshot.redis,
+      // B.6 + T-931: bloques expuestos para validar en QA F.3 que el path
+      // distribuido del rate limiter está activo y que la materialización
+      // Redis recibe escrituras tras endPlay.
+      socketRateLimiter: snapshot.socketRateLimiter,
+      t931: snapshot.t931,
       memory: getMemoryUsage()
     })
   );

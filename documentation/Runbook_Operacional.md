@@ -912,3 +912,63 @@ node backend/scripts/audit-with-exclusions.js --workspace backend --label "Backe
 - **Atlas**: https://cloud.mongodb.com.
 - **Upstash**: https://upstash.com.
 - **Cloudflare**: https://dash.cloudflare.com.
+
+---
+
+## Playbook 19 — Monitorización p95 analytics + drift T-931
+
+> **Cuándo aplicar**: tras una caída Redis prolongada (>30 min), o si el cron `analytics-reconcile-cron` reporta drift > 5 por noche.
+
+### Vigilancia rutinaria
+
+`/api/metrics` expone (super_admin):
+- `t931.reconcileRuns` — cuántas corridas del cron (1/día esperado).
+- `t931.reconcileDriftDetected` — entradas con drift detectado en últimas corridas.
+- `t931.reconcileDriftCorrected` — cuántas se corrigieron.
+- `t931.lastReconcileAt` — timestamp última corrida.
+- `t931.leaderboardWrites` + `studentMetricsWrites` — debe crecer monotónicamente con cada `endPlay`.
+- `redis.cacheLayers['cache:analytics'].hitRatePercent` — debería superar 50% en operación normal.
+
+**Alerta operativa**: Sentry alert si `t931.reconcileDriftDetected > 5` en una sola corrida.
+
+### Procedimiento: drift > 5 detectado
+
+1. **Revisar logs worker** del último cron run:
+   ```bash
+   # Grafana Cloud Loki (saved query):
+   {service="worker"} |= "T-931 reconcile" | json | driftDetected > 5
+   ```
+2. **Correlación con caídas Redis**: buscar logs `circuit-breaker` o `Redis: Conexión cerrada` en las últimas 24h.
+3. **Verificar tamaño de la queue local pendingInvalidations**: si saturó (Sentry warning con tag `kind=pubsub-queue`), las invalidaciones cache fueron descartadas; impacto en consistencia limitado al modo RFID (no afecta T-931).
+4. **Reconciliación manual ad-hoc** si quieres acelerar la corrección sin esperar al próximo cron:
+   ```bash
+   # Desde host (requiere Docker stack corriendo):
+   MSYS_NO_PATHCONV=1 docker compose exec -T worker node -e "
+     process.chdir('/app');
+     require('/app/src/config/database').connectDB()
+       .then(() => require('/app/src/config/redis').connectRedis())
+       .then(() => require('/app/src/services/analytics/materializedAnalyticsService').runFullReconciliation())
+       .then(r => console.log(JSON.stringify(r, null, 2)))
+       .then(() => process.exit(0));
+   "
+   ```
+5. **Verificar `/api/metrics`** tras reconcile manual: `reconcileRuns` incrementó, `driftCorrected` cuenta acumulada.
+
+### Procedimiento: caída Redis prolongada
+
+Si Redis cayó >30 min:
+- **No hay acción inmediata** — la reconciliación nocturna corregirá leaderboards + studentMetrics.
+- Pub/sub queue `pendingInvalidations` cap 100 con FIFO — invalidaciones más allá del cap se descartaron. El modo RFID se autocorrige por TTL 60min al próximo cambio del usuario.
+- Verificar `socketRateLimiter.fallbackCount` en `/api/metrics`. Si > 0, el rate limiter cayó a memory-local durante la ventana — cluster pierde sincronía global del rate-limit. Comportamiento aceptable a corto plazo.
+
+### Procedimiento: cron `analytics-reconcile-cron` no se ejecuta
+
+- Verificar que el cron está programado: logs del backend al boot deben incluir `queues: cron de reconciliación analytics programado (00:30)`.
+- Verificar worker container está corriendo: `docker compose ps worker`.
+- Verificar BullMQ queue: `docker compose exec redis redis-cli -a 'devRedis123!' --no-auth-warning KEYS "rfid-games:bull:analytics-reconcile:*"`.
+- Si la queue está vacía, re-programar manualmente:
+  ```bash
+  docker compose exec backend node -e "
+    require('./src/queues').scheduleAnalyticsReconcileCron().then(() => process.exit(0));
+  "
+  ```

@@ -46,18 +46,22 @@ export default function SystemAlertsPage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState(null);
 
-  const fetchAlerts = useCallback(async () => {
+  // D.1 (pre-v1.0.0): AbortController propagado al servicio para que la
+  // navegación rápida desde sidebar admin no deje requests colgadas.
+  const fetchAlerts = useCallback(async (signal) => {
     if (tab !== 'alerts') return;
     setLoading(true);
     setError(null);
     try {
+      // El service separa `params` (query) de `config` (axios config + signal).
       const [list, summary] = await Promise.all([
-        systemAlertsService.getSystemAlerts({ status: statusFilter }),
-        systemAlertsService.getSystemAlertsSummary()
+        systemAlertsService.getSystemAlerts({ status: statusFilter }, { signal }),
+        systemAlertsService.getSystemAlertsSummary({ signal })
       ]);
       setAlerts(list?.items || []);
       setStatusCounts(summary?.byStatus || {});
     } catch (err) {
+      if (err?.code === 'ERR_CANCELED') return;
       setError(err);
     } finally {
       setLoading(false);
@@ -65,7 +69,9 @@ export default function SystemAlertsPage() {
   }, [tab, statusFilter]);
 
   useEffect(() => {
-    fetchAlerts();
+    const controller = new AbortController();
+    fetchAlerts(controller.signal);
+    return () => controller.abort();
   }, [fetchAlerts]);
 
   useRefetchOnFocus({

@@ -602,19 +602,24 @@ const MfaSetupPage = () => {
   const [error, setError] = useState(null);
   const [regeneratedCodes, setRegeneratedCodes] = useState(null);
 
-  const refetch = useCallback(async () => {
+  // D.1 (pre-v1.0.0): AbortController propagado para que una navegación
+  // fuera de /admin/mfa-setup no deje pendiente la request de status.
+  const refetch = useCallback(async (signal) => {
     try {
-      const res = await authAPI.mfaStatus();
+      const res = await authAPI.mfaStatus({ signal });
       const data = res?.data?.data || res?.data;
       setStatus(data);
       setError(null);
     } catch (err) {
+      if (err?.code === 'ERR_CANCELED') return;
       setError(extractErrorMessage(err) || 'No se pudo cargar el estado MFA');
     }
   }, []);
 
   useEffect(() => {
-    refetch();
+    const controller = new AbortController();
+    refetch(controller.signal);
+    return () => controller.abort();
   }, [refetch]);
 
   const handleManagementChange = useCallback(

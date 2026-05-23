@@ -62,7 +62,44 @@ const state = {
     rateLimitStoreFallbackCount: 0,
     // Hits/misses del cache de slim-user usado por el middleware de autenticación.
     authUserCacheHits: 0,
-    authUserCacheMisses: 0
+    authUserCacheMisses: 0,
+    // B.1 (pre-v1.0.0): telemetría hit/miss del cache Redis layer
+    // (`cache:analytics`, `cache:mechanic`, `cache:context`, etc.). Sin esto
+    // es imposible diagnosticar si bajar TTLs gana o pierde eficacia, ni si
+    // el jitter (B.2) introduce regresiones de hit rate. La estructura es
+    // namespace → { hits, misses } y se expone con hitRate calculado en el
+    // snapshot.
+    cacheLayers: {}
+  },
+  // B.6 (pre-v1.0.0): visibility del modo activo del rate limiter Socket.IO.
+  // Sin esto no podemos saber a primera vista si en Koyeb prod estamos
+  // usando el path Redis ZSET distribuido o el fallback memory-local. El
+  // limiter actualiza estos valores con `reportRateLimiterMode`.
+  socketRateLimiter: {
+    useRedis: null,
+    fallbackCount: 0,
+    redisSuccessCount: 0,
+    lastReportedAt: null
+  },
+  // T-931 (pre-v1.0.0): contadores específicos para la materialización Redis
+  // (leaderboards ZSET + studentMetrics Hash + reconciliación BullMQ
+  // nocturna). Permiten verificar en QA F.3 que las escrituras dual van bien
+  // y que la reconciliación detecta drift cuando lo introducimos
+  // artificialmente.
+  t931: {
+    leaderboardWrites: 0,
+    leaderboardReads: 0,
+    leaderboardCacheHits: 0,
+    leaderboardCacheMisses: 0,
+    studentMetricsWrites: 0,
+    studentMetricsReads: 0,
+    studentMetricsCacheHits: 0,
+    studentMetricsCacheMisses: 0,
+    reconcileRuns: 0,
+    reconcileDriftDetected: 0,
+    reconcileDriftCorrected: 0,
+    lastReconcileAt: null,
+    gdprPurges: 0
   }
 };
 
@@ -210,6 +247,115 @@ function recordAuthUserCache(outcome) {
 }
 
 /**
+ * B.1 (pre-v1.0.0): registra hit o miss para una capa de cache Redis
+ * concreta (`cache:analytics`, `cache:mechanic`, `cache:context`...). La
+ * estructura se crea perezosamente la primera vez que se reporta un
+ * namespace, así que añadir un nuevo cache no requiere tocar este módulo.
+ *
+ * @param {string} namespace - Identificador del namespace de Redis.
+ * @param {'hit'|'miss'} outcome
+ */
+function recordCacheLayerOutcome(namespace, outcome) {
+  if (!namespace || (outcome !== 'hit' && outcome !== 'miss')) {
+    return;
+  }
+  const layer = state.redis.cacheLayers[namespace] || { hits: 0, misses: 0 };
+  if (outcome === 'hit') {
+    layer.hits += 1;
+  } else {
+    layer.misses += 1;
+  }
+  state.redis.cacheLayers[namespace] = layer;
+}
+
+/**
+ * B.6 (pre-v1.0.0): reporta el modo activo del rate limiter Socket.IO.
+ * Se invoca desde el limiter cada vez que evalúa una decisión (Redis o
+ * memoria local). Permite verificar en `/api/metrics` que en Koyeb prod
+ * estamos en el path distribuido y detectar regresiones (ej. EVALSHA
+ * NOSCRIPT que fuerza fallback continuado).
+ *
+ * @param {Object} info
+ * @param {boolean} info.useRedis - true si la decisión usó Redis.
+ * @param {boolean} [info.fallback=false] - true si fue fallback por error.
+ */
+function reportRateLimiterMode({ useRedis, fallback = false }) {
+  state.socketRateLimiter.useRedis = Boolean(useRedis);
+  state.socketRateLimiter.lastReportedAt = Date.now();
+  if (fallback) {
+    state.socketRateLimiter.fallbackCount += 1;
+  } else if (useRedis) {
+    state.socketRateLimiter.redisSuccessCount += 1;
+  }
+}
+
+/**
+ * T-931 (pre-v1.0.0): registra una escritura en la materialización Redis
+ * (ZSET leaderboards o Hash studentMetrics). Se invoca por cada
+ * `endPlay` que actualiza los agregados, dentro del pipeline.
+ *
+ * @param {'leaderboard'|'studentMetrics'} kind
+ */
+function recordT931Write(kind) {
+  if (kind === 'leaderboard') {
+    state.t931.leaderboardWrites += 1;
+  } else if (kind === 'studentMetrics') {
+    state.t931.studentMetricsWrites += 1;
+  }
+}
+
+/**
+ * T-931 (pre-v1.0.0): registra una lectura sobre la materialización
+ * Redis con su outcome (hit / miss / fallback Mongo). Se invoca desde
+ * `analyticsService.getTopContextsAndMechanics` y la lectura masiva de
+ * studentMetrics.
+ *
+ * @param {'leaderboard'|'studentMetrics'} kind
+ * @param {'hit'|'miss'} outcome
+ */
+function recordT931Read(kind, outcome) {
+  if (kind === 'leaderboard') {
+    state.t931.leaderboardReads += 1;
+    if (outcome === 'hit') {
+      state.t931.leaderboardCacheHits += 1;
+    } else if (outcome === 'miss') {
+      state.t931.leaderboardCacheMisses += 1;
+    }
+  } else if (kind === 'studentMetrics') {
+    state.t931.studentMetricsReads += 1;
+    if (outcome === 'hit') {
+      state.t931.studentMetricsCacheHits += 1;
+    } else if (outcome === 'miss') {
+      state.t931.studentMetricsCacheMisses += 1;
+    }
+  }
+}
+
+/**
+ * T-931 (pre-v1.0.0): registra una ejecución del job nocturno de
+ * reconciliación con cuántas entradas mostraron drift > 5% y cuántas
+ * fueron corregidas.
+ *
+ * @param {Object} info
+ * @param {number} info.driftDetected
+ * @param {number} info.driftCorrected
+ */
+function recordT931Reconcile({ driftDetected = 0, driftCorrected = 0 } = {}) {
+  state.t931.reconcileRuns += 1;
+  state.t931.reconcileDriftDetected += driftDetected;
+  state.t931.reconcileDriftCorrected += driftCorrected;
+  state.t931.lastReconcileAt = Date.now();
+}
+
+/**
+ * T-931 (pre-v1.0.0): registra una purga GDPR Art. 17 cross-layer
+ * (Hash studentMetrics + entradas en leaderboards) tras borrar alumno.
+ */
+function recordT931GdprPurge() {
+  state.t931.gdprPurges += 1;
+}
+
+/**
  * Snapshot de métricas runtime.
  * Enriquecido en T-907 D con la telemetría de comandos Upstash y el cache LRU
  * en memoria. Se calcula al vuelo para reflejar el estado actual del tracker.
@@ -246,7 +392,31 @@ function getSnapshot() {
       // Cache LRU en memoria complementario al cache Redis. Hit ratio alto
       // indica que la app evita comandos Redis adicionales para keys
       // calientes (auth:user, cache:mechanic, cache:context).
-      inMemoryCache: inMemoryStats
+      inMemoryCache: inMemoryStats,
+      // B.1: hit/miss del cache Redis layer con hitRate calculado por
+      // namespace. Útil para diagnosticar si bajar TTLs gana o pierde
+      // eficacia y para validar que el jitter (B.2) no introduce regresiones.
+      cacheLayers: Object.fromEntries(
+        Object.entries(state.redis.cacheLayers).map(([namespace, counts]) => {
+          const total = counts.hits + counts.misses;
+          const hitRate = total === 0 ? 0 : Math.round((counts.hits / total) * 1000) / 10;
+          return [namespace, { ...counts, hitRatePercent: hitRate }];
+        })
+      )
+    },
+    socketRateLimiter: { ...state.socketRateLimiter },
+    t931: {
+      ...state.t931,
+      leaderboardHitRatePercent:
+        state.t931.leaderboardReads === 0
+          ? 0
+          : Math.round((state.t931.leaderboardCacheHits / state.t931.leaderboardReads) * 1000) / 10,
+      studentMetricsHitRatePercent:
+        state.t931.studentMetricsReads === 0
+          ? 0
+          : Math.round(
+              (state.t931.studentMetricsCacheHits / state.t931.studentMetricsReads) * 1000
+            ) / 10
     }
   };
 }
@@ -287,6 +457,26 @@ function reset() {
   state.redis.rateLimitStoreFallbackCount = 0;
   state.redis.authUserCacheHits = 0;
   state.redis.authUserCacheMisses = 0;
+  state.redis.cacheLayers = {};
+
+  state.socketRateLimiter.useRedis = null;
+  state.socketRateLimiter.fallbackCount = 0;
+  state.socketRateLimiter.redisSuccessCount = 0;
+  state.socketRateLimiter.lastReportedAt = null;
+
+  state.t931.leaderboardWrites = 0;
+  state.t931.leaderboardReads = 0;
+  state.t931.leaderboardCacheHits = 0;
+  state.t931.leaderboardCacheMisses = 0;
+  state.t931.studentMetricsWrites = 0;
+  state.t931.studentMetricsReads = 0;
+  state.t931.studentMetricsCacheHits = 0;
+  state.t931.studentMetricsCacheMisses = 0;
+  state.t931.reconcileRuns = 0;
+  state.t931.reconcileDriftDetected = 0;
+  state.t931.reconcileDriftCorrected = 0;
+  state.t931.lastReconcileAt = null;
+  state.t931.gdprPurges = 0;
 
   // Reset también la telemetría agregada (T-907 D).
   redisCommandTracker.reset();
@@ -312,6 +502,12 @@ module.exports = {
   recordRfidLockTimeout,
   recordRateLimitStoreFallback,
   recordAuthUserCache,
+  recordCacheLayerOutcome,
+  reportRateLimiterMode,
+  recordT931Write,
+  recordT931Read,
+  recordT931Reconcile,
+  recordT931GdprPurge,
   getSnapshot,
   reset
 };

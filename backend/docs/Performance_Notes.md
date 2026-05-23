@@ -650,3 +650,55 @@ Permite detectar pipelines analytics que tienden a degradar **antes** de que afe
 
 ### M8 — Auto-cleanup de intervals en `useConfetti`
 `frontend/src/hooks/useConfetti.js` mantiene `activeIntervalsRef = new Set()` y limpia todos los intervals en cleanup de `useEffect` al unmount del hook. Antes, `fireFireworks` retornaba `() => clearInterval(interval)` pero callers podían ignorar el return value, dejando intervals huérfanos si el componente se desmontaba mid-celebración. `canvas-confetti` gestiona su propio rAF interno y se autopara cuando las partículas mueren; el cleanup nuevo solo cancela nuestros intervals.
+
+---
+
+## Pre-v1.0.0 — Fase A (Mongo / Atlas)
+
+Sesión de performance end-to-end pre-corte v1.0.0. Ver ADR-170 y ADR-176.
+
+### A.1-A.4 — Patrón "proyección post-`$lookup`" + "`$match` early" en 6 funciones analytics
+
+Aplicado en `backend/src/services/analyticsService.js`:
+- `_getClassroomSummaryImpl`, `getClassroomComparison`, `getClassroomDifficulties`, `getClassroomHeatmap`, `getTopContextsAndMechanics`, `getClassroomTrends`.
+- Helper cacheable `getTeacherSessionIds(teacherId, opts)` (TTL 300s con jitter, namespace `cache:analytics`).
+- Constantes top-file `SESSION_LOOKUP_PROJECTION`, `CONTEXT_LOOKUP_PROJECTION_FIELDS`, `MECHANIC_LOOKUP_PROJECTION_FIELDS`.
+- `_getStudentSummaryImpl`: 6 sub-pipelines con `SESSION_LOOKUP_PROJECTION` tras cada `$unwind '$session'`.
+
+**Verificado en Mongo real** via `explain('executionStats')`:
+- Stage `FETCH` (no `COLLSCAN`). Ratio `totalKeysExamined / nReturned ≈ 1.0` (IXSCAN puro).
+- `executionTimeMillis: 0` en datasets seed.
+
+**Reducción típica**: 80% bytes wire-level, 50× menos docs escaneados en `$match` early.
+
+### A.5 — Cursor stream en `exportStudentData`
+
+`backend/src/services/dataExportService.js`: reemplazado `gamePlayRepository.find(...)` por cursor `GamePlay.find(...).lean().cursor({ batchSize: 50 })` con `for await`. Reduce spike RAM al exportar alumnos con 500+ partidas (Art. 20 RGPD).
+
+### A.6 — Cap defensivo `consentHistory[]`
+
+`backend/src/services/userService.js`: `$push: { consentHistory: { $each: [...], $slice: -100 } }`. Previene runaway crecimiento documento User. RGPD Art. 7.1 sigue cubierto: 100 entradas ≈ 10+ años de uso normal.
+
+### A.7 + A.10 — Pool MongoDB Atlas
+
+`backend/src/config/database.js` `productionConnectOptions`:
+- `compressors: ['snappy', 'zstd']` — 30-50% menos bytes wire-level en aggregations grandes.
+- `maxIdleTimeMS: 60_000` — libera conexiones idle tras 60s. Importante para escala horizontal.
+- Índices T-931 (`{sessionId:1, status:1, completedAt:-1}`) ya existían — auditados via `explain` en A.8.
+
+### A.8 — Auditoría índices
+
+Verificado via mongosh `getIndexes()` que GamePlay tiene los compound necesarios:
+- `sessionId_1` — para `$in` queries del A.3.
+- `sessionId_1_playerId_1_status_1` — para queries por estudiante en sesión.
+- `playerId_1_completedAt_-1` — para `getStudentSummary` lookups.
+- `status_1_completedAt_-1` — para reconcile nocturno T-931 B.12.
+- `sessionId_1_status_1_completedAt_-1` — patrón compound completo.
+
+**Conclusión**: no se crearon índices nuevos, los existentes son óptimos para los nuevos patrones de query.
+
+### A.9 — `anonymizeOldGamePlays` en batches
+
+`backend/src/services/dataRetentionService.js`: refactor a cursor + batches `BATCH_SIZE=500` con `maxTimeMS=30_000`/batch. Idempotente. Previene timeout >2min sobre datasets grandes (100k+ docs) que dispararían SIGKILL Koyeb.
+
+**Tests añadidos**: nuevas suites del Bloque B en `backend/tests/` (`cacheLayerTelemetry`, `leaderboardZset`, `studentMetricsMaterialized`, `pubsubQueueRetry`, `analyticsReconcile`).

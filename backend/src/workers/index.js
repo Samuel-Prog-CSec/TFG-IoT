@@ -14,6 +14,11 @@ const {
   startSystemAlertDetectionWorker,
   stopSystemAlertDetectionWorker
 } = require('./systemAlertDetectionWorker');
+// T-931 (pre-v1.0.0) — reconciliador nocturno materialización Redis.
+const {
+  startAnalyticsReconcileWorker,
+  stopAnalyticsReconcileWorker
+} = require('./analyticsReconcileWorker');
 const logger = require('../utils/logger').child({ component: 'workers' });
 
 const startedWorkers = [];
@@ -30,6 +35,7 @@ const startAllWorkers = () => {
   startedWorkers.push(startDataRetentionWorker());
   startedWorkers.push(startAlertDetectionWorker());
   startedWorkers.push(startSystemAlertDetectionWorker());
+  startedWorkers.push(startAnalyticsReconcileWorker());
 
   // Las queues `gdpr-exports` y `notifications` están registradas pero sin
   // worker hasta que se implemente la generación de archivos + email.
@@ -47,7 +53,8 @@ const stopAllWorkers = async () => {
   await Promise.allSettled([
     stopDataRetentionWorker(),
     stopAlertDetectionWorker(),
-    stopSystemAlertDetectionWorker()
+    stopSystemAlertDetectionWorker(),
+    stopAnalyticsReconcileWorker()
   ]);
   startedWorkers.length = 0;
   logger.info('workers: todos los workers cerrados');

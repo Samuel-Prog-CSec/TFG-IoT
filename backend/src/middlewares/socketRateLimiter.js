@@ -13,6 +13,7 @@
 
 const logger = require('../utils/logger');
 const runtimeMetrics = require('../utils/runtimeMetrics');
+const { reportRateLimiterMode } = require('../utils/runtimeMetrics');
 const { logSecurityEvent, getSocketContext } = require('../utils/securityLogger');
 const {
   socketRateLimits,
@@ -330,12 +331,17 @@ class SocketRateLimiter {
    */
   async checkRateLimitAsync(rateKey, eventName) {
     if (!this.useRedis || !redisService.checkRedisAvailable()) {
+      // B.6: modo memory-local intencional (test / Redis no disponible).
+      // No es fallback, es la configuración esperada.
+      reportRateLimiterMode({ useRedis: false, fallback: false });
       return this.checkRateLimit(rateKey, eventName);
     }
 
     const redis = getRedis();
     if (!redis) {
       this.fallbackCount += 1;
+      // B.6: Redis configurado pero no obtenible → fallback inesperado.
+      reportRateLimiterMode({ useRedis: false, fallback: true });
       return this.checkRateLimit(rateKey, eventName);
     }
 
@@ -388,6 +394,9 @@ class SocketRateLimiter {
       }
 
       const result = JSON.parse(raw);
+      // B.6: éxito del path distribuido — visible en /api/metrics como
+      // socketRateLimiter.useRedis = true.
+      reportRateLimiterMode({ useRedis: true, fallback: false });
       return {
         allowed: result.ok === 1,
         retryAfterMs: Number(result.retryAfterMs) || 0,
@@ -397,6 +406,8 @@ class SocketRateLimiter {
       // Fallback transparente al limiter in-memory. Loggeamos como debug para
       // no inundar el log si Redis está offline una temporada larga.
       this.fallbackCount += 1;
+      // B.6: fallback inesperado (Lua falló, EVALSHA NOSCRIPT repetido, etc.).
+      reportRateLimiterMode({ useRedis: false, fallback: true });
       this.logger?.debug?.('socketRateLimiter Redis path falló, fallback in-memory', {
         eventName,
         rateKey,

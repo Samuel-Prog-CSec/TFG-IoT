@@ -239,7 +239,7 @@ export default function StudentProfile() {
 
           <div className="size-14 rounded-full bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center text-xl font-bold text-white shadow-lg">
             {student.avatar
-              ? <img src={student.avatar} alt="" className="size-full rounded-full object-cover" />
+              ? <img src={student.avatar} alt="" width={56} height={56} loading="lazy" decoding="async" className="size-full rounded-full object-cover" />
               : <span>{getInitials(student.name)}</span>
             }
           </div>

@@ -219,3 +219,29 @@ Si Grafana Cloud cae:
 - **Acción operativa**: ninguna inmediata, sólo si Grafana Cloud no se recupera en 24h considerar deshabilitar transport temporalmente con `LOG_SHIPPING_ENABLED=false`.
 
 El proceso del backend **nunca** muere por un fallo de Loki.
+
+---
+
+## Pre-v1.0.0 — Drift metrics T-931 (B.12)
+
+El job `analyticsReconcileJob` (cron 00:30, queue `analytics-reconcile`) emite logs estructurados que se shipean a Loki igual que el resto:
+
+```
+INFO  T-931 reconcile job: iniciando
+WARN  T-931 reconcile: drift detectado y corregido { durationMs, leaderboardsReconciled, studentsReconciled, driftDetected, driftCorrected }
+INFO  T-931 reconcile job completado sin drift { ... }
+```
+
+**Saved query LogQL** (ejecutar en Grafana Explore para vigilancia):
+```
+{service="worker"} |= "T-931 reconcile" | json | driftDetected > 0
+```
+
+Si `driftDetected > 5` en una corrida, investigar:
+1. ¿Hubo caída Redis prolongada en las últimas 24h? (revisar circuit breaker logs).
+2. ¿Algún endPlay falló en su rama `recordPlayCompletion`? (Sentry warning + telemetría `t931.leaderboardWrites` vs `gameEngine.totalPlaysCompleted`).
+3. ¿Pub/sub queue overflow? (Sentry warning con tag `kind=pubsub-queue`).
+
+**Alerta Sentry recomendada**: "T-931 drift > 5 en última 24h" → asociada al worker job log.
+
+El backend expone `runtimeMetrics.t931.{reconcileRuns, reconcileDriftDetected, reconcileDriftCorrected, lastReconcileAt}` en `/api/metrics` para correlación rápida.

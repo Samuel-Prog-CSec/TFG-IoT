@@ -247,10 +247,15 @@ async function updateConsent(studentId, consentData, requestingUser) {
     });
   }
 
-  // Usar $set + $push en una sola operación atómica
+  // Usar $set + $push en una sola operación atómica.
+  // A.6 (pre-v1.0.0): cap con sliding window a las últimas 100 entradas.
+  // RGPD Art. 7.1 exige trazabilidad del consentimiento; 100 entradas
+  // cubren holgadamente >10 años de uso normal (revisión anual + cambios
+  // ocasionales) y previenen runaway document growth si un bug o un
+  // tutor en bucle dispara revoke/grant masivos.
   return userRepository.updateById(studentId, {
     $set: updates,
-    $push: { consentHistory: historyEntry }
+    $push: { consentHistory: { $each: [historyEntry], $slice: -100 } }
   });
 }
 
@@ -510,6 +515,23 @@ async function hardDeleteStudent(studentId, requestingUser) {
 
   // 2. Eliminar el documento User
   await userRepository.deleteById(studentId);
+
+  // 3. T-931 (pre-v1.0.0): purgar materialización Redis del alumno
+  // (Hash `student:metrics:*` + entradas en leaderboards). Fire-and-forget
+  // — si Redis cae, la reconciliación nocturna no resucita estos datos
+  // porque el alumno ya no existe en Mongo.
+  try {
+    const materializedAnalytics = require('./analytics/materializedAnalyticsService');
+    await materializedAnalytics.purgeStudentMaterialization({
+      studentId,
+      teacherId: student.createdBy
+    });
+  } catch (purgeErr) {
+    logger.warn('hardDeleteStudent: fallo al purgar materialización Redis (no bloquea)', {
+      studentId,
+      error: purgeErr.message
+    });
+  }
 
   // Log sin PII del estudiante — Art. 5.2 RGPD (accountability)
   logger.warn('Borrado efectivo de estudiante completado (Art. 17 RGPD)', {

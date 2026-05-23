@@ -17,7 +17,10 @@ const { getSocketCommand, getCommandNames } = require('../commands/socket');
 const { findDangerousPayloadPath } = require('../utils/payloadSecurity');
 const rfidHmacValidator = require('../utils/rfidHmacValidator'); // T-905 B8
 const { socketConnectionLimits } = require('../config/socketRateLimits');
-const { getRedis } = require('../config/redis');
+const { getRedis, onReconnect: onRedisReconnect } = require('../config/redis');
+// B.3 (pre-v1.0.0): pipeline para coalescer setex/del + publish en una
+// única RTT a Upstash en persistRfidModeToRedis.
+const redisService = require('../services/redisService');
 const Sentry = require('@sentry/node');
 const logger = require('../utils/logger').child({ component: 'socketHandlers' });
 const { authEventBus } = require('../utils/authEvents');
@@ -81,29 +84,62 @@ const RFID_LOCK_TIMEOUT_SENTINEL = Symbol('RFID_LOCK_TIMEOUT');
 const getConnectionCount = userId => connectionCountByUserId.get(userId) || 0;
 
 /**
- * Incrementa el contador de conexiones del usuario.
+ * C.4 (pre-v1.0.0): tracking de socketIds por usuario para soportar
+ * single-cast a la "primary tab" cuando se quiera evitar amplificación
+ * en multi-tab. La set se mantiene en orden inserción (Set nativo) por lo
+ * que el primer socketId es siempre la conexión más antigua viva.
+ *
+ * El uso típico: para eventos críticos que NO deban duplicarse en multi-
+ * tab (ej. `game_over` con score animation), el caller puede hacer
+ * `socketServerRef.to(getPrimarySocketId(userId)).emit(...)` en lugar de
+ * `io.to('play_X').emit(...)`. Los demás callers de la set reciben el
+ * estado via state-sync posterior.
+ *
+ * NO se cambian las emisiones existentes en esta sesión (sería breaking
+ * para los tests UI). Helper queda disponible para futuros eventos.
+ */
+const socketIdsByUserId = new Map();
+
+/**
+ * Incrementa el contador de conexiones del usuario. Mantiene también
+ * el set de socketIds por usuario (C.4).
  * @param {string} userId
+ * @param {string} [socketId] - Opcional; si se pasa se añade al tracking.
  * @returns {number} Nuevo valor del contador.
  */
-const incrementConnectionCount = userId => {
+const incrementConnectionCount = (userId, socketId) => {
   if (!userId) {
     return 0;
   }
   const next = (connectionCountByUserId.get(userId) || 0) + 1;
   connectionCountByUserId.set(userId, next);
+  if (socketId) {
+    if (!socketIdsByUserId.has(userId)) {
+      socketIdsByUserId.set(userId, new Set());
+    }
+    socketIdsByUserId.get(userId).add(socketId);
+  }
   return next;
 };
 
 /**
  * Decrementa el contador de conexiones del usuario, eliminando la entrada
- * si llega a cero. No baja de cero ante llamadas espurias.
+ * si llega a cero. No baja de cero ante llamadas espurias. También limpia
+ * el socketId del set (C.4).
  *
  * @param {string} userId
+ * @param {string} [socketId] - Opcional; si se pasa se quita del tracking.
  * @returns {number} Nuevo valor del contador.
  */
-const decrementConnectionCount = userId => {
+const decrementConnectionCount = (userId, socketId) => {
   if (!userId) {
     return 0;
+  }
+  if (socketId && socketIdsByUserId.has(userId)) {
+    socketIdsByUserId.get(userId).delete(socketId);
+    if (socketIdsByUserId.get(userId).size === 0) {
+      socketIdsByUserId.delete(userId);
+    }
   }
   const current = connectionCountByUserId.get(userId) || 0;
   if (current <= 1) {
@@ -116,16 +152,39 @@ const decrementConnectionCount = userId => {
 };
 
 /**
+ * C.4 (pre-v1.0.0): devuelve el primer socketId activo del usuario
+ * (orden inserción del Set). null si no tiene conexiones activas.
+ *
+ * Útil para single-cast: `io.to(getPrimarySocketId(userId)).emit(...)`.
+ *
+ * @param {string} userId
+ * @returns {string|null}
+ */
+const getPrimarySocketId = userId => {
+  if (!userId) {
+    return null;
+  }
+  const set = socketIdsByUserId.get(userId);
+  if (!set || set.size === 0) {
+    return null;
+  }
+  return set.values().next().value;
+};
+
+/**
  * Resetea por completo el contador de conexiones. Solo para tests.
  * @returns {void}
  */
 const resetConnectionCountsForTests = () => {
   connectionCountByUserId.clear();
+  socketIdsByUserId.clear();
 };
 let socketServerRef = null;
 /** Referencia al namespace /game para emitir eventos de gameplay (reservado para uso interno futuro). */
 // eslint-disable-next-line no-unused-vars -- referencia almacenada para uso interno por funciones del módulo
 let gameNspRef = null;
+/** C.5 (pre-v1.0.0): ref al GameEngine para liberar play:init locks en disconnect. */
+let gameEngineRef = null;
 
 /**
  * Referencia al intervalo de limpieza periódica de caches.
@@ -506,6 +565,68 @@ const getUserIdBySensorId = sensorId => {
 };
 
 /**
+ * B.4 (pre-v1.0.0): queue local de invalidaciones pendientes cuando
+ * Redis está caído. Sin esto, una caída breve (15-30s) pierde TODAS las
+ * invalidaciones pub/sub que ocurrieron durante la ventana — el resto de
+ * instancias del cluster quedan con cache stale hasta el TTL del modo.
+ *
+ * Cap 100 con dedup por `channel:message` (Map). En reconnect flushea en
+ * orden FIFO. Si la queue desborda (caída larga + mucho tráfico),
+ * descarta las más antiguas con Sentry warning — la reconciliación
+ * nocturna (T-931) recuperará consistencia eventual.
+ */
+const MAX_PENDING_INVALIDATIONS = 100;
+const pendingInvalidations = new Map();
+
+const enqueuePendingInvalidation = (channel, message) => {
+  const key = `${channel}:${message}`;
+  if (pendingInvalidations.has(key)) {
+    return;
+  }
+  if (pendingInvalidations.size >= MAX_PENDING_INVALIDATIONS) {
+    const oldestKey = pendingInvalidations.keys().next().value;
+    if (oldestKey) {
+      pendingInvalidations.delete(oldestKey);
+      Sentry.captureMessage('B.4: pendingInvalidations overflow — discarding oldest', {
+        level: 'warning',
+        tags: { component: 'socketHandlers', kind: 'pubsub-queue' }
+      });
+    }
+  }
+  pendingInvalidations.set(key, { channel, message, queuedAt: Date.now() });
+};
+
+const flushPendingInvalidations = async () => {
+  if (pendingInvalidations.size === 0) {
+    return;
+  }
+  const redis = getRedis();
+  if (!redis) {
+    return;
+  }
+  const entries = [...pendingInvalidations.entries()];
+  logger.info('B.4: flush invalidaciones pendientes tras reconnect Redis', {
+    count: entries.length
+  });
+  for (const [key, { channel, message }] of entries) {
+    try {
+      await redis.publish(channel, message);
+      pendingInvalidations.delete(key);
+    } catch (err) {
+      logger.warn('B.4: fallo al republicar invalidación, dejando en queue', {
+        channel,
+        error: err.message
+      });
+      break;
+    }
+  }
+};
+
+// Registrar flush en el onReconnect global (B.4 — múltiples callbacks
+// soportados tras el refactor de config/redis.js).
+onRedisReconnect(() => flushPendingInvalidations());
+
+/**
  * Persiste estado RFID en Redis (fire-and-forget) y publica el cambio en el
  * canal pub/sub para que otras instancias del backend invaliden su cache local.
  *
@@ -518,38 +639,6 @@ const persistRfidModeToRedis = (userId, state) => {
     return;
   }
 
-  if (!state) {
-    redis
-      .del(`${REDIS_RFID_MODE_PREFIX}${userId}`)
-      .catch(err =>
-        logger.warn('Error al borrar estado RFID en Redis', { userId, error: err.message })
-      );
-    publishRfidModeChange(userId, null);
-    return;
-  }
-
-  redis
-    .setex(`${REDIS_RFID_MODE_PREFIX}${userId}`, REDIS_RFID_MODE_TTL, JSON.stringify(state))
-    .catch(err =>
-      logger.warn('Error al persistir estado RFID en Redis', { userId, error: err.message })
-    );
-  publishRfidModeChange(userId, state);
-};
-
-/**
- * Publica un cambio de modo RFID en el canal pub/sub. El instance ID se
- * envía como `from` para que el suscriptor pueda ignorar mensajes propios
- * (la instancia que escribe ya tiene el estado correcto en su cache).
- *
- * @param {string} userId
- * @param {Object|null} state
- */
-const publishRfidModeChange = (userId, state) => {
-  const redis = getRedis();
-  if (!redis) {
-    return;
-  }
-
   const message = JSON.stringify({
     userId,
     state,
@@ -557,12 +646,35 @@ const publishRfidModeChange = (userId, state) => {
     at: Date.now()
   });
 
-  redis
-    .publish(RFID_MODE_PUBSUB_CHANNEL, message)
-    .catch(err =>
-      logger.warn('Error al publicar cambio RFID mode', { userId, error: err.message })
-    );
+  // B.3 (pre-v1.0.0): unimos `setex`/`del` + `publish` en un único pipeline
+  // para ahorrar 1 round-trip por transición RFID. Sin esto cada cambio
+  // costaba 2 RTT a Upstash (uno por escritura, otro por publish); con
+  // pipeline pasa a 1. En cluster típico con ~4 transiciones/sesión × 30
+  // sesiones/día son ~120 round-trips ahorrados.
+  redisService
+    .runPipeline(p => {
+      if (state) {
+        p.setex(`${REDIS_RFID_MODE_PREFIX}${userId}`, REDIS_RFID_MODE_TTL, JSON.stringify(state));
+      } else {
+        p.del(`${REDIS_RFID_MODE_PREFIX}${userId}`);
+      }
+      p.publish(RFID_MODE_PUBSUB_CHANNEL, message);
+    }, 'ws')
+    .catch(err => {
+      // B.4: si el pipeline falla, encolar la invalidación para
+      // reintentar al reconnect. Sin esto, las otras instancias del
+      // cluster quedaban con cache stale hasta el TTL del modo (60min).
+      logger.warn('Error al persistir cambio RFID mode (pipeline) — encolando para retry', {
+        userId,
+        error: err.message
+      });
+      enqueuePendingInvalidation(RFID_MODE_PUBSUB_CHANNEL, message);
+    });
 };
+
+// (Deprecated B.3 pre-v1.0.0) `publishRfidModeChange` se eliminó: el
+// publish ahora se hace dentro del pipeline de `persistRfidModeToRedis`,
+// evitando un round-trip extra a Upstash por cada transición RFID.
 
 /**
  * Aplica un cambio recibido por pub/sub al cache local. Esta función no
@@ -1347,7 +1459,8 @@ const createAuthMiddleware =
           });
           return next(new Error('Límite de conexiones alcanzado'));
         }
-        incrementConnectionCount(userId);
+        // C.4: registrar socketId para soporte single-cast multi-tab.
+        incrementConnectionCount(userId, socket.id);
       }
 
       socket.data.userId = userId;
@@ -1377,6 +1490,7 @@ const registerSocketHandlers = ({
 }) => {
   socketServerRef = io;
   gameNspRef = gameNsp;
+  gameEngineRef = gameEngine; // C.5: ref para release lock en disconnect
 
   // Iniciar limpieza periódica de caches (cada 5 minutos)
   if (cacheCleanupIntervalRef) {
@@ -1416,7 +1530,8 @@ const registerSocketHandlers = ({
     // huérfano (leak que bloquea al usuario tras MAX_CONNECTIONS reconexiones).
     socket.on('disconnect', () => {
       const disconnUserId = socket.data.userId;
-      decrementConnectionCount(disconnUserId);
+      // C.4: pasar socketId para limpiar del set multi-tab.
+      decrementConnectionCount(disconnUserId, socket.id);
       // NOTA: la limpieza RFID se hace en el disconnect del namespace /game,
       // donde se registró el modo (con el socketId correcto de /game).
       logger.info(`Cliente desconectado [/]: ${socket.id}`, {
@@ -1601,6 +1716,36 @@ const registerSocketHandlers = ({
       }
       socket.data.playOwnershipCache = null;
       socketRateLimiter.cleanupForSocket(socket);
+
+      // C.5 (pre-v1.0.0): liberar proactivamente `play:init:{playId}` locks
+      // de partidas en estado 'created' donde el usuario es el creator y NO
+      // tiene otros sockets activos. Sin esto, si el usuario cierra pestaña
+      // antes de llamar a `startPlay`, el lock queda hasta TTL 60s impidiendo
+      // que el flujo de idempotencia capture un reintento legítimo. Solo
+      // libera si el set de sockets del usuario quedó vacío (en multi-tab,
+      // las otras tabs aún pueden estar jugando).
+      if (gameUserId) {
+        const remainingSockets = socketIdsByUserId.get(gameUserId);
+        const isLastSocket = !remainingSockets || remainingSockets.size === 0;
+        if (isLastSocket && gameEngineRef?.activePlays) {
+          for (const [playId, playState] of gameEngineRef.activePlays.entries()) {
+            const playerIdStr = playState?.playDoc?.playerId?.toString?.();
+            const ownerCreatedBy = playState?.sessionDoc?.createdBy?.toString?.();
+            if (
+              playState?.playDoc?.status === 'created' &&
+              (playerIdStr === gameUserId || ownerCreatedBy === gameUserId)
+            ) {
+              redisService.del(redisService.NAMESPACES.PLAY_INIT_LOCK, playId).catch(err =>
+                logger.debug('C.5: fallo al liberar play:init lock (TTL cubre)', {
+                  playId,
+                  error: err.message
+                })
+              );
+            }
+          }
+        }
+      }
+
       logger.info(`Cliente desconectado [/game]: ${socket.id}`, {
         userId: gameUserId,
         role: socket.data.userRole
@@ -1732,6 +1877,7 @@ module.exports = {
   getConnectionCount,
   incrementConnectionCount,
   decrementConnectionCount,
+  getPrimarySocketId,
   resetConnectionCountsForTests,
   setRfidModeState,
   clearRfidModeState,

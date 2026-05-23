@@ -190,12 +190,16 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
   const [exportLoading, setExportLoading] = useState(false);
 
   // ----- Fetch detallado del alumno -----
-  const fetchDetail = useCallback(async (studentId) => {
+  // D.1 (pre-v1.0.0): AbortController propagado. Si el usuario cierra el
+  // panel mientras la request está en vuelo, se aborta limpiamente y se
+  // evita un setState sobre componente desmontado.
+  const fetchDetail = useCallback(async (studentId, signal) => {
     setLoading(true);
     try {
-      const { data } = await usersAPI.getUser(studentId);
+      const { data } = await usersAPI.getUser(studentId, { signal });
       setDetailedStudent(data.data ?? data);
     } catch (err) {
+      if (err?.code === 'ERR_CANCELED') return;
       toast.error('Error al cargar los datos del alumno', {
         description: extractErrorMessage(err)
       });
@@ -206,13 +210,14 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
 
   // Al abrirse el panel con un alumno, cargar su detalle
   useEffect(() => {
-    if (isOpen && student?.id) {
-      setDetailedStudent(null);
-      setShowRegrantForm(false);
-      setGuardianName('');
-      setGuardianError('');
-      fetchDetail(student.id);
-    }
+    if (!isOpen || !student?.id) return undefined;
+    setDetailedStudent(null);
+    setShowRegrantForm(false);
+    setGuardianName('');
+    setGuardianError('');
+    const controller = new AbortController();
+    fetchDetail(student.id, controller.signal);
+    return () => controller.abort();
   }, [isOpen, student?.id, fetchDetail]);
 
   // Bloquear scroll del body mientras el panel está abierto

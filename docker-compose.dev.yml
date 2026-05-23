@@ -76,5 +76,11 @@ services:
     build:
       context: ./backend
       target: development
+    # T-931 (pre-v1.0.0): añadir volumen montado en dev para que el worker
+    # recargue los cambios del módulo `materializedAnalyticsService` y del
+    # nuevo `analyticsReconcileWorker` sin requerir rebuild.
+    volumes:
+      - ./backend:/app
+      - /app/node_modules
     environment:
       - NODE_ENV=development

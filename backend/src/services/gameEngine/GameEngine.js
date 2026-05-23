@@ -11,6 +11,8 @@ const userRepository = require('../../repositories/userRepository');
 const { SCAN_IGNORED_REASONS, PLAY_INTERRUPTED_REASONS } = require('../../constants/errorCodes');
 const redisService = require('../redisService');
 const { cacheInvalidateNamespace } = require('../../utils/cacheHelper');
+// T-931 (pre-v1.0.0) — materialización Redis para hot reads dashboard.
+const materializedAnalytics = require('../analytics/materializedAnalyticsService');
 const { recalculateSessionStatusFromPlays } = require('../sessionStatusService');
 const { getMechanicStrategy } = require('../../strategies/mechanics');
 const {
@@ -780,6 +782,39 @@ class GameEngine {
                   ? persistedSummary.maxSequenceLengthAchieved
                   : undefined
             });
+
+            // T-931 (pre-v1.0.0): materialización dual — escribir en
+            // ZSETs leaderboards + Hash studentMetrics en paralelo a la
+            // escritura Mongo. Fire-and-forget: si falla, la
+            // reconciliación nocturna corregirá el drift. Respeta
+            // consentimiento RGPD porque solo se ejecuta dentro de la
+            // rama con `hasConsentFor('performance_analytics')`.
+            materializedAnalytics
+              .recordPlayCompletion({
+                teacherId: playState.sessionDoc?.createdBy,
+                contextId: playState.sessionDoc?.contextId,
+                mechanicId: playState.sessionDoc?.mechanicId,
+                studentId: playState.playDoc.playerId,
+                score: playState.playDoc.score,
+                maxScore: playState.playDoc.maxScore,
+                correctAttempts: playState.playDoc.metrics.correctAttempts,
+                errorAttempts: playState.playDoc.metrics.errorAttempts,
+                timeoutAttempts: playState.playDoc.metrics.timeoutAttempts,
+                averageResponseTime: playState.playDoc.metrics.averageResponseTime,
+                mechanicName: playState.mechanicName,
+                maxSequenceLengthAchieved:
+                  playState.mechanicName === 'sequence'
+                    ? persistedSummary.maxSequenceLengthAchieved
+                    : 0,
+                sequencesCompleted:
+                  playState.mechanicName === 'sequence' ? persistedSummary.sequencesCompleted : 0
+              })
+              .catch(err => {
+                logger.debug('T-931 recordPlayCompletion fallo (ignorado)', {
+                  playId,
+                  error: err.message
+                });
+              });
           } else {
             logger.info(
               'Métricas de analytics omitidas — sin consentimiento de performance_analytics',
@@ -879,24 +914,26 @@ class GameEngine {
       cardUids.push(mapping.uid);
     }
 
-    // También limpiar de Redis (solo si seguimos siendo owner del lock)
+    // También limpiar de Redis (solo si seguimos siendo owner del lock).
+    // El Lua release es EVALSHA y no entra en pipeline.
     await this.releaseDistributedCardMappings(playId, cardUids);
 
     // Borrar la partida de la memoria activa
     this.activePlays.delete(playId);
 
-    // Limpiar de Redis
-    await redisService.del(redisService.NAMESPACES.PLAY, playId);
-
-    // Liberar el lock distribuido de idempotencia. El TTL de 60s lo expiraría
-    // solo de todas formas, pero liberar explícitamente evita el caso "abort
-    // silencioso" si el cliente intenta reiniciar la misma partida justo tras
-    // un endPlay rápido (p. ej. F5 durante el finalize). Silenciamos el fallo
-    // porque el TTL es nuestra red de seguridad.
+    // B.7 (pre-v1.0.0): coalescer las 2 ops Redis restantes (DEL PLAY +
+    // DEL PLAY_INIT_LOCK) en un único pipeline para ahorrar 1 RTT a
+    // Upstash en cada endPlay. Bajo cluster típico de 30 sesiones/día
+    // son ~30 round-trips ahorrados sin riesgo (ambos del son
+    // independientes y best-effort). El TTL de 60s del PLAY_INIT_LOCK
+    // sigue siendo red de seguridad si el pipeline falla.
     try {
-      await redisService.del(redisService.NAMESPACES.PLAY_INIT_LOCK, playId);
+      await redisService.runPipeline(p => {
+        p.del(`${redisService.NAMESPACES.PLAY}:${playId}`);
+        p.del(`${redisService.NAMESPACES.PLAY_INIT_LOCK}:${playId}`);
+      }, 'endPlay-cleanup');
     } catch (err) {
-      logger.warn('endPlay: fallo al liberar lock play:init (TTL lo expirará)', {
+      logger.warn('endPlay: pipeline cleanup falló (TTL es red de seguridad)', {
         playId,
         error: err.message
       });
@@ -1410,13 +1447,25 @@ class GameEngine {
       // 2. Obtener el estado del juego
       const playState = this.activePlays.get(playId);
 
-      // Ignorar escaneos si la partida está pausada
+      // Ignorar escaneos si la partida está pausada.
+      // C.3 (pre-v1.0.0): `volatile.emit` para `scan_ignored` — si el
+      // cliente está bajo backpressure (red flaky, tab inactiva), el
+      // servidor descarta este aviso en vez de encolar. El cliente sigue
+      // viendo el siguiente scan correcto: estos eventos son feedback
+      // informativo, no afectan correctness. Defensive fallback si el
+      // mock io no expone `.volatile` (tests legacy).
+      const safeVolatileEmit = (room, event, payload) => {
+        const target = this.io.to(room);
+        const channel = target.volatile || target;
+        return channel.emit(event, payload);
+      };
       if (playState?.paused || playState?.playDoc?.status === 'paused') {
         this.metrics.ignoredCardScans++;
         logger.debug(`Tarjeta ${uid} ignorada: partida ${playId} en pausa.`);
-        this.io
-          .to(`play_${playId}`)
-          .emit('scan_ignored', { uid, reason: SCAN_IGNORED_REASONS.PLAY_PAUSED });
+        safeVolatileEmit(`play_${playId}`, 'scan_ignored', {
+          uid,
+          reason: SCAN_IGNORED_REASONS.PLAY_PAUSED
+        });
         return;
       }
 
@@ -1426,9 +1475,10 @@ class GameEngine {
         // El juego existe, pero no está esperando una respuesta
         // (ej. escaneo demasiado rápido, o entre rondas)
         logger.debug(`Tarjeta ${uid} escaneada para ${playId}, pero no se esperaba respuesta.`);
-        this.io
-          .to(`play_${playId}`)
-          .emit('scan_ignored', { uid, reason: SCAN_IGNORED_REASONS.NOT_AWAITING });
+        safeVolatileEmit(`play_${playId}`, 'scan_ignored', {
+          uid,
+          reason: SCAN_IGNORED_REASONS.NOT_AWAITING
+        });
         return;
       }
 

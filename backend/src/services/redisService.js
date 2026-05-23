@@ -301,37 +301,110 @@ const setManyIfNotExists = async (namespace, entries = [], ttlSeconds = null) =>
     return { ok: true, conflicts: [], acquiredIds: [] };
   }
 
+  const validEntries = entries.filter(e => e?.id);
+  if (validEntries.length === 0) {
+    return { ok: true, conflicts: [], acquiredIds: [] };
+  }
+
+  const redis = getRedis();
+  if (!redis) {
+    return { ok: false, conflicts: validEntries.map(e => e.id), acquiredIds: [] };
+  }
+
+  // B.5 (pre-v1.0.0): fallback transaccional con MULTI/EXEC + WATCH.
+  // Antes este fallback iteraba secuencialmente con `setIfNotExists` —
+  // sin atomicidad real, dos reservations concurrentes para la misma key
+  // podían colarse ambas. Con WATCH + EXEC optimista, si alguna key
+  // observada cambia entre WATCH y EXEC, la transacción se aborta y
+  // devolvemos conflict. Idempotente: si Lua vuelve a estar disponible
+  // (caso típico — esto solo se invoca tras SCRIPT FLUSH o en tests),
+  // la próxima llamada usa el path Lua atómico.
+  const keys = validEntries.map(e => buildKey(namespace, e.id));
   const acquiredIds = [];
   const conflicts = [];
 
   try {
-    for (const entry of entries) {
-      if (!entry?.id) {
-        continue;
-      }
+    // 1) WATCH sobre todas las keys candidatas.
+    await redis.watch(...keys);
 
-      const acquired = await setIfNotExists(namespace, entry.id, entry.value, ttlSeconds);
-      if (acquired) {
-        acquiredIds.push(entry.id);
+    // 2) Pre-check: si alguna ya existe, no hay nada que adquirir.
+    const existsResults = await redis.mget(...keys);
+    const preConflicts = [];
+    for (let i = 0; i < validEntries.length; i++) {
+      if (existsResults[i] !== null) {
+        preConflicts.push(validEntries[i].id);
+      }
+    }
+    if (preConflicts.length > 0) {
+      await redis.unwatch();
+      track(namespace, 1 + keys.length); // watch + mget cuentan
+      return { ok: false, conflicts: preConflicts, acquiredIds: [] };
+    }
+
+    // 3) MULTI: encolar SET para cada key + EXEC atómico.
+    const multi = redis.multi();
+    for (const entry of validEntries) {
+      const key = buildKey(namespace, entry.id);
+      if (ttlSeconds && ttlSeconds > 0) {
+        multi.set(key, String(entry.value), 'EX', ttlSeconds, 'NX');
       } else {
-        conflicts.push(entry.id);
+        multi.set(key, String(entry.value), 'NX');
+      }
+    }
+    const execResults = await multi.exec();
+
+    // 4) Si EXEC devuelve null, otra escritura modificó una de las keys
+    //    entre WATCH y EXEC — abortar.
+    if (execResults === null) {
+      track(namespace, 1 + keys.length); // watch + mget
+      return { ok: false, conflicts: validEntries.map(e => e.id), acquiredIds: [] };
+    }
+
+    // 5) Procesar resultado por entry. SET NX retorna 'OK' si acquired,
+    //    null si la key ya existía (race tras pre-check).
+    for (let i = 0; i < validEntries.length; i++) {
+      const [err, reply] = execResults[i];
+      if (err || reply === null) {
+        conflicts.push(validEntries[i].id);
+      } else {
+        acquiredIds.push(validEntries[i].id);
       }
     }
 
-    if (conflicts.length > 0) {
+    // 6) Si hubo conflictos parciales, revertir las acquired.
+    if (conflicts.length > 0 && acquiredIds.length > 0) {
       await delMany(namespace, acquiredIds);
-      return { ok: false, conflicts, acquiredIds };
+      redisBreaker.recordSuccess();
+      track(namespace, 1 + keys.length + acquiredIds.length);
+      return { ok: false, conflicts, acquiredIds: [] };
     }
 
-    return { ok: true, conflicts: [], acquiredIds };
+    redisBreaker.recordSuccess();
+    track(namespace, 1 + keys.length + validEntries.length);
+    return {
+      ok: conflicts.length === 0,
+      conflicts,
+      acquiredIds
+    };
   } catch (error) {
-    logger.error('Redis setManyIfNotExists error:', { namespace, error: error.message });
+    logger.error('Redis setManyIfNotExists transactional error:', {
+      namespace,
+      error: error.message
+    });
     redisBreaker.recordFailure();
-
+    try {
+      await redis.unwatch();
+    } catch {
+      // ignore
+    }
     if (acquiredIds.length > 0) {
       await delMany(namespace, acquiredIds);
     }
-    return { ok: false, conflicts, acquiredIds };
+    return {
+      ok: false,
+      conflicts: [...conflicts, ...validEntries.map(e => e.id)],
+      acquiredIds: []
+    };
   }
 };
 

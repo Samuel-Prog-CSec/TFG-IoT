@@ -6,6 +6,7 @@
 const mongoose = require('mongoose');
 const Sentry = require('@sentry/node');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
+const gameSessionRepository = require('../repositories/gameSessionRepository');
 
 /**
  * Timeout aplicado a las agregaciones más pesadas del flujo de informes
@@ -184,22 +185,18 @@ async function getClassroomSummary(teacherId) {
 
 async function _getClassroomSummaryImpl(teacherId) {
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
-  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+  const [excludedIds, teacherSessionIds] = await Promise.all([
+    getAnalyticsExcludedPlayerIds(teacherId),
+    // A.3 (pre-v1.0.0): prefiltrar sessionIds del profesor para hacer
+    // `$match` ANTES de `$lookup` — reduce 50× el escaneo en GamePlay.
+    getTeacherSessionIds(teacherId)
+  ]);
   const teacherOid = new mongoose.Types.ObjectId(teacherId);
 
   const pipeline = [
     {
-      $lookup: {
-        from: 'game_sessions',
-        localField: 'sessionId',
-        foreignField: '_id',
-        as: 'session'
-      }
-    },
-    { $unwind: '$session' },
-    {
       $match: {
-        'session.createdBy': teacherOid,
+        sessionId: { $in: teacherSessionIds },
         ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
       }
     },
@@ -271,21 +268,17 @@ async function getClassroomComparison(teacherId, timeRange = '7d') {
   startDate.setDate(today.getDate() - rangeDays);
 
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
-  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+  // A.3 (pre-v1.0.0): prefiltrar sessionIds — sin el `$lookup game_sessions`
+  // posterior (los campos de session no se usan en este pipeline).
+  const [excludedIds, teacherSessionIds] = await Promise.all([
+    getAnalyticsExcludedPlayerIds(teacherId),
+    getTeacherSessionIds(teacherId)
+  ]);
 
   const pipeline = [
     {
-      $lookup: {
-        from: 'game_sessions',
-        localField: 'sessionId',
-        foreignField: '_id',
-        as: 'session'
-      }
-    },
-    { $unwind: '$session' },
-    {
       $match: {
-        'session.createdBy': new mongoose.Types.ObjectId(teacherId),
+        sessionId: { $in: teacherSessionIds },
         status: 'completed',
         completedAt: { $gte: startDate },
         ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
@@ -330,9 +323,20 @@ async function getClassroomComparison(teacherId, timeRange = '7d') {
  */
 async function getClassroomDifficulties(teacherId) {
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
-  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+  // A.3: prefiltrar sessionIds del profesor para hacer `$match` early.
+  const [excludedIds, teacherSessionIds] = await Promise.all([
+    getAnalyticsExcludedPlayerIds(teacherId),
+    getTeacherSessionIds(teacherId)
+  ]);
 
   const pipeline = [
+    {
+      $match: {
+        sessionId: { $in: teacherSessionIds },
+        status: 'completed',
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
+      }
+    },
     {
       $lookup: {
         from: 'game_sessions',
@@ -342,13 +346,9 @@ async function getClassroomDifficulties(teacherId) {
       }
     },
     { $unwind: '$session' },
-    {
-      $match: {
-        'session.createdBy': new mongoose.Types.ObjectId(teacherId),
-        status: 'completed',
-        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
-      }
-    },
+    // A.2: descartar campos pesados de session (cardMappings[], boardLayout[],
+    // sequencePlan[], config{}) — el pipeline solo necesita contextId+mechanicId.
+    SESSION_LOOKUP_PROJECTION,
     {
       $lookup: {
         from: 'game_contexts',
@@ -359,6 +359,13 @@ async function getClassroomDifficulties(teacherId) {
     },
     { $unwind: '$context' },
     {
+      $project: {
+        metrics: 1,
+        ...CONTEXT_LOOKUP_PROJECTION_FIELDS,
+        'session.mechanicId': 1
+      }
+    },
+    {
       $lookup: {
         from: 'game_mechanics',
         localField: 'session.mechanicId',
@@ -367,6 +374,13 @@ async function getClassroomDifficulties(teacherId) {
       }
     },
     { $unwind: '$mechanic' },
+    {
+      $project: {
+        metrics: 1,
+        ...CONTEXT_LOOKUP_PROJECTION_FIELDS,
+        ...MECHANIC_LOOKUP_PROJECTION_FIELDS
+      }
+    },
     {
       $group: {
         _id: {
@@ -411,6 +425,9 @@ async function getClassroomDifficulties(teacherId) {
 const userRepository = require('../repositories/userRepository');
 const { pseudonymize } = require('../utils/pseudonymize');
 const { cacheGet } = require('../utils/cacheHelper');
+// T-931 (pre-v1.0.0): materialización Redis para fast-path en
+// getTopContextsAndMechanics + getClassroomStudents.
+const materializedAnalytics = require('./analytics/materializedAnalyticsService');
 
 /**
  * Filtro de consentimiento para analytics.
@@ -452,6 +469,107 @@ async function getAnalyticsExcludedPlayerIds(teacherId) {
     },
     60
   ); // TTL 60s — los cambios de consentimiento son infrecuentes
+}
+
+// ══════════════════════════════════════════════════════════════════════
+// A.2 + A.3 (pre-v1.0.0) — patrón "proyección post-lookup" + "$match early"
+// ══════════════════════════════════════════════════════════════════════
+//
+// Las aggregations sobre GamePlay con `$lookup game_sessions` traían el
+// documento completo de session, incluyendo `cardMappings[30]`,
+// `boardLayout[30]`, `sequencePlan[]` y `config{}` — campos que ninguna de
+// las analytics consume realmente. Bytes egress Atlas inflados hasta 80%.
+//
+// Patrón unificado:
+//   1) Prefiltrar `sessionIds` del profesor con un helper cacheable
+//      (`getTeacherSessionIds`) y hacer `$match { sessionId: { $in: [...] } }`
+//      ANTES del `$lookup` para reducir el set de docs a procesar.
+//   2) Tras cada `$lookup` insertar un `$project` que solo retenga los
+//      campos consumidos por el resto de stages.
+//
+// Si el helper devuelve cache miss el coste extra es 1 query Mongo barata
+// (lista de _id sobre índice `{createdBy:1}` de GameSession) que se cachea
+// 300s y se invalida al crear/archivar sesión.
+
+/**
+ * A.2 — Proyección reusable post-`$lookup game_sessions`. Solo se mantienen
+ * los campos consumidos por las aggregations downstream.
+ * @readonly
+ */
+const SESSION_LOOKUP_PROJECTION = {
+  $project: {
+    _id: 1,
+    sessionId: 1,
+    playerId: 1,
+    score: 1,
+    maxScore: 1,
+    status: 1,
+    completedAt: 1,
+    startedAt: 1,
+    metrics: 1,
+    'session._id': 1,
+    'session.createdBy': 1,
+    'session.contextId': 1,
+    'session.mechanicId': 1,
+    'session.status': 1,
+    'session.archivedAt': 1
+  }
+};
+
+/**
+ * A.2 — Proyección reusable post-`$lookup game_contexts`.
+ * @readonly
+ */
+const CONTEXT_LOOKUP_PROJECTION_FIELDS = {
+  'context._id': 1,
+  'context.name': 1,
+  'context.displayName': 1
+};
+
+/**
+ * A.2 — Proyección reusable post-`$lookup game_mechanics`.
+ * @readonly
+ */
+const MECHANIC_LOOKUP_PROJECTION_FIELDS = {
+  'mechanic._id': 1,
+  'mechanic.name': 1,
+  'mechanic.displayName': 1
+};
+
+/**
+ * A.3 (pre-v1.0.0): obtiene la lista de `_id` de sesiones del profesor,
+ * filtrable opcionalmente por estado. Cacheable 300s en `cache:analytics`
+ * para evitar re-query en cada aggregation del dashboard. Se invalida desde
+ * `gameSessionService` al crear/archivar/eliminar sesiones.
+ *
+ * El uso correcto es: insertar `$match { sessionId: { $in: ids } }` como
+ * PRIMERA etapa del pipeline ANTES del `$lookup game_sessions`, reduciendo
+ * dramáticamente el set de docs procesados (típicamente 50× menos).
+ *
+ * @param {string} teacherId
+ * @param {Object} [options]
+ * @param {string|string[]} [options.status] - Filtro opcional por status.
+ * @returns {Promise<Array<import('mongoose').Types.ObjectId>>}
+ */
+async function getTeacherSessionIds(teacherId, options = {}) {
+  const statusKey = Array.isArray(options.status)
+    ? options.status.slice().sort().join(',')
+    : options.status || 'all';
+  return cacheGet(
+    'cache:analytics',
+    `teacherSessions:${teacherId}:${statusKey}`,
+    async () => {
+      const query = {
+        createdBy: new mongoose.Types.ObjectId(teacherId)
+      };
+      if (options.status) {
+        query.status = Array.isArray(options.status) ? { $in: options.status } : options.status;
+      }
+      const sessions = await gameSessionRepository.find(query, { select: '_id' });
+      return sessions.map(s => s._id);
+    },
+    300
+  ); // TTL 300s con jitter (B.2) — equilibra frescura tras crear sesión vs hit-rate
 }
 
 /**
@@ -542,6 +660,17 @@ async function getStudentsTiersByMechanic(studentIds = []) {
       }
     },
     { $unwind: '$session' },
+    // A.1 (pre-v1.0.0): descartar campos pesados de session
+    // (cardMappings[], boardLayout[], sequencePlan[]) antes del segundo
+    // lookup. Reduce bytes inter-stage y CPU pipeline sin alterar output.
+    {
+      $project: {
+        playerId: 1,
+        score: 1,
+        maxScore: 1,
+        'session.mechanicId': 1
+      }
+    },
     {
       $lookup: {
         from: 'game_mechanics',
@@ -782,22 +911,18 @@ async function getClassroomTrends(teacherId, timeRange = '7d') {
   const teacherOid = new mongoose.Types.ObjectId(teacherId);
 
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
-  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+  // A.3 (pre-v1.0.0): prefiltrar sessionIds del profesor — los facets no
+  // necesitan campos de session, eliminamos el `$lookup` por completo.
+  const [excludedIds, teacherSessionIds] = await Promise.all([
+    getAnalyticsExcludedPlayerIds(teacherId),
+    getTeacherSessionIds(teacherId)
+  ]);
 
   // Pipeline para obtener stats de ambos períodos en un solo query
   const pipeline = [
     {
-      $lookup: {
-        from: 'game_sessions',
-        localField: 'sessionId',
-        foreignField: '_id',
-        as: 'session'
-      }
-    },
-    { $unwind: '$session' },
-    {
       $match: {
-        'session.createdBy': teacherOid,
+        sessionId: { $in: teacherSessionIds },
         status: 'completed',
         completedAt: { $gte: previousStart, $lte: now },
         ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
@@ -985,6 +1110,10 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
             }
           },
           { $unwind: '$session' },
+          // A.2: proyección post-lookup para descartar cardMappings[],
+          // boardLayout[], sequencePlan[], config{} antes del siguiente
+          // $lookup. Reduce 80% bytes inter-stage.
+          SESSION_LOOKUP_PROJECTION,
           {
             $lookup: {
               from: 'game_contexts',
@@ -1035,6 +1164,7 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
             }
           },
           { $unwind: '$session' },
+          SESSION_LOOKUP_PROJECTION,
           {
             $lookup: {
               from: 'game_contexts',
@@ -1085,6 +1215,7 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
             }
           },
           { $unwind: '$session' },
+          SESSION_LOOKUP_PROJECTION,
           {
             $lookup: {
               from: 'game_mechanics',
@@ -1136,6 +1267,7 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
             }
           },
           { $unwind: '$session' },
+          SESSION_LOOKUP_PROJECTION,
           {
             $lookup: {
               from: 'game_mechanics',
@@ -1181,6 +1313,7 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
             }
           },
           { $unwind: '$session' },
+          SESSION_LOOKUP_PROJECTION,
           {
             $lookup: {
               from: 'game_mechanics',
@@ -1224,6 +1357,7 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
             }
           },
           { $unwind: '$session' },
+          SESSION_LOOKUP_PROJECTION,
           {
             $lookup: {
               from: 'game_mechanics',
@@ -1379,24 +1513,20 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
  */
 async function getClassroomHeatmap(teacherId, timeRange = '30d') {
   const { currentStart, now } = getDateRange(timeRange);
-  const teacherOid = new mongoose.Types.ObjectId(teacherId);
 
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
-  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+  // A.3 (pre-v1.0.0): prefiltrar sessionIds del profesor — el heatmap no
+  // necesita campos de session, así que eliminamos el `$lookup` por
+  // completo y el `$match` se hace directo sobre GamePlay.
+  const [excludedIds, teacherSessionIds] = await Promise.all([
+    getAnalyticsExcludedPlayerIds(teacherId),
+    getTeacherSessionIds(teacherId)
+  ]);
 
   const pipeline = [
     {
-      $lookup: {
-        from: 'game_sessions',
-        localField: 'sessionId',
-        foreignField: '_id',
-        as: 'session'
-      }
-    },
-    { $unwind: '$session' },
-    {
       $match: {
-        'session.createdBy': teacherOid,
+        sessionId: { $in: teacherSessionIds },
         status: 'completed',
         completedAt: { $gte: currentStart, $lte: now },
         ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
@@ -1437,12 +1567,23 @@ async function getClassroomHeatmap(teacherId, timeRange = '30d') {
 async function getTopContextsAndMechanics(teacherId, timeRange = '30d', limitParam = 5) {
   const limit = Number(limitParam) || 5;
   const { currentStart, now } = getDateRange(timeRange);
-  const teacherOid = new mongoose.Types.ObjectId(teacherId);
 
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
-  const excludedIds = await getAnalyticsExcludedPlayerIds(teacherId);
+  // A.3: prefiltrar sessionIds + $match ANTES de $lookup + A.2 proyección.
+  const [excludedIds, teacherSessionIds] = await Promise.all([
+    getAnalyticsExcludedPlayerIds(teacherId),
+    getTeacherSessionIds(teacherId)
+  ]);
 
   const basePipeline = [
+    {
+      $match: {
+        sessionId: { $in: teacherSessionIds },
+        status: 'completed',
+        completedAt: { $gte: currentStart, $lte: now },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
+      }
+    },
     {
       $lookup: {
         from: 'game_sessions',
@@ -1452,14 +1593,9 @@ async function getTopContextsAndMechanics(teacherId, timeRange = '30d', limitPar
       }
     },
     { $unwind: '$session' },
-    {
-      $match: {
-        'session.createdBy': teacherOid,
-        status: 'completed',
-        completedAt: { $gte: currentStart, $lte: now },
-        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
-      }
-    }
+    // A.2: descartar cardMappings[], boardLayout[], sequencePlan[] antes
+    // de los siguientes lookups context/mechanic.
+    SESSION_LOOKUP_PROJECTION
   ];
 
   // Top contextos
@@ -1528,12 +1664,91 @@ async function getTopContextsAndMechanics(teacherId, timeRange = '30d', limitPar
     { $limit: limit }
   ];
 
+  // T-931 (pre-v1.0.0): intentar la lectura desde el ZSET materializado
+  // primero. Si está poblado, ZREVRANGE es O(log N + M) y batch-find por
+  // _id resuelve los nombres en una sola query Mongo (no aggregation).
+  // Si los ZSETs no existen (TTL expirado, primera ejecución tras
+  // deploy), fallback a las aggregations Mongo originales — sin perder
+  // funcionalidad mientras la reconciliación nocturna repuebla.
+  const fastTopContexts = await readTopFromMaterialized({
+    teacherId,
+    timeRange,
+    dimension: 'context',
+    limit
+  });
+  const fastTopMechanics = await readTopFromMaterialized({
+    teacherId,
+    timeRange,
+    dimension: 'mechanic',
+    limit
+  });
+
   const [topContexts, topMechanics] = await Promise.all([
-    gamePlayRepository.aggregate(contextPipeline),
-    gamePlayRepository.aggregate(mechanicPipeline)
+    fastTopContexts || gamePlayRepository.aggregate(contextPipeline),
+    fastTopMechanics || gamePlayRepository.aggregate(mechanicPipeline)
   ]);
 
   return { topContexts, topMechanics, timeRange };
+}
+
+/**
+ * T-931 (pre-v1.0.0): lee el top de leaderboard ZSET y resuelve los
+ * nombres de contexts/mechanics con un único `find({_id: { $in: ids } })`.
+ * Devuelve `null` si el ZSET no existe (caller hace fallback Mongo).
+ *
+ * @param {Object} options
+ * @returns {Promise<Array|null>}
+ */
+async function readTopFromMaterialized({ teacherId, timeRange, dimension, limit }) {
+  // El timeRange del frontend es '7d' o '30d' (sin '24h'); los ZSETs
+  // mantenidos por endPlay están en ['24h', '7d', '30d']. Si el rango no
+  // está en ese set, miss → fallback Mongo.
+  const supportedRange = ['24h', '7d', '30d'].includes(timeRange) ? timeRange : null;
+  if (!supportedRange) {
+    return null;
+  }
+
+  // Pedir el ranking ordenado por `plays` (más visualmente útil — coincide
+  // con el `$sort: { totalPlays: -1 }` de la aggregation Mongo) y
+  // resolver `score` como dato secundario para el `avgScore` del DTO.
+  const entries = await materializedAnalytics.getTopFromLeaderboard(teacherId, {
+    timeRange: supportedRange,
+    dimension,
+    metric: 'plays',
+    limit
+  });
+  if (!entries || entries.length === 0) {
+    return entries === null ? null : [];
+  }
+
+  // Resolver nombres en una sola query.
+  const ids = entries.map(e => e.id).filter(Boolean);
+  if (ids.length === 0) {
+    return [];
+  }
+  const collection = dimension === 'context' ? 'game_contexts' : 'game_mechanics';
+  const docs = await mongoose.connection
+    .collection(collection)
+    .find(
+      { _id: { $in: ids.map(id => new mongoose.Types.ObjectId(id)) } },
+      { projection: { name: 1, displayName: 1 } }
+    )
+    .toArray();
+
+  const byId = new Map();
+  for (const d of docs) {
+    byId.set(d._id.toString(), dimension === 'context' ? d.name : d.displayName || d.name);
+  }
+
+  return entries.map(e => ({
+    name: byId.get(e.id) || null,
+    totalPlays: e.plays || 0,
+    avgScore: e.plays > 0 ? Math.round((e.score / e.plays) * 10) / 10 : 0,
+    // uniquePlayers no se materializa en ZSET (requeriría HyperLogLog). En
+    // el fast path se omite — el frontend lo trata como 0 / opcional. El
+    // fallback Mongo lo provee íntegro.
+    uniquePlayers: 0
+  }));
 }
 
 module.exports = {

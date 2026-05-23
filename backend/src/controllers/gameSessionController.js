@@ -371,6 +371,12 @@ const deleteSession = async (req, res) => {
 
   await session.deleteOne();
 
+  // A.3 (pre-v1.0.0): invalidar cache `teacherSessions:<teacherId>:*` para
+  // que las aggregations analytics que usan `getTeacherSessionIds` no sigan
+  // viendo este sessionId en su set durante el TTL (300s).
+  const { cacheInvalidatePattern } = require('../utils/cacheHelper');
+  cacheInvalidatePattern('cache:analytics', `teacherSessions:${req.user._id}:*`).catch(() => {});
+
   logger.info('Sesión eliminada', {
     sessionId: session._id,
     deletedBy: req.user._id

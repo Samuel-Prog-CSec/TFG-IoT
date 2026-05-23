@@ -353,11 +353,13 @@ export default function AdminContexts() {
   // abierto ~1.1s para que el badge sea perceptible antes del cierre.
   const saveBadge = useInlineSuccess({ duration: 1500 });
 
-  const loadContexts = useCallback(async () => {
+  // D.1 (pre-v1.0.0): AbortController propagado para que la navegación
+  // rápida (sidebar admin) no deje colgada la request 100-contextos.
+  const loadContexts = useCallback(async (signal) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await contextsAPI.getContexts({ limit: 100 });
+      const res = await contextsAPI.getContexts({ limit: 100, signal });
       const data = extractData(res);
       const list = Array.isArray(data) ? data : data?.items || data?.contexts || [];
       setContexts(list);
@@ -370,7 +372,9 @@ export default function AdminContexts() {
   }, []);
 
   useEffect(() => {
-    loadContexts();
+    const controller = new AbortController();
+    loadContexts(controller.signal);
+    return () => controller.abort();
   }, [loadContexts]);
 
   const filtered = contexts.filter(c => {

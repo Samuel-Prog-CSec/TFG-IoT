@@ -18,7 +18,7 @@ export default function AlertStatusFilter({ value, onChange, counts = {} }) {
     >
       {STATUS_ORDER.map(status => {
         const style = STATUS_STYLES[status];
-        const Icon = style.Icon;
+        const {Icon} = style;
         const isActive = value === status;
         const count = counts[status] ?? 0;
         return (
