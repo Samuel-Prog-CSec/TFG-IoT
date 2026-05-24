@@ -236,18 +236,22 @@ exports.getStudentPlayPatterns = async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════
 
 /**
- * Efectividad de contextos/mecánicas.
+ * Efectividad de contextos/mecánicas (vista 1D o cross matrix).
  * @route GET /api/analytics/classroom/content-effectiveness
  */
 exports.getContentEffectiveness = async (req, res) => {
   const teacherId = req.user._id.toString();
-  const { timeRange, groupBy } = req.query;
+  const { timeRange, groupBy, includeEmpty } = req.query;
 
   const data = await cacheGet(
     'cache:analytics',
-    `contentEffectiveness:${teacherId}:${timeRange}:${groupBy}`,
+    `contentEffectiveness:${teacherId}:${timeRange}:${groupBy}:${includeEmpty}`,
     async () =>
-      contentEffectivenessService.getContentEffectiveness(teacherId, { timeRange, groupBy }),
+      contentEffectivenessService.getContentEffectiveness(teacherId, {
+        timeRange,
+        groupBy,
+        includeEmpty
+      }),
     300
   );
 

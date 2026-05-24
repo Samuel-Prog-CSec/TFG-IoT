@@ -13,12 +13,10 @@
  * @module pages/admin/SystemAlertsPage
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
+import { useCallback, useEffect, useState } from 'react';
 import { ShieldAlert, Megaphone, Unlock } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
-import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import systemAlertsService from '../../services/systemAlerts';
 import GlassCard from '../../components/ui/GlassCard';
@@ -26,6 +24,7 @@ import ErrorState from '../../components/ui/ErrorState';
 import SystemAlertsHub from '../../components/admin/SystemAlertsHub';
 import SystemAnnouncementsManager from '../../components/admin/SystemAnnouncementsManager';
 import LockoutUnlockForm from '../../components/admin/LockoutUnlockForm';
+import AdminPageShell from '../../components/admin/AdminPageHero';
 
 const TABS = [
   { key: 'alerts', label: 'Alertas del sistema', Icon: ShieldAlert },
@@ -35,7 +34,6 @@ const TABS = [
 
 export default function SystemAlertsPage() {
   useDocumentTitle('Alertas y avisos del centro · EduPlay');
-  const { shouldReduceMotion } = useReducedMotion();
 
   const [tab, setTab] = useState('alerts');
   const [statusFilter, setStatusFilter] = useState('active');
@@ -86,33 +84,15 @@ export default function SystemAlertsPage() {
     setStatusFilter(next);
   }, []);
 
-  const headerMotion = useMemo(
-    () =>
-      shouldReduceMotion
-        ? {}
-        : {
-            initial: { opacity: 0, y: -8 },
-            animate: { opacity: 1, y: 0 },
-            transition: { duration: 0.35, ease: 'easeOut' }
-          },
-    [shouldReduceMotion]
-  );
-
   return (
-    <main className="space-y-6" data-page="admin-system-alerts">
-      <motion.header {...headerMotion} className="space-y-2">
-        <div className="flex items-center gap-2 text-[11px] uppercase tracking-wide text-warning-on-alpha font-semibold">
-          <ShieldAlert size={14} aria-hidden="true" />
-          DIRECCIÓN · Operativa del centro
-        </div>
-        <h1 className="text-2xl md:text-3xl font-bold text-text-primary font-display">
-          Alertas y avisos del centro
-        </h1>
-        <p className="text-sm text-text-secondary max-w-2xl">
-          Vigila el estado operativo (Redis, MongoDB, colas, seguridad, moderación y
-          cumplimiento) y publica avisos para todo el profesorado desde un único panel.
-        </p>
-      </motion.header>
+    <AdminPageShell
+      icon={ShieldAlert}
+      title="Alertas y avisos del centro"
+      description="Vigila el estado operativo (Redis, MongoDB, colas, seguridad, moderación y cumplimiento) y publica avisos para todo el profesorado desde un único panel."
+      ariaLabel="Alertas y avisos del centro"
+      className="space-y-0"
+    >
+      <div className="space-y-6" data-page="admin-system-alerts">
 
       {/* BUG-A11Y-SYSTEMALERTS-TABS (QA Sprint 0): role="tab" sin parent
           role="tablist" rompe la regla axe. Aunque jsx-a11y avisa de "non-
@@ -163,6 +143,7 @@ export default function SystemAlertsPage() {
       {tab === 'announcements' && <SystemAnnouncementsManager />}
 
       {tab === 'lockouts' && <LockoutUnlockForm />}
-    </main>
+      </div>
+    </AdminPageShell>
   );
 }

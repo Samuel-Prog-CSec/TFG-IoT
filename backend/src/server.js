@@ -68,6 +68,7 @@ const deckRoutes = require('./routes/decks');
 const adminRoutes = require('./routes/admin');
 const metricsRoutes = require('./routes/metrics');
 const analyticsRoutes = require('./routes/analytics');
+const reportsRoutes = require('./routes/reports');
 const healthRoutes = require('./routes/health');
 const notificationRoutes = require('./routes/notifications');
 const {
@@ -310,6 +311,9 @@ app.use('/api/announcements', announcementsPublicRouter);
 
 // Rutas de analíticas
 app.use('/api/analytics', analyticsRoutes);
+
+// Rutas de informes persistidos y plantillas (T-942 Fase B)
+app.use('/api/reports', reportsRoutes);
 
 // Rutas de métricas de dominio (salud RFID, etc.)
 app.use('/api/metrics', metricsRoutes);

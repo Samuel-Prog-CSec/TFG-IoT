@@ -61,6 +61,7 @@ const Register = lazy(() => import('./pages/Register'));
 const NotFound = lazy(() => import('./pages/NotFound'));
 
 // Admin pages
+const AdminDashboard = lazy(() => import('./pages/admin/AdminDashboard')); // T-942 Fase D
 const ApprovalPanel = lazy(() => import('./pages/admin/ApprovalPanel'));
 const StudentManagement = lazy(() => import('./pages/admin/StudentManagement'));
 const AdminContexts = lazy(() => import('./pages/admin/AdminContexts'));
@@ -178,29 +179,30 @@ function AppContent() {
           <Route index element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
           <Route path="dashboard" element={<SuspenseWrapper><Dashboard /></SuspenseWrapper>} />
 
-          {/* Rutas exclusivas de profesor — admin redirige a su panel */}
-          <Route path="decks" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><CardDecksPage /></SuspenseWrapper></RequireRole>} />
-          <Route path="decks/new" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><DeckCreationWizard /></SuspenseWrapper></RequireRole>} />
-          <Route path="decks/:deckId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><CardDeckDetailPage /></SuspenseWrapper></RequireRole>} />
-          <Route path="decks/:deckId/edit" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><DeckEditPage /></SuspenseWrapper></RequireRole>} />
-          <Route path="contexts" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><ContextsPage /></SuspenseWrapper></RequireRole>} />
-          <Route path="contexts/:contextId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><ContextDetailPage /></SuspenseWrapper></RequireRole>} />
-          <Route path="sessions" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><SessionsPage /></SuspenseWrapper></RequireRole>} />
+          {/* Rutas exclusivas de profesor — admin redirige a su Dashboard
+              (T-942 Fase D: ya no a /admin/approvals). */}
+          <Route path="decks" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><CardDecksPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="decks/new" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><DeckCreationWizard /></SuspenseWrapper></RequireRole>} />
+          <Route path="decks/:deckId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><CardDeckDetailPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="decks/:deckId/edit" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><DeckEditPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="contexts" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><ContextsPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="contexts/:contextId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><ContextDetailPage /></SuspenseWrapper></RequireRole>} />
+          <Route path="sessions" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><SessionsPage /></SuspenseWrapper></RequireRole>} />
           {/* Redirect /sessions/new → /create-session para URLs intuitivas
               (QA 04/05 — el patrón /sessions/:id capturaba "new" como id y
               caía en SessionDetail con error 400 "Parámetros de ruta inválidos"). */}
           <Route path="sessions/new" element={<Navigate to="/create-session" replace />} />
-          <Route path="sessions/:sessionId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><SessionDetail /></SuspenseWrapper></RequireRole>} />
-          <Route path="sessions/:sessionId/edit" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><SessionEdit /></SuspenseWrapper></RequireRole>} />
-          <Route path="create-session" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><CreateSession /></SuspenseWrapper></RequireRole>} />
-          <Route path="board-setup" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><BoardSetup /></SuspenseWrapper></RequireRole>} />
-          <Route path="board-setup/:sessionId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><BoardSetup /></SuspenseWrapper></RequireRole>} />
-          <Route path="students/:studentId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><StudentProfile /></SuspenseWrapper></RequireRole>} />
+          <Route path="sessions/:sessionId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><SessionDetail /></SuspenseWrapper></RequireRole>} />
+          <Route path="sessions/:sessionId/edit" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><SessionEdit /></SuspenseWrapper></RequireRole>} />
+          <Route path="create-session" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><CreateSession /></SuspenseWrapper></RequireRole>} />
+          <Route path="board-setup" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><BoardSetup /></SuspenseWrapper></RequireRole>} />
+          <Route path="board-setup/:sessionId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><BoardSetup /></SuspenseWrapper></RequireRole>} />
+          <Route path="students/:studentId" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><StudentProfile /></SuspenseWrapper></RequireRole>} />
           {/* Redirect /students → /analytics/students para URLs tipeadas o
               bookmarks antiguos (QA 23/04 — evita 404 innecesario). */}
           <Route path="students" element={<Navigate to="/analytics/students" replace />} />
-          <Route path="analytics/students" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><StudentsAnalytics /></SuspenseWrapper></RequireRole>} />
-          <Route path="analytics/insights" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}><SuspenseWrapper><InsightsReports /></SuspenseWrapper></RequireRole>} />
+          <Route path="analytics/students" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><StudentsAnalytics /></SuspenseWrapper></RequireRole>} />
+          <Route path="analytics/insights" element={<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_DASHBOARD}><SuspenseWrapper><InsightsReports /></SuspenseWrapper></RequireRole>} />
 
           {/* Redirect del path antiguo /students/transfer al canónico /admin/students/transfer
               para no romper bookmarks externos tras la unificación de URLs admin (PROP-56). */}
@@ -213,9 +215,12 @@ function AppContent() {
 
         {/* RUTAS DE ADMIN */}
         <Route path="/admin" element={<ProtectedRoute><RequireRole roles="super_admin"><AppLayout /></RequireRole></ProtectedRoute>}>
-          {/* /admin sin sub-ruta redirige a Aprobaciones (BUG-ADMIN-1: antes el
-              main quedaba en blanco porque no había index ni redirect). */}
-          <Route index element={<Navigate to="/admin/approvals" replace />} />
+          {/* /admin sin sub-ruta redirige al Dashboard del centro (T-942 Fase D):
+              el super_admin aterriza en una vista de KPIs agregados, no en la
+              cola de aprobaciones. Mantiene Aprobaciones a un click desde el
+              sidebar. Antes redirigía a /admin/approvals (BUG-ADMIN-1). */}
+          <Route index element={<Navigate to="/admin/dashboard" replace />} />
+          <Route path="dashboard" element={<SuspenseWrapper><AdminDashboard /></SuspenseWrapper>} />
           <Route path="approvals" element={<SuspenseWrapper><ApprovalPanel /></SuspenseWrapper>} />
           <Route path="students" element={<SuspenseWrapper><StudentManagement /></SuspenseWrapper>} />
           <Route path="students/transfer" element={<SuspenseWrapper><TransferStudents /></SuspenseWrapper>} />

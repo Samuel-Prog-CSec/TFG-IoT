@@ -410,20 +410,79 @@ function StudentReportView({ data }) {
 /**
  * Generador de informes con formulario, vista previa y exportacion.
  * Obtiene sus propios datos de la API.
+ *
+ * Props (todas opcionales — el componente funciona standalone sin ellas):
+ * @param {object} [initialDefaults] - { reportType, period, format } para pre-rellenar
+ *   los dropdowns al aplicar una plantilla (T-942 Fase D).
+ * @param {function} [onAfterGenerate] - Callback `(payload, meta)` invocado
+ *   tras generación exitosa para que el padre persista el informe vía POST.
+ * @param {function} [onPreviewMetaChange] - Callback `(meta)` invocado cuando
+ *   el usuario cambia reportType/period/format en los dropdowns. Permite que
+ *   el padre sincronice un sidebar de preview en tiempo real.
  */
-function ReportGenerator() {
+function ReportGenerator({
+  initialDefaults,
+  onAfterGenerate,
+  onPreviewMetaChange,
+  preloadedReport = null,
+  preloadedMeta = null,
+} = {}) {
   const { shouldReduceMotion } = useReducedMotion();
-  const [reportType, setReportType] = useState('classroom');
+  const [reportType, setReportType] = useState(
+    preloadedMeta?.reportType || initialDefaults?.reportType || 'classroom'
+  );
   const [studentId, setStudentId] = useState('');
-  const [period, setPeriod] = useState('30d');
-  const [format, setFormat] = useState('summary');
+  const [period, setPeriod] = useState(
+    preloadedMeta?.period || initialDefaults?.period || '30d'
+  );
+  const [format, setFormat] = useState(
+    preloadedMeta?.format || initialDefaults?.format || 'summary'
+  );
+
+  // Cuando llega una nueva plantilla, sincronizamos los dropdowns y limpiamos
+  // el informe en pantalla. El effect compara por valores primitivos para no
+  // engancharse a la identidad del objeto (cada render del padre crea uno
+  // nuevo si construye el literal inline).
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- comparamos primitivos para evitar re-engancharnos a la identidad del objeto (padre lo construye inline)
+  useEffect(() => {
+    if (!initialDefaults) return;
+    if (initialDefaults.reportType) setReportType(initialDefaults.reportType);
+    if (initialDefaults.period) setPeriod(initialDefaults.period);
+    if (initialDefaults.format) setFormat(initialDefaults.format);
+  }, [initialDefaults?.reportType, initialDefaults?.period, initialDefaults?.format]);
+
+  // Caso "Reabrir": el padre nos pasa meta + payload del informe persistido.
+  // Sincronizamos dropdowns para que el form refleje el informe en vista
+  // (sin re-generar). preloadedReport se gestiona en el effect de abajo.
+  // eslint-disable-next-line react-hooks/exhaustive-deps -- mismo razonamiento: comparamos primitivos
+  useEffect(() => {
+    if (!preloadedMeta) return;
+    if (preloadedMeta.reportType) setReportType(preloadedMeta.reportType);
+    if (preloadedMeta.period) setPeriod(preloadedMeta.period);
+    if (preloadedMeta.format) setFormat(preloadedMeta.format);
+  }, [preloadedMeta?.reportType, preloadedMeta?.period, preloadedMeta?.format]);
+
+  // Notificar al padre cuando cambian los meta para que actualice su preview.
+  useEffect(() => {
+    onPreviewMetaChange?.({ reportType, period, format });
+  }, [reportType, period, format, onPreviewMetaChange]);
 
   const [students, setStudents] = useState([]);
   const [studentsLoading, setStudentsLoading] = useState(false);
 
+  // Si el padre nos pasa un informe ya generado (caso "Reabrir" desde
+  // RecentReports), lo usamos como reportData inicial sin re-pedirlo. Si
+  // cambia el preload (otro informe abierto), se reemplaza la vista actual.
   const [reportData, setReportData] = useState(null);
   const [generating, setGenerating] = useState(false);
   const [error, setError] = useState(null);
+
+  useEffect(() => {
+    if (preloadedReport) {
+      setReportData(preloadedReport);
+      setError(null);
+    }
+  }, [preloadedReport]);
 
   const abortRef = useRef(null);
   const studentsAbortRef = useRef(null);
@@ -511,6 +570,17 @@ function ReportGenerator() {
       toast.success('Informe generado', {
         description: 'Revisa la vista previa más abajo o exporta a CSV.'
       });
+
+      // T-942 Fase D: notificar al padre con el payload generado para que
+      // persista el informe en BD (POST /api/reports). Solo se invoca en
+      // éxito. El padre construye `title` y opcionalmente `templateKey`.
+      onAfterGenerate?.(data, {
+        reportType,
+        period,
+        format,
+        studentId: reportType === 'student' ? studentId : null,
+        templateKey: initialDefaults?.templateKey || null
+      });
     } catch (err) {
       if (isAbortError(err)) return;
       captureException(err);
@@ -520,7 +590,7 @@ function ReportGenerator() {
         setGenerating(false);
       }
     }
-  }, [reportType, studentId, period, format]);
+  }, [reportType, studentId, period, format, onAfterGenerate, initialDefaults?.templateKey]);
 
   // Export CSV
   const handleExportCSV = useCallback(async () => {
@@ -713,5 +783,23 @@ function ReportGenerator() {
     </div>
   );
 }
+
+ReportGenerator.propTypes = {
+  initialDefaults: PropTypes.shape({
+    reportType: PropTypes.oneOf(['classroom', 'student']),
+    period: PropTypes.oneOf(['7d', '30d', '90d']),
+    format: PropTypes.oneOf(['summary', 'detailed']),
+    templateKey: PropTypes.string,
+  }),
+  onAfterGenerate: PropTypes.func,
+  onPreviewMetaChange: PropTypes.func,
+  preloadedReport: PropTypes.object,
+  preloadedMeta: PropTypes.shape({
+    reportType: PropTypes.oneOf(['classroom', 'student']),
+    period: PropTypes.oneOf(['7d', '30d', '90d']),
+    format: PropTypes.oneOf(['summary', 'detailed']),
+    title: PropTypes.string,
+  }),
+};
 
 export default memo(ReportGenerator);

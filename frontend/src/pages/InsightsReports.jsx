@@ -23,9 +23,15 @@ import SelectPremium from '../components/ui/SelectPremium';
 import SkeletonShimmer, { SkeletonChart } from '../components/ui/SkeletonShimmer';
 import ErrorState from '../components/ui/ErrorState';
 import ContentEffectivenessMatrix from '../components/analytics/ContentEffectivenessMatrix';
+import CrossMatrix from '../components/analytics/CrossMatrix';
 import AlertsHub from '../components/analytics/AlertsHub';
 import AlertsEffectivenessPanel from '../components/analytics/AlertsEffectivenessPanel';
 import ReportGenerator from '../components/analytics/ReportGenerator';
+import ReportTemplateCards from '../components/analytics/ReportTemplateCards';
+import ReportPreviewSidebar from '../components/analytics/ReportPreviewSidebar';
+import RecentReports from '../components/analytics/RecentReports';
+import reportsService from '../services/reports';
+import { toast } from 'sonner';
 import { useChartMotion } from '../components/analytics/ChartsTheme';
 import ThemedChartContainer from '../components/analytics/ThemedChartContainer';
 
@@ -262,6 +268,11 @@ export default function InsightsReports() {
   // ──────── Effectiveness tab state ────────
   const [effectivenessData, setEffectivenessData] = useState(null);
   const [learningCurvesData, setLearningCurvesData] = useState(null);
+  // T-942 Fase C: matriz cruzada Mecanica × Contexto. Fetch en paralelo
+  // con context/mechanic. Si solo cross falla, se gestiona aparte para no
+  // romper las dos cards 1D existentes.
+  const [crossData, setCrossData] = useState(null);
+  const [crossError, setCrossError] = useState(null);
   const [effectivenessLoading, setEffectivenessLoading] = useState(false);
   const [effectivenessError, setEffectivenessError] = useState(null);
   const effectivenessAbortRef = useRef(null);
@@ -286,8 +297,13 @@ export default function InsightsReports() {
       try {
         setEffectivenessLoading(true);
         setEffectivenessError(null);
+        setCrossError(null);
 
-        const [contextData, mechanicData, curvesData] = await Promise.all([
+        // Las 3 llamadas principales (context, mechanic, curvas) viajan
+        // juntas — cualquier fallo aborta la pestaña entera y muestra
+        // ErrorState. La cuarta (cross matrix) va en paralelo pero su
+        // error se aisla para no tumbar el resto del panel.
+        const [contextData, mechanicData, curvesData, crossResult] = await Promise.all([
           analyticsService.getContentEffectiveness(
             { timeRange, groupBy: 'context' },
             { signal: controller.signal }
@@ -300,6 +316,13 @@ export default function InsightsReports() {
             { timeRange: '90d' },
             { signal: controller.signal }
           ),
+          analyticsService
+            .getClassroomContentEffectiveness(
+              { timeRange, groupBy: 'cross' },
+              { signal: controller.signal }
+            )
+            .then((res) => ({ ok: true, value: res }))
+            .catch((err) => ({ ok: false, error: err })),
         ]);
 
         // Mantenemos las dos dimensiones por separado (no se mezclan): el componente
@@ -314,6 +337,15 @@ export default function InsightsReports() {
           mechanic: Array.isArray(mechanicItems) ? mechanicItems : []
         });
         setLearningCurvesData(curvesData);
+
+        // Gestion aislada del resultado de la matriz cruzada.
+        if (crossResult.ok) {
+          setCrossData(crossResult.value);
+        } else if (!isAbortError(crossResult.error)) {
+          captureException(crossResult.error);
+          setCrossError('No se pudo cargar el análisis cruzado.');
+          setCrossData(null);
+        }
       } catch (err) {
         if (isAbortError(err)) return;
         captureException(err);
@@ -556,6 +588,8 @@ export default function InsightsReports() {
             <EffectivenessTabContent
               effectivenessData={effectivenessData}
               learningCurvesData={learningCurvesData}
+              crossData={crossData}
+              crossError={crossError}
               loading={effectivenessLoading}
               error={effectivenessError}
               onRetry={fetchEffectiveness}
@@ -595,7 +629,7 @@ export default function InsightsReports() {
             exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -8 }}
             transition={{ duration: DURATION.stateChange, ease: EASING.outQuart }}
           >
-            <ReportGenerator />
+            <ReportsTabContent shouldReduceMotion={shouldReduceMotion} />
           </motion.div>
         )}
       </AnimatePresence>
@@ -606,8 +640,22 @@ export default function InsightsReports() {
 
 /**
  * Contenido del tab de Efectividad.
+ *
+ * Estructura (T-942 Fase C):
+ *  1. "Vistas por dimension" — 2 cards 1D (contexto / mecanica).
+ *  2. "Analisis cruzado" — matriz 2D mecanica × contexto a full width.
+ *  3. Curvas de aprendizaje (3 mecanicas con repeticion).
  */
-function EffectivenessTabContent({ effectivenessData, learningCurvesData, loading, error, onRetry, shouldReduceMotion }) {
+function EffectivenessTabContent({
+  effectivenessData,
+  learningCurvesData,
+  crossData,
+  crossError,
+  loading,
+  error,
+  onRetry,
+  shouldReduceMotion,
+}) {
   if (error) {
     return <ErrorState title="Error al cargar datos" message={error} onRetry={onRetry} />;
   }
@@ -615,6 +663,7 @@ function EffectivenessTabContent({ effectivenessData, learningCurvesData, loadin
   if (loading && !effectivenessData) {
     return (
       <div className="space-y-6">
+        <SkeletonShimmer className="h-[300px] rounded-2xl" />
         <SkeletonShimmer className="h-[300px] rounded-2xl" />
         <SkeletonChart height={280} />
       </div>
@@ -626,12 +675,47 @@ function EffectivenessTabContent({ effectivenessData, learningCurvesData, loadin
       variants={shouldReduceMotion ? {} : listContainerVariants(0.12)}
       initial={shouldReduceMotion ? false : 'hidden'}
       animate="visible"
-      className="space-y-6"
+      className="space-y-8"
     >
-      <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="grid grid-cols-1 xl:grid-cols-2 gap-6">
-        <ContentEffectivenessMatrix data={effectivenessData?.context || []} groupBy="context" />
-        <ContentEffectivenessMatrix data={effectivenessData?.mechanic || []} groupBy="mechanic" />
-      </motion.div>
+      {/* Seccion 1: vistas por dimension (cards 1D existentes). */}
+      <motion.section
+        variants={shouldReduceMotion ? {} : listItemVariants}
+        aria-labelledby="effectiveness-1d-title"
+        className="space-y-3"
+      >
+        <h2
+          id="effectiveness-1d-title"
+          className="text-sm font-bold uppercase tracking-wider text-text-secondary"
+        >
+          Vistas por dimensión
+        </h2>
+        <div className="grid grid-cols-1 xl:grid-cols-2 gap-6">
+          <ContentEffectivenessMatrix data={effectivenessData?.context || []} groupBy="context" />
+          <ContentEffectivenessMatrix data={effectivenessData?.mechanic || []} groupBy="mechanic" />
+        </div>
+      </motion.section>
+
+      {/* Seccion 2: analisis cruzado (T-942 Fase C). */}
+      <motion.section
+        variants={shouldReduceMotion ? {} : listItemVariants}
+        aria-labelledby="effectiveness-cross-title"
+        className="space-y-3"
+      >
+        <h2
+          id="effectiveness-cross-title"
+          className="text-sm font-bold uppercase tracking-wider text-text-secondary"
+        >
+          Análisis cruzado
+        </h2>
+        <CrossMatrix
+          data={crossData}
+          loading={loading && !crossData}
+          error={crossError}
+          onRetry={onRetry}
+        />
+      </motion.section>
+
+      {/* Seccion 3: curvas de aprendizaje. */}
       <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
         <LearningCurvesSection
           data={learningCurvesData}
@@ -691,6 +775,253 @@ function AlertsTabContent({ initialAlerts, loading: initialLoading, error, onRet
         onRefetch={() => fetchForStatus(statusFilter)}
       />
       <AlertsEffectivenessPanel days={30} />
+    </div>
+  );
+}
+
+/**
+ * Contenido del tab "Informes" (T-942 Fase D).
+ *
+ * Tres secciones verticales:
+ *   1. Plantillas predefinidas — pre-rellenan los dropdowns del generador.
+ *   2. Generador + sidebar de preview — formulario y vista previa lateral.
+ *   3. Informes recientes — lista con reabrir/eliminar.
+ *
+ * Persiste cada informe generado vía POST /api/reports y refresca la lista
+ * de recientes. "Reabrir" hace GET /reports/:id y pasa el payload al
+ * `ReportGenerator` (que lo renderiza sin re-pedir datos al backend).
+ */
+function ReportsTabContent({ shouldReduceMotion }) {
+  const [templates, setTemplates] = useState([]);
+  const [templatesLoading, setTemplatesLoading] = useState(true);
+
+  const [recentReports, setRecentReports] = useState([]);
+  const [recentLoading, setRecentLoading] = useState(true);
+  const [recentError, setRecentError] = useState(null);
+
+  const [appliedDefaults, setAppliedDefaults] = useState(null);
+  const [previewMeta, setPreviewMeta] = useState({
+    reportType: 'classroom',
+    period: '30d',
+    format: 'summary'
+  });
+
+  // Estado del informe precargado (cuando el usuario hace "Reabrir").
+  const [preloaded, setPreloaded] = useState(null);
+
+  const generatorRef = useRef(null);
+  const templatesAbortRef = useRef(null);
+  const recentAbortRef = useRef(null);
+
+  // Carga paralela de plantillas + recientes al montar el tab.
+  useEffect(() => {
+    templatesAbortRef.current?.abort();
+    recentAbortRef.current?.abort();
+    const tplController = new AbortController();
+    const recController = new AbortController();
+    templatesAbortRef.current = tplController;
+    recentAbortRef.current = recController;
+
+    const loadTemplates = async () => {
+      try {
+        setTemplatesLoading(true);
+        const data = await reportsService.getTemplates({ signal: tplController.signal });
+        setTemplates(Array.isArray(data) ? data : []);
+      } catch (err) {
+        if (isAbortError(err)) return;
+        captureException(err);
+      } finally {
+        if (!tplController.signal.aborted) setTemplatesLoading(false);
+      }
+    };
+
+    const loadRecent = async () => {
+      try {
+        setRecentLoading(true);
+        setRecentError(null);
+        const data = await reportsService.getRecent({ page: 1, limit: 20 }, {
+          signal: recController.signal
+        });
+        const items = data?.items || data || [];
+        setRecentReports(Array.isArray(items) ? items : []);
+      } catch (err) {
+        if (isAbortError(err)) return;
+        captureException(err);
+        setRecentError('No se pudieron cargar los informes recientes.');
+      } finally {
+        if (!recController.signal.aborted) setRecentLoading(false);
+      }
+    };
+
+    loadTemplates();
+    loadRecent();
+
+    return () => {
+      tplController.abort();
+      recController.abort();
+    };
+  }, []);
+
+  const refetchRecent = useCallback(async () => {
+    try {
+      setRecentLoading(true);
+      const data = await reportsService.getRecent({ page: 1, limit: 20 });
+      const items = data?.items || data || [];
+      setRecentReports(Array.isArray(items) ? items : []);
+    } catch (err) {
+      captureException(err);
+      setRecentError('No se pudieron actualizar los informes recientes.');
+    } finally {
+      setRecentLoading(false);
+    }
+  }, []);
+
+  const handleApplyTemplate = useCallback((template) => {
+    if (!template) return;
+    setAppliedDefaults({
+      reportType: template.defaults.reportType,
+      period: template.defaults.period,
+      format: template.defaults.format,
+      templateKey: template.key
+    });
+    // Limpia cualquier informe precargado (estamos volviendo al modo "generar").
+    setPreloaded(null);
+    // Scroll suave al formulario para que el docente vea los dropdowns ya
+    // rellenados y solo tenga que pulsar "Generar Informe".
+    window.requestAnimationFrame(() => {
+      generatorRef.current?.scrollIntoView({
+        behavior: shouldReduceMotion ? 'auto' : 'smooth',
+        block: 'start'
+      });
+    });
+  }, [shouldReduceMotion]);
+
+  const handleAfterGenerate = useCallback(async (payload, meta) => {
+    if (!payload) return;
+    const periodLabelMap = { '7d': '7 días', '30d': '30 días', '90d': '90 días' };
+    const typeLabel = meta.reportType === 'classroom' ? 'Informe del aula' : 'Informe individual';
+    const autoTitle = `${typeLabel} · ${periodLabelMap[meta.period] || meta.period}`;
+    try {
+      await reportsService.save({
+        reportType: meta.reportType,
+        period: meta.period,
+        format: meta.format,
+        templateKey: meta.templateKey || undefined,
+        title: autoTitle,
+        ...(meta.studentId ? { studentId: meta.studentId } : {}),
+        payload,
+        metadata: {}
+      });
+      toast.success('Informe guardado', {
+        description: 'Lo encontrarás en la sección "Informes recientes".'
+      });
+      refetchRecent();
+    } catch (err) {
+      captureException(err);
+      toast.error('No se pudo guardar el informe', {
+        description: 'Se generó correctamente pero no quedó en tu historial.'
+      });
+    }
+  }, [refetchRecent]);
+
+  const handleOpenReport = useCallback(async (id) => {
+    try {
+      const full = await reportsService.getById(id);
+      // El backend devuelve el documento completo (con payload). Lo pasamos
+      // al generator junto con la meta para sincronizar dropdowns y vista.
+      setPreloaded({
+        payload: full.payload,
+        meta: {
+          reportType: full.reportType,
+          period: full.period,
+          format: full.format,
+          title: full.title
+        }
+      });
+      window.requestAnimationFrame(() => {
+        generatorRef.current?.scrollIntoView({
+          behavior: shouldReduceMotion ? 'auto' : 'smooth',
+          block: 'start'
+        });
+      });
+    } catch (err) {
+      captureException(err);
+      toast.error('No se pudo abrir el informe', {
+        description: 'Es posible que haya sido eliminado o haya caducado.'
+      });
+    }
+  }, [shouldReduceMotion]);
+
+  const handleDeleteReport = useCallback(async (id) => {
+    try {
+      await reportsService.remove(id);
+      // Optimistic update: quitamos el item de la lista de inmediato.
+      setRecentReports((prev) => prev.filter((r) => r._id !== id));
+      // Si el informe en pantalla era ese, lo limpiamos.
+      setPreloaded((prev) => (prev?.meta && recentReports.find((r) => r._id === id) ? null : prev));
+      toast.success('Informe eliminado');
+    } catch (err) {
+      captureException(err);
+      toast.error('No se pudo eliminar el informe');
+      refetchRecent();
+    }
+  }, [recentReports, refetchRecent]);
+
+  return (
+    <div className="space-y-6">
+      {/* Seccion 1 — Plantillas predefinidas */}
+      <section aria-labelledby="reports-templates-heading">
+        <div className="flex items-center justify-between mb-3">
+          <h2 id="reports-templates-heading" className="text-base font-semibold text-text-primary font-display">
+            Plantillas predefinidas
+          </h2>
+          {!templatesLoading && templates.length > 0 && (
+            <span className="text-xs text-text-muted">
+              {templates.length} {templates.length === 1 ? 'plantilla' : 'plantillas'}
+            </span>
+          )}
+        </div>
+        <ReportTemplateCards
+          templates={templates}
+          onApply={handleApplyTemplate}
+          loading={templatesLoading}
+        />
+      </section>
+
+      {/* Seccion 2 — Generador + Preview lateral */}
+      <section ref={generatorRef} aria-labelledby="reports-generator-heading">
+        <h2 id="reports-generator-heading" className="sr-only">Generador de informes</h2>
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 lg:items-start">
+          <div className="min-w-0">
+            <ReportGenerator
+              initialDefaults={appliedDefaults}
+              onAfterGenerate={handleAfterGenerate}
+              onPreviewMetaChange={setPreviewMeta}
+              preloadedReport={preloaded?.payload || null}
+              preloadedMeta={preloaded?.meta || null}
+            />
+          </div>
+          <aside className="min-w-0">
+            <ReportPreviewSidebar
+              reportType={previewMeta.reportType}
+              period={previewMeta.period}
+              format={previewMeta.format}
+            />
+          </aside>
+        </div>
+      </section>
+
+      {/* Seccion 3 — Informes recientes */}
+      <section aria-labelledby="reports-recent-heading">
+        <h2 id="reports-recent-heading" className="sr-only">Informes recientes</h2>
+        <RecentReports
+          reports={recentReports}
+          loading={recentLoading}
+          error={recentError}
+          onOpen={handleOpenReport}
+          onDelete={handleDeleteReport}
+        />
+      </section>
     </div>
   );
 }

@@ -34,13 +34,39 @@ const ClassroomOverview = lazy(() => import('../components/dashboard/ClassroomOv
 const DifficultyHeatmap = lazy(() => import('../components/dashboard/DifficultyHeatmap'));
 const ActivityHeatmap = lazy(() => import('../components/analytics/ActivityHeatmap'));
 
+/**
+ * T-942 Fase E.1: traduce cohort_mode → timeRange aceptado por backend.
+ *
+ * El backend solo soporta '7d' | '30d' | '90d' como `timeRange` para los
+ * endpoints de analytics de aula. Las opciones nuevas "Mes actual" y
+ * "Trimestre actual" del Dashboard teacher se mapean al rango aproximado
+ * más cercano (`30d` y `90d` respectivamente), evitando trabajo backend
+ * en esta sesion (T-942 Fase E). Para el docente la pérdida de precisión
+ * es despreciable: en el peor caso, "Mes actual" un 31 de un mes incluye
+ * 1 día anterior al periodo nominal; suficiente para la lectura
+ * pedagógica que el widget pretende. El label visible al usuario
+ * sigue siendo "Mes actual" / "Trimestre actual".
+ *
+ * @param {'7d'|'30d'|'90d'|'currentMonth'|'currentQuarter'} cohortMode
+ * @returns {'7d'|'30d'|'90d'}
+ */
+function cohortToTimeRange(cohortMode) {
+  if (cohortMode === 'currentMonth') return '30d';
+  if (cohortMode === 'currentQuarter') return '90d';
+  return cohortMode;
+}
+
 // eslint-disable-next-line sonarjs/cyclomatic-complexity -- dashboard principal con multiples widgets, filtros y estados de carga
 export default function Dashboard() {
   const { isSuperAdmin } = useAuth();
   const navigate = useNavigate();
   useDocumentTitle('Dashboard');
   const { shouldReduceMotion } = useReducedMotion();
-  const [timeRange, setTimeRange] = useState('7d');
+  // T-942 Fase E.1: cohortMode incluye opciones nuevas "mes actual" y
+  // "trimestre actual" además de los rangos rolling clásicos. timeRange
+  // (derivado vía cohortToTimeRange) sigue siendo lo que pasa al backend.
+  const [cohortMode, setCohortMode] = useState('7d');
+  const timeRange = cohortToTimeRange(cohortMode);
   const [selectedContextId, setSelectedContextId] = useState('');
   const [selectedMechanicId, setSelectedMechanicId] = useState('');
   const [contextOptions, setContextOptions] = useState([]);
@@ -69,10 +95,13 @@ export default function Dashboard() {
     return () => { cancelled = true; };
   }, []);
 
-  // Redirigir super_admin a su panel
+  // Redirigir super_admin a su panel.
+  // T-942 Fase D: aterriza en /admin/dashboard (vista del centro con KPIs
+  // agregados) en lugar de /admin/approvals — el director del centro
+  // necesita primero la foto global, las aprobaciones siguen a un click.
   useEffect(() => {
     if (isSuperAdmin) {
-      navigate(ROUTES.ADMIN_APPROVALS, { replace: true });
+      navigate(ROUTES.ADMIN_DASHBOARD, { replace: true });
     }
   }, [isSuperAdmin, navigate]);
 
@@ -283,8 +312,8 @@ export default function Dashboard() {
           aria-label="Panel principal del dashboard"
         >
           <Header
-            timeRange={timeRange}
-            setTimeRange={setTimeRange}
+            cohortMode={cohortMode}
+            setCohortMode={setCohortMode}
             selectedContextId={selectedContextId}
             setSelectedContextId={setSelectedContextId}
             selectedMechanicId={selectedMechanicId}
@@ -434,70 +463,104 @@ export default function Dashboard() {
               </ul>
             </motion.section>
 
-            {/* Grid Principal: Gráficos y Listas */}
+            {/* T-942 Fase E.4: jerarquía revisada del Dashboard teacher.
+                Nueva secuencia: KPIs → Acción inmediata (alertas + actividad
+                reciente, primer foco docente) → Análisis profundo
+                (charts y heatmaps) → Información complementaria
+                (ClassroomOverview + StudentsList + QuickLinks). Prioriza lo
+                accionable arriba para que la primera lectura del Dashboard
+                apunte a "qué necesita mi atención ahora". */}
+
+            {/* Acción inmediata — alertas + actividad reciente.
+                T-942 fix Issue #2: stack vertical en lugar de grid 2 cols.
+                RecentActivity es un carrousel horizontal de tarjetas de
+                alumno y full-width le aprovecha la dimensión natural; con
+                grid 2 cols dejaba mucho aire vertical debajo a la derecha
+                mientras AlertsPanel (alto con varias alertas) marcaba el
+                ritmo del row. */}
             <motion.section
               variants={listContainerVariants(0.05)}
               initial={shouldReduceMotion ? false : "hidden"}
               animate="visible"
-              className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]"
-              aria-label="Análisis detallado"
+              aria-labelledby="action-heading"
+              className="space-y-4"
             >
-              {/* Columna Principal (2/3 de ancho).
-                  RecentActivity se movió aquí (antes era fullwidth bajo la
-                  sección) para absorber el hueco vertical que dejaba la
-                  columna lateral cuando terminaba antes que la principal —
-                  así el grid queda balanceado sin aire muerto (QA 22/04/2026).
-                  Convertida a `flex flex-col` con `flex-1` en el último item
-                  (RecentActivity) para estirarlo y eliminar definitivamente el
-                  hueco bajo la columna principal cuando la lateral es más alta
-                  (QA 2026-04-29). */}
-              <div className="xl:col-span-2 flex flex-col gap-6 lg:gap-8">
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <Suspense fallback={<SkeletonChart height={320} />}>
-                    <StudentProgressChart
-                      data={progressData}
-                      period={timeRange}
-                      onPeriodChange={setTimeRange}
-                      omitPeriodSelector
-                    />
-                  </Suspense>
-                </motion.div>
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <Suspense fallback={<SkeletonChart height={260} />}>
-                    <DifficultyHeatmap data={difficulties} />
-                  </Suspense>
-                </motion.div>
-                {heatmapData && (
-                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                    <Suspense fallback={<SkeletonChart height={220} />}>
-                      <ActivityHeatmap data={heatmapData} />
-                    </Suspense>
-                  </motion.div>
-                )}
-                {studentsData?.students?.length > 0 && (
-                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="flex-1 flex flex-col">
-                    <RecentActivity students={studentsData.students} />
-                  </motion.div>
-                )}
-              </div>
-
-              {/* Columna Lateral (1/3 de ancho) */}
-              <aside className="flex flex-col gap-6 lg:gap-8">
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <Suspense fallback={<SkeletonChart height={280} />}>
-                    <ClassroomOverview summary={summary} distribution={distributionData} />
-                  </Suspense>
-                </motion.div>
+              <h2 id="action-heading" className="text-sm font-display font-medium text-text-secondary uppercase tracking-wider px-1">
+                Acción inmediata
+              </h2>
+              <div className="space-y-[var(--space-fluid-gutter)]">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                   <AlertsPanel alerts={backendAlerts} />
                 </motion.div>
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <StudentsList students={studentsData?.students} />
+                  <RecentActivity students={studentsData?.students || []} />
                 </motion.div>
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <QuickLinks navigate={navigate} />
-                </motion.div>
-              </aside>
+              </div>
+            </motion.section>
+
+            {/* Análisis profundo — tendencias y patrones a medio plazo */}
+            <motion.section
+              variants={listContainerVariants(0.05)}
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate="visible"
+              aria-labelledby="analysis-heading"
+              className="space-y-4"
+            >
+              <div className="flex flex-col gap-1 px-1">
+                <h2 id="analysis-heading" className="text-sm font-display font-medium text-text-secondary uppercase tracking-wider">
+                  Análisis profundo
+                </h2>
+                <p className="text-xs text-text-muted">
+                  Tendencias y patrones de la clase a medio plazo
+                </p>
+              </div>
+              {/* T-942 fix Issue #2: ClassroomOverview (distribución por
+                  tier) sube a la columna principal — es analítica y casa con
+                  los otros charts. La aside queda con StudentsList +
+                  QuickLinks, alturas más equilibradas con la columna
+                  principal cuando los heatmaps están vacíos. */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
+                <div className="xl:col-span-2 flex flex-col gap-6 lg:gap-8">
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <Suspense fallback={<SkeletonChart height={320} />}>
+                      <StudentProgressChart
+                        data={progressData}
+                        period={timeRange}
+                        onPeriodChange={(val) => setCohortMode(val)}
+                        omitPeriodSelector
+                      />
+                    </Suspense>
+                  </motion.div>
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <Suspense fallback={<SkeletonChart height={280} />}>
+                      <ClassroomOverview summary={summary} distribution={distributionData} />
+                    </Suspense>
+                  </motion.div>
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <Suspense fallback={<SkeletonChart height={260} />}>
+                      <DifficultyHeatmap data={difficulties} />
+                    </Suspense>
+                  </motion.div>
+                  {heatmapData && (
+                    <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                      <Suspense fallback={<SkeletonChart height={220} />}>
+                        <ActivityHeatmap data={heatmapData} />
+                      </Suspense>
+                    </motion.div>
+                  )}
+                </div>
+
+                {/* Columna Lateral (1/3 de ancho) — listado de alumnos +
+                    accesos rápidos. */}
+                <aside className="flex flex-col gap-6 lg:gap-8">
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <StudentsList students={studentsData?.students} />
+                  </motion.div>
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <QuickLinks navigate={navigate} />
+                  </motion.div>
+                </aside>
+              </div>
             </motion.section>
           </div>
         </motion.section>
@@ -509,7 +572,7 @@ export default function Dashboard() {
 }
 
 function Header({
-  timeRange, setTimeRange,
+  cohortMode, setCohortMode,
   selectedContextId, setSelectedContextId,
   selectedMechanicId, setSelectedMechanicId,
   contextOptions, mechanicOptions,
@@ -613,12 +676,14 @@ function Header({
             />
           )}
           <SelectPremium
-            value={timeRange}
-            onChange={(val) => setTimeRange(val)}
+            value={cohortMode}
+            onChange={(val) => setCohortMode(val)}
             options={[
               { value: '7d', label: 'Últimos 7 días' },
               { value: '30d', label: 'Últimos 30 días' },
               { value: '90d', label: 'Últimos 90 días' },
+              { value: 'currentMonth', label: 'Mes actual' },
+              { value: 'currentQuarter', label: 'Trimestre actual' },
             ]}
             className="w-full sm:w-52"
             aria-label="Filtrar por rango de tiempo"

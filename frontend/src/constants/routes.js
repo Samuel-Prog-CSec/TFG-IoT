@@ -42,6 +42,7 @@ export const ROUTES = {
   INSIGHTS: '/analytics/insights',
 
   // Admin (solo super_admin)
+  ADMIN_DASHBOARD: '/admin/dashboard',
   ADMIN_APPROVALS: '/admin/approvals',
   STUDENT_MANAGEMENT: '/admin/students',
   ADMIN_CONTEXTS: '/admin/contexts',
@@ -156,14 +157,28 @@ export const NAV_ROUTES = [
 ];
 
 /**
- * Rutas de navegación del sidebar para super_admin
+ * Rutas de navegación del sidebar para super_admin.
+ *
+ * `Dashboard` es la nueva landing del super_admin (T-942 Fase D): muestra
+ * KPIs agregados del centro educativo. `Aprobaciones` mantiene la posición
+ * #2 y queda preparada para mostrar un badge contador con `pendingTeachers`
+ * (campo `badgeKey: 'pendingTeachers'`) cuando AppLayout inyecte ese dato.
+ * El render del badge requiere que el padre pase un mapa `badgeCounts` al
+ * NavItem; mientras no exista, la propiedad se ignora silenciosamente.
  */
 export const ADMIN_NAV_ROUTES = [
+  {
+    path: ROUTES.ADMIN_DASHBOARD,
+    label: 'Dashboard',
+    icon: 'LayoutDashboard',
+    dataTour: 'admin-dashboard',
+  },
   {
     path: ROUTES.ADMIN_APPROVALS,
     label: 'Aprobaciones',
     icon: 'UserCheck',
     dataTour: 'approvals',
+    badgeKey: 'pendingTeachers',
   },
   {
     path: ROUTES.STUDENT_TRANSFER,

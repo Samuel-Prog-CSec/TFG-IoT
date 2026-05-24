@@ -216,9 +216,10 @@ export function AuthProvider({ children }) {
       return;
     }
 
-    // Redirigir según rol
+    // Redirigir según rol. T-942 Fase D: super_admin aterriza en AdminDashboard
+    // (vista del centro con KPIs agregados); las aprobaciones quedan a un click.
     if (user.role === 'super_admin') {
-      navigate(ROUTES.ADMIN_APPROVALS, { replace: true });
+      navigate(ROUTES.ADMIN_DASHBOARD, { replace: true });
     } else {
       navigate(ROUTES.DASHBOARD, { replace: true });
     }

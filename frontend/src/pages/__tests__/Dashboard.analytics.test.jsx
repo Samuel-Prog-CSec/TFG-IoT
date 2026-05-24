@@ -419,7 +419,9 @@ describe('Dashboard — redireccion super_admin', () => {
     );
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/admin/approvals', { replace: true });
+      // T-942 Fase D: el super_admin aterriza ahora en /admin/dashboard (vista
+      // del centro con KPIs agregados) en lugar de /admin/approvals.
+      expect(mockNavigate).toHaveBeenCalledWith('/admin/dashboard', { replace: true });
     });
   });
 });

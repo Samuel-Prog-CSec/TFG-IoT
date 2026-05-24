@@ -17,40 +17,85 @@ const { toObjectId, getStartDate, linearRegression, enrichMetric } = require('./
 const REPORT_AGGREGATE_TIMEOUT_MS = 7000;
 
 // ══════════════════════════════════════════════════════════════════════
-// E12 — Efectividad de contenido por contexto/mecánica
+// E12 — Efectividad de contenido por contexto/mecánica (y cross matrix)
 // ══════════════════════════════════════════════════════════════════════
 
 /**
- * Analiza qué contextos o mecánicas producen mejor aprendizaje.
+ * Stages comunes a todas las variantes: lookup de la sesión, filtro de
+ * `teacherId` + plays completadas dentro del rango temporal.
  *
+ * @private
  * @param {string} teacherId
- * @param {Object} options
- * @param {string} [options.timeRange='30d']
- * @param {string} [options.groupBy='context']
- * @returns {Promise<Object>} { items, groupBy }
+ * @param {Date} startDate
+ * @returns {Array} Stages del pipeline ($lookup sessions + $unwind + $match)
  */
-async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy = 'context' } = {}) {
-  const startDate = getStartDate(timeRange);
+const buildBaseStages = (teacherId, startDate) => [
+  {
+    $lookup: {
+      from: 'game_sessions',
+      localField: 'sessionId',
+      foreignField: '_id',
+      as: 'session'
+    }
+  },
+  { $unwind: '$session' },
+  {
+    $match: {
+      'session.createdBy': toObjectId(teacherId),
+      status: 'completed',
+      completedAt: { $gte: startDate }
+    }
+  }
+];
+
+/**
+ * Bloque de agregaciones reutilizado por las tres variantes de groupBy.
+ * Calcula avgScore, avgAccuracy, totalPlays, uniqueStudents, avgCompletionTime
+ * y empuja `scoreDates` para el slope del improvement rate.
+ *
+ * @private
+ * @returns {Object} Sub-objeto de campos para el `$group` stage
+ */
+const buildSharedAggregates = () => ({
+  avgScore: { $avg: '$score' },
+  avgAccuracy: {
+    $avg: {
+      $cond: [
+        { $gt: ['$metrics.totalAttempts', 0] },
+        {
+          $multiply: [{ $divide: ['$metrics.correctAttempts', '$metrics.totalAttempts'] }, 100]
+        },
+        0
+      ]
+    }
+  },
+  totalPlays: { $sum: 1 },
+  uniqueStudents: { $addToSet: '$playerId' },
+  avgCompletionTime: { $avg: '$metrics.completionTime' },
+  // Para calcular improvement rate: guardar scores con fecha
+  scoreDates: {
+    $push: {
+      score: '$score',
+      date: '$completedAt'
+    }
+  }
+});
+
+/**
+ * Construye el pipeline para la vista 1D (groupBy='context' | 'mechanic').
+ *
+ * @private
+ * @param {string} teacherId
+ * @param {Date} startDate
+ * @param {'context'|'mechanic'} groupBy
+ * @returns {Array} Pipeline de agregación completo
+ */
+const buildSingleDimensionPipeline = (teacherId, startDate, groupBy) => {
   const lookupCollection = groupBy === 'context' ? 'game_contexts' : 'game_mechanics';
   const lookupField = groupBy === 'context' ? 'session.contextId' : 'session.mechanicId';
 
-  const pipeline = [
-    {
-      $lookup: {
-        from: 'game_sessions',
-        localField: 'sessionId',
-        foreignField: '_id',
-        as: 'session'
-      }
-    },
-    { $unwind: '$session' },
-    {
-      $match: {
-        'session.createdBy': toObjectId(teacherId),
-        status: 'completed',
-        completedAt: { $gte: startDate }
-      }
-    },
+  return [
+    ...buildBaseStages(teacherId, startDate),
     {
       $lookup: {
         from: lookupCollection,
@@ -68,31 +113,7 @@ async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy =
           entityId: '$entity._id',
           entityName: { $ifNull: ['$entity.displayName', '$entity.name'] }
         },
-        avgScore: { $avg: '$score' },
-        avgAccuracy: {
-          $avg: {
-            $cond: [
-              { $gt: ['$metrics.totalAttempts', 0] },
-              {
-                $multiply: [
-                  { $divide: ['$metrics.correctAttempts', '$metrics.totalAttempts'] },
-                  100
-                ]
-              },
-              0
-            ]
-          }
-        },
-        totalPlays: { $sum: 1 },
-        uniqueStudents: { $addToSet: '$playerId' },
-        avgCompletionTime: { $avg: '$metrics.completionTime' },
-        // Para calcular improvement rate: guardar scores con fecha
-        scoreDates: {
-          $push: {
-            score: '$score',
-            date: '$completedAt'
-          }
-        }
+        ...buildSharedAggregates()
       }
     },
     {
@@ -113,48 +134,170 @@ async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy =
     },
     { $sort: { avgScore: -1 } }
   ];
+};
+
+/**
+ * Construye el pipeline para la vista cruzada (groupBy='cross').
+ * Hace doble $lookup (contextos + mecánicas) y agrupa por composite key
+ * `{ mechanicId, mechanicName, contextId, contextName }`.
+ *
+ * @private
+ * @param {string} teacherId
+ * @param {Date} startDate
+ * @returns {Array} Pipeline de agregación completo
+ */
+const buildCrossPipeline = (teacherId, startDate) => [
+  ...buildBaseStages(teacherId, startDate),
+  {
+    $lookup: {
+      from: 'game_contexts',
+      localField: 'session.contextId',
+      foreignField: '_id',
+      as: 'context'
+    }
+  },
+  { $unwind: '$context' },
+  {
+    $lookup: {
+      from: 'game_mechanics',
+      localField: 'session.mechanicId',
+      foreignField: '_id',
+      as: 'mechanic'
+    }
+  },
+  { $unwind: '$mechanic' },
+  {
+    $group: {
+      _id: {
+        mechanicId: '$mechanic._id',
+        mechanicName: { $ifNull: ['$mechanic.displayName', '$mechanic.name'] },
+        contextId: '$context._id',
+        contextName: { $ifNull: ['$context.displayName', '$context.name'] }
+      },
+      ...buildSharedAggregates()
+    }
+  },
+  {
+    $project: {
+      _id: 0,
+      mechanicId: '$_id.mechanicId',
+      mechanicName: '$_id.mechanicName',
+      contextId: '$_id.contextId',
+      contextName: '$_id.contextName',
+      // Mismo clamp defensivo que la versión 1D (ver ADR-057).
+      avgScore: { $min: [{ $round: ['$avgScore', 1] }, 100] },
+      avgAccuracy: { $min: [{ $round: ['$avgAccuracy', 1] }, 100] },
+      totalPlays: 1,
+      uniqueStudents: { $size: '$uniqueStudents' },
+      avgCompletionTime: { $round: ['$avgCompletionTime', 0] },
+      scoreDates: 1
+    }
+  },
+  // Orden principal por score desc, secundario por nombre de mecánica asc
+  // para que la matriz quede estable cuando hay ties.
+  { $sort: { avgScore: -1, mechanicName: 1 } }
+];
+
+/**
+ * Calcula `improvementRate`, `learningEfficiency`, `scoreRag`, `learningRag`
+ * e `interpretation` a partir del `scoreDates` agregado.
+ *
+ * @private
+ * @param {Array<{score:number,date:Date}>} scoreDates
+ * @param {number} avgScore
+ * @returns {Object} Campos derivados comunes a 1D y cross
+ */
+const enrichWithLearningMetrics = (scoreDates, avgScore) => {
+  // Improvement rate: pendiente de scores a lo largo del tiempo
+  const sortedScores = scoreDates
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .map((sd, i) => ({ x: i, y: sd.score }));
+
+  const { slope } = linearRegression(sortedScores);
+
+  let learningEfficiency;
+  if (slope > 1) {
+    learningEfficiency = 'high';
+  } else if (slope > 0) {
+    learningEfficiency = 'medium';
+  } else {
+    learningEfficiency = 'low';
+  }
+
+  // Enriquecer con RAG e interpretación (framework BI)
+  const scoreEnriched = enrichMetric('score', avgScore);
+  const learningEnriched = enrichMetric('learningRate', slope);
+
+  return {
+    improvementRate: Math.round(slope * 100) / 100,
+    learningEfficiency,
+    scoreRag: scoreEnriched.rag,
+    learningRag: learningEnriched.rag,
+    interpretation: learningEnriched.interpretation
+  };
+};
+
+/**
+ * Analiza qué contextos, mecánicas o pares mecánica×contexto producen
+ * mejor aprendizaje.
+ *
+ * @param {string} teacherId
+ * @param {Object} options
+ * @param {string} [options.timeRange='30d']
+ * @param {'context'|'mechanic'|'cross'} [options.groupBy='context']
+ * @param {boolean} [options.includeEmpty=false] - Sólo aplica a `cross`.
+ *   Si es `false` (default), filtra celdas sin partidas (`totalPlays === 0`).
+ *   Mongo nunca emite celdas sin plays por la naturaleza del `$group`, pero
+ *   la lógica defensiva queda en JS para futuros cambios del pipeline.
+ * @returns {Promise<Object>} { items, groupBy }
+ */
+async function getContentEffectiveness(
+  teacherId,
+  { timeRange = '30d', groupBy = 'context', includeEmpty = false } = {}
+) {
+  const startDate = getStartDate(timeRange);
+
+  const pipeline =
+    groupBy === 'cross'
+      ? buildCrossPipeline(teacherId, startDate)
+      : buildSingleDimensionPipeline(teacherId, startDate, groupBy);
 
   const results = await gamePlayRepository.aggregate(pipeline, {
     maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS
   });
 
-  // Calcular improvement rate y learning efficiency para cada item
-  const items = results.map(r => {
-    // Improvement rate: pendiente de scores a lo largo del tiempo
-    const sortedScores = r.scoreDates
-      .sort((a, b) => new Date(a.date) - new Date(b.date))
-      .map((sd, i) => ({ x: i, y: sd.score }));
+  if (groupBy === 'cross') {
+    // Filtrar celdas sin partidas por defecto. `$group` sólo emite combinaciones
+    // con al menos una partida, pero mantenemos el filtro como salvaguarda.
+    const filtered = includeEmpty ? results : results.filter(r => r.totalPlays > 0);
 
-    const { slope } = linearRegression(sortedScores);
-
-    let learningEfficiency;
-    if (slope > 1) {
-      learningEfficiency = 'high';
-    } else if (slope > 0) {
-      learningEfficiency = 'medium';
-    } else {
-      learningEfficiency = 'low';
-    }
-
-    // Enriquecer con RAG e interpretación (framework BI)
-    const scoreEnriched = enrichMetric('score', r.avgScore);
-    const learningEnriched = enrichMetric('learningRate', slope);
-
-    return {
-      name: r.name,
-      id: r.id.toString(),
+    const items = filtered.map(r => ({
+      mechanicId: r.mechanicId.toString(),
+      mechanicName: r.mechanicName,
+      contextId: r.contextId.toString(),
+      contextName: r.contextName,
       avgScore: r.avgScore,
       avgAccuracy: r.avgAccuracy,
       totalPlays: r.totalPlays,
       uniqueStudents: r.uniqueStudents,
       avgCompletionTime: r.avgCompletionTime,
-      improvementRate: Math.round(slope * 100) / 100,
-      learningEfficiency,
-      scoreRag: scoreEnriched.rag,
-      learningRag: learningEnriched.rag,
-      interpretation: learningEnriched.interpretation
-    };
-  });
+      ...enrichWithLearningMetrics(r.scoreDates, r.avgScore)
+    }));
+
+    return { items, groupBy: 'cross' };
+  }
+
+  // Variante 1D (context | mechanic)
+  const items = results.map(r => ({
+    name: r.name,
+    id: r.id.toString(),
+    avgScore: r.avgScore,
+    avgAccuracy: r.avgAccuracy,
+    totalPlays: r.totalPlays,
+    uniqueStudents: r.uniqueStudents,
+    avgCompletionTime: r.avgCompletionTime,
+    ...enrichWithLearningMetrics(r.scoreDates, r.avgScore)
+  }));
 
   return { items, groupBy };
 }

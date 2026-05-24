@@ -15,10 +15,12 @@ const {
   getPendingTeachers,
   unlockAccount
 } = require('../controllers/adminController');
+const adminAnalyticsController = require('../controllers/adminAnalyticsController');
 const { validateParams, validateQuery, validateBody } = require('../middlewares/validation');
 const { userIdParamsSchema } = require('../validators/userValidator');
 const { emptyObjectSchema, paginationSchema } = require('../validators/commonValidator');
 const { unlockEmailSchema } = require('../validators/lockoutValidator');
+const { adminOverviewQuerySchema } = require('../validators/adminValidator');
 const { adminApprovalRateLimiter } = require('../config/security');
 const asyncHandler = require('../utils/asyncHandler');
 
@@ -159,6 +161,53 @@ router.post(
   validateQuery(emptyObjectSchema),
   validateBody(unlockEmailSchema),
   asyncHandler(unlockAccount)
+);
+
+/**
+ * @route   GET /api/admin/analytics/overview
+ * @desc    KPIs agregados del centro educativo (super_admin).
+ *          Incluye usuarios, partidas, contenido, alertas y rankings top-5.
+ * @access  Private (super_admin)
+ * @validation query: adminOverviewQuerySchema (timeRange ∈ ['7d','30d','90d'])
+ */
+
+/**
+ * @openapi
+ * /admin/analytics/overview:
+ *   get:
+ *     tags: [Admin]
+ *     summary: Vista agregada del centro educativo (T-942)
+ *     description: KPIs tenancy-wide para el AdminDashboard del super_admin.
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: timeRange
+ *         schema: { type: string, enum: ['7d', '30d', '90d'] }
+ *     responses:
+ *       200:
+ *         description: Agregado completo del centro
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     users: { type: object }
+ *                     activity: { type: object }
+ *                     content: { type: object }
+ *                     alerts: { type: object }
+ *                     topTeachers: { type: array }
+ *                     topMechanics: { type: array }
+ *                     topContexts: { type: array }
+ *       403: { $ref: '#/components/responses/ForbiddenError' }
+ */
+router.get(
+  '/analytics/overview',
+  validateQuery(adminOverviewQuerySchema),
+  asyncHandler(adminAnalyticsController.getOverview)
 );
 
 module.exports = router;

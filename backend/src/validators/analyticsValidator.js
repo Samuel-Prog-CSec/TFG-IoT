@@ -211,7 +211,8 @@ const playPatternsQuerySchema = z
 const contentEffectivenessQuerySchema = z
   .object({
     timeRange: z.enum(['30d', '90d']).optional().default('30d'),
-    groupBy: z.enum(['context', 'mechanic']).optional().default('context')
+    groupBy: z.enum(['context', 'mechanic', 'cross']).optional().default('context'),
+    includeEmpty: z.coerce.boolean().optional().default(false)
   })
   .strict();
 

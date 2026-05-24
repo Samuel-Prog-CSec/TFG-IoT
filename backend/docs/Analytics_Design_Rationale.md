@@ -640,3 +640,30 @@ Los pipelines `getStudentDifficulties` y `getStudentSummary` realizan 3+ `$looku
 - **Trade-off:** los datos quedan con `staleness` de hasta 24h. Para v1.0.0 no es crítico porque los profesores consultan analytics post-clase, no en tiempo real.
 
 Esto está documentado pero NO implementado en Sprint 0: el slow-query log da observabilidad inmediata; la materialización se aborda cuando los logs muestren que el umbral se supera con regularidad. ADR-164 lo marca como `diferido Sprint 3`.
+
+---
+
+## § 6 — Vista cruzada Mecánica × Contexto (T-942 Fase A, ADR-177)
+
+`getContentEffectiveness` aceptaba dos modos 1D (`groupBy: 'context'|'mechanic'`). Faltaba la pregunta cruzada del docente: «¿qué tal funciona Asociación en Geografía frente a Memoria en Geografía?». La extensión a `groupBy: 'cross'` añade un pipeline con doble `$lookup` (contextos y mecánicas) y `$group` por composite key `{mechanicId, contextId}`. La firma del item resultante añade `mechanicId`, `mechanicName`, `contextId`, `contextName`; el resto de métricas y enriquecimiento RAG (`scoreRag`, `learningRag`, `interpretation`) se mantiene idéntico para preservar la coherencia con las vistas 1D que el docente ya conoce. Flag opcional `includeEmpty` permite mostrar combinaciones sin partidas como celdas "Sin datos" cuando se quiere ver el espacio completo (off por defecto, alineado con el comportamiento de `ContentEffectivenessMatrix`).
+
+Helpers internos (`buildBaseStages`, `buildSharedAggregates`, `buildSingleDimensionPipeline`, `buildCrossPipeline`, `enrichWithLearningMetrics`) reorganizan el código para que las tres ramas compartan etapas y agregados; el switch entre modos queda limpio sin duplicación. Cache key extendida `contentEffectiveness:${teacherId}:${timeRange}:${groupBy}:${includeEmpty}` evita envenenamiento entre clientes con distintos flags.
+
+## § 7 — Agregación tenancy-wide para dirección del centro (T-942 Fase B, ADR-178)
+
+Las agregaciones de `analyticsService` se filtran siempre por `teacherId` (escope per-teacher). El rol super_admin necesita la mirada agregada del centro, sin ese filtro. `adminAnalyticsService.getCenterOverview({ timeRange })` ejecuta 7 sub-agregaciones en paralelo (`Promise.all`):
+
+- **`getUsersAggregate`** — totalStudents, totalTeachers (approved), pendingTeachers.
+- **`getActiveTeachersCount(startDate)`** — distinct count de `session.createdBy` con partidas completadas en el periodo. Definición operativa («profesor con partidas») en lugar de registral («profesor con login reciente»). Ver justificación en memoria §4.6.
+- **`getActivityAggregate(startDate)`** — totalPlaysInRange, avgScoreInRange, playsToday, playsByMechanic.
+- **`getContentAggregate`** — totalDecks, totalSessions, activeSessions, totalContexts, totalMechanics.
+- **`getAlertsAggregate`** — totalCriticalActive/WarningActive/InfoActive + top-5 profesores con más alertas (critical desc, warning desc) basado en `SmartAlert.status='active'` con `$lookup users` para resolver nombres.
+- **`getTopTeachers(startDate)`** / `getTopMechanics(startDate)` / `getTopContexts(startDate)` — pipelines limit-5 paralelos con `$lookup` para nombres y `$round` de `avgScore`.
+
+Cache 300s en clave `cache:analytics:admin:overview:${timeRange}` (consistente con el resto de analytics del docente). Endpoint `GET /api/admin/analytics/overview` protegido por `requireRole('super_admin')`.
+
+## § 8 — Persistencia de informes generados (T-942 Fase B, ADR-179)
+
+Modelos Mongoose `ReportTemplate` (3 plantillas system seeded: `end-of-term`, `parents`, `staff-meeting`) y `GeneratedReport` (TTL 30d via `expireAfterSeconds` + cap 100 por docente en hook `pre('save')` con drop oldest). Endpoints CRUD `/api/reports/*` exponen templates (lista pública para teacher+super_admin; create/delete solo super_admin para custom; system no se puede borrar), recent (paginado, sin payload), getById (con ownership check; super_admin puede abrir cualquier informe), save (POST con `payloadSize` calculado server-side), delete (owner-only).
+
+El TTL automatiza la limpieza sin cron y respeta `RGPD Art. 5.1.e` (limitación de plazo). El cap evita acumulación indefinida por docente. `payload` como `Mixed` permite cualquier shape pero requiere disciplina del frontend al renderizar (descarta campos desconocidos); shape lo controla `reportDataService`.

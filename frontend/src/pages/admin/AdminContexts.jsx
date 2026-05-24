@@ -27,6 +27,7 @@ import { toast } from 'sonner';
 import { contextsAPI, extractData, extractErrorMessage, isAbortError } from '../../services/api';
 import ButtonPremium from '../../components/ui/ButtonPremium';
 import InputPremium from '../../components/ui/InputPremium';
+import AdminPageShell from '../../components/admin/AdminPageHero';
 import GlassCard from '../../components/ui/GlassCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
@@ -359,7 +360,7 @@ export default function AdminContexts() {
     setLoading(true);
     setError(null);
     try {
-      const res = await contextsAPI.getContexts({ limit: 100, signal });
+      const res = await contextsAPI.getContexts({ limit: 100 }, { signal });
       const data = extractData(res);
       const list = Array.isArray(data) ? data : data?.items || data?.contexts || [];
       setContexts(list);
@@ -470,25 +471,13 @@ export default function AdminContexts() {
   };
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-4">
-          <div className="flex size-12 items-center justify-center rounded-xl bg-gradient-to-br from-brand-base to-accent-pink text-white shadow-lg shadow-brand-base/20">
-            <Palette size={24} aria-hidden="true" />
-          </div>
-          <div>
-            {/* Eyebrow "BIBLIOTECA" — signature de página admin alineada
-                con ApprovalPanel ("DIRECCIÓN") y StudentManagement. */}
-            {/* BUG-A11Y-ADMIN-BIBLIOTECA (QA Sprint 0): text-brand-base daba
-                4.46:1 dark (just below AA). brand-light en dark + brand-dark
-                en light. */}
-            <p className="text-[11px] uppercase tracking-[0.18em] text-brand-on-alpha font-bold mb-0.5">Biblioteca</p>
-            <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary leading-tight">Contextos del centro</h1>
-            <p className="text-sm text-text-muted">
-              Crea y mantiene los temas (Geografía, Animales, Colores…) que los docentes usan en sus mazos.
-            </p>
-          </div>
-        </div>
+    <AdminPageShell
+      icon={Palette}
+      eyebrow="Biblioteca"
+      title="Contextos del centro"
+      description="Crea y mantiene los temas (Geografía, Animales, Colores…) que los docentes usan en sus mazos."
+      ariaLabel="Gestión de contextos del centro"
+      rightSlot={
         <div className="flex items-center gap-2">
           <ButtonPremium variant="secondary" size="sm" onClick={loadContexts} disabled={loading}>
             <RefreshCw size={14} className={cn('mr-1', loading && 'animate-spin')} /> Actualizar
@@ -497,7 +486,8 @@ export default function AdminContexts() {
             <Plus size={16} className="mr-1" /> Nuevo contexto
           </ButtonPremium>
         </div>
-      </header>
+      }
+    >
 
       <GlassCard variant="default" className="p-4">
         <InputPremium
@@ -533,6 +523,6 @@ export default function AdminContexts() {
         {...deleteModal.modalProps}
         loading={Boolean(pendingDeleteId)}
       />
-    </main>
+    </AdminPageShell>
   );
 }

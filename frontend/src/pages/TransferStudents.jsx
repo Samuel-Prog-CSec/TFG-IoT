@@ -6,7 +6,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
 import { ArrowRightLeft, User, Users, School, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
@@ -18,7 +17,8 @@ import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import SelectPremium from '../components/ui/SelectPremium';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
-import { cn, pageVariants } from '../lib/utils';
+import { cn } from '../lib/utils';
+import AdminPageShell from '../components/admin/AdminPageHero';
 
 export default function TransferStudents() {
   const { user } = useAuth(); // Removed isSuperAdmin as it's no longer needed for conditional logic here
@@ -201,26 +201,13 @@ export default function TransferStudents() {
   }
 
   return (
-    <motion.div
-      className="min-h-full p-6 lg:p-10"
-      variants={pageVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
+    <AdminPageShell
+      icon={ArrowRightLeft}
+      title="Transferencias de Alumnos"
+      description="Reasigna alumnos entre profesores de forma centralizada."
+      ariaLabel="Transferencias de alumnos"
+      maxWidth="max-w-6xl"
     >
-      <div className="max-w-6xl mx-auto space-y-8">
-        <header className="flex flex-col gap-3">
-          <div className="flex items-center gap-4">
-            <div className="size-14 rounded-2xl bg-brand-base/10 shadow-lg shadow-brand-base/5 flex items-center justify-center text-brand-base">
-              <ArrowRightLeft size={30} />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-text-primary font-display">Transferencias de Alumnos</h1>
-              <p className="text-text-muted">Reasigna alumnos entre profesores de forma centralizada.</p>
-            </div>
-          </div>
-        </header>
-
         <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-6">
           <GlassCard className="p-6 space-y-6 order-2 lg:order-1">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4 border-b border-border-subtle/50">
@@ -350,7 +337,6 @@ export default function TransferStudents() {
             </div>
           </GlassCard>
         </div>
-      </div>
 
       <ConfirmationModal
         open={confirmOpen}
@@ -373,6 +359,6 @@ export default function TransferStudents() {
         variant="warning"
         loading={submitting}
       />
-    </motion.div>
+    </AdminPageShell>
   );
 }

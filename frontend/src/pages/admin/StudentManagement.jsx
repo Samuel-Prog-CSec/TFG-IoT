@@ -35,11 +35,12 @@ import EmptyState from '../../components/ui/EmptyState';
 import { EmptyStudentsIllustration } from '../../components/ui/illustrations';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Tooltip from '../../components/ui/Tooltip';
+import AdminPageShell from '../../components/admin/AdminPageHero';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useVirtualizedList } from '../../hooks/useVirtualizedList';
-import { cn, pageVariants, staggerContainer, staggerItem } from '../../lib/utils';
+import { cn, staggerContainer, staggerItem } from '../../lib/utils';
 
 /**
  * Modal para crear un nuevo alumno
@@ -680,24 +681,12 @@ export default function StudentManagement() {
   );
 
   return (
-    <motion.div
-      className="page-container py-[var(--space-fluid-section)]"
-      variants={pageVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-    >
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
-        <div className="flex items-center gap-4">
-          <div className="size-14 rounded-2xl bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-white shadow-lg shadow-brand-base/20">
-            <GraduationCap size={30} />
-          </div>
-          <div>
-            <h1 className="text-3xl font-bold text-text-primary font-display">Gestión de Alumnos</h1>
-            <p className="text-text-muted">Administración centralizada de identidades de alumnos.</p>
-          </div>
-        </div>
-
+    <AdminPageShell
+      icon={GraduationCap}
+      title="Gestión de Alumnos"
+      description="Administración centralizada de identidades de alumnos del centro."
+      ariaLabel="Gestión de alumnos"
+      rightSlot={
         <ButtonPremium
           onClick={() => setIsModalOpen(true)}
           icon={<UserPlus size={18} />}
@@ -705,7 +694,8 @@ export default function StudentManagement() {
         >
           Nuevo Alumno
         </ButtonPremium>
-      </header>
+      }
+    >
 
       {/* Grid md:4 (antes md:3): el input search ocupa col-span-2 + selector
           col-span-1 + KPI col-span-1 = 4 cols, no 3. Con md:3 había
@@ -914,6 +904,6 @@ export default function StudentManagement() {
         variant="error"
         loading={isHardDeleting}
       />
-    </motion.div>
+    </AdminPageShell>
   );
 }

@@ -301,13 +301,44 @@ const analyticsService = {
 
   /**
    * Analiza que contextos/mecanicas producen mejor aprendizaje.
-   * @param {Object} [params] - Query params: timeRange, groupBy (context/mechanic)
+   *
+   * Soporta tres modos:
+   *  - `groupBy: 'context'` — efectividad por contexto (vista 1D, default).
+   *  - `groupBy: 'mechanic'` — efectividad por mecanica (vista 1D).
+   *  - `groupBy: 'cross'` — matriz cruzada mecanica × contexto (T-942 Fase A).
+   *    Cuando se solicita 'cross', acepta tambien `includeEmpty` (bool) para
+   *    incluir celdas sin partidas.
+   *
+   * @param {Object} [params] - Query params: timeRange, groupBy, includeEmpty
    * @param {Object} [config] - Configuracion de Axios
-   * @returns {Promise<Object>} Efectividad por contenido
+   * @returns {Promise<Object>} Efectividad por contenido. Para 'cross':
+   *   `{ items, groupBy: 'cross' }`. Para 1D: `{ items, groupBy }`.
    */
   getContentEffectiveness: async (params = {}, config = {}) => {
     const response = await api.get('/analytics/classroom/content-effectiveness', {
       params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Atajo semántico para la matriz cruzada (T-942 Fase C). Internamente
+   * delega en `getContentEffectiveness` con `groupBy: 'cross'`.
+   *
+   * @param {Object} [opts]
+   * @param {string} [opts.timeRange='30d']
+   * @param {'context'|'mechanic'|'cross'} [opts.groupBy='cross']
+   * @param {boolean} [opts.includeEmpty=false]
+   * @param {Object} [config]
+   * @returns {Promise<{items: Array, groupBy: string}>}
+   */
+  getClassroomContentEffectiveness: async (
+    { timeRange = '30d', groupBy = 'cross', includeEmpty = false } = {},
+    config = {}
+  ) => {
+    const response = await api.get('/analytics/classroom/content-effectiveness', {
+      params: { timeRange, groupBy, includeEmpty },
       ...config
     });
     return extractData(response);
@@ -480,6 +511,24 @@ const analyticsService = {
   getClassroomExport: async (params = {}, config = {}) => {
     const response = await api.get('/analytics/reports/classroom/export', {
       params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  // ──────────────── Admin Overview (T-942 Fase D) ────────────────
+
+  /**
+   * Obtiene los KPIs agregados del centro educativo (solo super_admin).
+   * Endpoint cacheado en backend con TTL 300s.
+   *
+   * @param {Object} [params] - Query params: timeRange ('7d' | '30d' | '90d')
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} { users, activity, content, alerts, topTeachers, topMechanics, topContexts, generatedAt }
+   */
+  getAdminOverview: async ({ timeRange = '30d' } = {}, config = {}) => {
+    const response = await api.get('/admin/analytics/overview', {
+      params: { timeRange },
       ...config
     });
     return extractData(response);

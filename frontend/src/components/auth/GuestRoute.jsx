@@ -29,9 +29,10 @@ export default function GuestRoute({ children }) {
 
   // Redirigir si ya está autenticado
   if (isAuthenticated && user) {
-    // Determinar destino según rol
+    // Determinar destino según rol. T-942 Fase D: super_admin aterriza en
+    // AdminDashboard (vista del centro); aprobaciones quedan en el sidebar.
     const destination = user.role === 'super_admin'
-      ? ROUTES.ADMIN_APPROVALS
+      ? ROUTES.ADMIN_DASHBOARD
       : ROUTES.DASHBOARD;
 
     // Obtener ruta original si existe — pero validar compatibilidad con el rol.

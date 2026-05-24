@@ -9179,3 +9179,131 @@ Bajo Atlas M0 (red compartida + 100 conexiones máx) y scope 1000 partidas:
 - snappy/zstd añaden CPU compresión al cluster Atlas. Mitigación: snappy es muy eficiente; zstd como fallback solo si Atlas lo prefiere. En M0 negociación es transparente — si rechaza ambos, fallback a wire plain.
 - Cold start ocasional 5-15 ms tras 60s idle pure. Mitigación: en operación normal con tráfico continuo, el pool nunca llega a idle 60s.
 - Batches secuenciales son más lentos en wall clock que `updateMany` único. Mitigación: el job es nocturno y la consistencia/disponibilidad prevalece sobre el throughput total.
+
+## ADR-177: Matriz cruzada Mecánica × Contexto — pipeline `groupBy: 'cross'` con composite key en `contentEffectivenessService` [Backend, Analytics]
+
+### Contexto
+
+La efectividad pedagógica del aula se respondía hasta ahora con dos vistas 1D independientes: `groupBy: 'context'` ordena los contextos del mejor al peor; `groupBy: 'mechanic'` hace lo mismo con las mecánicas. Falta la pregunta natural del docente: "¿qué tal funciona Asociación en Geografía frente a Memoria en Geografía?" — la combinación importa porque una mecánica puede ser efectiva en un dominio temático y fracasar en otro.
+
+### Decisión
+
+Extender `getContentEffectiveness(teacherId, { timeRange, groupBy })` para aceptar un tercer modo `'cross'`:
+
+- Doble `$lookup` (game_contexts y game_mechanics) en el mismo pipeline en lugar de un único lookup parametrizado.
+- `$group _id: { mechanicId, mechanicName, contextId, contextName }` con los mismos agregados que la versión 1D (`avgScore`, `avgAccuracy`, `totalPlays`, `uniqueStudents`, `avgCompletionTime`, `scoreDates`).
+- Reutilización de helpers internos (`buildBaseStages`, `buildSharedAggregates`, `enrichWithLearningMetrics`) para que las tres ramas (`context`, `mechanic`, `cross`) compartan código y eviten duplicación.
+- Parámetro adicional `includeEmpty` (default `false`) que filtra celdas con `totalPlays === 0`. La salida por defecto refleja el comportamiento de `ContentEffectivenessMatrix` (vistas 1D) — no mostrar combinaciones sin datos.
+- Cache key extendida `contentEffectiveness:${teacherId}:${timeRange}:${groupBy}:${includeEmpty}` para no envenenar respuestas entre los dos flags.
+
+Alternativa descartada: endpoint separado `/analytics/classroom/cross-matrix`. Habría duplicado la mitad de pipeline y forzado al frontend a coordinar dos peticiones para datos del mismo dominio (eficacia de contenido). Manteniendo el endpoint único con `groupBy` se preserva la simetría de la API y se reusan validator/controller/cache existentes.
+
+### Consecuencias
+
+**Positivos:**
+- Vista 2D real (`mechanicId × contextId`) con drill-down por celda — pedagógicamente rica.
+- Coherencia visual y semántica con las vistas 1D ya consolidadas (mismo RAG, mismo `interpretation` framework).
+- Sin endpoint nuevo, sin nuevo validator, cache reutilizado.
+
+**Negativos / Mitigaciones:**
+- Pipeline `$lookup` doble sobre `gameplays` grande puede saturar `maxTimeMS` en datasets de 50k+ partidas con muchas mecánicas/contextos activos. Mitigación: la cache 300s absorbe la mayoría de las peticiones y el plan de migración futura es materializar la matriz en Redis ZSET (deuda documentada).
+- Celdas vacías (combinaciones sin partidas) son la mayoría en aulas con catálogo amplio. Mitigación: el frontend pinta esas celdas en gris ("Sin datos") con icono distintivo, manteniendo la rejilla legible.
+
+## ADR-178: AdminDashboard global como landing del super_admin — agregación tenancy-wide sin filtro `teacherId` [Backend, Frontend]
+
+### Contexto
+
+Hasta T-942, el super_admin que se logueaba aterrizaba en `/admin/approvals` (ApprovalPanel). Es una zona de gestión de profesores pendientes, no una vista de centro: no muestra cuántos alumnos hay, cuántas partidas se juegan, qué mecánicas funcionan mejor en el conjunto del colegio, ni qué profesores arrastran más alertas críticas. Un director que entra por la mañana espera ver el pulso del centro antes de las tareas pendientes — el flujo actual lo obligaba a navegar manualmente para enterarse de cualquier KPI.
+
+### Decisión
+
+1. **Nueva página `pages/admin/AdminDashboard.jsx`** como landing del super_admin tras login. ApprovalPanel sigue accesible desde el sidebar como entrada secundaria con badge contador `pendingTeachers`.
+
+2. **Nuevo endpoint `GET /api/admin/analytics/overview?timeRange=7d|30d|90d`** que devuelve agregados **sin filtro `teacherId`** sobre toda la tenancy:
+   - `users`: alumnos totales, profesores aprobados, profesores activos (con partidas en el periodo), profesores pendientes.
+   - `activity`: partidas totales del periodo, score medio, partidas de hoy, desglose por mecánica.
+   - `content`: mazos, sesiones, contextos, mecánicas.
+   - `alerts`: contadores por severidad activos del centro + top 5 profesores con más críticas/warnings.
+   - `topTeachers`, `topMechanics`, `topContexts` (top 5 cada uno).
+   - Cache 300s en clave `cache:analytics:admin:overview:${timeRange}`.
+
+3. **Definición de "profesor activo" basada en partidas**, no en `lastLoginAt`. Un profesor que prepara la sesión y deja al aula jugar sin volver a entrar sigue siendo activo desde la perspectiva del director. Implementado via aggregación distinct de `session.createdBy` con `$count` sobre partidas completadas en el periodo.
+
+4. **Signature visual "DIRECCIÓN"** consistente con ApprovalPanel (eyebrow tag + Shield + paleta warning/purple + orbes decorativos) para que el super_admin sepa visualmente que está en su zona, distinta del Dashboard del profesor.
+
+5. **Rutas teacher-only redirigen al nuevo landing** (no a `/admin/approvals`). Aplica al post-login (`AuthContext`, `GuestRoute`) y a `RequireRole roles="teacher"` en `App.jsx`.
+
+### Consecuencias
+
+**Positivos:**
+- El director del centro tiene visión inmediata del pulso del aula sin navegar.
+- El modelo tenancy-wide queda preparado para extensiones (drill-down por profesor, alertas globales del centro).
+- ApprovalPanel sigue disponible con badge contador, no se pierde el flujo de aprobación.
+
+**Negativos / Mitigaciones:**
+- El overview hace 7 aggregations en paralelo (Promise.all). En centros con muchos años de historial puede ser pesado. Mitigación: cache 300s + `getStartDate(timeRange)` acota el rango a 7/30/90 días.
+- `getActiveTeachersCount` añade un round-trip extra al overview. Mitigación: incluido en el mismo `Promise.all`, no añade latencia secuencial.
+- Posible confusión inicial para super_admins habituados a aterrizar en aprobaciones. Mitigación: badge contador en la entrada "Aprobaciones" del sidebar admin + microcopy explícito.
+
+## ADR-179: Persistencia de informes generados con TTL 30 días y cap 100 por profesor [Backend, Data Protection]
+
+### Contexto
+
+`ReportGenerator` calculaba informes on-the-fly llamando a `reportDataService.getClassroomReport` o `getStudentReport` y los renderizaba en pantalla. Cerrar la página perdía el contenido. Un profesor que genera el "Informe del trimestre" antes de la reunión de claustro no podía volver a abrirlo sin recalcularlo — el coste de cómputo se duplicaba sin valor añadido y la operativa real del docente quedaba incompleta.
+
+### Decisión
+
+Dos modelos Mongoose nuevos + endpoints CRUD:
+
+1. **`ReportTemplate`**: plantillas predefinidas que pre-rellenan los dropdowns del generador. Tres del sistema (`isSystem: true`, no editables): "Fin de trimestre", "Para padres", "Reunión de claustro". Seeder idempotente `seeders/08-report-templates.js`.
+
+2. **`GeneratedReport`**: persistencia del JSON completo del informe (`payload: Mixed`) con:
+   - `generatedAt: Date` con índice TTL de 30 días (`expireAfterSeconds: 60*60*24*30`). Auto-cleanup sin job.
+   - Hook `pre('save')` que aplica un cap de **100 informes por profesor** (drop oldest si excedido).
+   - `payloadSize: Number` calculado server-side para auditoría.
+   - `ownership check` en endpoint `GET/:id` y `DELETE/:id`: solo el `teacherId` propietario (o super_admin) puede acceder.
+
+3. **Endpoints `/api/reports/*`**: `templates` (CRUD), `recent` (últimos 20 del propio profesor), `:id` (GET/DELETE con owner check), `POST /` (guardar tras generar).
+
+### Consecuencias
+
+**Positivos:**
+- Reabrir un informe es instantáneo: GET `/api/reports/:id` devuelve el payload sin recalcular.
+- TTL 30d sin job — Mongo limpia solo. Cap 100 evita acumulación indefinida.
+- Plantillas predefinidas reducen fricción del docente (un click rellena 3 dropdowns + scroll suave al generador).
+
+**Negativos / Mitigaciones:**
+- `payload` como `Mixed` impide validación de esquema en Mongo y dificulta cambios de shape futuros. Mitigación: el shape lo controla `reportDataService` (versión backend única) y el frontend descarta campos desconocidos al renderizar; un cambio de shape requeriría una migración explícita (documentada).
+- Datos potencialmente sensibles (nombres de alumnos, scores) viven 30 días. Mitigación: TTL automático + cap por profesor + `studentPseudoId` ya pseudonimizado en payload; no rompe RGPD Art. 5 (limitación de plazo).
+- Cap por hook `pre('save')` añade un `countDocuments` + `find().sort().limit()` + `deleteMany` por cada `POST /api/reports`. En operación normal (un profesor genera un puñado de informes al mes) el overhead es despreciable.
+
+## ADR-180: Patrón "drill-down lateral" como interacción reutilizable para celdas/cards con detalle profundo [Frontend, UX]
+
+### Contexto
+
+CrossMatrix necesitaba un mecanismo para profundizar en una celda específica (Mecánica × Contexto) sin abandonar la matriz general. Las opciones convencionales — modal centrado, navegación a página separada, expandir la celda inline — rompían el contexto visual o forzaban a abrir y cerrar continuamente. El docente necesita poder comparar varias celdas en sucesión: matriz → celda A → cerrar → celda B → cerrar, manteniendo la vista 2D estable de fondo.
+
+### Decisión
+
+Componente `CrossMatrixDrillDown.jsx` con patrón "panel lateral":
+
+- Slide-in desde la derecha (~420 px ancho) con `framer-motion AnimatePresence`.
+- Backdrop semi-transparente fijo (`fixed inset-0 bg-black/40 light:bg-black/20`).
+- `role="dialog"` + `aria-modal="true"` + `aria-labelledby` al título.
+- Focus trap con Tab cycling, Escape cierra, click en backdrop cierra, click dentro del panel NO cierra.
+- Restauración del foco al elemento disparador al cerrar (`previousFocusRef`).
+- Scroll-lock del body mientras está abierto.
+- Estructura interna: header con título compuesto + score grande RAG, métricas, sección "Interpretación" con framework qué/por qué/qué hacer, acciones rápidas (link a sesiones filtradas).
+
+El patrón es reutilizable: cualquier vista densa (tablas, grids, heatmaps) puede invocarlo pasando un objeto descriptor de "celda activa". El componente es agnóstico al dominio — solo conoce el shape que se le pasa.
+
+### Consecuencias
+
+**Positivos:**
+- Comparación rápida entre celdas sin perder la vista 2D de fondo.
+- Patrón consistente disponible para futuros drill-downs (alertas, heatmaps, gameplays).
+- A11y cumple WCAG 2.1.2/2.4.3/3.2.1 (focus trap, escape route, sin cambio de contexto inesperado).
+
+**Negativos / Mitigaciones:**
+- El backdrop oculta parcialmente la matriz (40% opacidad en dark, 20% en light) — el usuario no puede leer otras celdas mientras el panel está abierto. Mitigación: cierre con Esc/click backdrop es instantáneo (sin animación bloqueante) y la matriz queda exactamente como estaba.
+- Implementación propia del focus trap en vez de librería (`focus-trap-react`). Mitigación: patrón validado en `ConfirmationModal` con tests; reutiliza `FOCUSABLE_SELECTOR` ya consolidado en el proyecto.

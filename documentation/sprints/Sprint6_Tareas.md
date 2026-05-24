@@ -1312,7 +1312,38 @@ Ambas estructuras requieren un job BullMQ nocturno de reconciliación con Mongo 
 
 ---
 
-### T-942: 📊 Vista cruzada Mecánica × Contexto + Dashboard admin global + Informes funcional 📋
+### T-942: 📊 Vista cruzada Mecánica × Contexto + Dashboard admin global + Informes funcional ✅ DONE
+
+**Cierre:** 2026-05-24. Alcance ampliado a 5 fases (3 originales PROP-10/82/91 + 2 ampliaciones — Refactor Dashboard teacher cohorts/comparativas/trends compuestos/jerarquía, y fixes de redirect del super_admin landing). ADRs 177-180.
+
+| Fase | Implementación | Verificación |
+|---|---|---|
+| A — Cross matrix backend | `contentEffectivenessService.getContentEffectiveness` extendido con `groupBy: 'cross'` (composite key `{mechanicId, contextId}`) + `includeEmpty` flag + cache key extendida. Validator Zod ampliado. Helpers internos (`buildBaseStages`, `buildSharedAggregates`, `enrichWithLearningMetrics`) reorganizados para coherencia entre las 3 ramas. | 8 tests nuevos en `tests/services/analytics/contentEffectivenessService.test.js` (1453/1453 backend ✓). |
+| B — Admin overview + informes | Nuevo `adminAnalyticsService.getCenterOverview` con 7 sub-agregaciones tenancy-wide (users, activity, content, alerts, topTeachers, topMechanics, topContexts). Endpoint `GET /api/admin/analytics/overview` super_admin-only. Modelos Mongoose `ReportTemplate` (3 plantillas system seeded) y `GeneratedReport` (TTL 30d + cap 100/teacher). Endpoints CRUD `/api/reports/*` (templates + recent + getById + save + delete). | 26 tests nuevos (5 service + 3 ReportTemplate + 4 GeneratedReport + 11 routes/reports + 3 routes/adminAnalytics). |
+| C — CrossMatrix frontend | `CrossMatrix.jsx` tabla 2D con celdas RAG (CircleCheck/Alert/X/Circle), sticky first column, scroll horizontal con chevron, filtros (mecánica/contexto/includeEmpty), ThemedChartContainer wrapping. `CrossMatrixDrillDown.jsx` panel slide-in lateral con focus trap, Esc-close, scroll-lock. Integración en tab Efectividad de InsightsReports como sección inferior full-width. | 8 tests Vitest nuevos. |
+| D — AdminDashboard + Informes funcional | `pages/admin/AdminDashboard.jsx` con signature "DIRECCIÓN" coherente con ApprovalPanel: 4 filas de KPIs (magnitud, salud educativa, análisis cruzado con top profesores/alertas por profesor, top mecánicas/contextos). `ROUTES.ADMIN_DASHBOARD` + ruta protegida. Sidebar admin con "Dashboard" como primera entrada. Tab "Informes" de InsightsReports refactorizado en 3 secciones (ReportTemplateCards + Generador+ReportPreviewSidebar + RecentReports). | 9 tests Vitest nuevos (AdminDashboard + ReportTemplateCards + RecentReports). |
+| E — Refactor Dashboard teacher | Selector cohort en Dashboard pasa de 3 a 5 opciones (+ Mes actual + Trimestre actual, mapeados client-side a `30d`/`90d` con helpers `getCurrentMonthRange`/`getCurrentQuarterRange` en `lib/dateUtils.js` para uso futuro). `StudentProgressChart` con toggle "Mostrar media" (ButtonPremium con `aria-pressed`) y toggle "Por alumno/Por mecánica" (SelectPremium con empty state explicativo para byMechanic mientras el backend no devuelva serie temporal por mecánica). Reorganización del grid principal: secciones "Acción inmediata" (AlertsPanel + RecentActivity arriba) y "Análisis profundo" (StudentProgressChart + DifficultyHeatmap + ActivityHeatmap abajo). | 7 tests nuevos en `lib/__tests__/dateUtils.test.js`. Dashboard.analytics.test.jsx actualizado (17/17 ✓). |
+
+**Bugs detectados y arreglados en la sesión de QA** (capturas y reporte completo en `qa-capturas-T942/QA-REPORT.md`):
+
+| ID | Severidad | Causa raíz | Fix |
+|---|---|---|---|
+| BUG-QA-1 | ALTA | Post-login super_admin seguía cayendo en `/admin/approvals` porque la Fase D solo cambió el redirect interno de `Dashboard.jsx`, pero el redirect real vive en `AuthContext` y `GuestRoute`. | Ambas rutas actualizadas a `ROUTES.ADMIN_DASHBOARD`. |
+| BUG-QA-2 | MEDIA | `activeTeachers` definido como `lastLoginAt >= 30d` daba 0 para seeds (no actualizan `lastLoginAt`) y para profesores que preparan sesiones y dejan al aula jugar sin re-loguearse. | Nueva `getActiveTeachersCount(startDate)` cuenta profesores con al menos una partida completada en el periodo. Semántica más útil para el director. |
+| BUG-QA-3 | MEDIA | 15 rutas `<RequireRole roles="teacher" redirectTo={ROUTES.ADMIN_APPROVALS}>` en App.jsx redirigían al landing antiguo. | Bulk replace a `ROUTES.ADMIN_DASHBOARD` + comentario contextual. |
+
+**Falsa alarma (BUG-QA-4):** KPIs secundarios del Dashboard teacher a 0 tras cambio de cohort. Causa real: Redis cache stale tras restart de backend a mitad de seed. Tras `FLUSHALL`, los valores reales (Tasa Acierto 79.2%, Tiempo Medio 5.58s) vuelven. No es bug T-942.
+
+**Tests post-cierre:** 1453 backend + 576 frontend. Lint 0 errores. Build frontend `index.js` ~61 KB gzipped (límite ADR-159 <200 KB ✓).
+
+**ADRs:** ADR-177 (cross matrix pipeline), ADR-178 (AdminDashboard tenancy-wide), ADR-179 (persistencia informes TTL+cap), ADR-180 (patrón drill-down lateral).
+
+**Archivos afectados (cierre 2026-05-24):**
+- **Backend nuevos:** `backend/src/services/adminAnalyticsService.js`, `backend/src/controllers/adminAnalyticsController.js`, `backend/src/controllers/reportsController.js`, `backend/src/models/ReportTemplate.js`, `backend/src/models/GeneratedReport.js`, `backend/src/routes/reports.js`, `backend/src/validators/adminValidator.js`, `backend/src/validators/reportsValidator.js`, `backend/seeders/08-report-templates.js`, `backend/tests/services/analytics/contentEffectivenessService.test.js`, `backend/tests/services/adminAnalyticsService.test.js`, `backend/tests/models/reportTemplate.test.js`, `backend/tests/models/generatedReport.test.js`, `backend/tests/routes/reports.test.js`, `backend/tests/routes/adminAnalytics.test.js`.
+- **Backend modificados:** `backend/src/services/analytics/contentEffectivenessService.js`, `backend/src/controllers/analyticsAdvancedController.js`, `backend/src/validators/analyticsValidator.js`, `backend/src/routes/admin.js`, `backend/src/server.js`, `backend/seeders/index.js`.
+- **Frontend nuevos:** `frontend/src/components/analytics/CrossMatrix.jsx`, `frontend/src/components/analytics/CrossMatrixDrillDown.jsx`, `frontend/src/components/analytics/ReportTemplateCards.jsx`, `frontend/src/components/analytics/ReportPreviewSidebar.jsx`, `frontend/src/components/analytics/RecentReports.jsx`, `frontend/src/services/reports.js`, `frontend/src/pages/admin/AdminDashboard.jsx`, `frontend/src/components/analytics/__tests__/CrossMatrix.test.jsx`, `frontend/src/components/analytics/__tests__/ReportTemplateCards.test.jsx`, `frontend/src/components/analytics/__tests__/RecentReports.test.jsx`, `frontend/src/pages/admin/__tests__/AdminDashboard.test.jsx`, `frontend/src/lib/__tests__/dateUtils.test.js`.
+- **Frontend modificados:** `frontend/src/services/analytics.js`, `frontend/src/components/analytics/ReportGenerator.jsx`, `frontend/src/components/dashboard/StudentProgressChart.jsx`, `frontend/src/pages/Dashboard.jsx`, `frontend/src/pages/InsightsReports.jsx`, `frontend/src/lib/dateUtils.js`, `frontend/src/constants/routes.js`, `frontend/src/App.jsx`, `frontend/src/context/AuthContext.jsx`, `frontend/src/components/auth/GuestRoute.jsx`, `frontend/src/pages/__tests__/Dashboard.analytics.test.jsx`.
+- **Documentación modificada:** `documentation/Architecture_Decisions.md` (+ADRs 177-180), `documentation/sprints/Sprint6_Tareas.md` (este cierre).
 
 **Consolida:** PROP-10 + PROP-82 + PROP-91
 **Prioridad:** P2 | **Tamaño:** XL (> 2 días) | **Dependencias:** T-941 (alertas con lifecycle)

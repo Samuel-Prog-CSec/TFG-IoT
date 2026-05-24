@@ -21,6 +21,7 @@ const seedContexts = require('./04-contexts');
 const seedCardDecks = require('./05-carddecks');
 const seedSessions = require('./06-sessions');
 const seedGamePlays = require('./07-gameplays');
+const seedReportTemplates = require('./08-report-templates');
 
 /**
  * Conecta a la base de datos.
@@ -123,6 +124,12 @@ async function runSeeders() {
     }
     logger.info(`  ✓ ${gamePlays.length} partidas creadas\n`);
 
+    // 8. Plantillas de informe predefinidas (T-942 Fase B).
+    //    Idempotente: upsert por `key`, no falla si ya existen.
+    logger.info('8️⃣  Seeding plantillas de informe...');
+    const reportTemplates = await seedReportTemplates();
+    logger.info(`  ✓ ${reportTemplates.length} plantillas de informe listas\n`);
+
     logger.info('✅ Seeders completados exitosamente!');
     logger.info('\n📊 Resumen:');
     logger.info(`   - 1 super admin`);
@@ -132,7 +139,8 @@ async function runSeeders() {
     logger.info(`   - ${contexts.length} contextos de juego`);
     logger.info(`   - ${decks.length} mazos de tarjetas`);
     logger.info(`   - ${sessions.length} sesiones de juego`);
-    logger.info(`   - ${gamePlays.length} partidas (GamePlays)\n`);
+    logger.info(`   - ${gamePlays.length} partidas (GamePlays)`);
+    logger.info(`   - ${reportTemplates.length} plantillas de informe\n`);
 
     // Mostrar credenciales de profesores
     logger.info('🔑 Credenciales para testing:');

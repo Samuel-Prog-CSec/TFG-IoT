@@ -99,3 +99,47 @@ const ABSOLUTE_DATE_FMT =
   typeof Intl !== 'undefined' && Intl.DateTimeFormat
     ? new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
     : null;
+
+// ────────────────────────────────────────────────────────────────────────
+// Cohort helpers (T-942 Fase E.1)
+//
+// Devuelven rangos { start, end } usados por el selector "Mes actual" y
+// "Trimestre actual" del Dashboard teacher. Útiles cuando el frontend
+// necesita filtrar localmente datos pre-agregados que no exponen un
+// `startDate` en el endpoint backend.
+//
+// Convención: `start` siempre es el primer día del periodo a las 00:00
+// horario local (sin desplazamiento UTC, para que la franja horaria del
+// docente sea la de su navegador). `end` es el `now` recibido (típicamente
+// `new Date()`), de forma que el rango es ventana cerrada-abierta del
+// periodo en curso.
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Devuelve el rango temporal del mes actual.
+ *
+ * Útil para el selector de cohort "Mes actual" del Dashboard teacher.
+ *
+ * @param {Date} [now=new Date()] Fecha actual (parametrizable para tests).
+ * @returns {{ start: Date, end: Date }} Inicio (1 del mes a las 00:00) y `now`.
+ */
+export function getCurrentMonthRange(now = new Date()) {
+  const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  return { start, end: now };
+}
+
+/**
+ * Devuelve el rango temporal del trimestre actual (Q1: ene-mar,
+ * Q2: abr-jun, Q3: jul-sep, Q4: oct-dic).
+ *
+ * Útil para el selector de cohort "Trimestre actual" del Dashboard teacher.
+ *
+ * @param {Date} [now=new Date()] Fecha actual (parametrizable para tests).
+ * @returns {{ start: Date, end: Date }} Inicio (1 del primer mes del Q a las 00:00) y `now`.
+ */
+export function getCurrentQuarterRange(now = new Date()) {
+  const month = now.getMonth();
+  const quarterStartMonth = month - (month % 3);
+  const start = new Date(now.getFullYear(), quarterStartMonth, 1, 0, 0, 0, 0);
+  return { start, end: now };
+}

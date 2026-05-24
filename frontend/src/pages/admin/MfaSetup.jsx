@@ -30,6 +30,7 @@ import {
 } from 'lucide-react';
 import { authAPI, extractErrorMessage } from '../../services/api';
 import ButtonPremium from '../../components/ui/ButtonPremium';
+import AdminPageShell from '../../components/admin/AdminPageHero';
 import ConfirmationModal, {
   useConfirmationModal
 } from '../../components/ui/ConfirmationModal';
@@ -633,14 +634,13 @@ const MfaSetupPage = () => {
   );
 
   return (
-    <div className="max-w-3xl mx-auto px-4 py-10">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold text-text-primary mb-2">Seguridad · MFA</h1>
-        <p className="text-text-muted max-w-2xl">
-          El doble factor protege acciones críticas: eliminación de usuarios, purgas RGPD y
-          desbloqueo de cuentas. Solo aplica a tu cuenta de dirección.
-        </p>
-      </header>
+    <AdminPageShell
+      icon={ShieldCheck}
+      title="Seguridad · MFA"
+      description="El doble factor protege acciones críticas: eliminación de usuarios, purgas RGPD y desbloqueo de cuentas. Solo aplica a tu cuenta de dirección."
+      ariaLabel="Configuración de seguridad MFA"
+      maxWidth="max-w-3xl"
+    >
 
       {status === null && !error && (
         <div className="flex items-center gap-3 p-6 rounded-2xl border border-border-default bg-background-elevated text-text-muted">
@@ -683,7 +683,7 @@ const MfaSetupPage = () => {
       {status && !status.enabled && (
         <MfaSetupWizard onCompleted={refetch} />
       )}
-    </div>
+    </AdminPageShell>
   );
 };
 
