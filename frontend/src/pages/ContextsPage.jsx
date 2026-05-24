@@ -233,7 +233,7 @@ export default function ContextsPage() {
             </div>
             <div>
               <p className="text-2xl font-semibold text-text-primary font-display">{totalAssets}</p>
-              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Assets totales</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Recursos totales</p>
             </div>
           </GlassCard>
         </div>
@@ -369,9 +369,11 @@ function ContextCard({ context, onClick }) {
           </div>
         </div>
 
-        <h3 className="text-xl font-semibold text-text-primary tracking-tight mb-2 line-clamp-1 truncate" title={context.name}>
+        {/* h2: el page tiene h1 "Contextos Temáticos"; saltar a h3 viola
+            heading-order (auditoría 24/05/2026). */}
+        <h2 className="text-xl font-semibold text-text-primary tracking-tight mb-2 line-clamp-1 truncate" title={context.name}>
           {context.name}
-        </h3>
+        </h2>
 
         <div className="flex items-center gap-2 mb-6">
           {/* Slug técnico (`geography-europe`) se mantiene solo en la vista admin
@@ -393,7 +395,10 @@ function ContextCard({ context, onClick }) {
 
         <div className="flex items-center justify-between mt-auto pt-4 border-t border-border-subtle">
           <div className="flex items-center gap-3 text-sm text-text-muted">
-            <Tooltip content="Total Assets">
+            {/* Tooltip content compone "{N} recursos en total" para que
+                coincida con el texto visible "{N} total" (WCAG 2.5.3
+                label-content-name-mismatch — auditoría 24/05/2026). */}
+            <Tooltip content={`${assetCount} ${assetCount === 1 ? 'recurso' : 'recursos'} en total`}>
               <div className="flex items-center gap-1.5">
                 <span className="font-medium text-text-secondary">{assetCount}</span> total
               </div>

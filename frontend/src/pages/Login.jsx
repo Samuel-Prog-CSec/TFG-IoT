@@ -303,8 +303,12 @@ export default function Login() {
           </ul>
         </motion.aside>
 
-        {/* Panel form */}
-        <motion.div
+        {/* Panel form — `<main>` para aportar el landmark de contenido
+            principal (Lighthouse landmark-one-main / WCAG navegación por
+            regiones). El formulario es el contenido central de la pantalla
+            de login (auditoría 24/05/2026). */}
+        <motion.main
+          id="main-content"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
@@ -579,7 +583,7 @@ export default function Login() {
               </p>
             </motion.div>
           </div>
-        </motion.div>
+        </motion.main>
       </div>
     </div>
   );

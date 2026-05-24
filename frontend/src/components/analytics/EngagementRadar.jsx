@@ -99,7 +99,7 @@ function EngagementRadar({ engagement }) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-semibold text-text-primary font-display">Engagement</h3>
+          <h2 className="text-base font-semibold text-text-primary font-display">Engagement</h2>
           {/* Pintamos el RAG aunque el radar sea degenerado: el profesor
               sigue necesitando saber si el score global es Alto/Medio/Bajo
               aunque el desglose por ejes no sea visualizable. */}

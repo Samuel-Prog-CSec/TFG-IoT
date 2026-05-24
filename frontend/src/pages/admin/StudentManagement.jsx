@@ -645,7 +645,7 @@ export default function StudentManagement() {
           )}
         </div>
         <div className="min-w-0 flex-1">
-          <h3 className="font-semibold text-text-primary truncate">{student.name}</h3>
+          <h2 className="font-semibold text-text-primary truncate">{student.name}</h2>
           <div className="flex items-center gap-1.5 text-text-muted text-xs">
             <School size={12} />
             <span className="truncate">{student.profile?.classroom || 'Sin clase'}</span>

@@ -234,7 +234,7 @@ WizardStepItem.propTypes = {
  *   steps={[
  *     { id: 1, title: "Tarjetas", icon: CreditCard },
  *     { id: 2, title: "Contexto", icon: Map },
- *     { id: 3, title: "Assets", icon: Tag },
+ *     { id: 3, title: "Recursos", icon: Tag },
  *     { id: 4, title: "Confirmar", icon: Check },
  *   ]}
  *   currentStep={2}

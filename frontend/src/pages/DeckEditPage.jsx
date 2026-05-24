@@ -763,7 +763,7 @@ export default function DeckEditPage() {
                   {ui.activeUid ? (
                     <>
                       <h3 className="font-medium text-text-primary mb-3">
-                        Assets de &quot;{effectiveContext?.name}&quot;
+                        Recursos de &quot;{effectiveContext?.name}&quot;
                       </h3>
                       <AssetSelector
                         assets={effectiveContext?.assets || []}

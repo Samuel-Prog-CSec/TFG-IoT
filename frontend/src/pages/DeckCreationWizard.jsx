@@ -70,18 +70,18 @@ const WIZARD_STEPS = [
     title: 'Elegir Contexto',
     subtitle: 'Selecciona el tema',
     icon: Palette,
-    description: 'El contexto determina los assets disponibles'
+    description: 'El contexto determina los recursos disponibles'
   },
   {
     id: 'assign',
-    title: 'Asignar Assets',
-    subtitle: 'Vincula cartas con contenido',
+    title: 'Vincular Recursos',
+    subtitle: 'Une cartas con contenido',
     icon: LinkIcon,
-    description: 'Asocia cada carta con un asset del contexto'
+    description: 'Asocia cada carta con un recurso del contexto'
   },
   {
     id: 'confirm',
-    title: 'Confirmar',
+    title: 'Guardar Mazo',
     subtitle: 'Revisa y guarda',
     icon: Check,
     description: 'Revisa tu mazo y dale un nombre'
@@ -821,7 +821,7 @@ function StepContext({
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-text-primary mb-1">Elige un contexto</h2>
         <p className="text-sm text-text-muted">
-          El contexto determina los assets que podrás asignar a las cartas
+          El contexto determina los recursos que podrás asignar a las cartas
         </p>
       </div>
 
@@ -873,7 +873,7 @@ function StepContext({
 
             <h3 className="font-medium text-text-primary mb-1">{context.name}</h3>
             <p className="text-xs text-text-muted">
-              {context.assets?.length || 0} assets disponibles
+              {context.assets?.length || 0} recursos disponibles
             </p>
           </motion.button>
           );
@@ -1058,10 +1058,10 @@ function StepAssign({
             <>
               <div className="mb-4">
                 <h3 className="font-medium text-text-primary mb-1">
-                  Asignar asset a <span className="text-accent-indigo">{activeCard.uid}</span>
+                  Asignar recurso a <span className="text-accent-indigo">{activeCard.uid}</span>
                 </h3>
                 <p className="text-sm text-text-muted">
-                  Selecciona un asset del contexto &quot;{selectedContext?.name}&quot;
+                  Selecciona un recurso del contexto &quot;{selectedContext?.name}&quot;
                 </p>
               </div>
 
@@ -1185,7 +1185,7 @@ function StepConfirm({
                 <div className="relative flex-shrink-0">
                   <CardAssetPreview
                     asset={assignment}
-                    alt={`Asset de carta ${card.uid}`}
+                    alt={`Recurso de carta ${card.uid}`}
                     className="size-10 rounded-lg"
                     fit="cover"
                     fallbackClassName="bg-gradient-to-br from-accent-indigo/20 to-brand-base/20 text-xl"

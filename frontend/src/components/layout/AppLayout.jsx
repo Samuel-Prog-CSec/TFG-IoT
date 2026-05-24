@@ -390,7 +390,7 @@ export default function AppLayout() {
                   'absolute top-7 right-3 z-30',
                   'size-7 rounded-full bg-background-elevated',
                   'border border-border-default shadow-[var(--shadow-md)]',
-                  'hover:bg-background-surface hover:border-border-emphasis'
+                  'hover:bg-background-surface hover:border-border-strong'
                 )
           )}
         >

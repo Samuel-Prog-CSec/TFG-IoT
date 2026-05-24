@@ -315,7 +315,7 @@ export default function PrivacyPage() {
               className="inline-flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
             >
               <ArrowLeft className="size-4" />
-              <span className="hidden sm:inline">Iniciar sesion</span>
+              <span className="hidden sm:inline">Iniciar sesión</span>
             </Link>
           </div>
         </div>

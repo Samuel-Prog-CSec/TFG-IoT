@@ -65,11 +65,11 @@ function getCardInfo(deckCard, index) {
   const asset = deckCard?.assignedAsset;
 
   if (!asset && !displayData) {
-    return { uid, label, assetLabel: 'Sin asset asignado', displayData: null };
+    return { uid, label, assetLabel: 'Sin recurso asignado', displayData: null };
   }
 
   if (displayData) {
-    return { uid, label, assetLabel: displayData.value || displayData.display || 'Asset', displayData };
+    return { uid, label, assetLabel: displayData.value || displayData.display || 'Recurso', displayData };
   }
 
   if (typeof asset === 'string') {
@@ -83,7 +83,7 @@ function getCardInfo(deckCard, index) {
     asset.name ||
     asset.label ||
     asset._id ||
-    'Asset asignado';
+    'Recurso asignado';
 
   return { uid, label, assetLabel: displayAsset, displayData: asset.displayData || null };
 }

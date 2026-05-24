@@ -312,7 +312,7 @@ export default function AudioUploadModal({
             </p>
             {!dragActive && (
               <p className="text-xs text-text-muted">
-                o haz click para elegir
+                o haz clic para elegir
               </p>
             )}
             <p className="text-xs text-text-muted mt-1">

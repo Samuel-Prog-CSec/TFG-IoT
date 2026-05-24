@@ -36,6 +36,11 @@ EduPlay maneja datos pedagógicos, no infraestructura. Las palabras "endpoint", 
 | El endpoint /api/users devolvió 500 | No hemos podido conectar con el servidor. Vuelve a intentarlo. |
 | ID inválido | Esta sesión ya no existe. |
 | Error de payload JSON | Revisa los datos del formulario. |
+| Selecciona un asset del contexto | Selecciona un recurso del contexto |
+| 12 assets disponibles | 12 recursos disponibles |
+| Asset asignado | Recurso asignado |
+
+**Caso especial — "asset" vs "recurso":** el término inglés "asset" pertenece al vocabulario interno (multimedia, design ops, nombres de componentes). En la superficie visible al docente usamos siempre **"recurso"** porque encaja con el campo semántico del aula (RAE: cosa de la que se sirve uno para conseguir un fin). La distinción aplica solo a strings que el usuario lee — el código mantiene `AssetSelector`, `assets`/`assetUsageCounts` como nombres de prop, etc., para no fragmentar la búsqueda en codebase.
 
 ### 4. Errores accionables
 

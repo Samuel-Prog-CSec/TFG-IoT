@@ -322,6 +322,10 @@ export default function StudentProfile() {
             <StudentKPICard
               label="Engagement"
               value={engagement?.engagementScore != null ? Math.round(engagement.engagementScore) : '—'}
+              // suffix "/100" desambigua la escala: el engagement es un score
+              // 0-100, pero sin sufijo "61" parecía un conteo (auditoría
+              // 24/05/2026). Solo se muestra cuando hay dato real.
+              suffix={engagement?.engagementScore != null ? '/100' : undefined}
               ragStatus={(() => {
                 if (engagement?.engagementScore >= 60) return 'green';
                 if (engagement?.engagementScore >= 35) return 'amber';

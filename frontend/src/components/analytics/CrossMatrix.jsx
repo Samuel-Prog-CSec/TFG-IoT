@@ -403,7 +403,10 @@ function CrossMatrix({
         dataTableCaption="Efectividad media por par mecánica-contexto"
         focusable={false}
         headerExtra={
-          <div className="flex items-center gap-3 text-xs text-text-muted">
+          // `text-text-secondary`: leyenda sobre backgrounds tonales (rosa/amber
+          // del wash atmosférico). Con muted, Lighthouse reportó 4.07:1 (<AA).
+          // Secondary sube ~8:1 manteniendo jerarquía (auditoría 24/05/2026).
+          <div className="flex items-center gap-3 text-xs text-text-secondary">
             <span className="flex items-center gap-1">
               <CircleCheck
                 size={12}

@@ -333,9 +333,9 @@ function computeAssetOwnership(asset, currentUserId) {
 
   return {
     canManage: false,
-    ownershipLabel: 'Asset del sistema',
+    ownershipLabel: 'Recurso del sistema',
     ownershipTooltip:
-      'Este asset es parte de la base del contexto y no puede eliminarse individualmente. Para borrarlo, elimina el contexto entero desde el panel de administración.'
+      'Este recurso es parte de la base del contexto y no puede eliminarse individualmente. Para borrarlo, elimina el contexto entero desde el panel de administración.'
   };
 }
 

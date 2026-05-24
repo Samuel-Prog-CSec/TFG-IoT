@@ -80,6 +80,22 @@ export function useReducedMotion() {
     return systemReducedMotion;
   }, [systemReducedMotion, userPreference]);
 
+  // Sincroniza la preferencia efectiva con `<html data-reduced-motion>` para que
+  // las reglas CSS (animaciones, transiciones, scanlines del aurora, hovers que
+  // dependen de transition-duration) también se enteren del toggle del sidebar.
+  // El hook `useReducedMotion` sólo lo consumían los componentes Framer Motion;
+  // las animaciones CSS puras seguían activas al activar el toggle in-app
+  // (auditoría UI/UX 24/05/2026).
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    if (shouldReduceMotion) {
+      root.setAttribute('data-reduced-motion', 'reduce');
+    } else {
+      root.removeAttribute('data-reduced-motion');
+    }
+  }, [shouldReduceMotion]);
+
   return {
     shouldReduceMotion,
     systemReducedMotion,

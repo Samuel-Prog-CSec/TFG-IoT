@@ -55,21 +55,21 @@ const WIZARD_STEPS = [
     title: 'Seleccionar Mazo',
     subtitle: 'Elige las cartas',
     icon: CreditCard,
-    description: 'El mazo define las tarjetas y assets que usarán los estudiantes'
+    description: 'El mazo define las tarjetas y los recursos que usarán los estudiantes'
   },
   {
     id: 'mechanic',
     // Paso 2: ícono Gamepad2 en vez del Layers que ya usa el paso 1
     // (QA 04/05 — ambos iconos eran iguales y no diferenciaban visualmente
     // los pasos del stepper).
-    title: 'Mecánica',
+    title: 'Elegir Mecánica',
     subtitle: 'Tipo de juego',
     icon: Gamepad2,
     description: 'Elige cómo interactuarán los estudiantes con las tarjetas'
   },
   {
     id: 'rules',
-    title: 'Reglas',
+    title: 'Definir Reglas',
     subtitle: 'Configura parámetros',
     icon: Settings,
     // Descripción genérica — Memoria no tiene "número de rondas", el plan de
@@ -78,7 +78,7 @@ const WIZARD_STEPS = [
   },
   {
     id: 'review',
-    title: 'Crear',
+    title: 'Crear Sesión',
     subtitle: 'Revisa y lanza',
     icon: Save,
     description: 'Revisa la configuración antes de crear la sesión'

@@ -209,7 +209,7 @@ function AdminContextCard({ context, onEdit, onDelete }) {
             <Palette size={18} aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <h3 className="truncate text-base font-semibold text-text-primary">{context.name}</h3>
+            <h2 className="truncate text-base font-semibold text-text-primary">{context.name}</h2>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
               <code className="rounded bg-background-base/60 px-1.5 py-0.5 text-[11px] text-text-muted">
                 {context.contextId}

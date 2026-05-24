@@ -269,11 +269,14 @@ const SessionCard = memo(function SessionCard({
                   className="block w-full"
                   textClassName="text-lg font-semibold text-text-primary line-clamp-2 block"
                   inputClassName="text-lg font-semibold w-full"
-                  as="h3"
+                  as="h2"
                 />
               </div>
             ) : (
-              <h3 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]">{title}</h3>
+              // h2 (no h3): el <h1> es "Sesiones de juego"; saltar a h3 viola
+              // WCAG 1.3.1 / Lighthouse heading-order — cada card es la segunda
+              // jerarquía bajo el header de página (auditoría 24/05/2026).
+              <h2 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]">{title}</h2>
             )}
             {/* BUG-A11Y-CONTRAST-SESSIONCARD-A (QA Sprint 0 post-v0.5.0):
                 text-text-muted sobre card bg daba 3.92:1. text-secondary

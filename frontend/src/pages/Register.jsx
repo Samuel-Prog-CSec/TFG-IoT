@@ -340,8 +340,11 @@ export default function Register() {
           </motion.div>
         </motion.aside>
 
-        {/* Form (izquierda en desktop) */}
-        <motion.div
+        {/* Form (izquierda en desktop) — `<main>` para el landmark de
+            contenido principal (Lighthouse landmark-one-main / WCAG
+            navegación por regiones, auditoría 24/05/2026). */}
+        <motion.main
+          id="main-content"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.5 }}
@@ -600,7 +603,7 @@ export default function Register() {
               © {new Date().getFullYear()} EduPlay RFID · Proyecto TFG
             </motion.p>
           </div>
-        </motion.div>
+        </motion.main>
       </div>
     </div>
   );

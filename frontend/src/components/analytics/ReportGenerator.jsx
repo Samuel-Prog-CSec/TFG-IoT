@@ -362,7 +362,7 @@ function StudentReportView({ data }) {
                     className="text-xs text-text-secondary flex items-start gap-1.5"
                   >
                     <TrendingUp size={12} className="text-success-base mt-0.5 flex-shrink-0" aria-hidden="true" />
-                    {typeof item === 'string' ? item : item.name || item.context || 'N/A'}
+                    {typeof item === 'string' ? item : item.name || item.context || '—'}
                   </li>
                 ))}
               </ul>
@@ -370,7 +370,7 @@ function StudentReportView({ data }) {
           )}
           {performance.weaknesses?.length > 0 && (
             <div className="rounded-xl border border-error-base/20 bg-error-base/5 p-4">
-              <h4 className="text-sm font-bold text-error-base mb-2">Areas de Mejora</h4>
+              <h4 className="text-sm font-bold text-error-base mb-2">Áreas de Mejora</h4>
               <ul className="space-y-1">
                 {performance.weaknesses.map(item => (
                   <li
@@ -378,7 +378,7 @@ function StudentReportView({ data }) {
                     className="text-xs text-text-secondary flex items-start gap-1.5"
                   >
                     <AlertTriangle size={12} className="text-error-base mt-0.5 flex-shrink-0" aria-hidden="true" />
-                    {typeof item === 'string' ? item : item.name || item.context || 'N/A'}
+                    {typeof item === 'string' ? item : item.name || item.context || '—'}
                   </li>
                 ))}
               </ul>
@@ -397,7 +397,7 @@ function StudentReportView({ data }) {
                 key={getRecommendationKey(rec)}
                 className="text-xs text-text-secondary bg-background-elevated/30 rounded-lg border border-border-subtle px-3 py-2"
               >
-                {typeof rec === 'string' ? rec : rec.message || rec.description || 'N/A'}
+                {typeof rec === 'string' ? rec : rec.message || rec.description || '—'}
               </li>
             ))}
           </ul>

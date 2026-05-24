@@ -85,7 +85,10 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
 
         {/* Content */}
         <div className={cn("relative z-10", compact ? "pr-12" : "pr-14")}>
-          <h3 className={cn("text-text-muted font-semibold tracking-[0.08em] uppercase", compact ? "text-[11px] mb-1" : "text-xs mb-2")}>{title}</h3>
+          {/* h2 (no h3): el contenedor padre (Dashboard, AdminDashboard) tiene
+              h1 como título de página. Las KPI cards son la segunda jerarquía;
+              saltar a h3 viola heading-order WCAG 1.3.1 (auditoría 24/05/2026). */}
+          <h2 className={cn("text-text-muted font-semibold tracking-[0.08em] uppercase", compact ? "text-[11px] mb-1" : "text-xs mb-2")}>{title}</h2>
           <div className={cn("font-bold text-text-primary font-display tracking-tight tabular-nums leading-none", compact ? "text-2xl mb-2" : "text-5xl mb-3")}>
             <AnimatedNumber value={value} />
           </div>

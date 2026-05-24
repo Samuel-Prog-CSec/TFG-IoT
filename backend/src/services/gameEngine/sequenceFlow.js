@@ -266,10 +266,15 @@ async function _processSequenceScanImpl(engine, playId, playState, scannedCardMa
     return;
   }
 
-  // Persistir el evento (correct/error) y actualizar score atómicamente.
+  // Persistir el evento (correct/error). `addEventAtomic` es la ÚNICA fuente
+  // de verdad del score: hace `$inc` en BD y `doc.score += pointsAwarded` en
+  // memoria (igual que Memoria y Asociación). Antes esta función sumaba
+  // `points` manualmente ANTES de `addEventAtomic`, duplicando el incremento
+  // en memoria: el HUD in-game se inflaba (p. ej. 450) y al cerrar la partida
+  // el pre-validate hook clampaba a `maxScore` (330), produciendo la
+  // discrepancia in-game≠final (BUG-SEQUENCE-SCORE-1, auditoría 24/05/2026).
   const points = Number(result.points || 0);
   const eventType = result.type === 'correct' ? 'correct' : 'error';
-  playState.playDoc.score = Math.max(0, Number(playState.playDoc.score || 0) + points);
   await playState.playDoc.addEventAtomic({
     eventType,
     cardUid: scannedCardMapping.uid,
@@ -279,6 +284,11 @@ async function _processSequenceScanImpl(engine, playId, playState, scannedCardMa
     timeElapsed: playState.roundStartTime ? Date.now() - playState.roundStartTime : 0,
     roundNumber: playState.playDoc.currentRound
   });
+  // Clamp a ≥0 en memoria para que el HUD nunca muestre negativos tras una
+  // racha de penalizaciones. No re-suma `points` (eso ya lo hizo
+  // addEventAtomic). El pre-validate hook aplica el mismo clamp en BD al
+  // guardar, así in-game y final quedan siempre alineados.
+  playState.playDoc.score = Math.max(0, Number(playState.playDoc.score || 0));
 
   engine.io.to(`play_${playId}`).emit('sequence_card_result', {
     playId,

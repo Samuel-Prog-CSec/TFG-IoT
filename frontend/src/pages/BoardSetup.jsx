@@ -367,14 +367,29 @@ export default function BoardSetup() {
                             <RotateCcw size={20} />
                         </ButtonPremium>
                     </Tooltip>
-                    <ButtonPremium
-                        variant="success"
-                        onClick={handleStartPlay}
-                        disabled={!canStart || savingBoard}
-                        className="shadow-lg shadow-success-base/20"
+                    {/* Tooltip explica POR QUÉ el botón está deshabilitado.
+                        El ButtonPremium disabled tiene pointer-events-none, así
+                        que el wrapper del Tooltip (span) es quien recibe el hover
+                        y anuncia el motivo — antes el docente no sabía qué le
+                        faltaba (auditoría 24/05/2026). */}
+                    <Tooltip
+                        content={(() => {
+                            if (savingBoard) return 'Guardando el tablero…';
+                            if (!isBoardComplete && !selectedStudentId) return 'Coloca todas las tarjetas y elige un alumno para empezar';
+                            if (!isBoardComplete) return 'Coloca todas las tarjetas en el tablero para empezar';
+                            if (!selectedStudentId) return 'Elige un alumno para empezar la partida';
+                            return null;
+                        })()}
                     >
-                        <Play size={20} /> {savingBoard ? 'Guardando tablero…' : 'Iniciar Partida'}
-                    </ButtonPremium>
+                        <ButtonPremium
+                            variant="success"
+                            onClick={handleStartPlay}
+                            disabled={!canStart || savingBoard}
+                            className="shadow-lg shadow-success-base/20"
+                        >
+                            <Play size={20} /> {savingBoard ? 'Guardando tablero…' : 'Iniciar Partida'}
+                        </ButtonPremium>
+                    </Tooltip>
                 </div>
             </header>
 

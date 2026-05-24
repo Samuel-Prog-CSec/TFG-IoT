@@ -224,7 +224,7 @@ const CSV_COLUMNS = [
   { key: "classroom", label: "Aula" },
   { key: "totalGames", label: "Partidas" },
   { key: "averageScore", label: "Puntuación" },
-  { key: "accuracyRate", label: "Tasa Acierto" },
+  { key: "accuracyRate", label: "Tasa de acierto" },
   { key: "avgResponseTime", label: "Tiempo Respuesta" },
   { key: "maxSequenceLengthAchieved", label: "Mejor Secuencia" },
   { key: "lastPlayedAt", label: "Última Actividad" },
@@ -247,8 +247,8 @@ const TABLE_COLUMNS = [
   { key: "name", label: "Alumno", sortable: true },
   { key: "classroom", label: "Aula", sortable: true },
   { key: "totalGames", label: "Partidas", sortable: true },
-  { key: "averageScore", label: "Score", sortable: true },
-  { key: "accuracyRate", label: "Tasa Acierto", sortable: true },
+  { key: "averageScore", label: "Puntuación", sortable: true },
+  { key: "accuracyRate", label: "Tasa de acierto", sortable: true },
   { key: "avgResponseTime", label: "Tiempo Resp", sortable: true },
   // T-922 criterio 7: vista comparativa con "Mejor Secuencia". Tooltip
   // explica que es la longitud máxima de secuencia reproducida correctamente.

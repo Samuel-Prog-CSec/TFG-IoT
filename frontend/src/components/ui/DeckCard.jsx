@@ -12,11 +12,15 @@
  */
 
 import { useState, useRef, useMemo, useEffect } from 'react';
+import { Link } from 'react-router-dom';
 import { motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { Layers, Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
+import { ROUTES } from '../../constants/routes';
 import { getContextTheme } from '../../lib/contextTheme';
+
+const MotionLink = motion.create(Link);
 import { useSharedLayoutTransition } from '../../hooks/useSharedLayoutTransition';
 import Tooltip from './Tooltip';
 import CardAssetPreview from './CardAssetPreview';
@@ -502,16 +506,38 @@ function DeckCardHeader({
               className="block w-full"
               textClassName="font-bold text-text-primary text-lg leading-tight line-clamp-1 font-display truncate block"
               inputClassName="text-lg font-bold font-display w-full"
-              as="h3"
+              as="h2"
             />
           ) : (
-            <h3 className="font-semibold text-text-primary text-lg leading-tight line-clamp-1 font-display truncate" title={deck.name}>
+            // h2 alineado con el header de página (h1 "Mis Mazos"); usar h3
+            // directamente bajo h1 viola WCAG 1.3.1 / Lighthouse heading-order
+            // (auditoría 24/05/2026 — mismo motivo que en SessionsPage).
+            <h2 className="font-semibold text-text-primary text-lg leading-tight line-clamp-1 font-display truncate" title={deck.name}>
               {deck.name}
-            </h3>
+            </h2>
           )}
-          <span className={cn('text-xs font-medium truncate block', theme.textClass)}>
-            {contextRef?.name || 'Sin contexto'}
-          </span>
+          {(() => {
+            // Cuando el nombre del mazo coincide con el contexto (mazo "monotemático",
+            // ej. "Números del 1 al 6" sobre contexto "Números del 1 al 6"), repetir el
+            // nombre del contexto produce duplicación visual ruidosa. Mostramos el
+            // conteo de cartas como tagline alternativo para conservar densidad
+            // informativa pero sin redundancia.
+            const ctxName = contextRef?.name?.trim();
+            const deckName = deck.name?.trim();
+            const isDuplicate = ctxName && deckName && ctxName.toLowerCase() === deckName.toLowerCase();
+            if (isDuplicate) {
+              return (
+                <span className={cn('text-xs font-medium truncate block', theme.textClass)}>
+                  Mazo monotemático
+                </span>
+              );
+            }
+            return (
+              <span className={cn('text-xs font-medium truncate block', theme.textClass)}>
+                {ctxName || 'Sin contexto'}
+              </span>
+            );
+          })()}
         </div>
       </div>
 
@@ -672,6 +698,8 @@ function DeckHoverActions({ selectable, showActions, deck, onView, onEdit, onDel
     return null;
   }
 
+  const deckId = deck.id || deck._id;
+
   return (
     <motion.div
       className={cn(
@@ -687,9 +715,16 @@ function DeckHoverActions({ selectable, showActions, deck, onView, onEdit, onDel
       onPointerMove={(e) => e.stopPropagation()}
     >
       <div className="flex items-center justify-center gap-2">
+        {/* "Ver"/"Editar" son navegación → `<Link>` (no `<button>`): permite
+            Ctrl/Cmd+clic para abrir en pestaña nueva, clic central, y los
+            screen readers los anuncian como enlaces (auditoría 24/05/2026).
+            `onClick` se conserva como hook opcional para el padre, pero la
+            navegación la realiza el href. "Archivar" sigue `<button>` porque
+            abre un modal, no navega. */}
         <ActionButton
           icon={Eye}
           label="Ver"
+          href={deckId ? ROUTES.CARD_DECKS_DETAIL(deckId) : undefined}
           onClick={(event) => {
             event.stopPropagation();
             onView?.(deck);
@@ -698,6 +733,7 @@ function DeckHoverActions({ selectable, showActions, deck, onView, onEdit, onDel
         <ActionButton
           icon={Edit2}
           label="Editar"
+          href={deckId ? ROUTES.CARD_DECKS_EDIT(deckId) : undefined}
           onClick={(event) => {
             event.stopPropagation();
             onEdit?.(deck);
@@ -768,23 +804,44 @@ function AnimateMenu({ isOpen, onView, onEdit, onDelete }) {
 }
 
 /**
- * ActionButton - Botón de acción para las cards
+ * ActionButton - Acción para las cards. Renderiza `<Link>` si recibe `href`
+ * (navegación: permite Ctrl+clic / pestaña nueva / semántica de enlace para
+ * screen readers), o `<button>` si solo recibe `onClick` (acciones que no
+ * navegan, p. ej. abrir un modal de archivar).
  */
-function ActionButton({ icon: Icon, label, onClick, variant = 'default' }) {
+function ActionButton({ icon: Icon, label, onClick, href, variant = 'default' }) {
+  const sharedClassName = cn(
+    'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
+    variant === 'default' && 'bg-border-default text-text-primary hover:bg-border-strong',
+    // 'subtle' (Archivar): reposo neutro tipo ghost; warning solo en hover.
+    // Antes "Archivar" pintaba en warning sólido (ring + bg) en reposo y se
+    // confundía con destructive — pero archivar es reversible (no borra el
+    // mazo). El reposo neutro comunica la naturaleza menos drástica de la
+    // acción y deja warning para "casi destructivo" (QA 2026-05-07).
+    variant === 'subtle' && 'bg-background-surface/40 text-text-secondary hover:bg-warning-base/15 hover:text-warning-base',
+    variant === 'warning' && 'bg-warning-base/15 text-warning-base hover:bg-warning-base/25 ring-1 ring-inset ring-warning-base/20',
+    variant === 'danger' && 'bg-error-base/20 text-error-base hover:bg-error-base/30'
+  );
+
+  if (href) {
+    return (
+      <MotionLink
+        to={href}
+        className={sharedClassName}
+        onClick={onClick}
+        whileHover={{ scale: 1.05 }}
+        whileTap={{ scale: 0.95 }}
+        aria-label={label}
+      >
+        <Icon size={14} aria-hidden="true" />
+        <span>{label}</span>
+      </MotionLink>
+    );
+  }
+
   return (
     <motion.button
-      className={cn(
-        'flex items-center gap-1.5 px-3 py-2 rounded-lg text-xs font-medium transition-colors',
-        variant === 'default' && 'bg-border-default text-text-primary hover:bg-border-strong',
-        // 'subtle' (Archivar): reposo neutro tipo ghost; warning solo en hover.
-        // Antes "Archivar" pintaba en warning sólido (ring + bg) en reposo y se
-        // confundía con destructive — pero archivar es reversible (no borra el
-        // mazo). El reposo neutro comunica la naturaleza menos drástica de la
-        // acción y deja warning para "casi destructivo" (QA 2026-05-07).
-        variant === 'subtle' && 'bg-background-surface/40 text-text-secondary hover:bg-warning-base/15 hover:text-warning-base',
-        variant === 'warning' && 'bg-warning-base/15 text-warning-base hover:bg-warning-base/25 ring-1 ring-inset ring-warning-base/20',
-        variant === 'danger' && 'bg-error-base/20 text-error-base hover:bg-error-base/30'
-      )}
+      className={sharedClassName}
       onClick={onClick}
       whileHover={{ scale: 1.05 }}
       whileTap={{ scale: 0.95 }}
@@ -800,6 +857,7 @@ ActionButton.propTypes = {
   icon: PropTypes.elementType.isRequired,
   label: PropTypes.string.isRequired,
   onClick: PropTypes.func.isRequired,
+  href: PropTypes.string,
   variant: PropTypes.oneOf(['default', 'subtle', 'warning', 'danger']),
 };
 

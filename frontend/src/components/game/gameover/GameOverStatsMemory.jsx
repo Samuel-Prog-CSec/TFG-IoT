@@ -24,9 +24,16 @@ function GameOverStatsMemory({ summary }) {
   const groupSize = Number(memoryDetail?.groupSize || 2);
   const isTrios = groupSize >= 3;
 
-  const avgTimeLabel = summary?.averageResponseTimeMs > 0
-    ? `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`
-    : 'N/A';
+  // BUG-GAMEOVER-KPIS-1: "T. medio" leía `averageResponseTimeMs`, que en
+  // Memoria el backend deja en 0 — el tiempo medio real entre cartas de un
+  // grupo se persiste en `memory.averageMatchTimeMs` (coincide con el tooltip).
+  // Priorizamos esa métrica específica de Memoria y caemos al genérico solo
+  // si no existe (auditoría 24/05/2026).
+  const avgMatchMs = Number(memoryDetail?.averageMatchTimeMs || 0);
+  const avgTimeMs = avgMatchMs > 0 ? avgMatchMs : Number(summary?.averageResponseTimeMs || 0);
+  const avgTimeLabel = avgTimeMs > 0
+    ? `${(avgTimeMs / 1000).toFixed(1)}s`
+    : '—';
   const totalTimeLabel = summary?.totalTimePlayed > 0
     ? `${(summary.totalTimePlayed / (1000 * 60)).toFixed(1)} min`
     : '—';

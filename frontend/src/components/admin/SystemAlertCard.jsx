@@ -145,7 +145,9 @@ export default function SystemAlertCard({
                 className="text-amber-400 fill-amber-400/30"
               />
             )}
-            <h3 className="font-semibold text-text-primary text-sm">{alert.title}</h3>
+            {/* h2 directo bajo el h1 del page hero (AdminPageHero). Antes h3
+                directo violaba heading-order (auditoría 24/05/2026). */}
+            <h2 className="font-semibold text-text-primary text-sm">{alert.title}</h2>
             <span
               className={cn(
                 'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-wide',

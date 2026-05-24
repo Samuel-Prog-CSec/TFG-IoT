@@ -29,6 +29,7 @@ import {
   EyeOff
 } from 'lucide-react';
 import { authAPI, extractErrorMessage } from '../../services/api';
+import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import ButtonPremium from '../../components/ui/ButtonPremium';
 import AdminPageShell from '../../components/admin/AdminPageHero';
 import ConfirmationModal, {
@@ -599,6 +600,10 @@ const MfaSetupWizard = ({ onCompleted }) => {
 // =============================================================================
 
 const MfaSetupPage = () => {
+  // useDocumentTitle: el resto de páginas admin actualizan el <title> via
+  // este hook. MfaSetup quedaba como "EduPlay - Juegos Educativos RFID"
+  // (auditoría 24/05/2026).
+  useDocumentTitle('Seguridad · MFA');
   const [status, setStatus] = useState(null); // null=loading, object=loaded
   const [error, setError] = useState(null);
   const [regeneratedCodes, setRegeneratedCodes] = useState(null);

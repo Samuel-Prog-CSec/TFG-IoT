@@ -183,6 +183,59 @@ describe('sequenceFlow.processSequenceScan', () => {
   });
 });
 
+describe('sequenceFlow score accumulation (BUG-SEQUENCE-SCORE-1)', () => {
+  beforeEach(() => {
+    jest.clearAllTimers();
+  });
+
+  // El mock no-op de `addEventAtomic` del entorno base ocultaba el doble
+  // conteo: en producción `addEventAtomic` ejecuta `applyEventToDocState`, que
+  // hace `doc.score += pointsAwarded`. Este mock fiel lo replica para que el
+  // test vea el score real que vería un alumno en el HUD.
+  const attachFaithfulAddEvent = playState => {
+    playState.playDoc.addEventAtomic = jest.fn(async eventData => {
+      if (typeof eventData.pointsAwarded === 'number') {
+        playState.playDoc.score += eventData.pointsAwarded;
+      }
+    });
+  };
+
+  it('suma pointsPerCorrect UNA sola vez por acierto (no duplica en memoria)', async () => {
+    const { engine, playState } = buildEnvironment();
+    attachFaithfulAddEvent(playState);
+
+    sequenceFlow.startSequenceMemorizingPhase(engine, 'play-1');
+    jest.advanceTimersByTime(3000);
+
+    // pointsPerCorrect = 10 → un acierto debe dejar score en 10, no en 20.
+    await sequenceFlow.processSequenceScan(engine, 'play-1', playState, {
+      uid: 'UID01',
+      assignedValue: 'Value-UID01'
+    });
+
+    expect(playState.playDoc.score).toBe(10);
+  });
+
+  it('el score emitido in-game coincide con el acumulado real tras 2 aciertos', async () => {
+    const { engine, playState, emit } = buildEnvironment();
+    attachFaithfulAddEvent(playState);
+
+    sequenceFlow.startSequenceMemorizingPhase(engine, 'play-1');
+    jest.advanceTimersByTime(3000);
+
+    await sequenceFlow.processSequenceScan(engine, 'play-1', playState, { uid: 'UID01' });
+    await sequenceFlow.processSequenceScan(engine, 'play-1', playState, { uid: 'UID02' });
+
+    // 2 aciertos × 10 = 20 (no 40). El score emitido en el último
+    // sequence_card_result debe coincidir con el score real del documento,
+    // que es el que verá el GameOver al terminar (game_over usa playDoc.score).
+    expect(playState.playDoc.score).toBe(20);
+    const cardResults = emit.mock.calls.filter(([name]) => name === 'sequence_card_result');
+    const lastCardResult = cardResults[cardResults.length - 1][1];
+    expect(lastCardResult.score).toBe(20);
+  });
+});
+
 describe('sequenceFlow.handleSequenceRoundTimeout', () => {
   beforeEach(() => {
     jest.clearAllTimers();

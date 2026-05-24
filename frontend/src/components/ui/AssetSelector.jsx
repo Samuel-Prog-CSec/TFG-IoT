@@ -55,7 +55,7 @@ export default function AssetSelector({
   assignedAssets = EMPTY_ARRAY,
   assetUsageCounts = null,
   showSearch = true,
-  placeholder = 'Buscar asset...',
+  placeholder = 'Buscar recurso...',
   className,
   columns = 4,
 }) {
@@ -308,7 +308,7 @@ export default function AssetSelector({
           className="flex flex-col items-center justify-center py-12 text-text-muted"
         >
           <Search size={48} className="mb-4 opacity-50" />
-          <p className="text-sm">No se encontraron assets</p>
+          <p className="text-sm">No se encontraron recursos</p>
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}

@@ -54,6 +54,19 @@ const buttonVariants = cva(
           'border border-white/10',
           'shadow-[0_4px_16px_var(--color-error-glow)]',
           'hover:shadow-[0_4px_24px_var(--color-error-glow)]'
+        ],
+        // Reservado a acciones de aviso reversibles (archivar, salir de partida,
+        // transferir alumnos). Distinto de `danger` (destructivo irreversible)
+        // y de `primary` (acción principal positiva). Sin esta variante,
+        // ConfirmationModal con variant="warning"|"archive" caía al default
+        // primary y el botón Confirmar mostraba color brand morado, perdiendo
+        // la señal cromática del modal (icono+tint amber, botón morado).
+        warning: [
+          'bg-gradient-to-r from-warning-dark to-accent-amber',
+          'text-white font-semibold',
+          'border border-white/10',
+          'shadow-[0_4px_16px_var(--color-warning-glow)]',
+          'hover:shadow-[0_4px_24px_var(--color-warning-glow)]'
         ]
       },
       size: {
@@ -76,7 +89,7 @@ const buttonVariants = cva(
  * @param {Object} props
  * @param {React.ReactNode} props.children - Texto o contenido del botón
  * @param {string} props.className - Clases de Tailwind adicionales de sobrescritura
- * @param {'primary'|'secondary'|'ghost'|'success'|'danger'} props.variant 
+ * @param {'primary'|'secondary'|'ghost'|'success'|'danger'|'warning'} props.variant
  * @param {'sm'|'md'|'lg'|'icon'} props.size 
  * @param {boolean} props.loading - Estado visual de carga (muestra spinner)
  * @param {React.ReactNode} props.icon - Componente de ícono (ej. <LucideIcon />)

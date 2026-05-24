@@ -143,9 +143,9 @@ function TopTeachersCard({ teachers }) {
           <div className="p-2 rounded-lg bg-brand-base/10">
             <Trophy size={20} className="text-brand-base" aria-hidden="true" />
           </div>
-          <h3 className="text-base font-semibold text-text-primary font-display">
+          <h2 className="text-base font-semibold text-text-primary font-display">
             Top profesores activos
-          </h3>
+          </h2>
         </div>
         <div className="h-40 flex items-center justify-center">
           <p className="text-sm text-text-muted text-center">
@@ -162,9 +162,9 @@ function TopTeachersCard({ teachers }) {
         <div className="p-2 rounded-lg bg-brand-base/10">
           <Trophy size={20} className="text-brand-base" aria-hidden="true" />
         </div>
-        <h3 className="text-base font-semibold text-text-primary font-display">
+        <h2 className="text-base font-semibold text-text-primary font-display">
           Top profesores activos
-        </h3>
+        </h2>
       </div>
       <ul className="space-y-2.5">
         {teachers.map((t) => {
@@ -238,9 +238,9 @@ function AlertsByTeacherCard({ byTeacher }) {
           <div className="p-2 rounded-lg bg-error-base/10">
             <AlertTriangle size={20} className="text-error-base" aria-hidden="true" />
           </div>
-          <h3 className="text-base font-semibold text-text-primary font-display">
+          <h2 className="text-base font-semibold text-text-primary font-display">
             Alertas por profesor
-          </h3>
+          </h2>
         </div>
         <div className="h-40 flex flex-col items-center justify-center gap-2 text-center px-4">
           <Sparkles size={28} className="text-success-base/70" aria-hidden="true" />
@@ -259,9 +259,9 @@ function AlertsByTeacherCard({ byTeacher }) {
           <div className="p-2 rounded-lg bg-error-base/10">
             <AlertTriangle size={20} className="text-error-base" aria-hidden="true" />
           </div>
-          <h3 className="text-base font-semibold text-text-primary font-display">
+          <h2 className="text-base font-semibold text-text-primary font-display">
             Alertas por profesor
-          </h3>
+          </h2>
         </div>
         <span className="text-xs text-text-muted">Activas</span>
       </div>
@@ -283,12 +283,20 @@ function AlertsByTeacherCard({ byTeacher }) {
                   {total}
                 </span>
               </div>
-              <div className="relative h-2 w-full overflow-hidden rounded-full bg-background-surface/40">
-                {/* Críticas (rojo) primero */}
+              <div
+                className="relative h-2 w-full overflow-hidden rounded-full bg-background-surface/40"
+                role="img"
+                aria-label={`${t.criticalCount} alertas críticas y ${t.warningCount} en aviso para ${t.teacherName}`}
+              >
+                {/* Críticas (rojo) primero. `aria-hidden` para no duplicar
+                    información: el role=img del contenedor lleva el aria-label
+                    completo. Antes cada banda usaba `aria-label` directamente
+                    sobre un `<div>` sin role, lo que viola aria-prohibited-attr
+                    (auditoría 24/05/2026). */}
                 <div
                   className="absolute inset-y-0 left-0 bg-error-base/80 rounded-full"
                   style={{ width: `${criticalPct}%` }}
-                  aria-label={`${t.criticalCount} criticas`}
+                  aria-hidden="true"
                 />
                 {/* Warning a continuación */}
                 <div
@@ -297,7 +305,7 @@ function AlertsByTeacherCard({ byTeacher }) {
                     left: `${criticalPct}%`,
                     width: `${warningPct}%`
                   }}
-                  aria-label={`${t.warningCount} en aviso`}
+                  aria-hidden="true"
                 />
               </div>
               <div className="flex items-center gap-3 text-[11px] text-text-muted">
@@ -345,9 +353,9 @@ function DimensionRankingCard({ title, icon: Icon, items, dimension }) {
           <div className="p-2 rounded-lg bg-brand-base/10">
             <Icon size={20} className="text-brand-base" aria-hidden="true" />
           </div>
-          <h3 className="text-base font-semibold text-text-primary font-display">
+          <h2 className="text-base font-semibold text-text-primary font-display">
             {title}
-          </h3>
+          </h2>
         </div>
         <div className="h-40 flex items-center justify-center">
           <p className="text-sm text-text-muted text-center">
@@ -364,9 +372,9 @@ function DimensionRankingCard({ title, icon: Icon, items, dimension }) {
         <div className="p-2 rounded-lg bg-brand-base/10">
           <Icon size={20} className="text-brand-base" aria-hidden="true" />
         </div>
-        <h3 className="text-base font-semibold text-text-primary font-display">
+        <h2 className="text-base font-semibold text-text-primary font-display">
           {title}
-        </h3>
+        </h2>
       </div>
       <ul className="space-y-2.5">
         {items.map((item) => {
@@ -385,11 +393,18 @@ function DimensionRankingCard({ title, icon: Icon, items, dimension }) {
                 <p className="text-sm font-medium text-text-primary truncate mb-1">
                   {name}
                 </p>
-                <div className="h-1.5 w-full overflow-hidden rounded-full bg-background-surface/40">
+                <div
+                  className="h-1.5 w-full overflow-hidden rounded-full bg-background-surface/40"
+                  role="img"
+                  aria-label={`${item.totalPlays} partidas en ${name}`}
+                >
+                  {/* aria-hidden en la banda interna: el contenedor lleva el
+                      aria-label completo. Sin esto, aria-label sobre un <div>
+                      sin role viola aria-prohibited-attr. */}
                   <div
                     className={cn('h-full rounded-full', RAG_BAR_CLASSES[rag])}
                     style={{ width: `${playsPct}%` }}
-                    aria-label={`${item.totalPlays} partidas`}
+                    aria-hidden="true"
                   />
                 </div>
               </div>

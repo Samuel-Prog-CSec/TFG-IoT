@@ -609,6 +609,25 @@
       transition: none !important;
     }
   }
+
+  /* Equivalente in-app del media query anterior. El toggle "Animaciones" del
+     sidebar marca `<html data-reduced-motion="reduce">` desde `useReducedMotion`;
+     sin esto, las transiciones CSS puras (aurora, scanlines de auth-card y
+     rfid-hover, hover-lift de cards interactivas) seguían activas aunque el
+     usuario hubiese pedido reducir motion in-app — sólo Framer Motion respetaba
+     el toggle (auditoría UI/UX 24/05/2026). */
+  html[data-reduced-motion="reduce"] *,
+  html[data-reduced-motion="reduce"] *::before,
+  html[data-reduced-motion="reduce"] *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+  html[data-reduced-motion="reduce"] ::view-transition-old(root),
+  html[data-reduced-motion="reduce"] ::view-transition-new(root) {
+    animation: none !important;
+  }
 }
 
 /* ============================================

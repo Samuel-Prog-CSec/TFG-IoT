@@ -128,7 +128,11 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
         dataTableCaption={`Efectividad agrupada por ${dimensionLabel.toLowerCase()}`}
         focusable={false}
         headerExtra={
-          <div className="flex items-center gap-3 text-xs text-text-muted">
+          // `text-text-secondary` (no -muted): la leyenda se monta sobre
+          // backgrounds atmosféricos con washes rosados/amber. Lighthouse
+          // reportó contraste 4.07:1 con muted en light (auditoría
+          // 24/05/2026). `text-secondary` sube a ~8:1 sin perder jerarquía.
+          <div className="flex items-center gap-3 text-xs text-text-secondary">
             {/* Leyenda con color + icono — no depende solo de color (WCAG 1.4.1). */}
             <span className="flex items-center gap-1">
               <CircleCheck size={12} className="text-success-base" aria-hidden="true" />

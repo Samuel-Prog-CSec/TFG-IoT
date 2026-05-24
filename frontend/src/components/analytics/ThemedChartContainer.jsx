@@ -46,7 +46,7 @@ import { cn } from '../../lib/utils';
  * @param {React.ReactNode} [props.headerExtra] — Contenido extra a la
  *   derecha del título (badges, leyendas inline, etc.).
  * @param {string} [props.className]
- * @param {string} [props.as='h3'] — Tag del título.
+ * @param {string} [props.as='h2'] — Tag del título.
  * @param {boolean} [props.focusable=true] — Si el chart es focusable con
  *   teclado. Desactiva si el chart es decorativo (sparkline en card).
  */
@@ -58,7 +58,10 @@ export default function ThemedChartContainer({
   children,
   headerExtra,
   className,
-  as: TitleTag = 'h3',
+  // h2 por defecto: el contenedor padre (StudentProfile, Insights, Dashboard)
+  // tiene h1 como título de página. h3 directo bajo h1 viola heading-order.
+  // Los consumidores que necesiten otro nivel pasan `as` explícitamente.
+  as: TitleTag = 'h2',
   focusable = false,
 }) {
   const titleId = useId();

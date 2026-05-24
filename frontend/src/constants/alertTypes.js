@@ -112,25 +112,30 @@ export const SEVERITY_STYLES = {
 /**
  * Estilos por estado del ciclo de vida.
  */
+// Los `text-{tone}-on-alpha` están calibrados para AA (4.5:1) sobre los
+// alpha-bg correspondientes (`bg-{tone}-base/10..20` mezclado con
+// `bg-background-elevated` en ambos temas). Usar `text-{tone}-base` directo
+// caía a ~3.65:1 en dark — Lighthouse lo reportó en SystemAlertsPage
+// (auditoría 24/05/2026).
 export const STATUS_STYLES = {
   active: {
     label: 'Activas',
-    badge: 'bg-error-base/10 text-error-base border-error-base/20',
+    badge: 'bg-error-base/10 text-error-on-alpha border-error-base/20',
     Icon: AlertOctagon
   },
   resolved: {
     label: 'Resueltas',
-    badge: 'bg-success-base/10 text-success-base border-success-base/20',
+    badge: 'bg-success-base/10 text-success-on-alpha border-success-base/20',
     Icon: CheckCircle2
   },
   dismissed: {
     label: 'Descartadas',
-    badge: 'bg-text-muted/10 text-text-muted border-text-muted/20',
+    badge: 'bg-text-muted/10 text-text-secondary border-text-muted/20',
     Icon: BellOff
   },
   snoozed: {
     label: 'En pausa',
-    badge: 'bg-info-base/10 text-info-base border-info-base/20',
+    badge: 'bg-info-base/10 text-info-on-alpha border-info-base/20',
     Icon: Pause
   }
 };

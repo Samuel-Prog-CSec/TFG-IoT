@@ -108,7 +108,7 @@ export default function CardAssetPreview({
           <img
             ref={imgRef}
             src={displaySrc}
-            alt={alt || asset?.value || 'Asset'}
+            alt={alt || asset?.value || 'Recurso'}
             className={cn(
               'w-full h-full transition-opacity duration-400 ease-out',
               fit === 'contain' ? 'object-contain' : 'object-cover',
