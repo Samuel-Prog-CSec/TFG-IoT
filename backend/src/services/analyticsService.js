@@ -450,7 +450,14 @@ const ANALYTICS_CONSENT_FILTER = {
  * @private
  */
 async function getAnalyticsExcludedPlayerIds(teacherId) {
-  return cacheGet(
+  // Mismo motivo que `getTeacherSessionIds`: el cache JSON convierte los
+  // ObjectId en string en un cache HIT. Como estos ids alimentan un
+  // `$nin: excludedIds` contra `playerId` (ObjectId), si devolviéramos los
+  // strings el `$nin` no casaría con NINGÚN playerId y la exclusión por
+  // consentimiento dejaría de aplicarse en cache HIT — fuga RGPD (Art. 21):
+  // las partidas de alumnos sin consentimiento de analytics se colarían en
+  // las aggregaciones. Cacheamos como string y devolvemos siempre ObjectId.
+  const ids = await cacheGet(
     'cache:analytics',
     `excluded:${teacherId}`,
     async () => {
@@ -465,10 +472,11 @@ async function getAnalyticsExcludedPlayerIds(teacherId) {
         },
         { select: '_id' }
       );
-      return excluded.map(s => s._id);
+      return excluded.map(s => s._id.toString());
     },
     60
   ); // TTL 60s — los cambios de consentimiento son infrecuentes
+  return ids.map(id => new mongoose.Types.ObjectId(id));
 }
 
 // ══════════════════════════════════════════════════════════════════════
@@ -555,7 +563,15 @@ async function getTeacherSessionIds(teacherId, options = {}) {
   const statusKey = Array.isArray(options.status)
     ? options.status.slice().sort().join(',')
     : options.status || 'all';
-  return cacheGet(
+  // El cache serializa a JSON: los ObjectId se guardan como string y en un
+  // cache HIT vuelven como string. Si devolviéramos esos strings, el
+  // `$in: teacherSessionIds` de los pipelines NO casa contra el campo
+  // `sessionId` (ObjectId) y la aggregation devuelve 0 — bug intermitente que
+  // vaciaba Tendencia / Mapa de calor / Actividad del dashboard según qué
+  // endpoint ganaba la carrera por el cache miss (QA 2026-05-25). Cacheamos
+  // como string (representación estable entre miss y hit) y SIEMPRE devolvemos
+  // ObjectId al consumidor.
+  const ids = await cacheGet(
     'cache:analytics',
     `teacherSessions:${teacherId}:${statusKey}`,
     async () => {
@@ -566,10 +582,11 @@ async function getTeacherSessionIds(teacherId, options = {}) {
         query.status = Array.isArray(options.status) ? { $in: options.status } : options.status;
       }
       const sessions = await gameSessionRepository.find(query, { select: '_id' });
-      return sessions.map(s => s._id);
+      return sessions.map(s => s._id.toString());
     },
     300
   ); // TTL 300s con jitter (B.2) — equilibra frescura tras crear sesión vs hit-rate
+  return ids.map(id => new mongoose.Types.ObjectId(id));
 }
 
 /**

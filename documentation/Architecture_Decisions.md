@@ -9520,3 +9520,170 @@ Dos bugs heredados de la QA intensiva del 14/05/2026 quedaban abiertos sin causa
 - El churn de socket en login (NEW_LOGIN kick) persiste por diseño (seguridad de sesión única). Es un evento único por login, self-healing, no por navegación.
 - **Importante para verificación E2E:** el contenedor backend en dev NO recarga cambios de `src/` automáticamente en Windows+Docker (inotify no propaga a bind mounts; nodemon no detecta). Hay que `docker compose restart backend` tras editar backend para validar E2E — detectado en esta sesión: la primera pasada E2E mostró el bug aún activo porque el contenedor corría el código viejo.
 
+## ADR-183: Coerción a ObjectId tras cache en helpers de analytics (`getTeacherSessionIds` / `getAnalyticsExcludedPlayerIds`) [Backend, RGPD]
+
+### Contexto
+
+Durante la QA UI/UX (25/05/2026) el Dashboard del docente mostraba de forma **intermitente** los gráficos «Rendimiento de Clase (Tendencia)», «Mapa de Calor de Dificultad» y «Actividad Semanal» como vacíos («Sin datos disponibles») pese a existir 54 partidas completadas en los últimos 7 días para el aula. Otros widgets del mismo dashboard (Resumen, Distribución) sí mostraban datos. Una réplica directa del `$match` de `getClassroomComparison` ejecutada contra MongoDB devolvía las 3 filas esperadas (16/16/22 partidas), pero el endpoint devolvía `playCount: 0` en todos los días — incluso tras vaciar la caché de Redis.
+
+### Causa raíz
+
+`getTeacherSessionIds` y `getAnalyticsExcludedPlayerIds` cachean en Redis (vía `cacheGet`, patrón cache-aside) un array de `ObjectId` (`sessions.map(s => s._id)`). `cacheGet` serializa con `JSON.stringify` al guardar y `JSON.parse` al leer. En un **cache MISS** el llamante recibe los `ObjectId` reales (el valor que devolvió el `fetchFn`), pero en un **cache HIT** recibe el valor deserializado: **strings** de 24 hex. Los pipelines hacen `sessionId: { $in: teacherSessionIds }` y `playerId: { $nin: excludedIds }` contra campos `ObjectId`; un `$in`/`$nin` con strings **no casa con ningún `ObjectId`**.
+
+Como el dashboard dispara 5+ endpoints en paralelo que comparten la misma key cacheada, el **primero** (cache miss) recibía `ObjectId` y funcionaba (p. ej. Resumen → 205), mientras los siguientes (cache hit) recibían strings y devolvían 0. Qué gráfico quedaba vacío dependía de la carrera por el miss → **bug intermitente** y difícil de reproducir. Verificado leyendo el valor en Redis: `["6a143462…","6a143087…", …]` (strings).
+
+**Impacto RGPD.** En `getAnalyticsExcludedPlayerIds` el efecto es más grave que un gráfico vacío: con `$nin: [strings]` la exclusión por consentimiento (Art. 21 RGPD — oposición al tratamiento con fines de análisis) **deja de aplicarse** en cache HIT, de modo que partidas de alumnos sin consentimiento de `performance_analytics` se colarían en las aggregaciones de clase.
+
+### Decisión
+
+Cachear la **representación estable** (strings vía `.map(s => s._id.toString())`) y **coercer siempre a `ObjectId` en el retorno** (`ids.map(id => new mongoose.Types.ObjectId(id))`). El constructor de `ObjectId` acepta tanto un `ObjectId` como un hex de 24 chars, así que la coerción es correcta tanto en miss como en hit. Con esto el valor devuelto al consumidor es siempre `ObjectId`, independientemente del estado de la caché.
+
+### Verificación
+
+- Réplica del `$match` en Mongo: 54 partidas en 7 días (16/16/22). Tras el fix + `docker restart backend` (sin re-vaciar caché, validando el caso real de cache HIT con strings), el endpoint `classroom/comparison` devuelve las 3 filas con `classAverage` reales (48.6 / 55.6 / 45.3) y el Dashboard renderiza Tendencia, Mapa de Calor y Actividad Semanal con datos.
+- Suites backend de analytics + enforcement de consentimiento (Art. 21) verdes (`analyticsConsentEnforcement`, `analyticsEndpoints`, `analyticsCacheCoverage`, `auditWithExclusions`).
+
+### Consecuencias
+
+- **Positivos:** los gráficos temporales del dashboard dejan de vaciarse de forma intermitente; la exclusión por consentimiento vuelve a ser fiable bajo caché caliente (cierra una fuga RGPD latente); fix transversal — beneficia a todos los consumidores de ambos helpers (comparison, trends, summary, difficulties, heatmap, engagement).
+- **Patrón a vigilar:** cualquier helper que cachee `ObjectId` con `cacheGet` y los use en `$in`/`$nin` necesita la misma coerción. Auditados el resto de `.map(x => x._id)` del backend: los demás se usan en la misma request (sin viaje por Redis), así que no están afectados. Migración completa (ambos helpers cacheados corregidos), no piloto parcial.
+- **Nota de entorno:** el bug era invisible con caché fría (siempre miss → siempre `ObjectId`); solo aparece dentro de la ventana de TTL (300s sesiones, 60s exclusiones). Por eso pasaba desapercibido en tests que arrancan con Redis limpio.
+
+## ADR-184: GameOver de Asociación — «¡Dominio total!» solo con el 100% de categorías intentadas [Frontend, UX]
+
+### Contexto
+
+En la pantalla final de una partida de Asociación con resultado 2/5 (32%, cabecera «¡NO TE RINDAS!» y mascota en modo consuelo), el bloque «Tus categorías» mostraba «Acertaste todas las categorías · **¡Dominio total!**» — un mensaje que contradice frontalmente un resultado de suspenso y confunde al docente que revisa el GameOver.
+
+### Causa raíz
+
+`GameOverStatsAssociation` calculaba `dominanceSummary` filtrando `byValueAccuracy` por `correct > 0` **antes** de decidir el modo `all` («Dominio total»). Con `{Vaca:1/1, Cerdo:0/1, Gallina:1/1, Pato:0/1}` el filtro descartaba las categorías falladas (Cerdo, Pato) y dejaba solo las dos acertadas, ambas al 100% → la condición «todas las categorías al 100%» se cumplía sobre el subconjunto superviviente y disparaba «¡Dominio total!». Es decir: bastaba acertar 2+ categorías al 100% para proclamar dominio total, sin importar cuántas se fallaran.
+
+### Decisión
+
+La determinación de «Dominio total» considera ahora **todas las categorías intentadas** (`total > 0`, incluidas las falladas con ratio 0): solo se muestra `mode: 'all'` si **todas** están al 100%. El subconjunto «más fuertes» (modos `tied`/`single`) sigue usando solo las que tienen algún acierto (una categoría fallada no es «fuerte»). Resultado para el caso 2/5: modo `tied` → «Empate entre tus categorías más fuertes · Vaca · Gallina» (veraz y motivador, sin proclamar un dominio inexistente).
+
+### Verificación
+
+Test de regresión añadido a `GameOverStatsAssociation.dominance.test.jsx` (caso 2/5 con falladas → NO «Dominio total», sí «más fuertes»); los 4 casos previos (todas al 100%, empate parcial, ganador único, sin detalle) siguen pasando. Suite del componente: 5/5 verde.
+
+### Consecuencias
+
+- **Positivos:** el GameOver deja de emitir un veredicto contradictorio; el mensaje de categorías es coherente con el score, la cabecera y la mascota.
+- **Alcance:** corrección aislada a la mecánica Asociación (Memoria y Secuencia no exponen `categoryDominance`). El umbral de «Dominio total» ahora es el correcto (cero fallos), preservando la intención original (premiar al alumno que acierta TODO sin que el backend lo infravalore al devolver una sola categoría por desempate alfabético).
+
+## ADR-185: Gestión de mazos — conteo real de tarjetas y fin del «dirty» falso al editar [Frontend]
+
+### Contexto
+
+Auditando los flujos de mazos (detalle / crear / editar) aparecieron dos defectos de UI en la gestión de mazos.
+
+### Defecto 1 — La card del listado infravalora las tarjetas de mazos con parejas
+
+El DTO de listado (`toCardDeckDTOV1`) envía `cardsCount` con la longitud REAL de `cardMappings`, pero **trunca `cardMappings` a 6** para el preview de miniaturas. `DeckCard` calculaba el conteo como `deck.cardMappings?.length ?? deck.cardsCount ?? 0`, es decir, usaba la longitud del array TRUNCADO (6) y solo caía a `cardsCount` si faltaba. Resultado: un mazo de memoria de 12 tarjetas mostraba «6 tarjetas» en la card del listado mientras el detalle mostraba «12 Tarjetas». **Fix:** invertir la precedencia → `deck.cardsCount ?? deck.cardMappings?.length ?? 0`. Ahora la card muestra el conteo real (12) y el indicador «+N» del preview cuadra (6 miniaturas + «+6»). Regresión: `DeckCard.cardsCount.test.jsx` (usa cardsCount sobre cardMappings truncado; cae a length si falta).
+
+### Defecto 2 — La página de edición marcaba «cambios sin guardar» nada más montar
+
+`DeckEditPage` deriva `hasChanges` comparando nombre/contexto/cartas/asignaciones contra el mazo cargado. El contexto se comparaba con `effectiveContext?._id !== originalContext`, pero `effectiveContext` cae a `null` mientras la lista `contexts` aún no ha cargado (o si el contexto del mazo no está en ella). Eso dejaba `contextChanged = true` de forma permanente al montar, activando el banner «Tienes cambios sin guardar», habilitando «Guardar Cambios» sobre un formulario intacto y armando el guard de `beforeunload` sin que el usuario tocara nada. Es el mismo síntoma que el previo BUG-DECK-2, ahora por la vía del contexto. **Fix:** la detección de cambio de contexto usa la selección EXPLÍCITA del usuario (`selectedContext`), que es `null` hasta que elige otro, en lugar de `effectiveContext` (que se sigue usando para mostrar/guardar). Verificado E2E: carga limpia → sin banner y Save deshabilitado; editar el nombre → banner aparece y Save se habilita (la detección de cambios reales se conserva).
+
+### Hallazgos relacionados (no corregidos en esta sesión, anotados)
+
+- **Validación de nombre en edición de mazo:** el campo de nombre no muestra error inline (aria-invalid) al vaciarse; la validación es un `toast` en submit (`handleSave` aborta con «El nombre debe tener al menos 3 caracteres» y no envía request). Funcionalmente seguro (sin request inválido, sin contaminar datos) pero el feedback podría ser inline. Además el cliente exige ≥3 y el backend ≥2 (desajuste trivial).
+- **Secuencia — fuga del objetivo por `alt` en fase de input:** las cartas-posición de la secuencia objetivo exponen su valor en el `alt` de la imagen (p.ej. «Naranja») durante la fase de reproducción, aunque visualmente muestran «?». Un lector de pantalla (o la inspección del DOM) obtiene la respuesta de un juego de memoria. Debatible si es intencional para accesibilidad SR; requiere decisión de diseño antes de tocarlo.
+
+### Consecuencias
+
+- **Positivos:** el conteo de tarjetas es coherente entre listado y detalle; la edición de mazo deja de molestar con un banner/guard falsos en cada apertura. Ambos verificados en vivo.
+- **Alcance:** correcciones aisladas a `DeckCard` y `DeckEditPage` (Frontend). `effectiveContext` se mantiene intacto para visualización y guardado; solo cambia la base de la detección de cambios.
+
+## ADR-186: Onboarding — afordancias de progreso visibles + cierre de la fuga del objetivo en Secuencia [Frontend, UX, a11y]
+
+### Contexto
+
+Dos decisiones tomadas con el usuario al cerrar la auditoría (el GOAL pide consultar antes de rediseñar y plantear las dudas): cómo elevar el onboarding (marcado como «algo básico» para usuarios no técnicos) y si corregir la exposición del objetivo de Secuencia detectada en QA.
+
+### Onboarding — elevación medida (no rediseño)
+
+El onboarding ya era sólido (multi-track docente/dirección, modal + spotlight con recorte del elemento real, Atrás/Siguiente/Saltar, Esc, dots como tablist, lenguaje tranquilizador para dirección, mascota, persistencia de borrador, «Ver tutorial»). El usuario eligió «elevaciones concretas medidas». **Implementado en `StepDots` (compartido por modal y spotlight):** una **barra de progreso fina** (`role="progressbar"` con `aria-valuenow/min/max`) y un **contador visible «Paso X de Y»**. Antes el número de paso solo vivía en el `aria-label` de cada dot (invisible). Para un usuario no técnico, una afordancia de progreso explícita comunica avance y cuánto queda mejor que sólo puntos. **Decisión deliberada de NO añadir ilustraciones bespoke por paso:** el `StepIcon` contextual (icono Lucide por paso, con tinte/glow) ya cumple como visual de paso, y generar arte por los 12 pasos arriesgaba inconsistencia / estética «AI slop» —justo lo que el GOAL busca evitar—. La mascota se mantiene (decisión previa del usuario: es imagen de marca). Verificado en vivo: barra y contador aparecen y se actualizan en pasos modal (1/7) y spotlight (2/7).
+
+### Secuencia — cierre de la fuga del objetivo por `img alt` en fase de input
+
+QA detectó que, durante la reproducción, las cartas-posición objetivo mostraban «?» visualmente pero su `SequenceCard` renderizaba siempre el `CardAssetPreview` (imagen cuyo `alt`/`fallbackLabel` es el valor, p.ej. «Naranja»), aunque la cara estuviera rotada por CSS. El valor quedaba en el DOM y en el árbol de accesibilidad: un lector de pantalla o la inspección del DOM revelaban la secuencia objetivo de un juego de memoria. El `aria-label` del **botón** ya estaba bien guardado en `SequenceBoard` («Carta oculta en posición N» boca abajo); la fuga era la imagen anidada. **Fix en `SequenceCard`:** el `CardAssetPreview` (valor) solo se monta cuando la carta está REVELADA (`isRevealed = status !== hidden || isFaceUp`); boca abajo la respuesta ya no existe en el DOM. Además la cara «?» se marca `aria-hidden` (es decorativa; el estado lo comunica el `aria-label` del botón). Durante memorización (`isFaceUp`) y tras revelar por resultado, el valor sí se muestra. Regresión: `SequenceCard.hiddenValue.test.jsx` (boca abajo → sin valor; memorizing/revelada → con valor); `SequenceBoard.ariaLabel.test.jsx` sigue verde.
+
+### Consecuencias
+
+- **Positivos:** onboarding con sensación de progreso explícita (más profesional para no técnicos) sin tocar su estructura ni la mascota; integridad del juego de memoria de Secuencia restaurada también para usuarios de lector de pantalla (no se puede «hacer trampa» leyendo el DOM/SR). Ambos verificados (en vivo + tests).
+- **Alcance:** `OnboardingOverlay` (StepDots) y `SequenceCard` (Frontend). La barra usa `width` con transición que el toggle global de reduced-motion neutraliza.
+
+## ADR-187: Cierre del backlog de la auditoría GOAL — informe `completionRate`, email en aprobaciones, TimerBar `scaleX`, ancho de la vista de dirección, validación inline de mazo y flush de caché en el seed [Full-stack, Performance, Analytics]
+
+### Contexto
+
+Tras la auditoría production-ready (ADR-183…186) quedó un backlog catalogado: hallazgos reales, mejoras, áreas por reauditar y matices de entorno. El usuario pidió atenderlo al completo salvo las decisiones ya tomadas. Esta ADR agrupa los cambios de código; las verificaciones que no requirieron código se navegaron en vivo y se resumen al final.
+
+### Informe del aula — «Tasa Completado» mostraba el engagement, no el completado [Backend, Analytics]
+
+`ReportGenerator` resuelve la tarjeta «Tasa Completado» con `kpis.completionRate` y, si falta, cae a `classEngagementScore`. El `overview` de `reportDataService` exponía `classEngagementScore` pero NO `completionRate`, así que el informe mostraba el engagement (~44-46%) etiquetado como completado, divergente de la tasa real del dashboard. El dato ya se calculaba (`classCompletionRate = completadas/totales` en `engagementService`); solo faltaba exponerlo. **Fix:** `completionRate: results[3].classCompletionRate` en el `overview`. Verificado en vivo: el informe a 30 días pasa a 88% (tasa real, distinta del 44% de puntuación media), coherente con el 100% del dashboard a 7 días (la diferencia es la ventana; ambas usan completadas/totales).
+
+### Lista de aprobaciones — email del docente pendiente ausente [Backend]
+
+`getPendingTeachers` serializa con `toUserListDTOV1` → `toUserSummaryDTOV1`, que no incluía `email`. La tarjeta y el modal mostraban un icono de sobre sin texto, pese a que el buscador ofrece «buscar por nombre o email» y la dirección necesita el email para decidir. **Fix:** `toUserSummaryDTOV1` expone `email` gated por rol con login (`teacher`/`super_admin`), igual que `toUserDTOV1`; los alumnos (menores, sin email) no se ven afectados. `email` no figura en los campos prohibidos del guard de sanitización de DTOs (solo password/MFA/metadatos de consentimiento), así que el test de minimización sigue verde; se añade aserción de regresión (docente con email, alumno sin email).
+
+### TimerBar — `scaleX` en vez de `width` [Frontend, Performance]
+
+La barra de tiempo animaba `width` en cada tick (3 capas), propiedad de layout que fuerza reflow en el bucle más caliente del juego. **Fix:** animar `scaleX` con `transform-origin: left` (compuesto en GPU, sin layout/paint); el track `overflow-hidden rounded-full` recorta la forma y el frente queda como borde nítido. Verificado en vivo a tope, en estado crítico (~17%, rojo) y congelado en pausa: escala bien, sin distorsión. (La barra de progreso del onboarding, ADR-186, conserva `width`: es una afordancia puntual, no un bucle por frame.)
+
+### Vista del centro (AdminDashboard) — ancho unificado con el dashboard docente [Frontend, UX]
+
+Era el único superviviente del patrón antiguo `max-w-7xl mx-auto` (1280px) que `page-container` (1600px, padding fluido) vino a sustituir. Como landing del super_admin —análoga directa del dashboard docente— su contenido quedaba 320px más estrecho. **Fix:** migrado a `page-container`; verificado a 1920 que no queda disperso (las filas de KPIs y las secciones a 2 columnas llenan el ancho). Las páginas de tarea enfocadas de dirección (aprobaciones, etc.) conservan a propósito su columna más estrecha.
+
+### Edición de mazo — validación inline del nombre [Frontend]
+
+El nombre se validaba solo con un toast al guardar y con un mínimo (3) más estricto que el backend (2). **Fix:** `InputPremium` con `error` (aria-invalid + `role="alert"` + shake), mínimo alineado al backend (2) y limpieza del error al teclear.
+
+### Seed — invalidación de caches de lectura [Backend, DevTooling]
+
+`seed:reset` recrea documentos con nuevos ObjectId, dejando obsoletos los valores cacheados en Redis (p. ej. el dashboard serviría IDs de sesión inexistentes hasta expirar el TTL). **Fix:** al final del seed, `flushReadCaches` vacía `cache:analytics`, `cache:context` y `cache:mechanic` (best-effort; si Redis no está disponible se omite sin fallar). Verificado: log con los tres namespaces invalidados y cierre limpio de Redis/Mongo.
+
+### Verificaciones en vivo sin cambio de código
+
+- **Aprobaciones (E2E + inversa):** registro de dos docentes → aprobar uno / rechazar otro (con razón) → el aprobado entra a `/dashboard`; el rechazado se bloquea con alerta «Cuenta rechazada» (`role="alert"`).
+- **MFA (dirección):** intro con prerrequisitos claros + asistente QR con código manual de respaldo + input TOTP + botón deshabilitado hasta introducir código (WCAG 3.3.8).
+- **Pausa/reanudar partida:** overlay «Juego pausado» + badge PAUSADO + congelación del temporizador; reanudar continúa. El botón del HUD y el del FallbackTouchPanel comparten `togglePause`. Modal de salida con aviso de no-registro.
+- **Paginación (Alumnos):** 36 alumnos, 12/página, 3 páginas; los límites deshabilitan Anterior/Siguiente correctamente.
+- **Responsive tablet (768–1024):** sin overflow horizontal de página en ninguno de los dos extremos; el dashboard reorganiza KPIs y análisis con elegancia por debajo del suelo optimizado de 1366px.
+
+### Hallazgo diferido → investigado y resuelto en ADR-188
+
+En Secuencia, el detalle de sesión mostraba «Máx. puntos 60» (estimación `rondas × puntos`) mientras el GameOver mostraba «/210» (suma real por carta según longitud de secuencia). Se anotó como inconsistencia de *visualización* del máximo teórico (no del score funcional). La investigación posterior (debugging sistemático) encontró que **no era una fórmula naíf** sino una omisión en la proyección de lectura del detalle. Causa raíz y corrección en **ADR-188**.
+
+### Consecuencias
+
+- **Positivos:** informe coherente con el dashboard; la dirección ve el email al aprobar; barra de tiempo sin reflow por frame; coherencia de ancho entre las dos landings; feedback de formulario inline; demo consistente tras `seed:reset`.
+- **Alcance:** `reportDataService` + `dtos` + seed (Backend); `DeckEditPage`, `AdminDashboard`, `TimerBar` (Frontend); `ReportGenerator` consume el nuevo campo sin cambios.
+
+## ADR-188: El detalle de sesión (`getSessionById`) debe incluir `sequencePlan`/`sequenceConfig` en su proyección [Backend]
+
+### Contexto
+
+QA observó que, para una sesión de **Secuencia**, el "Score máximo teórico" del detalle de sesión mostraba un valor (p. ej. 60 con 4 rondas, 90 con 6 rondas) distinto del máximo que el GameOver mostraba para la misma sesión (210, 330…). Se sospechó una fórmula naíf de estimación.
+
+### Investigación (debugging sistemático — causa raíz, no síntoma)
+
+1. **Las dos fórmulas son idénticas.** Cliente (`SessionDetail.theoreticalMaxScore`) y backend (`gamePlayService.createPlay`) calculan igual: si `sequencePlan` tiene rondas con `length`, `maxScore = Σ longitud × pointsPerCorrect`; si no, fallback `numberOfRounds × pointsPerCorrect`. No había divergencia de fórmula.
+2. **Los datos sí tienen el plan.** En Mongo, las sesiones de Secuencia tienen `sequencePlan` con `length` por ronda (p. ej. `[5,3,3,4,3,4]` = 22) y `length === sequence.length`. El máximo real es correcto.
+3. **La respuesta de la API del detalle devolvía `sequencePlan: []`.** Inspeccionando la respuesta de red real de `GET /api/sessions/:id` para una sesión cuyo plan en BD sumaba 22, los tres campos `boardLayout`, `associationChallengePlan` y `sequencePlan` venían vacíos, pero `cardMappings` (pesado) sí venía: señal de una proyección explícita.
+4. **Causa raíz:** el `select` de `getSessionById` enumeraba `boardLayout` y `associationChallengePlan` pero **omitía `sequencePlan` (y `sequenceConfig`)**. Por eso el detalle nunca recibía el plan de Secuencia → el cliente caía al fallback `rondas × puntos`. El GameOver, en cambio, pasa por `createPlay`, que lee el documento con el plan completo → máximo real. La asimetría entre ambas lecturas producía la discrepancia.
+
+El síntoma «60 vs 210» NO era de scoring (la lógica de puntuación queda intacta), sino de **lectura**: un campo ausente en la proyección del endpoint de detalle.
+
+### Decisión
+
+Añadir `sequencePlan sequenceConfig` al `select` de `getSessionById`, junto a los planes de Memoria/Asociación que ya estaban. El DTO (`toGameSessionDetailDTOV1` → `mapSequencePlanRoundDTOV1`) ya los mapea y el cliente ya los consume, así que es un cambio mínimo y de bajo riesgo. Efecto secundario positivo: la pestaña "Plan de secuencias" del detalle (que también lee `session.sequencePlan`) deja de aparecer vacía en borradores.
+
+### Consecuencias
+
+- **Positivos:** el "Score máximo teórico" del detalle coincide con el máximo real del GameOver para Secuencia; la pestaña "Plan de secuencias" se puebla. Sin tocar la lógica de scoring (zona sensible, ADR-182/187).
+- **Alcance:** `getSessionById` (`gameSessionController`). Regresión: `sessionDetailSequencePlan.test.js` (GET de una sesión de Secuencia → `sequencePlan` no vacío con `length` por ronda + `sequenceConfig`).
+- **Nota:** otras lecturas (listado, juego) no se ven afectadas — el listado usa su propio DTO resumido y el juego lee el documento completo vía `createPlay`/`gameEngine`.
+

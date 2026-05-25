@@ -105,16 +105,20 @@ function TimerBar({ timeLeft, timeLimit, className }) {
           <motion.div
             key={tier}
             className={cn(
-              "absolute inset-y-0 left-0 rounded-full",
+              "absolute inset-y-0 left-0 w-full",
               `bg-gradient-to-r ${gradient}`,
               "transition-opacity duration-500"
             )}
-            initial={{ width: '100%' }}
-            animate={{ width: `${percentage}%` }}
+            // scaleX (compositado en GPU) en vez de `width` para no provocar
+            // reflow en cada tick del temporizador. El track `overflow-hidden`
+            // recorta la forma; el frente del relleno queda como borde nítido.
+            initial={{ scaleX: 1 }}
+            animate={{ scaleX: Math.max(0, percentage / 100) }}
             transition={{ duration: shouldReduceMotion ? 0 : 0.3, ease: 'linear' }}
             style={{
               boxShadow: `0 0 20px ${glow}`,
               opacity: active ? 1 : 0,
+              transformOrigin: 'left',
             }}
           />
         ))}

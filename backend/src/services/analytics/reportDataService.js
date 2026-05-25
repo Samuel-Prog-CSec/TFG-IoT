@@ -262,6 +262,10 @@ async function getClassroomReport(teacherId, { timeRange = '30d', format = 'summ
       avgScore: results[0].averageScore,
       studentsInRisk: results[0].studentsInRisk,
       classEngagementScore: results[3].classEngagementScore,
+      // Tasa de completado real (partidas completadas / totales). Sin este campo
+      // el informe caía al `classEngagementScore` y etiquetaba el engagement como
+      // "Completado", divergiendo de la "Tasa de completado" del dashboard.
+      completionRate: results[3].classCompletionRate,
       gamesToday: results[0].gamesToday
     },
     distribution: results[1],

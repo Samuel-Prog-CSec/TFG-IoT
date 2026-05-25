@@ -141,8 +141,13 @@ const getSessionById = async (req, res) => {
   const { id } = req.params;
 
   const session = await gameSessionRepository.findById(id, {
+    // `sequencePlan`/`sequenceConfig` van en el select junto a los planes de
+    // Memoria/Asociación: sin ellos el detalle de una sesión de Secuencia
+    // devolvía `sequencePlan: []`, el "Score máximo teórico" caía al fallback
+    // `rondas × puntos` (≠ máximo real Σ longitud × puntos del GameOver) y la
+    // pestaña "Plan de secuencias" quedaba vacía.
     select:
-      'name mechanicId deckId contextId createdBy config cardMappings boardLayout associationChallengePlan requiresAssociationPlanConfiguration status difficulty startedAt endedAt createdAt updatedAt',
+      'name mechanicId deckId contextId createdBy config cardMappings boardLayout associationChallengePlan sequencePlan sequenceConfig requiresAssociationPlanConfiguration status difficulty startedAt endedAt createdAt updatedAt',
     populate: [
       { path: 'mechanicId', select: 'name displayName icon' },
       { path: 'deckId', select: 'name status contextId' },

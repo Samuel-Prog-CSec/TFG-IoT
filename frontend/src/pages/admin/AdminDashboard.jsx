@@ -554,7 +554,7 @@ export default function AdminDashboard() {
       initial={shouldReduceMotion ? false : { opacity: 0, y: 12 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
-      className="p-4 sm:p-6 lg:p-8 relative"
+      className="relative"
       aria-label="Vista del centro"
     >
       {/* Fondo decorativo — orbes warning + accent-purple aurora, alineado
@@ -576,7 +576,7 @@ export default function AdminDashboard() {
         />
       </div>
 
-      <div className="max-w-7xl mx-auto relative z-10 space-y-6">
+      <div className="page-container py-[var(--space-fluid-section)] relative z-10 space-y-6">
         <AdminDashboardHeader
           timeRange={timeRange}
           onTimeRangeChange={setTimeRange}

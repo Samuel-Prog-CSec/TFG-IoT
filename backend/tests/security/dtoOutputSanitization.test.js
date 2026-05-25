@@ -164,6 +164,13 @@ describe('DTO output sanitization (B2)', () => {
       assertNoSensitiveFields(dto, 'toUserSummaryDTOV1');
     });
 
+    it('toUserSummaryDTOV1 incluye email solo para roles con login (docentes), no para alumnos', () => {
+      // La lista de aprobaciones necesita el email del docente pendiente.
+      expect(toUserSummaryDTOV1(buildMockTeacher()).email).toBe('profe@test.com');
+      // Los alumnos (menores) no tienen email: debe quedar ausente/undefined.
+      expect(toUserSummaryDTOV1(buildMockStudent()).email).toBeUndefined();
+    });
+
     it('toUserListDTOV1 no expone campos sensibles', () => {
       const dto = toUserListDTOV1([buildMockTeacher(), buildMockStudent()]);
       assertNoSensitiveFields(dto, 'toUserListDTOV1');

@@ -271,10 +271,15 @@ const toUserSummaryDTOV1 = user => {
   }
 
   const userData = toPlainObject(user);
+  const hasLogin = ['teacher', 'super_admin'].includes(userData.role);
 
   return {
     id: toId(userData),
     name: userData.name,
+    // Email solo para roles con login (docentes/dirección); los alumnos no
+    // tienen. Necesario en la lista de aprobaciones, donde la dirección
+    // identifica y busca por email a los profesores pendientes.
+    email: hasLogin ? userData.email : undefined,
     role: userData.role,
     status: userData.status,
     profile: userData.profile

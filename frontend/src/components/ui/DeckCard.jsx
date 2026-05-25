@@ -229,10 +229,14 @@ export default function DeckCard({
     deck?._id || deck?.id
   );
 
-  // Obtener preview de assets (primeros 6, que coincide con el mazo estandar
-  // de 6 cartas unicas). Asi el contrato visual iguala al conteo real.
+  // Preview de hasta 6 miniaturas. El conteo REAL de tarjetas debe salir de
+  // `deck.cardsCount` (longitud completa que envía el DTO de listado), NO de
+  // `cardMappings.length`: en el listado el backend trunca `cardMappings` a 6
+  // para el preview, así que usar su longitud hacía que un mazo de memoria de
+  // 12 tarjetas mostrara "6 tarjetas" en la card mientras el detalle mostraba
+  // 12 (QA 2026-05-25). Fallback a `cardMappings.length` por si falta el campo.
   const previewAssets = deck.cardMappings?.slice(0, 6) || [];
-  const cardsCount = deck.cardMappings?.length ?? deck.cardsCount ?? 0;
+  const cardsCount = deck.cardsCount ?? deck.cardMappings?.length ?? 0;
   const remainingCount = Math.max(cardsCount - previewAssets.length, 0);
   const showActions = !selectable;
 

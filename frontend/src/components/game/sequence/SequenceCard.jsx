@@ -74,7 +74,10 @@ function SequenceCard({
         <div className={cn('relative w-full h-full memory-card-inner', isRevealed && 'memory-card-flipped')}>
           {/* Cara cubierta (dorso decorativo): por convención CSS la `face`
               queda al frente sin rotación, así se ve cuando NO flipped. */}
-          <div className="memory-card-face rounded-xl bg-gradient-to-br from-brand-base/20 to-accent-cyan/15 border-2 border-border-default flex items-center justify-center text-text-muted/40 font-display text-3xl">
+          <div
+            className="memory-card-face rounded-xl bg-gradient-to-br from-brand-base/20 to-accent-cyan/15 border-2 border-border-default flex items-center justify-center text-text-muted/40 font-display text-3xl"
+            aria-hidden="true"
+          >
             ?
           </div>
 
@@ -86,14 +89,24 @@ function SequenceCard({
               statusConfig?.border || 'border-border-default'
             )}
           >
-            <CardAssetPreview
-              asset={displayData || { display: assignedValue || uid }}
-              className="h-full w-full"
-              fit="contain"
-              loading="eager"
-              fallbackLabel={assignedValue || uid}
-              largeFallback
-            />
+            {/* El valor (imagen + su `alt`/fallbackLabel) solo se monta cuando
+                la carta está REVELADA. Boca abajo durante la reproducción, esta
+                cara está rotada por CSS y no se ve, pero si renderizáramos el
+                CardAssetPreview su `alt` ("Naranja"…) quedaría en el DOM y en el
+                árbol de accesibilidad — un lector de pantalla (o la inspección
+                del DOM) leería la secuencia objetivo de un juego de memoria
+                (fuga QA 2026-05-25). Al condicionar el montaje, la respuesta no
+                existe en el DOM hasta que la carta se revela legítimamente. */}
+            {isRevealed && (
+              <CardAssetPreview
+                asset={displayData || { display: assignedValue || uid }}
+                className="h-full w-full"
+                fit="contain"
+                loading="eager"
+                fallbackLabel={assignedValue || uid}
+                largeFallback
+              />
+            )}
 
             {/* Overlay translúcido para fail/timeout */}
             {statusConfig?.overlay && (

@@ -156,26 +156,55 @@ StepIcon.propTypes = {
 };
 
 function StepDots({ track, currentStep }) {
+  // Elevación onboarding (QA 2026-05-25): además de los dots, mostramos una
+  // barra de progreso fina y un contador "Paso X de Y" VISIBLE. Para un usuario
+  // no técnico, una afordancia de progreso explícita comunica "esto avanza y
+  // sé cuánto queda" mejor que sólo puntos. El contador antes vivía únicamente
+  // en el `aria-label` de cada dot (invisible). La barra usa transform-free
+  // `width` con transición que el toggle global de reduced-motion neutraliza.
+  const total = track.length;
+  const current = Math.min(currentStep + 1, total);
+  const pct = total > 0 ? (current / total) * 100 : 0;
   return (
-    <div
-      className="flex items-center justify-center gap-2"
-      role="tablist"
-      aria-label="Pasos del tutorial"
-    >
-      {track.map((_, i) => (
+    <div className="flex flex-col items-center gap-3">
+      <div className="w-full flex items-center gap-3">
         <div
-          key={`dot-${i}`}
-          role="tab"
-          aria-selected={i === currentStep}
-          aria-label={`Paso ${i + 1} de ${track.length}`}
-          className={cn(
-            'rounded-full transition-[width,background-color,box-shadow] duration-300',
-            i === currentStep
-              ? 'w-8 h-2.5 bg-gradient-to-r from-brand-base to-accent-indigo shadow-[0_0_12px_var(--color-brand-glow)]'
-              : 'w-2.5 h-2.5 bg-text-disabled/40 hover:bg-text-muted/50',
-          )}
-        />
-      ))}
+          className="flex-1 h-1.5 rounded-full bg-text-disabled/20 overflow-hidden"
+          role="progressbar"
+          aria-valuemin={1}
+          aria-valuemax={total}
+          aria-valuenow={current}
+          aria-label={`Progreso del tutorial: paso ${current} de ${total}`}
+        >
+          <div
+            className="h-full rounded-full bg-gradient-to-r from-brand-base to-accent-indigo transition-[width] duration-300"
+            style={{ width: `${pct}%` }}
+          />
+        </div>
+        <span className="text-xs font-semibold text-text-muted tabular-nums whitespace-nowrap">
+          Paso {current} de {total}
+        </span>
+      </div>
+      <div
+        className="flex items-center justify-center gap-2"
+        role="tablist"
+        aria-label="Pasos del tutorial"
+      >
+        {track.map((_, i) => (
+          <div
+            key={`dot-${i}`}
+            role="tab"
+            aria-selected={i === currentStep}
+            aria-label={`Paso ${i + 1} de ${track.length}`}
+            className={cn(
+              'rounded-full transition-[width,background-color,box-shadow] duration-300',
+              i === currentStep
+                ? 'w-8 h-2.5 bg-gradient-to-r from-brand-base to-accent-indigo shadow-[0_0_12px_var(--color-brand-glow)]'
+                : 'w-2.5 h-2.5 bg-text-disabled/40 hover:bg-text-muted/50',
+            )}
+          />
+        ))}
+      </div>
     </div>
   );
 }

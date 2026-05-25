@@ -49,28 +49,35 @@ function GameOverStatsAssociation({ summary, totalRounds, correctAnswers }) {
     if (!byValueAccuracy || typeof byValueAccuracy !== 'object') {
       return { mode: 'single', label: categoryDominance };
     }
-    const ratios = Object.entries(byValueAccuracy)
+    // Todas las categorías INTENTADAS (total > 0), incluidas las falladas.
+    // QA 2026-05-25: el filtro previo descartaba las categorías con 0
+    // aciertos ANTES de decidir "Dominio total". Así, un resultado de 2/5
+    // (p.ej. Vaca 1/1, Cerdo 0/1, Gallina 1/1, Pato 0/1) se reducía a las
+    // dos acertadas, "todas al 100%", y mostraba "¡Dominio total!"
+    // contradiciendo un score del 32% y la mascota "No te rindas".
+    const attempted = Object.entries(byValueAccuracy)
       .map(([slug, stats]) => {
         const total = Number(stats?.total ?? 0);
         const correct = Number(stats?.correct ?? 0);
         return { slug, total, correct, ratio: total > 0 ? correct / total : null };
       })
-      .filter(entry => entry.ratio !== null && entry.correct > 0);
-    if (ratios.length === 0) {
+      .filter(entry => entry.ratio !== null);
+    if (attempted.length === 0) {
       return { mode: 'single', label: categoryDominance };
     }
-    const bestRatio = Math.max(...ratios.map(r => r.ratio));
-    const tied = ratios.filter(r => r.ratio === bestRatio);
-    // Empate perfecto en TODAS las categorías acertadas y todas al 100%
-    // → "Dominio total".
-    if (
-      tied.length === ratios.length &&
-      tied.length >= 2 &&
-      bestRatio === 1
-    ) {
-      return { mode: 'all', count: tied.length };
+    // "Dominio total" SOLO si TODAS las categorías intentadas están al 100%.
+    if (attempted.length >= 2 && attempted.every(entry => entry.ratio === 1)) {
+      return { mode: 'all', count: attempted.length };
     }
-    // Empate entre 2+ categorías pero NO en todas → mostrar las empatadas.
+    // Para destacar la(s) categoría(s) más fuerte(s) consideramos solo las
+    // que tienen algún acierto (una categoría fallada no es "fuerte").
+    const scored = attempted.filter(entry => entry.correct > 0);
+    if (scored.length === 0) {
+      return { mode: 'single', label: categoryDominance };
+    }
+    const bestRatio = Math.max(...scored.map(r => r.ratio));
+    const tied = scored.filter(r => r.ratio === bestRatio);
+    // Empate entre 2+ categorías más fuertes → mostrar las empatadas.
     if (tied.length >= 2) {
       return { mode: 'tied', labels: tied.map(t => t.slug), peakStreak };
     }

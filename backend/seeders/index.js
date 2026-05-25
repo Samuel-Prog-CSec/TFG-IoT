@@ -11,6 +11,8 @@
 
 const mongoose = require('mongoose');
 const logger = require('../src/utils/logger');
+const { connectRedis, disconnectRedis } = require('../src/config/redis');
+const { cacheInvalidateNamespace } = require('../src/utils/cacheHelper');
 require('dotenv').config();
 
 // Importar seeders individuales
@@ -159,6 +161,36 @@ async function runSeeders() {
 }
 
 /**
+ * Vacía los caches de lectura (analytics, contextos, mecánicas) tras el seed.
+ *
+ * Un `seed:reset` recrea los documentos con nuevos ObjectId, así que cualquier
+ * valor que quedara cacheado en Redis del seed anterior pasa a ser obsoleto
+ * (p. ej. el dashboard del docente serviría IDs de sesión que ya no existen
+ * hasta que expirara el TTL). Vaciar los namespaces `cache:*` deja la demo
+ * consistente al instante, sin tocar los namespaces de tokens/seguridad.
+ *
+ * Best-effort: si Redis no está disponible (CI o entorno sin Redis) se omite
+ * sin hacer fallar el seed (`connectRedis` devuelve null en desarrollo).
+ */
+async function flushReadCaches() {
+  try {
+    const client = await connectRedis();
+    if (!client) {
+      logger.warn('🧼 Redis no disponible; se omite el vaciado de caches de lectura\n');
+      return;
+    }
+    for (const namespace of ['cache:analytics', 'cache:context', 'cache:mechanic']) {
+      await cacheInvalidateNamespace(namespace);
+    }
+    logger.info('🧼 Caches de lectura (analytics/contextos/mecánicas) vaciados\n');
+  } catch (error) {
+    logger.warn(`🧼 No se pudo limpiar el cache de Redis (se omite): ${error.message}\n`);
+  } finally {
+    await disconnectRedis().catch(() => {});
+  }
+}
+
+/**
  * Función principal.
  */
 async function main() {
@@ -176,6 +208,10 @@ async function main() {
     }
 
     await runSeeders();
+
+    // Tras poblar la BD, invalidar los caches de lectura para que la aplicación
+    // sirva los datos recién seedeados sin esperar a que expire el TTL.
+    await flushReadCaches();
 
     await mongoose.connection.close();
     logger.info('👋 Conexión a MongoDB cerrada');

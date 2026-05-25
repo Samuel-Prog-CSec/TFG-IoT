@@ -101,6 +101,9 @@ export default function DeckEditPage() {
   // Datos del mazo
   const [deck, setDeck] = useState(null);
   const [deckName, setDeckName] = useState('');
+  // Error inline del nombre (aria-invalid + role="alert" vía InputPremium),
+  // alineado con el backend (mínimo 2 caracteres) en vez de un toast al enviar.
+  const [nameError, setNameError] = useState('');
   const [selectedCards, setSelectedCards] = useState([]);
   const [selectedContext, setSelectedContext] = useState(null);
   const [cardAssignments, setCardAssignments] = useState({});
@@ -205,7 +208,16 @@ export default function DeckEditPage() {
     const currentCardIds = selectedCards.map(c => c.uid).sort();
 
     const nameChanged = deckName !== originalName;
-    const contextChanged = effectiveContext?._id !== originalContext;
+    // El cambio de contexto se determina por la selección EXPLÍCITA del usuario
+    // (`selectedContext`), NO por `effectiveContext`: este último cae a `null`
+    // mientras la lista `contexts` aún no ha cargado —o si el contexto del mazo
+    // no está en ella—, de modo que `effectiveContext?._id !== originalContext`
+    // marcaba dirty en falso nada más montar la página y dejaba el banner
+    // "Tienes cambios sin guardar" + el guard de beforeunload activos sin que el
+    // usuario tocara nada (QA 2026-05-25; mismo síntoma que BUG-DECK-2 por la vía
+    // del contexto). `selectedContext` es null hasta que el usuario elige otro.
+    const selectedContextId = selectedContext?._id || selectedContext?.id || null;
+    const contextChanged = selectedContextId != null && selectedContextId !== originalContext;
     const cardsChanged = JSON.stringify(originalCardIds) !== JSON.stringify(currentCardIds);
 
     // BUG-DECK-2 (QA 2026-05-14): comparar el assignment ACTUAL contra el del
@@ -229,7 +241,7 @@ export default function DeckEditPage() {
       JSON.stringify(originalAssignments) !== JSON.stringify(currentAssignments);
 
     return nameChanged || contextChanged || cardsChanged || assignmentsChanged;
-  }, [deck, deckName, effectiveContext, selectedCards, cardAssignments]);
+  }, [deck, deckName, selectedContext, selectedCards, cardAssignments]);
 
   // T-957: confirmExit envuelve callbacks programáticos de navegación
   // (botones "Ver detalle", "Volver", etc.) con un modal warning cuando
@@ -309,9 +321,10 @@ export default function DeckEditPage() {
 
   // Guardar cambios
   const handleSave = async () => {
-    // Validaciones
-    if (!deckName.trim() || deckName.trim().length < 3) {
-      toast.error('El nombre debe tener al menos 3 caracteres');
+    // Validaciones. El nombre se valida inline (no con toast) y con el mismo
+    // mínimo que el backend (2 caracteres) para no rechazar nombres válidos.
+    if (deckName.trim().length < 2) {
+      setNameError('El nombre debe tener al menos 2 caracteres');
       return;
     }
     
@@ -516,7 +529,11 @@ export default function DeckEditPage() {
           <InputPremium
             label="Nombre del mazo"
             value={deckName}
-            onChange={(e) => setDeckName(e.target.value)}
+            onChange={(e) => {
+              setDeckName(e.target.value);
+              if (nameError) setNameError('');
+            }}
+            error={nameError}
             placeholder="Ej: Capitales de Europa"
             maxLength={50}
           />

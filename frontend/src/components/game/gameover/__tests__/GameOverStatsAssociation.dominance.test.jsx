@@ -86,6 +86,38 @@ describe('GameOverStatsAssociation — UX categoryDominance', () => {
     expect(screen.getByText(/Pato · Vaca/)).toBeTruthy();
   });
 
+  it('cuando hay categorías FALLADAS → NO muestra "¡Dominio total!" aunque las acertadas estén al 100% (regresión QA 2026-05-25)', () => {
+    // Caso real: 2/5 aciertos. Vaca y Gallina al 100%, Cerdo y Pato al 0%.
+    // El bug mostraba "¡Dominio total!" porque filtraba las falladas antes
+    // de decidir, dejando solo las dos perfectas como "todas las categorías".
+    const summary = {
+      ...baseSummary,
+      errors: 2,
+      association: {
+        categoryDominance: 'Gallina',
+        peakStreak: 1,
+        byValueAccuracy: {
+          Vaca: { correct: 1, total: 1 },
+          Cerdo: { correct: 0, total: 1 },
+          Gallina: { correct: 1, total: 1 },
+          Pato: { correct: 0, total: 1 },
+        },
+      },
+    };
+    render(
+      <GameOverStatsAssociation
+        summary={summary}
+        totalRounds={5}
+        correctAnswers={2}
+      />,
+    );
+    expect(screen.queryByText('¡Dominio total!')).toBeNull();
+    expect(screen.queryByText('Acertaste todas las categorías')).toBeNull();
+    // Sí destaca las dos categorías acertadas como las más fuertes.
+    expect(screen.getByText('Empate entre tus categorías más fuertes')).toBeTruthy();
+    expect(screen.getByText(/Vaca · Gallina/)).toBeTruthy();
+  });
+
   it('cuando hay un único ganador → muestra ese nombre y "Mejor racha"', () => {
     const summary = {
       ...baseSummary,
