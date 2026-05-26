@@ -71,7 +71,7 @@ function MetricPill({
       {delta !== undefined && delta !== null ? (
         <div
           className={cn(
-            'mt-0.5 text-[10px] tabular-nums',
+            'mt-0.5 text-nano tabular-nums',
             typeof delta === 'number' && delta > 0 && 'text-success-base',
             typeof delta === 'number' && delta < 0 && 'text-error-base',
             typeof delta === 'number' && delta === 0 && 'text-text-muted'

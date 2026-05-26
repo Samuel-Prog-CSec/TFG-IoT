@@ -82,9 +82,9 @@ function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
                   <span className="text-sm font-bold text-success-base tabular-nums ml-2">{Math.min(100, Math.max(0, Math.round(item.score)))}%</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecánica'}</span>
-                  <span className="text-[10px] text-text-disabled">{'\u2022'}</span>
-                  <span className="text-[10px] text-text-muted">{item.gamesPlayed} {item.gamesPlayed === 1 ? 'partida' : 'partidas'}</span>
+                  <span className="text-nano text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecánica'}</span>
+                  <span className="text-nano text-text-disabled">{'\u2022'}</span>
+                  <span className="text-nano text-text-muted">{item.gamesPlayed} {item.gamesPlayed === 1 ? 'partida' : 'partidas'}</span>
                 </div>
               </motion.div>
             ))}
@@ -111,9 +111,9 @@ function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
                   <span className="text-sm font-bold text-error-base tabular-nums ml-2">{Math.min(100, Math.max(0, Math.round(item.score)))}%</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecánica'}</span>
-                  <span className="text-[10px] text-text-disabled">{'\u2022'}</span>
-                  <span className="text-[10px] text-text-muted">{item.gamesPlayed} {item.gamesPlayed === 1 ? 'partida' : 'partidas'}</span>
+                  <span className="text-nano text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecánica'}</span>
+                  <span className="text-nano text-text-disabled">{'\u2022'}</span>
+                  <span className="text-nano text-text-muted">{item.gamesPlayed} {item.gamesPlayed === 1 ? 'partida' : 'partidas'}</span>
                 </div>
               </motion.div>
             )) : (

@@ -3,18 +3,15 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { playIdEventSchema } = require('../../validators/socketCommandsValidator');
 
 class NextRoundCommand extends BaseSocketCommand {
   constructor() {
-    super('next_round');
+    super('next_round', { schema: playIdEventSchema });
   }
 
   async execute({ socket, data, helpers, gameEngine }) {
-    const { playId } = data || {};
-    if (!playId) {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
-      return;
-    }
+    const { playId } = data;
 
     if (!helpers.validatePlayId(socket, playId, 'next_round')) {
       return;

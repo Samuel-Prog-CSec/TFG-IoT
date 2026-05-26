@@ -480,11 +480,26 @@ const setOwnershipCacheEntry = (cacheKey, value) => {
   // Hard cap: si tras el sweep el cache sigue al límite, forzar limpieza completa
   if (playOwnershipCache.size >= CACHE_SWEEP_THRESHOLD) {
     sweepAllExpiredEntries(playOwnershipCache);
+    // (D7-010) Eviction FIFO post-sweep: si el sweep completo todavía deja el
+    // cache al límite, eliminamos las entradas más antiguas en orden de
+    // inserción. JavaScript Map preserva orden de inserción, así que la
+    // primera key del iterator es la más vieja. Eliminamos un 10% del cap
+    // para no entrar en un ciclo cap→sweep→cap en cada nueva entrada bajo
+    // churn alto.
     if (playOwnershipCache.size >= CACHE_SWEEP_THRESHOLD) {
-      logger.warn('Play ownership cache al límite tras sweep completo, descartando entrada', {
-        cacheSize: playOwnershipCache.size
+      const toEvict = Math.max(1, Math.floor(CACHE_SWEEP_THRESHOLD * 0.1));
+      const it = playOwnershipCache.keys();
+      for (let i = 0; i < toEvict; i += 1) {
+        const oldest = it.next();
+        if (oldest.done) {
+          break;
+        }
+        playOwnershipCache.delete(oldest.value);
+      }
+      logger.warn('Play ownership cache eviction FIFO tras sweep completo', {
+        cacheSize: playOwnershipCache.size,
+        evicted: toEvict
       });
-      return;
     }
   }
 
@@ -639,12 +654,17 @@ const persistRfidModeToRedis = (userId, state) => {
     return;
   }
 
-  const message = JSON.stringify({
-    userId,
-    state,
-    from: process.env.HOSTNAME || 'unknown',
-    at: Date.now()
-  });
+  // (D7-002) Serializamos `state` UNA sola vez y lo reutilizamos tanto en el
+  // `setex` como dentro del mensaje pub/sub. Antes había dos `JSON.stringify`
+  // del mismo objeto en cada transición RFID (≥4/sesión × N sesiones activas
+  // × M instancias cluster); en hot path eso suma latencia y CPU evitable.
+  // Construimos el envelope pubsub a mano para embeber `stateJson` literal
+  // sin re-serializar — `userId` y `HOSTNAME` se stringifican una vez con
+  // `JSON.stringify` para escapar comillas correctamente.
+  const stateJson = state === null || state === undefined ? 'null' : JSON.stringify(state);
+  const hostnameJson = JSON.stringify(process.env.HOSTNAME || 'unknown');
+  const userIdJson = JSON.stringify(userId);
+  const message = `{"userId":${userIdJson},"state":${stateJson},"from":${hostnameJson},"at":${Date.now()}}`;
 
   // B.3 (pre-v1.0.0): unimos `setex`/`del` + `publish` en un único pipeline
   // para ahorrar 1 round-trip por transición RFID. Sin esto cada cambio
@@ -654,7 +674,7 @@ const persistRfidModeToRedis = (userId, state) => {
   redisService
     .runPipeline(p => {
       if (state) {
-        p.setex(`${REDIS_RFID_MODE_PREFIX}${userId}`, REDIS_RFID_MODE_TTL, JSON.stringify(state));
+        p.setex(`${REDIS_RFID_MODE_PREFIX}${userId}`, REDIS_RFID_MODE_TTL, stateJson);
       } else {
         p.del(`${REDIS_RFID_MODE_PREFIX}${userId}`);
       }
@@ -1643,10 +1663,37 @@ const registerSocketHandlers = ({
         return;
       }
 
+      // Validación Zod centralizada: si el command expone un `schema`,
+      // se aplica aquí antes de invocar `execute()`. Así cada handler recibe
+      // un payload ya tipado y los rechazos por payload malformado son
+      // uniformes (PAYLOAD_INVALID) en vez de cada command emitiendo su
+      // propio VALIDATION_ERROR ad-hoc. RFID scan se valida internamente
+      // con `rfidClientEventSchema` y NO declara `schema` aquí.
+      let payload = data;
+      const schema = typeof command.getSchema === 'function' ? command.getSchema() : null;
+      if (schema) {
+        const parsed = schema.safeParse(data ?? {});
+        if (!parsed.success) {
+          const issues = parsed.error.issues.map(i => ({
+            path: i.path.join('.'),
+            message: i.message
+          }));
+          logger.warn('Payload de comando Socket inválido', { eventName, issues });
+          socket.emit('error', {
+            code: 'PAYLOAD_INVALID',
+            message: 'Datos inválidos para el evento',
+            event: eventName,
+            issues
+          });
+          return;
+        }
+        payload = parsed.data;
+      }
+
       try {
         await command.execute({
           socket,
-          data,
+          data: payload,
           logger,
           io: gameNsp,
           gameEngine,

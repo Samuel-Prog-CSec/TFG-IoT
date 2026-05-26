@@ -260,7 +260,7 @@ export default function Login() {
               <span className="text-base font-bold font-display gradient-text-brand tracking-tight leading-none">
                 EduPlay RFID
               </span>
-              <span className="text-[10px] text-text-muted uppercase tracking-[0.18em] mt-1">
+              <span className="text-nano text-text-muted uppercase tracking-[0.18em] mt-1">
                 Plataforma educativa · TFG 2026
               </span>
             </div>

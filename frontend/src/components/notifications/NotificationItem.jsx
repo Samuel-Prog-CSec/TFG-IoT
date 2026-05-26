@@ -141,7 +141,7 @@ export default function NotificationItem({ notification, onMarkRead, onClose }) 
         {notification.body && (
           <p className="mt-0.5 text-xs text-text-muted line-clamp-2">{notification.body}</p>
         )}
-        <p className="mt-1 text-[11px] text-text-muted/80 font-medium uppercase tracking-wider">
+        <p className="mt-1 text-micro text-text-muted/80 font-medium uppercase tracking-wider">
           {relative}
         </p>
       </div>

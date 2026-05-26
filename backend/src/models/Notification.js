@@ -25,6 +25,23 @@ const NOTIFICATION_RETENTION_DAYS =
   Number.parseInt(process.env.NOTIFICATION_RETENTION_DAYS, 10) || 90;
 const SECONDS_PER_DAY = 24 * 60 * 60;
 
+// Auditoría operativa: si `NOTIFICATION_RETENTION_DAYS` no se configura en
+// Koyeb, silenciosamente caemos a 90 días. El log al import deja constancia
+// del valor efectivo en cada arranque (visible en Loki) sin requerir
+// inspección manual del .env del despliegue.
+try {
+  // require diferido para evitar coste si el modelo se importa antes que el logger
+  // (el logger no depende de modelos, así que el orden inverso es seguro).
+  const bootLogger = require('../utils/logger');
+  bootLogger.info(
+    { retentionDays: NOTIFICATION_RETENTION_DAYS, env: 'NOTIFICATION_RETENTION_DAYS' },
+    'Notification TTL configurado'
+  );
+} catch {
+  // logger aún no disponible — descartamos el log silenciosamente; las
+  // consultas TTL siguen funcionando con el valor calculado arriba.
+}
+
 const NotificationSchema = new mongoose.Schema(
   {
     userId: {

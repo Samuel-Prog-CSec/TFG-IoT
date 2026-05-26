@@ -97,11 +97,11 @@ function SessionDetailAssociationPanel({ session }) {
                     <span className="line-clamp-2">{round.promptText}</span>
                   </p>
                 ) : (
-                  <p className="text-[11px] text-text-muted/70 italic mt-1">
+                  <p className="text-micro text-text-muted/70 italic mt-1">
                     Sin consigna personalizada: la app mostrará &quot;Encuentra: {label}&quot;.
                   </p>
                 )}
-                <p className="text-[10px] text-text-muted/60 font-mono mt-1" title={round.uid}>
+                <p className="text-nano text-text-muted/60 font-mono mt-1" title={round.uid}>
                   UID {round.uid}
                 </p>
               </div>

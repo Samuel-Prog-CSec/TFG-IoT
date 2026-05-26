@@ -28,7 +28,7 @@ import SystemAlertActionsMenu from './SystemAlertActionsMenu';
 
 function CardFooter({ alert, hasData, showDetails, onToggleDetails }) {
   return (
-    <footer className="mt-3 flex flex-wrap items-center gap-3 text-[11px] text-text-muted">
+    <footer className="mt-3 flex flex-wrap items-center gap-3 text-micro text-text-muted">
       <span className="inline-flex items-center gap-1">
         <Clock size={11} aria-hidden="true" />
         {alert.detectedAt ? formatRelativeTime(alert.detectedAt) : 'Sin fecha de detección'}
@@ -150,7 +150,7 @@ export default function SystemAlertCard({
             <h2 className="font-semibold text-text-primary text-sm">{alert.title}</h2>
             <span
               className={cn(
-                'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-wide',
+                'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-nano uppercase tracking-wide',
                 severity.bg,
                 severity.border,
                 severity.text
@@ -161,14 +161,14 @@ export default function SystemAlertCard({
             </span>
             <span
               className={cn(
-                'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-wide',
+                'inline-flex items-center rounded-full border px-1.5 py-0.5 text-nano uppercase tracking-wide',
                 source.badge
               )}
             >
               {source.label}
             </span>
             {alert.component && (
-              <code className="text-[11px] text-text-muted bg-background-base/50 rounded px-1.5 py-0.5 font-mono">
+              <code className="text-micro text-text-muted bg-background-base/50 rounded px-1.5 py-0.5 font-mono">
                 {alert.component}
               </code>
             )}
@@ -189,7 +189,7 @@ export default function SystemAlertCard({
           />
 
           {showDetails && hasData && (
-            <pre className="mt-2 overflow-x-auto rounded-md border border-border-subtle bg-background-base/40 p-2 text-[11px] text-text-secondary">
+            <pre className="mt-2 overflow-x-auto rounded-md border border-border-subtle bg-background-base/40 p-2 text-micro text-text-secondary">
               <code>{JSON.stringify(alert.data, null, 2)}</code>
             </pre>
           )}

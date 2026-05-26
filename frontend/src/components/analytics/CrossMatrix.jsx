@@ -609,7 +609,7 @@ function CrossMatrix({
                               </>
                             ) : (
                               showEmpty && (
-                                <span className="text-[11px] text-text-muted italic">
+                                <span className="text-micro text-text-muted italic">
                                   Sin datos
                                 </span>
                               )

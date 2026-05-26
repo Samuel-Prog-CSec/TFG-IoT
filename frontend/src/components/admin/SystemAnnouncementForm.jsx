@@ -120,7 +120,7 @@ export default function SystemAnnouncementForm({ open, mode, initial, onClose, o
         >
           <header className="flex items-center justify-between px-6 py-5 border-b border-border-subtle">
             <div className="space-y-1">
-              <p className="text-[11px] uppercase tracking-[0.12em] text-text-muted font-semibold">
+              <p className="text-micro uppercase tracking-[0.12em] text-text-muted font-semibold">
                 {mode === 'edit' ? 'Editar aviso' : 'Nuevo aviso a profesores'}
               </p>
               <h2 id={titleId} className="text-lg font-semibold text-text-primary font-display">
@@ -168,7 +168,7 @@ export default function SystemAnnouncementForm({ open, mode, initial, onClose, o
                 )}
                 required
               />
-              <p className="text-[11px] text-text-muted">{body.length}/500 caracteres</p>
+              <p className="text-micro text-text-muted">{body.length}/500 caracteres</p>
             </div>
 
             <fieldset className="space-y-2">
@@ -258,7 +258,7 @@ export default function SystemAnnouncementForm({ open, mode, initial, onClose, o
                   'focus:outline-none focus:ring-2 focus:ring-brand-base/50'
                 )}
               />
-              <p className="text-[11px] text-text-muted">
+              <p className="text-micro text-text-muted">
                 Si lo dejas en blanco, el aviso permanece activo hasta que lo archives.
               </p>
             </div>

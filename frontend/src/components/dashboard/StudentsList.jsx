@@ -187,7 +187,7 @@ function StudentsList({ students }) {
                       {student.name}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-md", tierBadge.className)}>
+                      <span className={cn("text-nano font-semibold px-1.5 py-0.5 rounded-md", tierBadge.className)}>
                         {tierBadge.label}
                       </span>
                       {student.classroom && (
@@ -204,7 +204,7 @@ function StudentsList({ students }) {
                     >
                       {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}
                     </div>
-                    <div className="text-[10px] text-text-muted">pts</div>
+                    <div className="text-nano text-text-muted">pts</div>
                   </div>
                   <ChevronRight size={14} className="text-text-muted/30 group-hover:text-text-muted transition-colors" aria-hidden="true" />
                 </div>

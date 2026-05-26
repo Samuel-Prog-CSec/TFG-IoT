@@ -341,6 +341,15 @@
     }
   }
 
+  /* === TIPOGRAFÍA MICRO (metadata, badges, captions) ===
+     Tokens para escalas inferiores a `text-xs` (12px). El audit detectó
+     ~20 archivos usando arbitrarios `text-micro` / `text-nano` (D3-005).
+     Estos tokens los unifican y permiten cambiar la escala micro en un
+     solo punto del design system. Aplicar como `text-micro` / `text-nano`
+     vía utilidades Tailwind v4 (el `@theme` registra el token). */
+  --text-micro: 0.6875rem; /* 11px — metadata pequeña, status badges */
+  --text-nano:  0.625rem;  /* 10px — labels críticos, índices */
+
   /* === TIPOGRAFÍA FLUIDA (clamp(min, vw, max)) ===
      Tokens nuevos consumibles como text-fluid-*. Coexisten con text-Nxl
      de Tailwind para no obligar a migrar todo el código. Solo se usan en

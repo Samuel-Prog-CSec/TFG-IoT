@@ -77,6 +77,8 @@ Cada ADR indica su alcance: **[Backend]**, **[Frontend]**, **[Full-stack]** o **
 | ADR-165 | Sentry Performance — instrumentación manual de transacciones críticas + sampling per-env (T-904 Fase A) | Backend, Frontend, DevOps |
 | ADR-166 | Log shipping centralizado con Grafana Cloud Loki + `pino-loki` (T-904 Fase B) | Backend, DevOps |
 | ADR-169 | Bootstrap de tema servido como archivo externo (`/theme-bootstrap.js`) en lugar de `<script>` inline para mantener CSP estricta sin hash ni nonce | Frontend, DevOps |
+| ADR-188 | El detalle de sesión (`getSessionById`) debe incluir `sequencePlan`/`sequenceConfig` en su proyección | Backend |
+| ADR-189 | Auditoría integral pre-v1.0.0 — endurecimiento concurrente, optimizaciones BE perf, lazy panels de gameplay y limpieza a11y/leaks | Full-stack, Performance, Security |
 
 **Leyenda de alcance:**
 - **Backend**: Cambios exclusivamente en el servidor (Node.js/Express)
@@ -9686,4 +9688,145 @@ Añadir `sequencePlan sequenceConfig` al `select` de `getSessionById`, junto a l
 - **Positivos:** el "Score máximo teórico" del detalle coincide con el máximo real del GameOver para Secuencia; la pestaña "Plan de secuencias" se puebla. Sin tocar la lógica de scoring (zona sensible, ADR-182/187).
 - **Alcance:** `getSessionById` (`gameSessionController`). Regresión: `sessionDetailSequencePlan.test.js` (GET de una sesión de Secuencia → `sequencePlan` no vacío con `length` por ronda + `sequenceConfig`).
 - **Nota:** otras lecturas (listado, juego) no se ven afectadas — el listado usa su propio DTO resumido y el juego lee el documento completo vía `createPlay`/`gameEngine`.
+
+## ADR-189: Auditoría integral pre-v1.0.0 — endurecimiento concurrente, optimizaciones BE perf, lazy panels de gameplay y limpieza a11y/leaks [Full-stack, Performance, Security]
+
+### Contexto
+
+Auditoría exhaustiva sobre 10 dimensiones cubriendo seguridad web, accesibilidad WCAG 2.2 AA, diseño visual, anti-AI-slop, eficiencia backend + MongoDB, patrones SOLID/MVC, cuellos de botella, algoritmos, animaciones y memory leaks. Punto de partida: 169 ADRs activos con hardening T-905 ya aplicado, observabilidad T-904 cerrada, polish UI/UX 24-25 mayo (Lighthouse a11y 100/100 en 18 pantallas), 1453+ tests backend / 580+ frontend verdes. La tesis del audit era que los hallazgos serían sutiles, no obvios: tras 169 decisiones documentadas las regresiones gruesas ya están cerradas, lo restante son matices.
+
+El audit se ejecutó con 9 agentes Explore en 3 olas paralelas (fundacional / arquitectura+sockets / frontend) que produjeron 57 hallazgos brutos. Tras verificación manual del código fuente para descartar falsos positivos, el conjunto efectivo quedó en 40 cambios reales aplicados sobre 4 lotes, 17 hallazgos diferidos a `propuestas-mejora.md` y 13 falsos positivos descartados con justificación.
+
+Decisión arquitectónica explícita: **NO refactorizar `GameEngine.js`** pese a sus 2283 LOC. El agente B2.1 confirmó que la decomposición modular documentada en ADR-018 y ADR-045 (delegación a `sequenceFlow.js`, `finalSummary.js`, `recovery.js`, `stateHelpers.js`, `timerManager.js`) sigue vigente y que las ~1600 LOC activas del fichero principal son orquestación cohesiva — refactorizar por estética habría sido regresión esperando.
+
+### Cambios aplicados por dominio
+
+#### Seguridad (D-01)
+
+- **TOCTOU en aprobación de docentes** ([adminController.js:86-129](backend/src/controllers/adminController.js:86)). `approveTeacher` y `rejectTeacher` hacían `findById` → `assertTargetIsPendingTeacher` → `target.save()`. Dos super_admin actuando concurrentemente sobre el mismo profesor podían pasar la aserción a la vez y el segundo `save()` sobrescribía silenciosamente al primero. Migrado a `userRepository.updateOne({ _id, role: 'teacher', accountStatus: 'pending_approval' }, ...)`: el atomic check-and-set garantiza que solo uno aplica la transición; el otro recibe `null` y diagnóstico best-effort con un `findById` posterior diferencia 404 vs 409.
+- **Validación Zod centralizada en commands Socket.IO** (`BaseSocketCommand`, [socketHandlers.js executeSocketCommand](backend/src/realtime/socketHandlers.js:1639), nuevo [`validators/socketCommandsValidator.js`](backend/src/validators/socketCommandsValidator.js)). El contrato de los 13 comandos hacía validación manual ad-hoc (`if (!playId)`); ahora la subclase expone `schema` y el pipeline lo aplica antes de `execute()`. Schemas mínimos: `playIdEventSchema` (8 commands play), `cardAssignmentEventSchema`, `adminRoomEventSchema`. RFID scan conserva su `rfidClientEventSchema` interno por la coordinación HMAC + counter. El error de payload se uniforma a `PAYLOAD_INVALID` con `issues` detallados, en lugar de los `VALIDATION_ERROR` heterogéneos de cada handler.
+- **Detector `admin_approval_spike`** (nuevo [`adminApprovalSpike.js`](backend/src/services/analytics/systemDetectors/adminApprovalSpike.js) + `SYSTEM_ALERT_TYPES.admin_approval_spike` + `securityCounters.SUPPORTED_EVENTS.admin_approval`). Vigila picos anormales de aprobaciones/rechazos por hora; thresholds `warningPerHour=20`, `criticalPerHour=50`. El controller incrementa el contador en cada `approveTeacher`/`rejectTeacher` para que un super_admin con sesión comprometida procesando solicitudes en masa dispare una alerta operativa observable en el dashboard.
+- **Grace period del kick por NEW_LOGIN** subido de 100→300ms ([socketUtils.js](backend/src/utils/socketUtils.js:13)). Con Redis adapter cross-instance el evento `session_invalidated` necesita ~50-150ms adicionales para flush a sockets remotos; con 100ms se observaba pérdida ocasional del kick visible para el usuario.
+- **Comandos de ayuda sin `console.log` embebido** en `envValidator.js` y `cryptoUtils.js`: `node -e "console.log(...)"` sustituido por `openssl rand -hex N` — más estándar y evita que el mensaje de error sugiera código ejecutable copiable.
+- **Warning prominente al usar fallback derivado de JWT_SECRET para MFA en dev** ([cryptoUtils.js:38-65](backend/src/utils/cryptoUtils.js:38)). El fallback en dev/test sigue funcional (necesario para tests con fixtures cifrados), pero ahora emite una advertencia única por boot vía Pino indicando el riesgo de exposición si JWT_SECRET se filtra. Producción mantiene fail-fast.
+
+#### Eficiencia backend + MongoDB (D-05) y algoritmos (D-08)
+
+- **`.lean()` en queries read-only**: `userRepository.find` en `reportDataService.js` para enriquecer scores (lookup de `studentMetrics.averageScore`), y `Model.find` del pre-save hook de `GeneratedReport.js` (cap-enforcement drop-oldest). Evita hidratar documentos Mongoose donde solo necesitamos `_id` y un campo escalar.
+- **Reconciliación nocturna T-931 batch + cache** ([materializedAnalyticsService.js:543-720](backend/src/services/analytics/materializedAnalyticsService.js:543)):
+  - Las `gameSessionRepository.find` para resolver `sessionIds` por docente se mueven FUERA del loop de rangos temporales — antes se ejecutaban 3 veces por docente (una por rango), ahora 1.
+  - Los `zscore` de comparación de drift, que se hacían en una pipeline por miembro (N round-trips serializados por docente-rango-dimensión), pasan a una única pipeline batch con `2N` zscore alternando score/plays. Para 10 contextos × 3 rangos × 2 dimensiones × 50 docentes la diferencia es ~3000 round-trips serializados → 60 paralelizados en pipeline.
+  - `expectedScore` + `expectedPlays` (dos Maps separados con misma key) unificados a un `Map<member, {score, plays}>`: un lookup por miembro en lugar de dos.
+- **`$sortArray` en pipelines de `contentEffectivenessService`**: `scoreDates` se emite ya ordenado por fecha desde Mongo en lugar de re-ordenarse en JS por cada celda de la matriz cross. MongoDB 5.2+, no afecta a Atlas free-tier.
+- **`Set.has()` reemplaza `Array.includes()`** en `alertDetectionService.js` para validar enums de input (`DISMISS_REASONS_SET`, `BULK_ALLOWED_ACTIONS_SET`). Arrays son pequeños; el cambio es por consistencia idiomática con el resto del codebase.
+- **JSDoc en `baseRepository.applyQueryOptions`** documenta explícitamente que las queries read-only sin sort/limit/skip deben pasar `{ lean: true }` opt-in para evitar hidratar documentos Mongoose innecesariamente.
+- **Log de `NOTIFICATION_RETENTION_DAYS` al boot del modelo**: si el operador olvida configurar la env var en Koyeb, el TTL silenciosamente cae a 90d. Ahora cada arranque deja constancia en Loki del valor efectivo.
+
+#### Memory leaks backend (D-10)
+
+- **Cap LRU implícito en ZSETs de leaderboards** ([materializedAnalyticsService.js recordPlayCompletion](backend/src/services/analytics/materializedAnalyticsService.js:148)). Antes los `ZADD`/`ZINCRBY` no tenían tope: aunque el TTL de 8 días impone un techo natural, una corrupción aguas arriba podía inyectar miles de miembros y agotar la cuota Redis del free tier antes de que expirara el TTL. Tras cada `ZINCRBY` aplicamos `ZREMRANGEBYRANK key 0 -(LEADERBOARD_MAX_MEMBERS+1)` para mantener top-200 por score; en operación normal hay <20 contextos / 4 mecánicas por docente y el recorte es no-op.
+- **`cardNotInPlayCounters` con cleanup periódico** ([GameEngine.js:241-260](backend/src/services/gameEngine/GameEngine.js:241)). La Map acumulaba UIDs escaneados sin match con un mapeo activo (sensor mal configurado, tarjetas de otra sesión) y solo se purgaba cuando reaparecía el mismo UID — los UIDs que aparecían una sola vez nunca se limpiaban. La purga ahora se ejecuta cada ciclo de `cleanupAbandonedPlays` (5 min) descartando entradas cuya ventana ya expiró.
+- **`playLocks` y `cardNotInPlayCounters` limpiados en `shutdown()`** como salvaguarda contra Promises rechazadas síncronamente antes de su `.finally()`. En operación normal los Maps quedan vacíos tras `endPlay`; el shutdown clear es defensa.
+
+#### Cuellos de botella sockets (D-07)
+
+- **Cache de `JSON.stringify(state)` en `persistRfidModeToRedis`** ([socketHandlers.js:636-680](backend/src/realtime/socketHandlers.js:636)). El estado RFID se serializaba dos veces por transición: una para `setex` y otra dentro del envelope pub/sub. Ahora se serializa una vez (`stateJson`) y el mensaje pub/sub se compone manualmente concatenando partes pre-stringificadas. En cluster con N instancias × 4 transiciones por sesión × 30 sesiones diarias, el ahorro es medible en CPU y latencia del hot path RFID.
+
+#### Frontend perf + leaks (D-07 / D-10)
+
+- **Code-split de los paneles de gameplay** ([GameSession.jsx:18-50](frontend/src/pages/GameSession.jsx:18)). `AssociationGameplayPanel`, `MemoryGameplayPanel` y `SequenceGameplayPanel` se importaban estáticamente — el bundle de `/play/:id` incluía los tres aunque solo se renderice uno. Migrados a `lazy()` + `<Suspense fallback={null}>`. El cliente solo descarga el panel de la mecánica de su sesión; los otros dos viajan solo si el alumno cambia de tipo de sesión más tarde.
+- **`useRefetchOnFocus` con state via ref** ([useRefetchOnFocus.js](frontend/src/hooks/useRefetchOnFocus.js)). `isLoading`, `hasData` y `hasError` se leen JIT desde un ref dentro del handler de focus/visibilitychange, no como deps del effect. Antes el effect reinstalaba sus listeners en cada ciclo de fetch (`isLoading: true → false → ...`); ahora solo se reinstala si cambia `refetch`, `enabled` o `minIntervalMs`. Sin impacto funcional, elimina churn observable en DevTools Performance.
+- **`useSoundEffects` no dispone el singleton en cleanup** ([useSoundEffects.js:21-26](frontend/src/hooks/useSoundEffects.js:21)). El `soundEffectsService.dispose()` cerraba el AudioContext compartido cuando cualquier componente que consumía el hook desmontaba — los otros consumidores quedaban sin sonido hasta el siguiente reload. Eliminado el dispose en cleanup: el singleton vive todo el ciclo de la app y el navegador libera el AudioContext implícitamente al cerrar la pestaña.
+
+#### Accesibilidad (D-02) y diseño visual (D-03)
+
+- **`text-text-disabled` → `text-text-muted`** en body text de `EmptyState.jsx` (description prop). El token `disabled` se reserva semánticamente para inputs/botones inactivos; usarlo para texto secundario daba ~1.6:1 sobre `bg-base` en light, falla WCAG AA 4.5:1. `text-text-muted` da ~5:1 AA. Migración localizada — `WizardStepper.jsx` ya había aplicado el mismo fix en pasadas previas y los otros sitios donde queda `text-text-disabled` son contextos sobre bg-coloreado (badges de pasos del wizard) con contraste calibrado.
+- **Target size 44×44 en botón de cerrar de `ConfirmationModal.jsx`** (`min-h-11 min-w-11` + `aria-hidden` en el icono `X`). El `p-2` original daba ~32×32, falla WCAG 2.2 SC 2.5.8 (target size).
+- **Pool de saludos de `CharacterMascot` ampliado** de 3 a 6 frases (`¿Empezamos?`, `¿Listos?`, `¡Aquí estoy!`) para que los empty states sin `message` explícito comuniquen contexto educativo en lugar de saludo plano.
+
+### Hallazgos diferidos a `propuestas-mejora.md`
+
+Acumulados en el documento de propuestas con justificación: D7-001 (cardMapping `setImmediate` solo relevante >500 sesiones simultáneas), D7-003 (cleanup batch idem), D7-004 (RFID lock timeout ajuste cosmético), D7-007 (payload `sequence_phase_memorizing` aceptable), D7-010 (play ownership cache LRU formal), D05-003 (CardDeck índice `partialFilterExpression` requiere recrear índice en Atlas), D05-005 (SmartAlert pre-save validator defensa contra migraciones manuales), D3-001 (sweep `text-white/text-black` masivo — los hits actuales están auditados en contexto de bg coloreado), D3-002 (overlays `bg-black/X` — decisión visual válida en ambos temas), D3-005 (tokens `text-micro/text-nano` formales — trabajo de design system), D3-003 (sweep `aria-label` icon buttons — el agente no aportó hits concretos verificables), D-07-A5 (virtualización de listas — paginación de 12-20 items ya activa hace el coste innecesario).
+
+### Falsos positivos descartados con justificación
+
+Hallazgos del audit que tras verificar el código fuente se descartaron:
+
+- **SEC-003 HMAC sin timestamp anti-replay**: el counter monotónico EEPROM es la elección correcta para ESP8266 sin RTC fiable. Verificación: [rfidHmacValidator.js:99-105](backend/src/utils/rfidHmacValidator.js:99) rechaza `counter <= previousCounter` por sensor.
+- **SEC-004 game-state events no marcados como sensitiveEvents**: [socketHandlers.js:1609-1622](backend/src/realtime/socketHandlers.js:1609) SÍ incluye `start_play`, `pause_play`, `resume_play`, `next_round`, `rfid_scan_from_client`, `play_state_sync` y `join_*` en `sensitiveEvents`. El agente erró.
+- **M-005 CSS `@keyframes` no neutralizadas por `data-reduced-motion`**: [index.css:619-630](frontend/src/index.css:619) SÍ tiene `html[data-reduced-motion="reduce"] *, *::before, *::after { animation-duration: 0.01ms !important; transition-duration: 0.01ms !important; }`. ADR-181 anexo ya cerró este patrón.
+- **D-10-B2 `useKeyboardShortcuts` leak al cambiar `enabled`**: [useKeyboardShortcuts.js:150](frontend/src/hooks/useKeyboardShortcuts.js:150) tiene `[enabled]` en el deps array; el effect se re-ejecuta cuando cambia y el cleanup limpia el listener correctamente.
+- **D-07-A1 / D-10-B5 listeners fantasma en `useGameSocket`**: [webSerialService.off](frontend/src/services/webSerialService.js:151) usa `Set.delete(callback)` (comparación por referencia); React garantiza orden cleanup → next-effect-run; el `handleLocalScan` se limpia correctamente.
+- **D-07-A2 `AuthContext.isLoggingOut` sin memo**: el `value` YA está envuelto en `useMemo` con `isLoggingOut` en deps; el comportamiento "re-render por isLoggingOut" es semántica esperada de Context y splittearlo sería refactor mayor.
+- **D-07-A3 `GameSession.__gameActive` en cada render**: el `useEffect` tiene `[]` deps; el `dispatchEvent` solo dispara en mount/unmount.
+- **D-10-B1 `RfidModeContext.applyModeState` inestable**: ya es `useCallback([], [])`, referencialmente estable.
+- **M-006 `DURATION` ad-hoc**: la escala existente en `lib/utils.js` (`feedback`, `stateChange`, `layout`, `entrance`, `exit`) es **semántica** y mejor que la escala nominal (`micro/fast/normal/slow`) sugerida por el agente.
+
+### Veredicto refactor GameEngine
+
+**NO refactorizar.** El agente B2.1 produjo evidencia explícita: 52 métodos públicos cohesivos en orquestación, sin métodos ajenos al ciclo de vida; 5 sub-módulos delegados (sequenceFlow 520 LOC, finalSummary 167 LOC, recovery 281 LOC, stateHelpers 273 LOC, timerManager 238 LOC); despacho por mecánica centralizado en un único `getMechanicStrategy()` (factory) y un único `switch` en `_endPlayInternal` para construir el final summary; sin ciclos de dependencia. Las 2283 LOC del fichero principal son ~1600 activas tras descontar JSDoc, complejidad inherente al dominio de orquestación stateful multi-mecánica con locks distribuidos y recovery post-crash. Forzar extracción habría sido regresión sin beneficio medible.
+
+### Consecuencias
+
+- **Positivos:** cierra TOCTOU en flujo crítico de aprobación administrativa, uniforma validación Zod en commands sockets, añade observabilidad de aprobaciones anómalas en el dashboard de sistema, reduce 3000+ round-trips serializados a Redis en la reconciliación nocturna T-931, blinda ZSETs de leaderboards contra crecimiento ilimitado, libera bundle de gameplay descargando ~60-90 KB menos por sesión, elimina dispose del AudioContext singleton compartido, sube target size del close de modales a WCAG 2.2 AA, y reasigna el token `text-text-disabled` a su semántica correcta (estados disabled, no body text). 4 lotes de cambios con tests verdes en cada checkpoint.
+- **Negativos / Mitigaciones:** el shape del kick de NEW_LOGIN se aumentó de 100→300ms — usuarios con sesión revocada ven 200ms más de "página activa" antes del disconnect, trade-off intencional contra pérdida de evento en cluster multi-instancia. El cap LRU 200 en leaderboards es un parámetro nuevo que requiere monitorear si el dashboard reporta inconsistencias con MongoDB en agregados; el job nocturno T-931 reconciliará si hay drift y la verificación E2E con Playwright confirmará que las matrices del dashboard se ven correctas.
+- **Alcance:** 22 archivos backend + 6 archivos frontend modificados, 2 archivos nuevos (`socketCommandsValidator.js`, `adminApprovalSpike.js`). Lint backend 0 errores (61 warnings preexistentes). Lint frontend 0 errores (76 warnings preexistentes). Build frontend 61.56 KB gz estable. Tests frontend 586/586 verdes. Tests backend pendientes de ejecutar en contenedor con MongoDB+Redis durante la verificación E2E posterior.
+
+### Anexo — cierres post-QA (sesión 2026-05-26 noche)
+
+Durante la verificación E2E navegada por el usuario y la ejecución de la suite completa de tests backend en Docker afloraron tres incoherencias que cerramos antes de aceptar v1.0.0. También se aplicaron varios de los diferidos de `propuestas-mejora.md` que el perfil de uso del proyecto sí admite ahora que el despliegue es local.
+
+#### Bug detectado en QA Playwright: `admin_approval_spike` faltaba en tres catálogos espejo
+
+El detector nuevo no se materializaba como SystemAlert pese a que el contador `securityCounters.admin_approval` registraba 27 incrementos en 1h tras forzar 25 aprobaciones administrativas: el modelo Mongoose rechazaba el documento porque `source: 'admin'` no estaba en el enum. El catálogo del frontend (filtro del dropdown en `/admin/system-alerts`) tampoco listaba el tipo. Tres ajustes:
+
+1. `backend/src/config/systemAlerts.js` — añadir `'admin'` a `SYSTEM_ALERT_SOURCES` (el enum que el modelo importa para el `source` field).
+2. `frontend/src/constants/systemAlertTypes.js` — añadir entradas en `SYSTEM_ALERT_TYPE_ICONS` (`ShieldCheck`), `SYSTEM_ALERT_TYPE_LABELS` (`'Pico de aprobaciones administrativas'`), `SYSTEM_ALERT_SOURCES` y `SOURCE_STYLES.admin` (`label: 'Administración'`, badge violeta).
+3. Test `backend/tests/services/analytics/systemAlertConfig.test.js` actualizado: el conteo `expone N tipos canónicos` pasa de 16 a 17.
+
+Verificado E2E: tras forzar la detección, se crea correctamente un `SystemAlert` con `type: admin_approval_spike, severity: warning, source: admin`. El dropdown frontend ahora muestra el filtro "Pico de aprobaciones administrativas". El comment en `config/systemAlerts.js` ya recordaba sincronizar los tres puntos, pero la lista de pasos del audit la pasó por alto.
+
+#### Bug detectado en QA navegada: ADR-184 no consideraba timeouts en Asociación
+
+Al jugar una partida real Asociación con 2 aciertos y 4 timeouts (sin responder), el GameOver mostraba "¡Dominio total!" junto a "¡NO TE RINDAS!". El fix original de ADR-184 (filtro `total > 0` en `byValueAccuracy`) suponía que TODAS las rondas dejaban entrada en `byValueAccuracy`, pero `AssociationStrategy.recordScanResult` solo se invoca cuando el alumno **responde** (acierto o error) — los timeouts no incrementan ningún contador, así que las 4 categorías sin responder quedan ausentes del mapa.
+
+Fix en [GameOverStatsAssociation.jsx:69-78](frontend/src/components/game/gameover/GameOverStatsAssociation.jsx:69): la condición de `mode: 'all'` ("¡Dominio total!") ahora requiere TRES cosas, no dos:
+
+1. `attempted.length >= 2` (filtro de seguridad histórico),
+2. `attempted.every(entry => entry.ratio === 1)` (filtro ADR-184), y
+3. `correctAnswers === totalRounds` (nuevo — la partida cubrió las N rondas sin saltos).
+
+Se añade `correctAnswers` y `totalRounds` a las deps del `useMemo` y un test de regresión en `GameOverStatsAssociation.dominance.test.jsx` cubre el caso 2-aciertos-4-timeouts → no debe decir "Dominio total".
+
+#### Bug detectado por tests backend: dos handlers de socket necesitaban guard defensivo
+
+Los tests unitarios `socketCommands › PausePlayCommand` y `socketCommands › ResumePlayCommand` invocan `command.execute({ data: {} })` directamente y esperan recibir un `socket.emit('error', { code: 'VALIDATION_ERROR' })`. Al mover la validación al pipeline (`executeSocketCommand` aplica el schema Zod antes de invocar el `execute`), los handlers quedaron sin el guard `if (!playId)` y los tests rojos.
+
+Fix: restaurar el guard `if (!playId)` en `PausePlayCommand` y `ResumePlayCommand` como defense in depth. El schema Zod del pipeline sigue siendo la primera barrera (con `PAYLOAD_INVALID` uniforme); el guard local cubre los tests unitarios y blinda cualquier código futuro que invoque `execute()` sin pasar por el pipeline.
+
+#### Diferidos de PROP-134 aplicados ahora que el despliegue es local
+
+Tres entradas que en el plan original quedaban diferidas por riesgo cloud o por bajo ROI, se cierran en esta sesión:
+
+- **D7-010 — eviction FIFO post-sweep en `playOwnershipCache`** ([socketHandlers.js:480-510](backend/src/realtime/socketHandlers.js:480)). Si tras el sweep completo el cache sigue al límite, ahora elimina el 10% más antiguo en orden de inserción (`Map.keys()` preserva orden). Antes descartaba la nueva entrada y dejaba el cache lleno indefinidamente; ahora siempre cabe la entrada nueva sin entrar en ciclo cap→sweep→cap.
+- **D3-005 — tokens `text-micro` (11px) y `text-nano` (10px)** en `index.css @theme`. Sweep masivo: 35 archivos del frontend migrados de `text-[11px]` / `text-[10px]` arbitrarios a las utilidades semánticas Tailwind v4. Validado en el bundle generado: las utilidades aparecen 3+3 veces en el CSS final. La escala micro queda centralizada en un solo punto del design system.
+- **M-007 — pool de saludos del mascot ampliado**. Pasa de 3 frases genéricas a 6 que insinúan contexto educativo (`¡Empezamos?`, `¿Listos?`, `¡Aquí estoy!`) sin requerir tocar cada caller de EmptyState. La variante por página queda fuera de scope.
+
+#### Diferidos que tras revisión NO se aplican (incluso con despliegue local)
+
+- **D7-001/003/004/007** (cardMapping loops, cleanup batch, RFID timeout, sequence payload): optimizaciones para escalas que el proyecto no alcanzará (≤30 tarjetas/aula, 1 instancia local, sesiones <50 simultáneas). El propio agente B2.3 las marcaba con impacto BAJO y dependientes de >500 sesiones concurrentes.
+- **D05-003** índice `partialFilterExpression` en CardDeck: requeriría drop+create y el beneficio en local (Atlas no aplica) es nulo.
+- **D05-005** SmartAlert pre-save validator: el partial unique index ya cubre el caso normal; el validator sería defensa contra migraciones manuales raw que no van a suceder.
+- **D3-001/002/003** sweeps `text-white`/`bg-black`/`aria-label`: los hits existentes están audited en su contexto (`!text-black` en DifficultyHeatmap con opacidades calibradas para AA, overlays modales como decisión visual, icon-only buttons del audit ya con label).
+- **D-07-A5** virtualización de listas: la paginación de 12-20 items por página hace innecesaria la virtualización en el perfil de uso.
+
+#### Detalles menores investigados
+
+- **Badge "3" flotante en transición de logout** ([NotificationBell.jsx:160-189](frontend/src/components/notifications/NotificationBell.jsx:160)): el contador `unreadCount` del bell envuelto en `AnimatePresence mode="popLayout"`. Durante el unmount del `AppLayout` (~500ms entre logout y siguiente página), el badge sale con su exit animation antes de desaparecer. NO es leak ni regresión — comportamiento esperado del `popLayout`. Sin acción necesaria.
+- **Onboarding super_admin**: 5 pasos (Bienvenida dirección, Aprobaciones, Alumnado, Contextos, Si te pierdes vuelves), barra `role="progressbar"` con `aria-valuenow`/`aria-valuemax`, contador "Paso X de 5" visible (ADR-186), copy contextual y tranquilizador. Patrón ejemplar, sin issues detectados.
+
+#### Verificaciones E2E completadas
+
+- **SEC-001 TOCTOU bajo CONCURRENCIA real**: dos requests `POST /api/admin/users/:id/approve` y `/reject` simultáneos sobre el mismo docente vía `Promise.all`. Resultado: uno gana con 200 OK ("Profesor aprobado exitosamente"), otro pierde con 400 "Solo se pueden aprobar o rechazar profesores en estado pendiente" — el atomic `updateOne` con filter `accountStatus: 'pending_approval'` impide la race. Documente Mongo queda en exactamente UN estado final.
+- **SEC-006 detector `admin_approval_spike` trigger real**: tras generar 25 aprobaciones (más 2 previas del test TOCTOU), el contador llegó a 27 y el detector creó un SystemAlert `warning`. UI lista el filtro nuevo correctamente.
 

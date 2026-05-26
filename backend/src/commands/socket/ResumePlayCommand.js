@@ -3,14 +3,18 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { playIdEventSchema } = require('../../validators/socketCommandsValidator');
 
 class ResumePlayCommand extends BaseSocketCommand {
   constructor() {
-    super('resume_play');
+    super('resume_play', { schema: playIdEventSchema });
   }
 
   async execute({ socket, data, helpers, logger, gameEngine }) {
     try {
+      // Defense in depth: el schema Zod del pipeline ya validaría esto, pero
+      // este guard mantiene los tests unitarios verdes y blinda contra llamadas
+      // directas a `execute()` que no pasen por `executeSocketCommand`.
       const { playId } = data || {};
       if (!playId) {
         socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });

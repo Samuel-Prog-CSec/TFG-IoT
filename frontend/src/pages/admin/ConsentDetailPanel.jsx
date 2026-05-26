@@ -492,7 +492,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
                                     key={p}
                                     className="inline-flex items-center px-2 py-0.5 rounded-full
                                                bg-info-dark/10 border border-info-dark/20
-                                               text-info-base text-[11px] font-medium"
+                                               text-info-base text-micro font-medium"
                                   >
                                     {PURPOSE_LABELS[p] ?? p}
                                   </span>

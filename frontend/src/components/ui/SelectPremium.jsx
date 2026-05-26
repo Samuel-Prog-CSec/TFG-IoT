@@ -314,7 +314,7 @@ export default function SelectPremium({
                     id={liveRegionId}
                     aria-live="polite"
                     aria-atomic="true"
-                    className="block mt-1.5 text-[11px] text-text-muted px-1"
+                    className="block mt-1.5 text-micro text-text-muted px-1"
                   >
                     {(() => {
                       if (filteredOptions.length === 0) return 'Sin coincidencias';

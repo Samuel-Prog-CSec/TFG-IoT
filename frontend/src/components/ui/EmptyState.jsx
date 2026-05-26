@@ -112,10 +112,14 @@ export default function EmptyState({
 
       {description && (
         <motion.p
+          // (D3-004) `text-text-disabled` da ~1.6:1 sobre bg-base en light
+          // (falla WCAG AA 4.5:1). Migrado a `text-text-muted` (~5:1 AA).
+          // El token `disabled` se reserva para inputs/botones inactivos,
+          // no para descripciones secundarias de body text.
           initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: DURATION.stateChange, ease: EASING.outQuart, delay: 0.15 }}
-          className="text-text-disabled mt-2 max-w-md mx-auto"
+          className="text-text-muted mt-2 max-w-md mx-auto"
         >
           {description}
         </motion.p>

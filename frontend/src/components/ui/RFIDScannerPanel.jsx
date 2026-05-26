@@ -432,7 +432,7 @@ export default function RFIDScannerPanel({
               <Plus size={18} />
               Simular Escaneo (Dev)
             </motion.button>
-            <p className="text-[10px] text-text-disabled text-center mt-2">
+            <p className="text-nano text-text-disabled text-center mt-2">
               Modo simulacion activo para pruebas locales
             </p>
           </div>
@@ -488,7 +488,7 @@ export default function RFIDScannerPanel({
                     <p className="text-xs font-mono text-text-primary truncate">
                       {card.uid}
                     </p>
-                    <p className="text-[10px] text-text-muted">
+                    <p className="text-nano text-text-muted">
                       {card.type || 'RFID'}
                     </p>
                   </div>

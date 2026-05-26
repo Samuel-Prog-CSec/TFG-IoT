@@ -137,28 +137,28 @@ export default function AlertHistoryModal({ alertId, onClose }) {
                             {formatRelativeTime(event.at)}
                           </p>
                           {event.severity && (
-                            <p className="mt-1 text-[11px] text-text-disabled">
+                            <p className="mt-1 text-micro text-text-disabled">
                               Severidad: <span className="font-medium">{event.severity}</span>
                               {event.reason && <span className="ml-2">({event.reason})</span>}
                             </p>
                           )}
                           {event.event === 'snoozed' && event.until && (
-                            <p className="mt-1 text-[11px] text-text-disabled">
+                            <p className="mt-1 text-micro text-text-disabled">
                               Hasta: {new Date(event.until).toLocaleDateString('es-ES')}
                             </p>
                           )}
                           {event.event === 'dismissed' && event.reason && (
-                            <p className="mt-1 text-[11px] text-text-disabled">
+                            <p className="mt-1 text-micro text-text-disabled">
                               Motivo: {event.reason}
                             </p>
                           )}
                           {event.event === 'resolved' && (
-                            <p className="mt-1 text-[11px] text-text-disabled">
+                            <p className="mt-1 text-micro text-text-disabled">
                               {event.automatic ? 'Automática' : 'Manual por el docente'}
                             </p>
                           )}
                           {event.event === 'reseen' && event.occurrencesCount && (
-                            <p className="mt-1 text-[11px] text-text-disabled">
+                            <p className="mt-1 text-micro text-text-disabled">
                               Re-confirmada {event.occurrencesCount} veces
                             </p>
                           )}

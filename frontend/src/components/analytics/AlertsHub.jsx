@@ -166,7 +166,7 @@ function AlertCard({
             </span>
             <span
               className={cn(
-                'text-[10px] font-medium px-1.5 py-0.5 rounded-md flex-shrink-0',
+                'text-nano font-medium px-1.5 py-0.5 rounded-md flex-shrink-0',
                 isPositive
                   ? 'bg-success-base/10 text-success-base'
                   : `${severity.bg} ${severity.text}`
@@ -186,7 +186,7 @@ function AlertCard({
             {alert.description || alert.message || typeLabel}
           </p>
           <div className="flex items-center justify-between mt-2">
-            <span className="text-[10px] text-text-disabled">
+            <span className="text-nano text-text-disabled">
               {formatRelativeTime(alert.detectedAt || alert.createdAt)}
               {alert.status === 'snoozed' && alert.snoozedUntil && (
                 <span className="ml-2 text-info-base font-medium">

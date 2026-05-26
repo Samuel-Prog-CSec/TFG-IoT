@@ -72,6 +72,20 @@ const TIME_RANGE_MS = {
  */
 const LEADERBOARD_TTL_SECONDS = 8 * 24 * 60 * 60;
 
+/**
+ * Tope máximo de miembros por leaderboard ZSET (D10-001).
+ *
+ * Los leaderboards por docente acumulan `score`/`plays` por contexto y por
+ * mecánica con `ZINCRBY`. Aunque el TTL de 8 días impone un techo natural,
+ * sin un cap explícito una corrupción aguas arriba podría inyectar miles de
+ * miembros (p. ej. IDs basura) y agotar la cuota Redis del free tier antes
+ * de que el TTL expire. Tras cada `ZINCRBY` aplicamos `ZREMRANGEBYRANK` para
+ * quedarnos solo con los `LEADERBOARD_MAX_MEMBERS` de mayor score; en
+ * operación normal hay <20 contextos / 4 mecánicas por docente, así que el
+ * recorte es no-op y solo actúa como salvaguarda.
+ */
+const LEADERBOARD_MAX_MEMBERS = 200;
+
 const NAMESPACES = {
   LEADERBOARD: 'leaderboard',
   STUDENT_METRICS: 'student:metrics'
@@ -168,72 +182,37 @@ async function recordPlayCompletion(payload) {
     await redisService.runPipeline(p => {
       // === ZSETs leaderboards (4 keys × 3 timeRanges = 12 ZINCRBY) ===
       // Solo si contextId / mechanicId tienen valor.
+      // (D10-001) Helper local: tras cada ZINCRBY recortamos a top-N por
+      // score con `ZREMRANGEBYRANK key 0 -(MAX+1)` (elimina los N-MAX peores
+      // por score asc). Si el ZSET tiene <=MAX miembros el comando es no-op.
+      // `range` se pasa explícitamente porque cuando se llama desde el `for`
+      // exterior no está en el scope léxico de la función.
+      const bumpAndCap = (dimension, dimensionId, range) => {
+        const scoreKey = redisService.buildKey(
+          NAMESPACES.LEADERBOARD,
+          leaderboardId(dimension, 'score', teacherId, range)
+        );
+        const playsKey = redisService.buildKey(
+          NAMESPACES.LEADERBOARD,
+          leaderboardId(dimension, 'plays', teacherId, range)
+        );
+        const member = toIdString(dimensionId);
+        p.zincrby(scoreKey, score, member);
+        p.zincrby(playsKey, 1, member);
+        p.expire(scoreKey, LEADERBOARD_TTL_SECONDS);
+        p.expire(playsKey, LEADERBOARD_TTL_SECONDS);
+        p.zremrangebyrank(scoreKey, 0, -(LEADERBOARD_MAX_MEMBERS + 1));
+        p.zremrangebyrank(playsKey, 0, -(LEADERBOARD_MAX_MEMBERS + 1));
+      };
+
       if (contextId) {
         for (const range of LEADERBOARD_TIME_RANGES) {
-          p.zincrby(
-            redisService.buildKey(
-              NAMESPACES.LEADERBOARD,
-              leaderboardId('context', 'score', teacherId, range)
-            ),
-            score,
-            toIdString(contextId)
-          );
-          p.zincrby(
-            redisService.buildKey(
-              NAMESPACES.LEADERBOARD,
-              leaderboardId('context', 'plays', teacherId, range)
-            ),
-            1,
-            toIdString(contextId)
-          );
-          p.expire(
-            redisService.buildKey(
-              NAMESPACES.LEADERBOARD,
-              leaderboardId('context', 'score', teacherId, range)
-            ),
-            LEADERBOARD_TTL_SECONDS
-          );
-          p.expire(
-            redisService.buildKey(
-              NAMESPACES.LEADERBOARD,
-              leaderboardId('context', 'plays', teacherId, range)
-            ),
-            LEADERBOARD_TTL_SECONDS
-          );
+          bumpAndCap('context', contextId, range);
         }
       }
       if (mechanicId) {
         for (const range of LEADERBOARD_TIME_RANGES) {
-          p.zincrby(
-            redisService.buildKey(
-              NAMESPACES.LEADERBOARD,
-              leaderboardId('mechanic', 'score', teacherId, range)
-            ),
-            score,
-            toIdString(mechanicId)
-          );
-          p.zincrby(
-            redisService.buildKey(
-              NAMESPACES.LEADERBOARD,
-              leaderboardId('mechanic', 'plays', teacherId, range)
-            ),
-            1,
-            toIdString(mechanicId)
-          );
-          p.expire(
-            redisService.buildKey(
-              NAMESPACES.LEADERBOARD,
-              leaderboardId('mechanic', 'score', teacherId, range)
-            ),
-            LEADERBOARD_TTL_SECONDS
-          );
-          p.expire(
-            redisService.buildKey(
-              NAMESPACES.LEADERBOARD,
-              leaderboardId('mechanic', 'plays', teacherId, range)
-            ),
-            LEADERBOARD_TTL_SECONDS
-          );
+          bumpAndCap('mechanic', mechanicId, range);
         }
       }
 
@@ -546,20 +525,36 @@ async function reconcileLeaderboards({ teacherIds } = {}) {
       continue;
     }
 
+    // (D08-H03) Cargar las sesiones del docente UNA sola vez por docente:
+    // los 3 rangos temporales del leaderboard ven exactamente el mismo
+    // conjunto de sesiones (el `cutoff` filtra después, en el `$match`
+    // sobre `completedAt`). Cachearlas en este scope ahorra 2/3 partes de
+    // las queries de listado en cada reconciliación nocturna.
+    let teacherSessionIds;
+    try {
+      const teacherSessions = await gameSessionRepository.find(
+        { createdBy: teacherOid },
+        { select: '_id', lean: true }
+      );
+      teacherSessionIds = teacherSessions.map(s => s._id);
+    } catch (err) {
+      logger.warn('T-931 reconcile error (carga sessionIds del docente)', {
+        teacherId: toIdString(teacherId),
+        error: err.message
+      });
+      continue;
+    }
+    if (teacherSessionIds.length === 0) {
+      continue;
+    }
+
     for (const range of LEADERBOARD_TIME_RANGES) {
       const cutoff = new Date(Date.now() - TIME_RANGE_MS[range]);
       // Aggregation: GamePlay → match sessionId IN teacher sessions →
       // lookup session → group por context+mechanic. Reusamos el patrón
       // proyección post-lookup (A.2).
       try {
-        const teacherSessions = await gameSessionRepository.find(
-          { createdBy: teacherOid },
-          { select: '_id' }
-        );
-        const sessionIds = teacherSessions.map(s => s._id);
-        if (sessionIds.length === 0) {
-          continue;
-        }
+        const sessionIds = teacherSessionIds;
 
         const pipeline = [
           {
@@ -628,47 +623,55 @@ async function reconcileLeaderboards({ teacherIds } = {}) {
             );
             return;
           }
-          const expectedScore = new Map();
-          const expectedPlays = new Map();
+          // (D08-M02) Map único `{score, plays}` por miembro: un lookup en
+          // lugar de dos, idéntico semánticamente y más legible al iterar.
+          const expected = new Map();
           for (const row of rawRows) {
             if (!row._id) {
               continue;
             }
-            expectedScore.set(row._id.toString(), Number(row.totalScore) || 0);
-            expectedPlays.set(row._id.toString(), Number(row.plays) || 0);
+            expected.set(row._id.toString(), {
+              score: Number(row.totalScore) || 0,
+              plays: Number(row.plays) || 0
+            });
           }
 
-          // Comparación: leer ZSET actual y medir drift > 5% por miembro.
+          // (D08-H01) Batch de TODOS los `zscore` en una sola pipeline. La
+          // versión anterior abría N pipelines secuenciales (una por miembro
+          // de dimensión) con 2 zscore cada una — con 10 contextos × 3 rangos
+          // por docente son 30 round-trips al Redis en serie. Ahora es una
+          // sola pipeline por dimensión-rango con 2N zscore en orden estable
+          // (score, plays alternados); `results[i*2]` es score y `[i*2+1]`
+          // es plays para `members[i]`.
+          const scoreKey = redisService.buildKey(
+            NAMESPACES.LEADERBOARD,
+            leaderboardId(dimension, 'score', teacherId, range)
+          );
+          const playsKey = redisService.buildKey(
+            NAMESPACES.LEADERBOARD,
+            leaderboardId(dimension, 'plays', teacherId, range)
+          );
+          const members = [...expected.keys()];
+          const liveResults = await redisService.runPipeline(p => {
+            for (const member of members) {
+              p.zscore(scoreKey, member);
+              p.zscore(playsKey, member);
+            }
+          }, 't931-reconcile-batch');
+
           let scoreDrifted = false;
           let playsDrifted = false;
-          for (const dimensionMember of expectedScore.keys()) {
-            const liveScore = await redisService.runPipeline(p => {
-              p.zscore(
-                redisService.buildKey(
-                  NAMESPACES.LEADERBOARD,
-                  leaderboardId(dimension, 'score', teacherId, range)
-                ),
-                dimensionMember
-              );
-              p.zscore(
-                redisService.buildKey(
-                  NAMESPACES.LEADERBOARD,
-                  leaderboardId(dimension, 'plays', teacherId, range)
-                ),
-                dimensionMember
-              );
-            }, 't931-reconcile');
-            const liveScoreVal = Number(liveScore?.[0]?.[1] || 0);
-            const livePlaysVal = Number(liveScore?.[1]?.[1] || 0);
-            const expScore = expectedScore.get(dimensionMember);
-            const expPlays = expectedPlays.get(dimensionMember);
+          members.forEach((member, idx) => {
+            const liveScoreVal = Number(liveResults?.[idx * 2]?.[1] || 0);
+            const livePlaysVal = Number(liveResults?.[idx * 2 + 1]?.[1] || 0);
+            const { score: expScore, plays: expPlays } = expected.get(member);
             if (Math.abs(liveScoreVal - expScore) > Math.max(1, expScore * 0.05)) {
               scoreDrifted = true;
             }
             if (Math.abs(livePlaysVal - expPlays) > Math.max(1, expPlays * 0.05)) {
               playsDrifted = true;
             }
-          }
+          });
           if (scoreDrifted || playsDrifted) {
             driftDetected += 1;
             driftCorrected += 1;
@@ -678,23 +681,13 @@ async function reconcileLeaderboards({ teacherIds } = {}) {
           // escrituras perdidas durante caída Redis previa). Usamos
           // pipeline para minimizar round-trips.
           await redisService.runPipeline(p => {
-            const scoreKey = redisService.buildKey(
-              NAMESPACES.LEADERBOARD,
-              leaderboardId(dimension, 'score', teacherId, range)
-            );
-            const playsKey = redisService.buildKey(
-              NAMESPACES.LEADERBOARD,
-              leaderboardId(dimension, 'plays', teacherId, range)
-            );
             p.del(scoreKey);
             p.del(playsKey);
             const scoreArgs = [];
             const playsArgs = [];
-            for (const [member, val] of expectedScore.entries()) {
-              scoreArgs.push(val, member);
-            }
-            for (const [member, val] of expectedPlays.entries()) {
-              playsArgs.push(val, member);
+            for (const [member, { score, plays }] of expected.entries()) {
+              scoreArgs.push(score, member);
+              playsArgs.push(plays, member);
             }
             if (scoreArgs.length > 0) {
               p.zadd(scoreKey, ...scoreArgs);

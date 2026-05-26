@@ -3,18 +3,15 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { playIdEventSchema } = require('../../validators/socketCommandsValidator');
 
 class JoinPlayCommand extends BaseSocketCommand {
   constructor() {
-    super('join_play');
+    super('join_play', { schema: playIdEventSchema });
   }
 
   async execute({ socket, data, helpers, logger, gameEngine }) {
-    const { playId } = data || {};
-    if (!playId) {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
-      return;
-    }
+    const { playId } = data;
 
     if (!helpers.validatePlayId(socket, playId, 'join_play')) {
       return;

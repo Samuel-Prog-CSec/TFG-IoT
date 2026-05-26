@@ -21,6 +21,13 @@
  * desactivado por defecto porque muchos flujos hacen find → modify → .save().
  * Se puede forzar con lean: true/false explícito en cualquier caso.
  *
+ * **Regla operativa:** si tu query de `findById`/`findOne` es read-only
+ * (no hace `.save()` posterior, solo lectura para enriquecer una respuesta o
+ * construir un mapa de lookup), pasa `{ lean: true }` explícito. El default
+ * activa lean solo si detecta `sort`/`limit`/`skip`, por lo que un `findById`
+ * sin esas opciones devolverá un documento Mongoose hidratado innecesario.
+ * Ver `reportDataService.js` (enriquecimiento de scores) como referencia.
+ *
  * @param {import('mongoose').Query} query - Query de Mongoose en curso
  * @param {Object} options - Opciones a aplicar
  * @param {boolean} [options.lean] - true para POJOs, false para documentos Mongoose

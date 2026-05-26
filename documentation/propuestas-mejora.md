@@ -2004,3 +2004,37 @@ Auditoría exhaustiva con 3 agentes Explore + verificación manual. 14 findings 
 **No es bug funcional**: los datos son correctos, sólo es percepción de duplicación. Por eso queda como propuesta, no en el fix-en-bloque de la QA del 21/05.
 
 **Esfuerzo estimado:** S (1 día). Cambio frontal en `AlertsHub.jsx` (o el componente equivalente de `/analytics/insights`).
+
+## PROP-134 [MEDIA]: Diferidos de la auditoría integral pre-v1.0.0 (ADR-189)
+
+Hallazgos del audit en 10 dimensiones (ADR-189) que se descartaron del fix-en-bloque por bajo ROI, complejidad de implementación o porque solo aplican en escenarios fuera del perfil de uso del proyecto (un aula = 30 alumnos, no >500 sesiones concurrentes). Se mantienen aquí para futuro hardening o si el perfil de uso cambia.
+
+### Performance backend / sockets (solo relevantes a gran escala)
+
+- **D7-001**: `cardMapping` loops sin `setImmediate` en `GameEngine.startPlay` ([GameEngine.js:484-558](backend/src/services/gameEngine/GameEngine.js:484)). 4 loops secuenciales sobre `sessionDoc.cardMappings`. Con 100+ tarjetas en una sesión podría bloquear el event loop ~15-30ms. Relevante si una sesión tiene >50 tarjetas, no en el perfil educativo actual (típicamente 6-20). Fix: aplicar `processInBatches` con setImmediate cada 20-30 mappings.
+- **D7-003**: `cleanupAbandonedPlays` itera `activePlays.entries()` sin batch async. `ACTIVE_PLAYS_HARD_LIMIT=2000` protege el upper bound; con 1500+ partidas activas el cleanup bloquea ~5-10ms. Relevante solo a escala >500 sesiones concurrentes.
+- **D7-004**: RFID lock timeout de 10s podría reducirse a 5s con métricas separadas por operation type (`setRfidModeState` / `clearRfidModeState` / `getRfidModeState`) para detección temprana de operaciones lentas. Ajuste cosmético — el timeout actual no causa problemas.
+- **D7-007**: Payload `sequence_phase_memorizing` lleva el array `sequence` completo por ronda. Aceptable (perMessageDeflate >1KB lo comprime); si secuencias futuras superan 50 elementos, enviar solo `sequenceLength` y que el cliente componga desde su state cacheado.
+- **D7-010** ✅ CERRADA (2026-05-26 noche, post-QA): eviction FIFO 10% del cap aplicada en [socketHandlers.js:480-510](backend/src/realtime/socketHandlers.js:480). Sin entrar en ciclo cap→sweep→cap bajo churn alto.
+
+### Backend perf / arquitectura
+
+- **D05-003**: Índice `{createdBy:1, status:1, 'cardMappings.uid':1}` en `CardDeck.js` sin `partialFilterExpression: { status: 'active' }`. Reducción de tamaño del índice en Atlas free-tier sería marginal y requiere recrear el índice (drop+create), riesgo de regresión en queries de mazos archivados durante el rebuild. No aplica.
+- **D05-005**: `SmartAlert` y `SystemAlert` con índices `partialFilterExpression: { status: 'active' }` correctos para dedup, pero sin validador `pre('validate')` que rechace duplicados antes de Mongo. Es defensa contra migraciones manuales — el índice ya bloquea en operación normal.
+
+### Frontend / diseño
+
+- **D3-001**: Sweep masivo de `text-white` / `text-black` hardcoded a tokens semánticos. Los hits actuales (15 ocurrencias en 9 archivos) están auditados en contexto de bg coloreado (botones primary, badges sobre tone) y no fallan AA en su entorno real. Migración formal a tokens `--color-text-on-{tone}` para light+dark queda como trabajo de design system.
+- **D3-002**: `bg-black/40` / `bg-black/60` hardcoded en overlays de modales. Decisión visual válida en ambos temas (overlay oscuro enfoca atención al modal en light y dark). Tokens `--color-backdrop-{dark|light}` formales serían pulido marginal.
+- **D3-005** ✅ CERRADA (2026-05-26 noche, post-QA): tokens `--text-micro` (11px) y `--text-nano` (10px) añadidos al `@theme` de `index.css`. Sweep masivo de 35 archivos del frontend a las utilidades semánticas Tailwind v4. Validado en bundle generado.
+- **D3-003**: Sweep `aria-label` en icon buttons. El agente B3.1 no aportó hits concretos verificables (los buttons icon-only de AppLayout y ConfirmationModal SÍ tienen `aria-label`). Sweep formal manual con axe-core en cada pantalla queda pendiente.
+
+### Frontend / perf
+
+- **D-07-A5**: Virtualización de listas largas (StudentManagement, ContextsPage, CardDecksPage). Paginación de 12-20 items por página ya activa en todas — virtualizar solo añadiría valor con >100 items renderizados simultáneamente, lo cual la paginación impide. No aplica.
+
+### Microcopy / motion
+
+- **M-007 (variante completa)** ✅ PARCIAL (2026-05-26): pool genérico ampliado con 3 frases ambiguas que insinúan contexto educativo (`¿Empezamos?`, `¿Listos?`, `¡Aquí estoy!`). La variante "por página" (`¿Creamos tu primer mazo?` en DecksPage, etc.) queda fuera de scope — requeriría tocar cada caller de EmptyState y el patrón general (`message` por prop) ya está disponible para quien quiera contextualizar puntualmente.
+
+**Esfuerzo estimado conjunto**: 1-2 semanas de trabajo distribuido si se atacan todos. La mayoría son micro-mejoras independientes — atacar PROP-134 entero no aporta más valor que cerrar los items uno a uno cuando aparezca el contexto natural (escalado, refactor design system, sweep WCAG con tooling).

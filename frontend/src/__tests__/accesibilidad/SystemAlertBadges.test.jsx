@@ -19,7 +19,7 @@ describe('SOURCE_STYLES (System alerts) — accesibilidad', () => {
     it(`fuente="${fuente}" badge cumple WCAG 2.2 AA en dark + light`, async () => {
       const estilo = SOURCE_STYLES[fuente];
       await renderEnAmbosTemas(
-        <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${estilo.badge}`}>
+        <span className={`inline-flex items-center rounded-full border px-1.5 py-0.5 text-nano uppercase tracking-wide ${estilo.badge}`}>
           {estilo.label}
         </span>,
         async container => {

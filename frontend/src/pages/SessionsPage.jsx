@@ -168,7 +168,7 @@ function SessionPlayStats({ playStats }) {
       </div>
       {/* PROP-5: tiempo desde la ultima partida en formato relativo. */}
       {playStats.lastPlayedAt && (
-        <p className="text-[11px] text-text-muted/80">
+        <p className="text-micro text-text-muted/80">
           Última partida: {formatRelativeTime(playStats.lastPlayedAt)}
         </p>
       )}

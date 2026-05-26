@@ -60,7 +60,7 @@ function FallbackTouchPanelSequence({ cards, onSelectCard, cursor = 0, sequenceL
         </div>
         {sequenceLength > 0 && (
           <p
-            className="text-[11px] font-medium text-accent-amber tabular-nums"
+            className="text-micro font-medium text-accent-amber tabular-nums"
             aria-live="polite"
           >
             Carta {Math.min(cursor + 1, sequenceLength)} de {sequenceLength}

@@ -383,7 +383,7 @@ function AssetCardAudioSection({
           disabled={!canManage}
           aria-disabled={!canManage}
           className={cn(
-            'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors',
+            'flex items-center gap-1 px-2 py-1 rounded-lg text-nano font-medium transition-colors',
             replaceClass
           )}
           title={canManage ? 'Reemplazar audio' : audioActionsTooltip}
@@ -396,7 +396,7 @@ function AssetCardAudioSection({
           disabled={isDeletingAudio || !canManage}
           aria-disabled={!canManage}
           className={cn(
-            'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors disabled:opacity-50',
+            'flex items-center gap-1 px-2 py-1 rounded-lg text-nano font-medium transition-colors disabled:opacity-50',
             deleteAudioClass
           )}
           title={canManage ? 'Eliminar solo el audio' : audioActionsTooltip}
@@ -489,7 +489,7 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
 
           {/* Linea de autoría (ADR-052): muestra quien subio el asset */}
           <p
-            className="text-[10px] text-text-muted truncate"
+            className="text-nano text-text-muted truncate"
             title={ownershipTooltip}
           >
             {ownershipLabel}

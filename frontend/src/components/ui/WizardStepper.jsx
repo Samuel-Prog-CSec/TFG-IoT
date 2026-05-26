@@ -193,7 +193,7 @@ function WizardStepItem({
       {step.description && (
         // BUG-A11Y-STEPPER-DESC (QA Sprint 0): text-text-disabled daba 2.37
         // en light. text-text-muted cumple AA y sigue siendo terciario.
-        <span className="text-[10px] text-text-muted max-w-[80px] text-center hidden sm:block">
+        <span className="text-nano text-text-muted max-w-[80px] text-center hidden sm:block">
           {step.description}
         </span>
       )}

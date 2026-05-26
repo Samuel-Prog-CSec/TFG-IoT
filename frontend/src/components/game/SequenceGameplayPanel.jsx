@@ -152,7 +152,7 @@ function SequenceGameplayPanel({
           >
             <Sparkles size={16} className="text-accent-amber shrink-0" aria-hidden="true" />
             <div>
-              <p className="text-[11px] uppercase tracking-wider text-accent-amber/80">
+              <p className="text-micro uppercase tracking-wider text-accent-amber/80">
                 Pista {hint.type === 'partial' ? 'parcial' : 'completa'}
               </p>
               <p className="text-sm font-display font-semibold tabular-nums">{hint.text}</p>

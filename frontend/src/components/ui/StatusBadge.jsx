@@ -22,7 +22,7 @@ const badgeVariants = cva(
         info: 'bg-info-dark/10 border-info-dark/20 text-info-on-alpha'
       },
       size: {
-        sm: 'px-2.5 py-0.5 text-[11px] uppercase tracking-wider',
+        sm: 'px-2.5 py-0.5 text-micro uppercase tracking-wider',
         md: 'px-3 py-1 text-xs',
       },
     },

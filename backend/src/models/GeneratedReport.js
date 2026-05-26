@@ -131,10 +131,15 @@ GeneratedReportSchema.pre('save', async function preSaveGeneratedReport() {
   const count = await Model.countDocuments({ teacherId: this.teacherId });
   if (count >= MAX_REPORTS_PER_TEACHER) {
     const toDelete = count - MAX_REPORTS_PER_TEACHER + 1;
+    // `.lean()` evita hidratar documentos Mongoose cuando solo necesitamos
+    // los `_id` para el `deleteMany`. Lo activamos aunque la lista esté
+    // acotada por `limit(toDelete)` porque el payload viaja en el hot path
+    // de cualquier guardado de informe que satura el cap (drop-oldest).
     const oldest = await Model.find({ teacherId: this.teacherId })
       .sort({ generatedAt: 1 })
       .limit(toDelete)
-      .select('_id');
+      .select('_id')
+      .lean();
     if (oldest.length > 0) {
       await Model.deleteMany({ _id: { $in: oldest.map(o => o._id) } });
     }

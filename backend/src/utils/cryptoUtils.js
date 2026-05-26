@@ -23,6 +23,7 @@ const IV_BYTES = 12; // 96 bits recomendado para GCM
 const TAG_BYTES = 16; // 128 bits
 
 let cachedKey = null;
+let mfaKeyFallbackWarningEmitted = false;
 
 /**
  * Obtiene la clave maestra desde env, validándola al primer uso.
@@ -41,12 +42,26 @@ const getKey = () => {
     if (process.env.NODE_ENV === 'production') {
       throw new Error(
         'MFA_ENCRYPTION_KEY no está configurada. Es OBLIGATORIA en producción para cifrar ' +
-          'campos sensibles (MFA secrets, etc.). Genera con: ' +
-          `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"`
+          'campos sensibles (MFA secrets, etc.). Genera con: openssl rand -hex 32'
       );
     }
-    // En dev/test: derivar clave determinista a partir de JWT_SECRET — NO usar en prod.
-    // Permite que tests y dev local funcionen sin configurar MFA_ENCRYPTION_KEY explícita.
+    // En dev/test: derivar clave determinista a partir de JWT_SECRET para que tests
+    // con fixtures cifrados y dev local sin configuración explícita funcionen.
+    //
+    // Implicación de seguridad: si JWT_SECRET se filtra en un entorno dev compartido,
+    // los MFA secrets cifrados con esta clave también quedan expuestos. Recomendamos
+    // configurar `MFA_ENCRYPTION_KEY` explícita en cualquier entorno dev no efímero
+    // (staging, dev compartido). El warning solo se emite una vez por boot para no
+    // ensuciar la salida de tests.
+    if (!mfaKeyFallbackWarningEmitted && process.env.NODE_ENV !== 'test') {
+      mfaKeyFallbackWarningEmitted = true;
+      const logger = require('./logger');
+      logger.warn(
+        'MFA_ENCRYPTION_KEY no configurada — usando fallback determinista derivado de ' +
+          'JWT_SECRET. Si JWT_SECRET se filtra, los MFA secrets cifrados también. ' +
+          'Configura MFA_ENCRYPTION_KEY explícita en entornos dev compartidos.'
+      );
+    }
     const seed = process.env.JWT_SECRET || 'eduplay-dev-fallback-mfa-key-seed';
     cachedKey = crypto.createHash('sha256').update(`mfa:${seed}`).digest();
     return cachedKey;

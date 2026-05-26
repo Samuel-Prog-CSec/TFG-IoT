@@ -832,7 +832,7 @@ function RecentActivity({ students }) {
                 {/* BUG-A11Y-CONTRAST-A: text-text-disabled (oklch 0.6 sobre
                     bg-background-surface/40) no llega a 4.5:1. Subir a
                     text-text-muted que sí pasa AA. */}
-                <span className="text-[10px] text-text-muted">
+                <span className="text-nano text-text-muted">
                   {formatRelativeTime(student.lastPlayedAt || student.studentMetrics?.lastPlayedAt)}
                 </span>
               </div>

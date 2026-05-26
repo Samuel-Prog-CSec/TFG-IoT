@@ -245,7 +245,7 @@ export default function RFIDConnector({
           <Usb size={14} />
           <span>SensorId: {webSerialService.sensorId}</span>
           {portInfo.usbVendorId && (
-            <span className="ml-2 rounded bg-background-surface px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
+            <span className="ml-2 rounded bg-background-surface px-1.5 py-0.5 font-mono text-nano text-text-secondary">
               USB {portInfo.usbVendorId}:{portInfo.usbProductId || '????'}
             </span>
           )}

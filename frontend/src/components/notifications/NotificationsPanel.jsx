@@ -201,7 +201,7 @@ export default function NotificationsPanel({
             <div className="flex items-baseline gap-2 min-w-0">
               <h2 className="text-sm font-bold text-text-primary truncate">Notificaciones</h2>
               {unreadCount > 0 && (
-                <span className="text-[11px] uppercase tracking-wider font-semibold text-brand-light">
+                <span className="text-micro uppercase tracking-wider font-semibold text-brand-light">
                   {unreadCount} sin leer
                 </span>
               )}
@@ -214,7 +214,7 @@ export default function NotificationsPanel({
                   onClick={handleMarkAllRead}
                   className={cn(
                     'inline-flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg',
-                    'text-[11px] font-semibold uppercase tracking-wider',
+                    'text-micro font-semibold uppercase tracking-wider',
                     'text-text-secondary hover:text-text-primary',
                     'hover:bg-background-elevated transition-colors',
                     'focus-ring'

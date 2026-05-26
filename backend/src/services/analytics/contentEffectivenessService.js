@@ -129,7 +129,12 @@ const buildSingleDimensionPipeline = (teacherId, startDate, groupBy) => {
         totalPlays: 1,
         uniqueStudents: { $size: '$uniqueStudents' },
         avgCompletionTime: { $round: ['$avgCompletionTime', 0] },
-        scoreDates: 1
+        // `$sortArray` (MongoDB 5.2+) emite `scoreDates` ya ordenado por fecha.
+        // El JS posterior (`enrichWithLearningMetrics.sortedScores`) mantiene un
+        // `.sort()` defensivo pero la regresión lineal recibe el array O(N)
+        // ya ordenado, evitando el O(N log N) en el server Node por cada
+        // contexto/mecánica que entra en el reporte.
+        scoreDates: { $sortArray: { input: '$scoreDates', sortBy: { date: 1 } } }
       }
     },
     { $sort: { avgScore: -1 } }
@@ -190,7 +195,10 @@ const buildCrossPipeline = (teacherId, startDate) => [
       totalPlays: 1,
       uniqueStudents: { $size: '$uniqueStudents' },
       avgCompletionTime: { $round: ['$avgCompletionTime', 0] },
-      scoreDates: 1
+      // `$sortArray` (MongoDB 5.2+) emite `scoreDates` ya ordenado por fecha,
+      // espejo del 1D-pipeline para que `enrichWithLearningMetrics` reciba el
+      // array O(N) ordenado en cada celda de la matriz cross.
+      scoreDates: { $sortArray: { input: '$scoreDates', sortBy: { date: 1 } } }
     }
   },
   // Orden principal por score desc, secundario por nombre de mecánica asc

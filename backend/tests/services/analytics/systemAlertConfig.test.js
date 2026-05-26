@@ -9,8 +9,8 @@ const config = require('../../../src/config/systemAlerts');
 const { ALL_SYSTEM_DETECTORS } = require('../../../src/services/analytics/systemDetectors');
 
 describe('systemAlerts config (T-942)', () => {
-  it('expone 16 tipos canónicos', () => {
-    expect(config.SYSTEM_ALERT_TYPE_KEYS).toHaveLength(16);
+  it('expone 17 tipos canónicos', () => {
+    expect(config.SYSTEM_ALERT_TYPE_KEYS).toHaveLength(17);
   });
 
   it('incluye los 4 detectores free-tier (T-910)', () => {

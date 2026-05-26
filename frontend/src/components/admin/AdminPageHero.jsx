@@ -97,7 +97,7 @@ function AdminPageShell({
               <Icon className="size-6 text-text-primary" aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <p className="text-[11px] uppercase tracking-[0.18em] text-warning-on-alpha font-bold mb-0.5">
+              <p className="text-micro uppercase tracking-[0.18em] text-warning-on-alpha font-bold mb-0.5">
                 {eyebrow}
               </p>
               <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary leading-tight">

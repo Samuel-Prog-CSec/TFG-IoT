@@ -231,11 +231,16 @@ async function getClassroomReport(teacherId, { timeRange = '30d', format = 'summ
   // ordena por averageScore historico). Sin esto, el informe ordenaba por
   // engagementScore y producia rankings divergentes (QA 2026-04-29 BUG-2).
   const studentIdsForScore = results[3].students.map(s => s.studentId);
+  // `lean: true` evita hidratar documentos Mongoose: la consulta solo lee
+  // `_id` y `studentMetrics.averageScore` para construir un Map de lookup,
+  // sin métodos de instancia. En cache miss del namespace AUTH_USER (cold
+  // boot del proceso o refetch post-timeout) esto ahorra ~30 docs hidratados
+  // por informe en un aula típica.
   const studentDocsByScore =
     studentIdsForScore.length > 0
       ? await userRepository.find(
           { _id: { $in: studentIdsForScore } },
-          { select: '_id studentMetrics.averageScore' }
+          { select: '_id studentMetrics.averageScore', lean: true }
         )
       : [];
   const scoreById = new Map(

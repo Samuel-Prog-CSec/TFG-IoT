@@ -108,7 +108,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                     "size-2 rounded-full",
                     isConnected ? "bg-success-base animate-pulse" : "bg-error-base"
                   )} />
-                  <span className="text-[10px] uppercase tracking-wider font-bold text-text-muted">
+                  <span className="text-nano uppercase tracking-wider font-bold text-text-muted">
                     {isConnected ? 'Sensor Conectado' : 'Sensor Desconectado'}
                   </span>
                 </div>
@@ -134,7 +134,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                   <h4 className="text-sm font-bold text-text-primary">
                     {modeInfo.label}
                   </h4>
-                  <p className="text-[10px] text-text-muted leading-tight mt-0.5">
+                  <p className="text-nano text-text-muted leading-tight mt-0.5">
                     {modeInfo.description}
                   </p>
                 </div>
@@ -144,7 +144,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
-                  className="mt-3 pt-3 border-t border-border-subtle flex items-center gap-2 text-warning-base text-[10px]"
+                  className="mt-3 pt-3 border-t border-border-subtle flex items-center gap-2 text-warning-base text-nano"
                 >
                   <AlertCircle size={12} />
                   <span>Requiere conexión manual</span>
@@ -155,7 +155,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
-                  className="mt-3 pt-3 border-t border-border-subtle flex items-center gap-3 text-[10px] text-text-muted"
+                  className="mt-3 pt-3 border-t border-border-subtle flex items-center gap-3 text-nano text-text-muted"
                 >
                   <Activity size={10} className="text-success-base" />
                   <span>Uptime: {Math.floor((deviceHealth.uptime || 0) / 1000)}s</span>
@@ -194,7 +194,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
               />
               <span className="relative size-2 rounded-full bg-error-base shadow-[0_0_8px_var(--color-error-glow)]" />
             </span>
-            <span className="text-[10px] uppercase tracking-[0.15em] font-bold text-text-secondary group-hover:text-text-primary transition-colors">RFID</span>
+            <span className="text-nano uppercase tracking-[0.15em] font-bold text-text-secondary group-hover:text-text-primary transition-colors">RFID</span>
           </motion.button>
         )}
       </AnimatePresence>

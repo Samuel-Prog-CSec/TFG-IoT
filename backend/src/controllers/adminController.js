@@ -19,6 +19,7 @@ const { revokeAllUserTokens } = require('../middlewares/auth');
 const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext } = require('../utils/securityLogger');
 const accountLockoutService = require('../services/accountLockoutService');
+const securityCounters = require('../services/security/securityCountersService');
 
 const pendingTeacherFilterMappings = {
   search: { type: 'search', fields: ['name', 'email'] }
@@ -74,19 +75,36 @@ const getPendingTeachers = async (req, res) => {
 
 /**
  * Aprueba un profesor (accountStatus = approved).
+ *
+ * Atomic check-and-set: el `updateOne` filtra por `role: 'teacher'` +
+ * `accountStatus: 'pending_approval'`, de modo que dos super_admin que
+ * disparen la acción concurrentemente sobre el mismo docente compiten en
+ * una sola operación atómica de Mongo — el segundo recibe `null` y el
+ * estado no se sobrescribe. Si `null`, diagnosticamos best-effort con un
+ * `findById` posterior para distinguir 404 (no existe) de 409 (ya procesado).
  */
 const approveTeacher = async (req, res) => {
   const { id } = req.params;
 
-  const target = await userRepository.findById(id);
+  const target = await userRepository.updateOne(
+    { _id: id, role: 'teacher', accountStatus: 'pending_approval' },
+    { $set: { accountStatus: 'approved' } }
+  );
+
   if (!target) {
-    throw new NotFoundError('Usuario');
+    // Diagnóstico best-effort para el mensaje de error. La operación NO se
+    // aplicó (el atomic falló), así que aquí no hay riesgo de doble-aprobar.
+    const existing = await userRepository.findById(id);
+    assertTargetIsPendingTeacher(existing); // tira NotFound o ValidationError
+    // Caso teórico: el existing pasó la aserción pero el atomic había
+    // fallado — race entre los dos awaits con otro super_admin procesando.
+    throw new ValidationError('La cuenta ya fue procesada por otro administrador');
   }
 
-  assertTargetIsPendingTeacher(target);
-
-  target.accountStatus = 'approved';
-  await target.save();
+  // Incrementa el contador de aprobaciones administrativas para que el
+  // detector `adminApprovalSpike` pueda emitir alerta si una sesión de
+  // super_admin procesa más solicitudes por hora de las esperadas.
+  securityCounters.increment('admin_approval').catch(() => {});
 
   logger.info('Profesor aprobado por super admin', {
     approvedUserId: target._id,
@@ -98,20 +116,26 @@ const approveTeacher = async (req, res) => {
 };
 
 /**
- * Rechaza un profesor (accountStatus = rejected).
+ * Rechaza un profesor (accountStatus = rejected). Mismo patrón atómico que
+ * `approveTeacher` para blindar contra TOCTOU concurrente.
  */
 const rejectTeacher = async (req, res) => {
   const { id } = req.params;
 
-  const target = await userRepository.findById(id);
+  const target = await userRepository.updateOne(
+    { _id: id, role: 'teacher', accountStatus: 'pending_approval' },
+    { $set: { accountStatus: 'rejected' } }
+  );
+
   if (!target) {
-    throw new NotFoundError('Usuario');
+    const existing = await userRepository.findById(id);
+    assertTargetIsPendingTeacher(existing);
+    throw new ValidationError('La cuenta ya fue procesada por otro administrador');
   }
 
-  assertTargetIsPendingTeacher(target);
-
-  target.accountStatus = 'rejected';
-  await target.save();
+  // Mismo contador que `approveTeacher`: el detector `adminApprovalSpike`
+  // observa el agregado por hora, no distingue aprobar vs rechazar.
+  securityCounters.increment('admin_approval').catch(() => {});
 
   await revokeAllUserTokens(target._id.toString(), 'account_rejected', {
     ...getRequestContext(req),

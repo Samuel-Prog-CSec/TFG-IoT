@@ -133,12 +133,14 @@ async function buildContext(now) {
     logger.debug('queues no disponibles en buildContext', { error: err.message });
   }
 
-  const [authFailed, accountLocked, tokenTheft, consentWithdrawn] = await Promise.all([
-    securityCounters.countInLastHour('auth_failed'),
-    securityCounters.countInLastHour('account_locked'),
-    securityCounters.countInLastHour('token_theft'),
-    securityCounters.countInLastHour('consent_withdrawn')
-  ]);
+  const [authFailed, accountLocked, tokenTheft, consentWithdrawn, adminApproval] =
+    await Promise.all([
+      securityCounters.countInLastHour('auth_failed'),
+      securityCounters.countInLastHour('account_locked'),
+      securityCounters.countInLastHour('token_theft'),
+      securityCounters.countInLastHour('consent_withdrawn'),
+      securityCounters.countInLastHour('admin_approval')
+    ]);
 
   // lastRetentionRun: en memoria (este proceso) o de Redis (el worker lo
   // escribió la última vez que completó).
@@ -176,7 +178,8 @@ async function buildContext(now) {
       auth_failed: authFailed,
       account_locked: accountLocked,
       token_theft: tokenTheft,
-      consent_withdrawn: consentWithdrawn
+      consent_withdrawn: consentWithdrawn,
+      admin_approval: adminApproval
     }
   };
 }

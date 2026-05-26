@@ -108,7 +108,7 @@ function SessionDetailMemoryPanel({ session }) {
                 fit="contain"
                 fallbackLabel={display || label}
               />
-              <span className="text-[10px] text-text-muted tabular-nums">
+              <span className="text-nano text-text-muted tabular-nums">
                 #{Number(slot.slotIndex) + 1}
               </span>
             </div>

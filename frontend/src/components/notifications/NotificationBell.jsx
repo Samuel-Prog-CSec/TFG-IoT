@@ -164,7 +164,7 @@ export default function NotificationBell({ compact = false }) {
               'absolute -top-1 -right-1 z-20',
               'min-w-[18px] h-[18px] px-1 rounded-full',
               'bg-gradient-to-br from-brand-base to-accent-pink',
-              'text-white text-[10px] font-bold leading-none',
+              'text-white text-nano font-bold leading-none',
               'flex items-center justify-center',
               'shadow-[0_4px_10px_var(--color-brand-glow)]',
               'border border-background-base overflow-hidden',

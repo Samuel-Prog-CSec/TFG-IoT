@@ -418,7 +418,7 @@ export default function AppLayout() {
                 <div className="flex items-center gap-1.5 mt-0.5">
                   <span
                     className={cn(
-                      'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-bold uppercase tracking-wider',
+                      'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-nano font-bold uppercase tracking-wider',
                       isSuperAdmin
                         ? 'bg-warning-base/15 text-warning-on-alpha border border-warning-base/30'
                         : 'bg-brand-base/15 text-brand-on-alpha border border-brand-base/30'
@@ -426,7 +426,7 @@ export default function AppLayout() {
                   >
                     {isSuperAdmin ? 'Dirección' : 'Docente'}
                   </span>
-                  <p className="text-[10px] text-text-muted truncate" title={user?.email || 'Sin email'}>
+                  <p className="text-nano text-text-muted truncate" title={user?.email || 'Sin email'}>
                     {user?.email || 'Sin email'}
                   </p>
                 </div>
@@ -454,7 +454,7 @@ export default function AppLayout() {
           {isSuperAdmin && (
             <>
               {!isCompact && (
-                <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-warning-on-alpha uppercase tracking-widest flex items-center gap-2">
+                <p className="px-4 py-2 mt-2 text-micro font-semibold text-warning-on-alpha uppercase tracking-widest flex items-center gap-2">
                   <Shield size={10} /> Gestión del centro
                 </p>
               )}
@@ -479,7 +479,7 @@ export default function AppLayout() {
           {!isSuperAdmin && (
             <>
               {!isCompact && (
-                <p className="px-4 py-2 mt-2 text-[11px] font-semibold text-text-muted uppercase tracking-widest">
+                <p className="px-4 py-2 mt-2 text-micro font-semibold text-text-muted uppercase tracking-widest">
                   Menú Principal
                 </p>
               )}
@@ -509,7 +509,7 @@ export default function AppLayout() {
               sidebar de 288px. */}
           {!isCompact && (
             <div className="px-4 py-2">
-              <span className="block mb-2 font-medium text-[11px] uppercase tracking-widest text-text-muted">
+              <span className="block mb-2 font-medium text-micro uppercase tracking-widest text-text-muted">
                 Tema
               </span>
               <ThemeToggle compact />
@@ -616,7 +616,7 @@ export default function AppLayout() {
               <span className="flex items-center justify-between flex-1">
                 <span className="font-medium text-sm">Atajos de teclado</span>
                 <kbd
-                  className="ml-2 hidden md:inline-flex items-center px-1.5 py-0.5 rounded-md border border-border-default bg-background-elevated/60 font-mono text-[10px] text-text-muted"
+                  className="ml-2 hidden md:inline-flex items-center px-1.5 py-0.5 rounded-md border border-border-default bg-background-elevated/60 font-mono text-nano text-text-muted"
                   aria-hidden="true"
                 >
                   ⇧?

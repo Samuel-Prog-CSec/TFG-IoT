@@ -229,7 +229,7 @@ function ConstellationCard({
             ambos temas). Antes usaba `--card-tint` que mezcla bg/borde y no
             está garantizado a contraste 4.5:1. */}
         <span
-          className="block text-[11px] font-bold tracking-widest uppercase text-center"
+          className="block text-micro font-bold tracking-widest uppercase text-center"
           style={{ color: 'var(--card-tint-text, var(--card-tint))' }}
         >
           {label}

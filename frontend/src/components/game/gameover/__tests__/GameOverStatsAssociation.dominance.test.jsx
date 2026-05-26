@@ -142,6 +142,39 @@ describe('GameOverStatsAssociation — UX categoryDominance', () => {
     expect(screen.getByText('Mejor racha: 3')).toBeTruthy();
   });
 
+  it('cuando hay TIMEOUTS (rondas sin responder) → NO muestra "¡Dominio total!" aunque las contestadas estén al 100% (regresión QA 2026-05-26)', () => {
+    // Caso real: 6 rondas, 2 acertadas + 0 incorrectas + 4 sin responder.
+    // Bug: `recordScanResult` solo se llama en aciertos/errores, NO en
+    // timeouts, así que las 4 categorías sin responder no entran en
+    // `byValueAccuracy`. Las 2 contestadas eran 100% → la condición ADR-184
+    // del filtro `total > 0` pasaba (era 2/2). Fix: verificar también que
+    // `correctAnswers === totalRounds` para descartar timeouts.
+    const summary = {
+      ...baseSummary,
+      errors: 0,
+      association: {
+        categoryDominance: 'Vaca',
+        peakStreak: 2,
+        byValueAccuracy: {
+          Vaca: { correct: 1, total: 1 },
+          Caballo: { correct: 1, total: 1 }
+          // Cerdo, Gallina, Pato, Gato sin responder → no aparecen
+        }
+      }
+    };
+    render(
+      <GameOverStatsAssociation
+        summary={summary}
+        totalRounds={6}
+        correctAnswers={2}
+      />
+    );
+    expect(screen.queryByText('¡Dominio total!')).toBeNull();
+    expect(screen.queryByText('Acertaste todas las categorías')).toBeNull();
+    // Empate entre las 2 contestadas — sí se destacan como más fuertes.
+    expect(screen.getByText('Empate entre tus categorías más fuertes')).toBeTruthy();
+  });
+
   it('cuando no hay association detail → no renderiza hero (fallback)', () => {
     render(
       <GameOverStatsAssociation

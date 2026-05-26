@@ -5,15 +5,16 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { playIdEventSchema } = require('../../validators/socketCommandsValidator');
 
 class PlayStateSyncCommand extends BaseSocketCommand {
   constructor() {
-    super('play_state_sync');
+    super('play_state_sync', { schema: playIdEventSchema });
   }
 
   async execute(context) {
     const { socket, data, logger, gameEngine, helpers } = context;
-    const playId = data?.playId;
+    const { playId } = data;
 
     // 1. Validar formato de playId
     if (!helpers.validatePlayId(socket, playId, this.getName())) {

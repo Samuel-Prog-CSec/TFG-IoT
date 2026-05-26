@@ -243,7 +243,7 @@ function ClassroomReportView({ data }) {
                 <p className="text-lg font-bold text-text-primary tabular-nums">{tier.count ?? 0}</p>
                 <p className="text-xs text-text-muted">{tier.label || tier.range || tier.tier || tier.name}</p>
                 {tier.percentage != null && (
-                  <p className="text-[10px] text-text-disabled mt-0.5">{Math.round(tier.percentage)}%</p>
+                  <p className="text-nano text-text-disabled mt-0.5">{Math.round(tier.percentage)}%</p>
                 )}
               </div>
             ))}

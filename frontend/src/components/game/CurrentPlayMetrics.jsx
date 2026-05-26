@@ -11,7 +11,7 @@ import { Star, CheckCircle2, Brain, Target } from 'lucide-react';
 function MetricPill({ icon: Icon, iconClass, label, value }) {
   return (
     <div className="rounded-md bg-background-elevated/60 border border-border-subtle px-2 py-1">
-      <div className="flex items-center gap-1 text-[11px] tracking-wide text-text-secondary">
+      <div className="flex items-center gap-1 text-micro tracking-wide text-text-secondary">
         <Icon size={12} className={iconClass} aria-hidden="true" />
         <span>{label}</span>
       </div>

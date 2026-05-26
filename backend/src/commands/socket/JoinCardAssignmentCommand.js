@@ -3,10 +3,11 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { cardAssignmentEventSchema } = require('../../validators/socketCommandsValidator');
 
 class JoinCardAssignmentCommand extends BaseSocketCommand {
   constructor() {
-    super('join_card_assignment');
+    super('join_card_assignment', { schema: cardAssignmentEventSchema });
   }
 
   async execute({ socket, helpers, logger }) {

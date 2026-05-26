@@ -125,7 +125,7 @@ function ActivityHeatmap({ data }) {
         summary={accessibleSummary}
         focusable={false}
         headerExtra={
-          <div className="flex items-center gap-2 text-[10px] text-text-muted">
+          <div className="flex items-center gap-2 text-nano text-text-muted">
             <span>Menos</span>
             <div className="flex gap-0.5">
               {/* La primera swatch usa el mismo patrón "empty" que las
@@ -148,7 +148,7 @@ function ActivityHeatmap({ data }) {
           <div className="flex gap-0.5 ml-10 mb-1">
             {HOURS.map(h => (
               <div key={h} className={cn(
-                "flex-1 text-center text-[10px] tabular-nums transition-opacity duration-150",
+                "flex-1 text-center text-nano tabular-nums transition-opacity duration-150",
                 hoveredCell && hoveredCell.hour !== h ? "text-text-muted/40" : "text-text-muted"
               )}>
                 {h}h
@@ -161,7 +161,7 @@ function ActivityHeatmap({ data }) {
             {DAYS.map((day, dayIndex) => (
               <div key={day} className="flex items-center gap-0.5">
                 <span className={cn(
-                  "w-9 text-right text-[11px] font-medium pr-1 transition-opacity duration-150",
+                  "w-9 text-right text-micro font-medium pr-1 transition-opacity duration-150",
                   hoveredCell && hoveredCell.dayIndex !== dayIndex ? "text-text-muted/40" : "text-text-muted"
                 )}>
                   {day}

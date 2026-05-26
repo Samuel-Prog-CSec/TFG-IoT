@@ -65,8 +65,20 @@ function GameOverStatsAssociation({ summary, totalRounds, correctAnswers }) {
     if (attempted.length === 0) {
       return { mode: 'single', label: categoryDominance };
     }
-    // "Dominio total" SOLO si TODAS las categorías intentadas están al 100%.
-    if (attempted.length >= 2 && attempted.every(entry => entry.ratio === 1)) {
+    // "Dominio total" requiere DOS condiciones:
+    //   1. todas las categorías intentadas están al 100% (filtro ADR-184), y
+    //   2. el alumno acertó TODAS las rondas (sin timeouts ni errores).
+    // QA 2026-05-26: la condición (1) sola no basta porque las rondas con
+    // timeout NO incrementan `byValueAccuracy.total` (el backend solo lo
+    // sube en `recordScanResult`, que no se llama en timeouts). Un 2/5 con
+    // 4 sin responder pasaba (1) — las 2 contestadas eran 100%. Añadimos
+    // (2) comparando contra el conteo real de la partida.
+    const allRoundsAnswered = Number(correctAnswers) === Number(totalRounds);
+    if (
+      attempted.length >= 2 &&
+      attempted.every(entry => entry.ratio === 1) &&
+      allRoundsAnswered
+    ) {
       return { mode: 'all', count: attempted.length };
     }
     // Para destacar la(s) categoría(s) más fuerte(s) consideramos solo las
@@ -82,7 +94,7 @@ function GameOverStatsAssociation({ summary, totalRounds, correctAnswers }) {
       return { mode: 'tied', labels: tied.map(t => t.slug), peakStreak };
     }
     return { mode: 'single', label: categoryDominance };
-  }, [byValueAccuracy, categoryDominance, peakStreak]);
+  }, [byValueAccuracy, categoryDominance, peakStreak, correctAnswers, totalRounds]);
 
   const renderHeroValue = () => {
     if (!dominanceSummary) return null;

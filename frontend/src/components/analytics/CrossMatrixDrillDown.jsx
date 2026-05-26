@@ -199,7 +199,7 @@ function CrossMatrixDrillDown({ isOpen, cell, onClose }) {
             {/* Header con titulo y boton cerrar. */}
             <header className="flex items-start justify-between gap-3 border-b border-border-subtle px-5 py-4">
               <div className="min-w-0">
-                <p className="text-[11px] uppercase tracking-[0.18em] text-text-muted font-bold mb-1">
+                <p className="text-micro uppercase tracking-[0.18em] text-text-muted font-bold mb-1">
                   Detalle de la combinación
                 </p>
                 <h2
@@ -411,7 +411,7 @@ MetricItem.propTypes = {
 function InterpretationItem({ label, value }) {
   return (
     <div>
-      <p className="text-[11px] font-semibold uppercase tracking-wider text-text-muted mb-1">
+      <p className="text-micro font-semibold uppercase tracking-wider text-text-muted mb-1">
         {label}
       </p>
       <p className="text-text-secondary leading-relaxed">{value}</p>

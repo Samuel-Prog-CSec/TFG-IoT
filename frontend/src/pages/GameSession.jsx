@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search, Gamepad2 } from 'lucide-react';
@@ -15,11 +15,8 @@ import TimerBar from '../components/game/TimerBar';
 import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/game/ScoreDisplay';
 import GameOverScreen from '../components/game/GameOverScreen';
 import CharacterMascot from '../components/game/CharacterMascot';
-import AssociationGameplayPanel from '../components/game/AssociationGameplayPanel';
 import { resolveAssociationTheme } from '../components/game/associationTheme';
 import { getMechanicTheme } from '../lib/mechanicTheme';
-import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
-import SequenceGameplayPanel from '../components/game/SequenceGameplayPanel';
 import GameBackdrop from '../components/game/GameBackdrop';
 import FallbackTouchPanel from '../components/game/FallbackTouchPanel';
 import RateLimitBanner from '../components/game/RateLimitBanner';
@@ -33,6 +30,18 @@ import { useGameSocket } from '../hooks/useGameSocket';
 import { useGameSessionState } from '../hooks/useGameSessionState';
 import { normalizeFinalSummary } from '../lib/finalSummary';
 import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from '../lib/sessionSnapshot';
+
+// (D-07-A6) Code-split de los paneles por mecánica: una sesión solo carga el
+// panel de su mecánica (Asociación, Memoria o Secuencia). Antes los 3 paneles
+// entraban al bundle inicial de la ruta `/play/:id` aunque solo se renderice
+// uno; con `lazy()` el cliente descarga ~60-90 KB menos en la carga del
+// gameplay y los otros dos paneles solo viajan si el alumno cambia de tipo
+// de sesión más tarde. El fallback de Suspense es invisible: el área del
+// panel queda en blanco unos ms mientras GameBackdrop + motion siguen
+// renderizando alrededor, sin layout shift perceptible.
+const AssociationGameplayPanel = lazy(() => import('../components/game/AssociationGameplayPanel'));
+const MemoryGameplayPanel = lazy(() => import('../components/game/MemoryGameplayPanel'));
+const SequenceGameplayPanel = lazy(() => import('../components/game/SequenceGameplayPanel'));
 
 const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
 const FLOAT_DELAY_NONE = { animationDelay: '0s' };
@@ -1203,7 +1212,7 @@ export default function GameSession() {
             </div>
             {sessionIsMemory ? (
               <div className="hidden sm:block">
-                <div className="text-[10px] text-text-disabled uppercase tracking-wider">Parejas</div>
+                <div className="text-nano text-text-disabled uppercase tracking-wider">Parejas</div>
                 <div className="text-sm text-text-primary font-bold font-display">
                   {Math.floor((memoryStats.matchedCount || 0) / 2)}
                   <span className="text-text-muted font-normal"> / {Math.floor((memoryStats.totalCards || 0) / 2)}</span>
@@ -1211,7 +1220,7 @@ export default function GameSession() {
               </div>
             ) : (
               <div className="hidden sm:block">
-                <div className="text-[10px] text-text-disabled uppercase tracking-wider">Ronda</div>
+                <div className="text-nano text-text-disabled uppercase tracking-wider">Ronda</div>
                 <div className="text-sm text-text-primary font-bold font-display">
                   {currentRound}
                   <span className="text-text-muted font-normal"> / {totalRounds}</span>
@@ -1437,45 +1446,47 @@ export default function GameSession() {
                 shakeError && 'animate-shake'
               )}
             >
-              {(() => {
-                if (sessionIsMemory) {
+              <Suspense fallback={null}>
+                {(() => {
+                  if (sessionIsMemory) {
+                    return (
+                      <MemoryGameplayPanel
+                        board={memoryBoard}
+                        attempts={memoryStats.attempts}
+                        matchedCount={memoryStats.matchedCount}
+                        totalCards={memoryStats.totalCards}
+                        feedbackState={feedbackState}
+                        feedbackPoints={feedbackPoints}
+                        feedbackMessage={feedbackMessage}
+                        onCardTap={handleMemoryCardTap}
+                      />
+                    );
+                  }
+                  if (sessionIsSequence) {
+                    return (
+                      <SequenceGameplayPanel
+                        totalRounds={totalRounds}
+                        cardMappings={sequenceCardMappings}
+                        rfidConnected={rfidConnected}
+                        soundEnabled={soundEnabled}
+                        sequenceState={sequenceState}
+                        onCardTap={emitFallbackScan}
+                      />
+                    );
+                  }
                   return (
-                    <MemoryGameplayPanel
-                      board={memoryBoard}
-                      attempts={memoryStats.attempts}
-                      matchedCount={memoryStats.matchedCount}
-                      totalCards={memoryStats.totalCards}
+                    <AssociationGameplayPanel
+                      ref={gameFeedback.challengeRef}
+                      challenge={challenge}
+                      paused={gameState === 'paused'}
                       feedbackState={feedbackState}
                       feedbackPoints={feedbackPoints}
                       feedbackMessage={feedbackMessage}
-                      onCardTap={handleMemoryCardTap}
+                      isTimeout={feedbackIsTimeout}
                     />
                   );
-                }
-                if (sessionIsSequence) {
-                  return (
-                    <SequenceGameplayPanel
-                      totalRounds={totalRounds}
-                      cardMappings={sequenceCardMappings}
-                      rfidConnected={rfidConnected}
-                      soundEnabled={soundEnabled}
-                      sequenceState={sequenceState}
-                      onCardTap={emitFallbackScan}
-                    />
-                  );
-                }
-                return (
-                  <AssociationGameplayPanel
-                    ref={gameFeedback.challengeRef}
-                    challenge={challenge}
-                    paused={gameState === 'paused'}
-                    feedbackState={feedbackState}
-                    feedbackPoints={feedbackPoints}
-                    feedbackMessage={feedbackMessage}
-                    isTimeout={feedbackIsTimeout}
-                  />
-                );
-              })()}
+                })()}
+              </Suspense>
 
               {!sessionIsSequence && (
               <motion.p

@@ -35,7 +35,7 @@ describe('TIER_BADGE — accesibilidad', () => {
     it(`tier="${tier}" cumple WCAG 2.2 AA en dark + light`, async () => {
       const badge = TIER_BADGE[tier];
       await renderEnAmbosTemas(
-        <span className={`text-[10px] font-semibold px-1.5 py-0.5 rounded-md ${badge.className}`}>
+        <span className={`text-nano font-semibold px-1.5 py-0.5 rounded-md ${badge.className}`}>
           {badge.label}
         </span>,
         async container => {

@@ -270,7 +270,7 @@ export default function Register() {
               <span className="text-base font-bold font-display gradient-text-brand tracking-tight leading-none">
                 Únete al claustro
               </span>
-              <span className="text-[10px] text-text-muted uppercase tracking-[0.18em] mt-1">
+              <span className="text-nano text-text-muted uppercase tracking-[0.18em] mt-1">
                 Cuenta de docente · 2026
               </span>
             </div>

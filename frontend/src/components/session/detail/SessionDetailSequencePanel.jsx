@@ -150,11 +150,11 @@ function SessionDetailSequencePanel({ session }) {
                           fit="cover"
                           fallbackLabel={display || label}
                         />
-                        <span className="absolute -top-1 -left-1 size-5 rounded-full bg-accent-amber text-text-primary text-[10px] font-bold flex items-center justify-center tabular-nums">
+                        <span className="absolute -top-1 -left-1 size-5 rounded-full bg-accent-amber text-text-primary text-nano font-bold flex items-center justify-center tabular-nums">
                           {idx + 1}
                         </span>
                       </div>
-                      <span className="text-[10px] text-text-muted truncate max-w-14" title={label}>
+                      <span className="text-nano text-text-muted truncate max-w-14" title={label}>
                         {label}
                       </span>
                     </li>

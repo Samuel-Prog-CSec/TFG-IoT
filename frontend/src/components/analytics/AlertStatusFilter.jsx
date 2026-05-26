@@ -39,7 +39,7 @@ export default function AlertStatusFilter({ value, onChange, counts = {} }) {
             <span>{style.label}</span>
             <span
               className={cn(
-                'tabular-nums rounded-md px-1.5 py-0.5 text-[10px]',
+                'tabular-nums rounded-md px-1.5 py-0.5 text-nano',
                 isActive
                   ? 'bg-background-base/40'
                   : 'bg-background-surface/40 text-text-disabled'

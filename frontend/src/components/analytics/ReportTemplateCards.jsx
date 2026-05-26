@@ -122,7 +122,7 @@ function TemplateCard({ template, onApply }) {
             </p>
           </div>
         </div>
-        <span className="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-background-elevated/50 px-2.5 py-1 text-[11px] font-medium text-text-secondary tabular-nums">
+        <span className="inline-flex items-center gap-1.5 rounded-full border border-border-subtle bg-background-elevated/50 px-2.5 py-1 text-micro font-medium text-text-secondary tabular-nums">
           {buildDefaultsPill(template.defaults)}
         </span>
       </GlassCard>

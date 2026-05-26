@@ -211,7 +211,7 @@ function AdminContextCard({ context, onEdit, onDelete }) {
           <div className="min-w-0">
             <h2 className="truncate text-base font-semibold text-text-primary">{context.name}</h2>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
-              <code className="rounded bg-background-base/60 px-1.5 py-0.5 text-[11px] text-text-muted">
+              <code className="rounded bg-background-base/60 px-1.5 py-0.5 text-micro text-text-muted">
                 {context.contextId}
               </code>
               <StatusBadge variant={context.isActive ? 'success' : 'neutral'}>

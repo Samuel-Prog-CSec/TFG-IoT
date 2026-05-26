@@ -163,7 +163,7 @@ export default function FallbackTouchPanel({
                       aria-hidden="true"
                     >
                       <Loader2 size={20} className="text-accent-indigo animate-spin" />
-                      <span className="text-[10px] font-semibold text-accent-indigo">Procesando…</span>
+                      <span className="text-nano font-semibold text-accent-indigo">Procesando…</span>
                     </motion.div>
                   )}
                   {isSuccess && (
@@ -177,7 +177,7 @@ export default function FallbackTouchPanel({
                       aria-hidden="true"
                     >
                       <CheckCircle2 size={28} className="text-success-base drop-shadow" />
-                      <span className="text-[10px] font-semibold text-success-base">¡Bien!</span>
+                      <span className="text-nano font-semibold text-success-base">¡Bien!</span>
                     </motion.div>
                   )}
                   {isError && (
@@ -191,7 +191,7 @@ export default function FallbackTouchPanel({
                       aria-hidden="true"
                     >
                       <XCircle size={28} className="text-error-base drop-shadow" />
-                      <span className="text-[10px] font-semibold text-error-base">Otra vez</span>
+                      <span className="text-nano font-semibold text-error-base">Otra vez</span>
                     </motion.div>
                   )}
                 </AnimatePresence>
@@ -210,7 +210,7 @@ export default function FallbackTouchPanel({
           <button
             type="button"
             onClick={onPauseRequest}
-            className="text-[10px] px-3 py-1 rounded-full bg-background-base/60 text-text-secondary border border-border-subtle hover:bg-background-base/80 transition-colors"
+            className="text-nano px-3 py-1 rounded-full bg-background-base/60 text-text-secondary border border-border-subtle hover:bg-background-base/80 transition-colors"
           >
             Pausar partida
           </button>

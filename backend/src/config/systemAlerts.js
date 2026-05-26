@@ -195,6 +195,19 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     thresholds: Object.freeze({ infoPerDay: 5, warningPerDay: 20 }),
     direction: 'negative',
     defaultRunbook: 'documentation/Proteccion_Datos_Menores.md#brechas'
+  }),
+
+  // ── Acciones administrativas ────────────────────────────────────────
+  admin_approval_spike: Object.freeze({
+    label: 'Pico de aprobaciones/rechazos administrativos',
+    description:
+      'Volumen anómalo de aprobaciones o rechazos de cuentas en la última hora. ' +
+      'Una sesión de super_admin comprometida o un script automatizado podrían ' +
+      'estar procesando solicitudes en masa.',
+    source: 'admin',
+    thresholds: Object.freeze({ warningPerHour: 20, criticalPerHour: 50 }),
+    direction: 'negative',
+    defaultRunbook: 'documentation/SECURITY.md#admin-approval-anomaly'
   })
 });
 
@@ -222,7 +235,8 @@ const SYSTEM_ALERT_SOURCES = Object.freeze([
   'queue',
   'auth',
   'moderation',
-  'compliance'
+  'compliance',
+  'admin'
 ]);
 
 /**

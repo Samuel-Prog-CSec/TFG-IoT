@@ -87,7 +87,7 @@ function SummaryKpi({ icon, label, value, hint }) {
       </p>
       {/* BUG-A11Y-SESSIONDETAIL-HINT (QA Sprint 0): text-text-muted/70 daba
           3.12:1 en light. Sin alpha cumple AA. */}
-      {hint && <p className="text-[10px] text-text-muted mt-0.5">{hint}</p>}
+      {hint && <p className="text-nano text-text-muted mt-0.5">{hint}</p>}
     </div>
   );
 }

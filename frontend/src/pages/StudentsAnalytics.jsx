@@ -959,7 +959,7 @@ function StudentRow({ student, navigate }) {
       <td className="px-4 py-3 whitespace-nowrap">
         <div className="flex flex-col items-start gap-1">
           <span
-            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-[11px] font-semibold uppercase tracking-[0.08em] border ${tier.className}`}
+            className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-micro font-semibold uppercase tracking-[0.08em] border ${tier.className}`}
           >
             <span
               className="size-1.5 rounded-full bg-current"

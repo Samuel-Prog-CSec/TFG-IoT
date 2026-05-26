@@ -100,7 +100,7 @@ export default function DifficultyHeatmap({ data }) {
 
   return (
     <ChartSection title="Mapa de Calor de Dificultad">
-      <div className="flex items-center justify-end gap-3 text-[10px] text-text-muted mb-3 flex-wrap">
+      <div className="flex items-center justify-end gap-3 text-nano text-text-muted mb-3 flex-wrap">
         <span className="flex items-center gap-1.5">
           <span className="size-3 rounded-sm bg-success-base/55" aria-hidden="true" />Poca
         </span>
@@ -133,7 +133,7 @@ export default function DifficultyHeatmap({ data }) {
               <div
                 key={m}
                 className={cn(
-                  'text-center text-[11px] font-medium tabular-nums transition-opacity duration-150',
+                  'text-center text-micro font-medium tabular-nums transition-opacity duration-150',
                   hoveredCell && hoveredCell.mIdx !== mIdx ? 'text-text-muted/40' : 'text-text-muted'
                 )}
               >
@@ -161,7 +161,7 @@ export default function DifficultyHeatmap({ data }) {
               >
                 <span
                   className={cn(
-                    'text-[11px] font-medium text-right pr-2 self-center truncate transition-opacity duration-150',
+                    'text-micro font-medium text-right pr-2 self-center truncate transition-opacity duration-150',
                     hoveredCell && hoveredCell.cIdx !== cIdx ? 'text-text-muted/40' : 'text-text-secondary'
                   )}
                   title={ctx}
@@ -189,7 +189,7 @@ export default function DifficultyHeatmap({ data }) {
                       onMouseEnter={() => setHoveredCell({ cIdx, mIdx })}
                       onMouseLeave={() => setHoveredCell(null)}
                       className={cn(
-                        'relative h-14 rounded-md flex items-center justify-center text-[11px] font-semibold tabular-nums transition-all duration-150',
+                        'relative h-14 rounded-md flex items-center justify-center text-micro font-semibold tabular-nums transition-all duration-150',
                         getDifficultyClass(errorRate, hasData),
                         hasData ? 'text-text-primary' : 'text-text-muted/60',
                         isHovered && 'scale-[1.06] z-10 ring-2 ring-brand-base/50',
@@ -203,7 +203,7 @@ export default function DifficultyHeatmap({ data }) {
                         <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-background-elevated/95 backdrop-blur-md border border-border-default rounded-lg shadow-xl px-3 py-2 text-xs whitespace-nowrap z-20 pointer-events-none">
                           <p className="font-semibold text-text-primary mb-0.5">{ctx} + {formatMechanicName(m)}</p>
                           <p className="text-error-base">Tasa de error: {errorRate}%</p>
-                          <p className="text-text-muted text-[10px] mt-0.5">Intentos totales: {cell.totalAttempts}</p>
+                          <p className="text-text-muted text-nano mt-0.5">Intentos totales: {cell.totalAttempts}</p>
                         </div>
                       )}
                       {isHovered && !hasData && (

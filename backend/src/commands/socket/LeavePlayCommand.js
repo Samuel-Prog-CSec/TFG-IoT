@@ -3,18 +3,15 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { playIdEventSchema } = require('../../validators/socketCommandsValidator');
 
 class LeavePlayCommand extends BaseSocketCommand {
   constructor() {
-    super('leave_play');
+    super('leave_play', { schema: playIdEventSchema });
   }
 
   async execute({ socket, data, helpers, logger }) {
-    const { playId } = data || {};
-    if (!playId) {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
-      return;
-    }
+    const { playId } = data;
 
     if (!helpers.validatePlayId(socket, playId, 'leave_play')) {
       return;

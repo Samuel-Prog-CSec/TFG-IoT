@@ -27,6 +27,7 @@ const inactiveTeachers = require('./inactiveTeachers');
 const contextWithoutAssets = require('./contextWithoutAssets');
 const dataRetentionLag = require('./dataRetentionLag');
 const consentWithdrawalSpike = require('./consentWithdrawalSpike');
+const adminApprovalSpike = require('./adminApprovalSpike');
 
 const ALL_SYSTEM_DETECTORS = Object.freeze([
   redisHighLatency,
@@ -44,7 +45,8 @@ const ALL_SYSTEM_DETECTORS = Object.freeze([
   inactiveTeachers,
   contextWithoutAssets,
   dataRetentionLag,
-  consentWithdrawalSpike
+  consentWithdrawalSpike,
+  adminApprovalSpike
 ]);
 
 const SYSTEM_DETECTOR_BY_TYPE = Object.freeze(

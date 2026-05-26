@@ -196,23 +196,23 @@ export default function SystemAnnouncementsManager() {
                       <h3 className="font-semibold text-sm text-text-primary">{item.title}</h3>
                       <span
                         className={cn(
-                          'inline-flex items-center rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-wide',
+                          'inline-flex items-center rounded-full border px-1.5 py-0.5 text-nano uppercase tracking-wide',
                           style?.container
                         )}
                       >
                         {style?.label}
                       </span>
-                      <span className="text-[11px] text-text-muted">
+                      <span className="text-micro text-text-muted">
                         {item.audience === 'all_teachers' ? 'Profesores' : 'Todos los usuarios'}
                       </span>
                       {item.isExpired && (
-                        <span className="text-[10px] uppercase tracking-wide text-text-muted">
+                        <span className="text-nano uppercase tracking-wide text-text-muted">
                           Expirado
                         </span>
                       )}
                     </header>
                     <p className="mt-1 text-sm text-text-secondary leading-snug">{item.body}</p>
-                    <footer className="mt-2 flex flex-wrap items-center gap-3 text-[11px] text-text-muted">
+                    <footer className="mt-2 flex flex-wrap items-center gap-3 text-micro text-text-muted">
                       <span>Publicado: {formatDate(item.publishedAt)}</span>
                       {item.expiresAt && <span>Caduca: {formatDate(item.expiresAt)}</span>}
                       {item.authorName && <span>Por {item.authorName}</span>}

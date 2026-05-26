@@ -132,7 +132,7 @@ export default function AlertsPanel({ alerts }) {
                     {alert.description || alert.message}
                   </p>
                   {detectedAt && (
-                    <p className="text-[10px] text-text-muted mt-1">
+                    <p className="text-nano text-text-muted mt-1">
                       {formatRelativeTime(detectedAt)}
                       {alert.daysActive > 7 && (
                         <span className="ml-2 text-warning-base font-medium">

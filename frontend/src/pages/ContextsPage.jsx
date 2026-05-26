@@ -433,7 +433,7 @@ function ContextCard({ context, onClick }) {
               </span>
             ))}
             {assetCount > previews.length && (
-              <div className="shrink-0 flex items-center justify-center h-7 px-2 rounded-full border border-border-subtle bg-background-elevated/60 text-[11px] font-semibold text-text-muted">
+              <div className="shrink-0 flex items-center justify-center h-7 px-2 rounded-full border border-border-subtle bg-background-elevated/60 text-micro font-semibold text-text-muted">
                 +{assetCount - previews.length}
               </div>
             )}

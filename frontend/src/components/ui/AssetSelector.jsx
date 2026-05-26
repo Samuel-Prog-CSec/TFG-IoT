@@ -246,7 +246,7 @@ export default function AssetSelector({
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
                       exit={{ scale: 0 }}
-                      className="absolute top-2 left-2 px-1.5 py-0.5 rounded-full bg-success-base/20 text-success-base text-[10px] font-bold"
+                      className="absolute top-2 left-2 px-1.5 py-0.5 rounded-full bg-success-base/20 text-success-base text-nano font-bold"
                     >
                       {`×${usageCount}`}
                     </motion.div>
@@ -263,7 +263,7 @@ export default function AssetSelector({
                       className="absolute inset-0 flex items-center justify-center bg-background-base/80 rounded-xl"
                     >
                       <motion.span
-                        className="px-2 py-1 rounded-full bg-warning-base/20 text-warning-base text-[10px] font-bold uppercase tracking-wider"
+                        className="px-2 py-1 rounded-full bg-warning-base/20 text-warning-base text-nano font-bold uppercase tracking-wider"
                         // TOKEN-EXCEPTION: Framer Motion keyframe animation requires literal rgba values for boxShadow interpolation
                         animate={{
                           boxShadow: [

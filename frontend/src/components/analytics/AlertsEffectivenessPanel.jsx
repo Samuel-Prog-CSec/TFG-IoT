@@ -29,7 +29,7 @@ const MetricBlock = ({ label, value, icon: Icon, tone = 'neutral' }) => {
         <p className="text-xl font-bold text-text-primary tabular-nums font-display">
           {value}
         </p>
-        <p className="text-[11px] text-text-muted font-medium">{label}</p>
+        <p className="text-micro text-text-muted font-medium">{label}</p>
       </div>
     </div>
   );

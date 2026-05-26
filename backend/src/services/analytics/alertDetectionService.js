@@ -29,6 +29,13 @@ const { pseudonymize } = require('../../utils/pseudonymize');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../../utils/errors');
 const logger = require('../../utils/logger').child({ component: 'alertDetectionService' });
 
+// Sets pre-construidos al cargar el módulo: `.has()` es O(1) frente al O(N) de
+// `.includes()`. El array es pequeño (~5 elementos), así que el ahorro en
+// ciclos es marginal; lo importante es la consistencia idiomática — el resto
+// del codebase usa Set para validaciones de input enumeradas.
+const DISMISS_REASONS_SET = new Set(DISMISS_REASONS);
+const BULK_ALLOWED_ACTIONS_SET = new Set(['dismiss', 'resolve', 'snooze']);
+
 const SEVERITY_ORDER = { critical: 0, warning: 1, info: 2 };
 const ALERT_CACHE_NAMESPACE = 'cache:alerts';
 
@@ -606,7 +613,7 @@ async function getOwnedAlert(teacherId, alertId, { allowSuperAdmin = false } = {
 }
 
 async function dismissAlert(teacherId, alertId, { reason, userId, isSuperAdmin = false } = {}) {
-  if (reason && !DISMISS_REASONS.includes(reason)) {
+  if (reason && !DISMISS_REASONS_SET.has(reason)) {
     throw new ValidationError(`Motivo de descarte no válido: ${reason}`);
   }
   const alert = await getOwnedAlert(teacherId, alertId, { allowSuperAdmin: isSuperAdmin });
@@ -708,8 +715,7 @@ async function bulkAction(
   action,
   { reason, untilDate, userId, isSuperAdmin = false } = {}
 ) {
-  const allowed = ['dismiss', 'resolve', 'snooze'];
-  if (!allowed.includes(action)) {
+  if (!BULK_ALLOWED_ACTIONS_SET.has(action)) {
     throw new ValidationError(`Acción bulk no soportada: ${action}`);
   }
   if (!Array.isArray(alertIds) || alertIds.length === 0) {

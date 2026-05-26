@@ -97,7 +97,7 @@ function AdminDashboardHeader({ timeRange, onTimeRangeChange, generatedAt }) {
           <Shield className="size-6 text-text-primary" aria-hidden="true" />
         </div>
         <div>
-          <p className="text-[11px] uppercase tracking-[0.18em] text-warning-on-alpha font-bold mb-0.5">
+          <p className="text-micro uppercase tracking-[0.18em] text-warning-on-alpha font-bold mb-0.5">
             Dirección
           </p>
           <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary leading-tight">
@@ -198,7 +198,7 @@ function TopTeachersCard({ teachers }) {
                 <p className="text-sm font-bold tabular-nums text-brand-on-alpha">
                   {Math.round(t.avgScore || 0)}%
                 </p>
-                <p className="text-[10px] text-text-muted uppercase tracking-wider">media</p>
+                <p className="text-nano text-text-muted uppercase tracking-wider">media</p>
               </div>
             </li>
           );
@@ -308,7 +308,7 @@ function AlertsByTeacherCard({ byTeacher }) {
                   aria-hidden="true"
                 />
               </div>
-              <div className="flex items-center gap-3 text-[11px] text-text-muted">
+              <div className="flex items-center gap-3 text-micro text-text-muted">
                 <span className="inline-flex items-center gap-1">
                   <span className="size-2 rounded-full bg-error-base" aria-hidden="true" />
                   {t.criticalCount} crítica{t.criticalCount === 1 ? '' : 's'}
@@ -412,7 +412,7 @@ function DimensionRankingCard({ title, icon: Icon, items, dimension }) {
                 <span className={cn('text-sm font-bold tabular-nums', RAG_TEXT_CLASSES[rag])}>
                   {Math.round(item.avgScore || 0)}%
                 </span>
-                <span className="text-[10px] text-text-muted uppercase tracking-wider tabular-nums">
+                <span className="text-nano text-text-muted uppercase tracking-wider tabular-nums">
                   {item.totalPlays} {item.totalPlays === 1 ? 'partida' : 'partidas'}
                 </span>
               </div>

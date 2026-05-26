@@ -487,7 +487,7 @@ export default function InsightsReports() {
             <Activity size={24} aria-hidden="true" />
           </div>
           <div>
-            <p className="text-[11px] uppercase tracking-[0.18em] text-brand-base font-bold mb-0.5">Insights</p>
+            <p className="text-micro uppercase tracking-[0.18em] text-brand-base font-bold mb-0.5">Insights</p>
             <h1 className="text-2xl sm:text-3xl font-bold text-text-primary font-display leading-tight">
               Análisis e informes
             </h1>
@@ -552,7 +552,7 @@ export default function InsightsReports() {
                 // de alertas tenía 1.32:1 sobre el bg de tab inactivo púrpura.
                 // Cambiar a bg sólido + texto blanco/error según estado.
                 <span className={cn(
-                  'ml-1 inline-flex items-center justify-center min-w-[1.25rem] px-1.5 py-0.5 text-[10px] font-bold rounded-full tabular-nums',
+                  'ml-1 inline-flex items-center justify-center min-w-[1.25rem] px-1.5 py-0.5 text-nano font-bold rounded-full tabular-nums',
                   isActive
                     ? 'bg-brand-dark text-white'
                     : 'bg-error-dark text-white'

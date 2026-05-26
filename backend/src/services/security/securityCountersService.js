@@ -28,7 +28,12 @@ const SUPPORTED_EVENTS = Object.freeze([
   'auth_failed',
   'account_locked',
   'token_theft',
-  'consent_withdrawn'
+  'consent_withdrawn',
+  // Aprobación/rechazo de cuentas por super_admin. Picos anormales pueden
+  // indicar que un super_admin con sesión activa ha sido comprometido y
+  // está procesando solicitudes en masa, o que un script automatizado
+  // accede sin autorización. Detector: `adminApprovalSpike`.
+  'admin_approval'
 ]);
 
 let callCount = 0;

@@ -186,7 +186,7 @@ function ReportPreviewSidebar({ reportType, period, format }) {
           <TypeIcon size={18} className="text-brand-on-alpha" aria-hidden="true" />
         </div>
         <div>
-          <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted font-bold">
+          <p className="text-nano uppercase tracking-[0.18em] text-text-muted font-bold">
             Vista previa
           </p>
           <h3 className="text-sm font-bold text-text-primary font-display">
@@ -200,7 +200,7 @@ function ReportPreviewSidebar({ reportType, period, format }) {
       </div>
 
       <div>
-        <p className="text-[11px] font-semibold text-text-primary mb-1.5 uppercase tracking-wider">
+        <p className="text-micro font-semibold text-text-primary mb-1.5 uppercase tracking-wider">
           Este informe incluirá
         </p>
         <ul className="space-y-1">
@@ -217,7 +217,7 @@ function ReportPreviewSidebar({ reportType, period, format }) {
         </ul>
       </div>
 
-      <p className="mt-3 text-[11px] text-text-muted italic">
+      <p className="mt-3 text-micro text-text-muted italic">
         Adaptado a {periodCopy}.
       </p>
     </GlassCard>

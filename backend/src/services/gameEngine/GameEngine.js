@@ -240,6 +240,19 @@ class GameEngine {
   }
   async cleanupAbandonedPlays() {
     await timerManager.cleanupAbandonedPlays(this);
+    // (D10-003) Purgar contadores `cardNotInPlayCounters` cuya ventana ya
+    // expiró. Sin esto, los UIDs escaneados que nunca llegaron a coincidir
+    // con un mapeo activo (sensor mal configurado, tarjeta de otra sesión)
+    // se acumulaban en la Map sin tope porque el `set(...)` solo se rearmaba
+    // al detectar una nueva ventana — los UIDs que solo se escaneaban una
+    // vez nunca se limpiaban. Coste: O(entries), insignificante (<1000 UIDs
+    // únicos por aula y semana).
+    const now = Date.now();
+    for (const [uid, entry] of cardNotInPlayCounters) {
+      if (now - entry.firstAt > CARD_NOT_IN_PLAY_LOG_WINDOW_MS) {
+        cardNotInPlayCounters.delete(uid);
+      }
+    }
   }
   startLockHeartbeatTimer() {
     timerManager.startLockHeartbeatTimer(this);
@@ -2150,6 +2163,14 @@ class GameEngine {
     await this.processInBatches(activePlayIds, async playId => {
       await this.endPlay(playId);
     });
+
+    // (D10-004) Limpieza de Maps cuyo contenido podría haber quedado zombie
+    // por errores síncronos en `executeWithPlayLock` (Promise rechazada
+    // antes de llegar al `.finally()`). El shutdown es el último recurso
+    // para soltar memoria si ocurrió esa race; en operación normal estos
+    // Maps ya quedan vacíos tras `endPlay` de cada partida.
+    this.playLocks.clear();
+    cardNotInPlayCounters.clear();
 
     logger.info('GameEngine detenido correctamente', {
       metrics: this.metrics

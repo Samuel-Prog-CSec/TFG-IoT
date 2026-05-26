@@ -296,7 +296,7 @@ function validateJWTSecrets() {
     throw new Error(
       `JWT_SECRET es demasiado corto (${jwtSecret.length} caracteres).\n` +
         `Debe tener al menos ${MIN_LENGTH} caracteres para ser seguro.\n` +
-        `Genera uno aleatorio con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+        `Genera uno aleatorio con: openssl rand -hex 64`
     );
   }
 
@@ -304,7 +304,7 @@ function validateJWTSecrets() {
     throw new Error(
       `JWT_REFRESH_SECRET es demasiado corto (${jwtRefreshSecret.length} caracteres).\n` +
         `Debe tener al menos ${MIN_LENGTH} caracteres para ser seguro.\n` +
-        `Genera uno aleatorio con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+        `Genera uno aleatorio con: openssl rand -hex 64`
     );
   }
 

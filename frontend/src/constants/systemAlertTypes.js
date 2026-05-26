@@ -19,6 +19,7 @@ import {
   Lock,
   ShieldAlert,
   ShieldOff,
+  ShieldCheck,
   UserCog,
   UserMinus,
   ImageOff,
@@ -57,7 +58,8 @@ export const SYSTEM_ALERT_TYPE_ICONS = {
   inactive_teachers: UserMinus,
   context_without_assets: ImageOff,
   data_retention_lag: Archive,
-  consent_withdrawal_spike: FileX2
+  consent_withdrawal_spike: FileX2,
+  admin_approval_spike: ShieldCheck
 };
 
 /** Tipo → etiqueta corta en español. */
@@ -77,7 +79,8 @@ export const SYSTEM_ALERT_TYPE_LABELS = {
   inactive_teachers: 'Profesores inactivos',
   context_without_assets: 'Contexto sin contenido',
   data_retention_lag: 'Retención de datos',
-  consent_withdrawal_spike: 'Retiradas de consentimiento'
+  consent_withdrawal_spike: 'Retiradas de consentimiento',
+  admin_approval_spike: 'Pico de aprobaciones administrativas'
 };
 
 /** Subsistemas (filtro principal en la UI). */
@@ -88,7 +91,8 @@ export const SYSTEM_ALERT_SOURCES = [
   'queue',
   'auth',
   'moderation',
-  'compliance'
+  'compliance',
+  'admin'
 ];
 
 /**
@@ -127,6 +131,10 @@ export const SOURCE_STYLES = {
   compliance: {
     label: 'Compliance',
     badge: 'bg-teal-500/10 text-teal-300 light:text-teal-700 border-teal-500/30'
+  },
+  admin: {
+    label: 'Administración',
+    badge: 'bg-violet-500/10 text-violet-300 light:text-violet-700 border-violet-500/30'
   }
 };
 

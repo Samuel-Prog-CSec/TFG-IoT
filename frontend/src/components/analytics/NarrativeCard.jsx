@@ -76,7 +76,7 @@ function NarrativeCard({ interpretation, title = 'Resumen del Alumno' }) {
                   <Icon size={14} className={section.color} aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-0.5">
+                  <p className="text-nano font-semibold uppercase tracking-wider text-text-muted mb-0.5">
                     {section.label}
                   </p>
                   <p className="text-sm text-text-secondary leading-relaxed">

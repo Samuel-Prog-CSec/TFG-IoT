@@ -75,7 +75,7 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
               whileTap={selectable ? { scale: 0.98 } : undefined}
             >
               {!selectable && (
-                <span className="absolute top-3 right-3 rounded-full border border-warning-base/40 bg-warning-base/10 px-2 py-0.5 text-[11px] font-medium text-warning-base">
+                <span className="absolute top-3 right-3 rounded-full border border-warning-base/40 bg-warning-base/10 px-2 py-0.5 text-micro font-medium text-warning-base">
                   Próximamente
                 </span>
               )}

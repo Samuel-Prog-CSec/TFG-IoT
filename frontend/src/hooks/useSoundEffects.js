@@ -18,9 +18,12 @@ export function useSoundEffects(soundEnabled = true) {
     soundEffectsService.setEnabled(isEnabled);
   }, [isEnabled]);
 
-  useEffect(() => {
-    return () => soundEffectsService.dispose();
-  }, []);
+  // (D-10-B7) NO disponer del singleton en cleanup: `soundEffectsService`
+  // es una instancia compartida. Si dos componentes consumen este hook (ej.
+  // GameSession + un panel hijo que también lo usa) y uno desmonta, el
+  // `dispose()` cerraría el AudioContext y dejaría al otro componente sin
+  // sonido. El AudioContext se libera implícitamente al cerrar la pestaña
+  // del navegador — no necesita cleanup explícito a nivel de hook.
 
   const playCorrect = useCallback(() => soundEffectsService.playCorrect(), []);
   const playIncorrect = useCallback(() => soundEffectsService.playIncorrect(), []);

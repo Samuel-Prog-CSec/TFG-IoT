@@ -336,7 +336,7 @@ function SystemAlertsHub({
       <AlertHistoryModal alertId={historyId} onClose={() => setHistoryId(null)} />
 
       { }
-      <GlassCard variant="subtle" padding="sm" className="text-[11px] text-text-muted">
+      <GlassCard variant="subtle" padding="sm" className="text-micro text-text-muted">
         Las alertas del sistema se detectan automáticamente cada pocos minutos. Si descartas una
         crítica y la condición se mantiene, volverá a aparecer pasadas unas horas.
       </GlassCard>

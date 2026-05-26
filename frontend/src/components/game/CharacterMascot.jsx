@@ -83,7 +83,18 @@ const expressions = {
 // (T-953 Fase 2.1, sesión 2026-05-09). Mantener pools genéricos por
 // mood era código muerto: el hook ya decide la frase y nunca deja
 // `message` vacío en esos casos.
-const greetingPool = ['¡Hola!', '¿Jugamos?', '¡Vamos!'];
+// (M-007) Pool ampliado para que, cuando la mascota acompaña empty states
+// sin `message` explícito, el saludo deje entrever el contexto educativo en
+// lugar de sonar genérico. Las páginas que tienen copy específico siguen
+// pasando `message` por prop y este pool no se usa.
+const greetingPool = [
+  '¡Hola!',
+  '¿Jugamos?',
+  '¡Vamos!',
+  '¿Empezamos?',
+  '¿Listos?',
+  '¡Aquí estoy!'
+];
 
 /**
  * Mascota animada híbrida (emoji 🦉 + accesorios SVG) que acompaña al niño durante el juego.

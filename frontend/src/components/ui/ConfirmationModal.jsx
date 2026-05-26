@@ -347,13 +347,18 @@ export default function ConfirmationModal({
                 onClick={onClose}
                 disabled={loading}
                 className={cn(
-                  'p-2 rounded-lg transition-[colors,transform]',
+                  // (D3-008) `min-h-11 min-w-11` garantiza target táctil
+                  // ≥44px (WCAG 2.2 SC 2.5.8). `p-2` solo daba ~32px reales
+                  // entre padding+icono. Mantener `inline-flex` + centrado
+                  // para que el icono X siga visualmente centrado.
+                  'min-h-11 min-w-11 inline-flex items-center justify-center',
+                  'rounded-lg transition-[colors,transform]',
                   'hover:bg-border-default text-text-muted hover:text-text-primary active:scale-90',
                   'disabled:opacity-50 disabled:cursor-not-allowed'
                 )}
                 aria-label="Cerrar modal"
               >
-                <X size={18} />
+                <X size={18} aria-hidden="true" />
               </button>
             </motion.div>
 
