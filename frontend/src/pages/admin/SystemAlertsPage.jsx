@@ -33,7 +33,7 @@ const TABS = [
 ];
 
 export default function SystemAlertsPage() {
-  useDocumentTitle('Alertas y avisos del centro · EduPlay');
+  useDocumentTitle('Alertas y avisos del centro');
 
   const [tab, setTab] = useState('alerts');
   const [statusFilter, setStatusFilter] = useState('active');

@@ -11,7 +11,7 @@
  *  - Cooldown 250ms (alineado con `useGameSocket.DEDUPE_MS_BY_SOURCE.touch_fallback`).
  */
 import { memo, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { Hand } from 'lucide-react';
 import PropTypes from 'prop-types';
 import CardAssetPreview from '../../ui/CardAssetPreview';

@@ -1,6 +1,6 @@
 import { memo, useState, useCallback, useRef, useEffect, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   FileText,
   Download,

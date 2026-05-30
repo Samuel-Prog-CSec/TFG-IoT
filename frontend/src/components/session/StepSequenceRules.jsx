@@ -13,7 +13,7 @@
 
 import { useEffect } from 'react';
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { Check, Clock, Target, Eye, Sparkles, Hourglass, Shuffle, Zap, AlertTriangle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';

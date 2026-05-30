@@ -25,7 +25,7 @@
  */
 import { memo, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence, useReducedMotion as useFramerReducedMotion } from 'framer-motion';
+import { m as motion, AnimatePresence, useReducedMotion as useFramerReducedMotion } from 'framer-motion';
 import SequenceCard from './SequenceCard';
 import SequenceProgressDots from './SequenceProgressDots';
 import PhaseTransitionOverlay from './PhaseTransitionOverlay';

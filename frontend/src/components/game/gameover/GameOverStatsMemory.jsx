@@ -11,7 +11,7 @@
  */
 import { memo } from 'react';
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { Brain, Hourglass, Clock3, XCircle } from 'lucide-react';
 import MetricPill from '../../ui/MetricPill';
 

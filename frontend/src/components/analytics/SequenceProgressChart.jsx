@@ -30,6 +30,7 @@ import {
   commonAxisProps,
   commonGridProps,
   useChartMotion,
+  legendTextFormatter,
 } from './ChartsTheme';
 import ThemedChartContainer from './ThemedChartContainer';
 
@@ -128,7 +129,7 @@ function SequenceProgressChart({ data = EMPTY_DATA, height = 240, showLegend = t
               domain={[0, 'auto']}
             />
             <Tooltip content={<CustomTooltip />} />
-            {showLegend && <Legend wrapperStyle={{ fontSize: chartTokens.axisTickFontSize, color: chartTokens.legendFill }} />}
+            {showLegend && <Legend formatter={legendTextFormatter} wrapperStyle={{ fontSize: chartTokens.axisTickFontSize }} />}
             <Line
               type="monotone"
               dataKey="maxLength"

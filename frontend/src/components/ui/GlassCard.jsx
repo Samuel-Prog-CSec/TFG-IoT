@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { cva } from 'class-variance-authority';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 

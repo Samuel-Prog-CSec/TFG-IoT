@@ -5,23 +5,32 @@ const analyticsService = {
 
   /**
    * Obtiene el resumen global de la clase (KPIs).
+   * @param {Object} [params] - Query params: timeRange, contextId, mechanicId
    * @param {Object} [config] - Configuracion de Axios (AbortController, etc.)
    * @returns {Promise<Object>} KPIs de la clase
    */
-  getClassroomSummary: async (config = {}) => {
-    const response = await api.get('/analytics/classroom/summary', config);
+  getClassroomSummary: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/classroom/summary', {
+      params,
+      ...config
+    });
     return extractData(response);
   },
 
   /**
    * Obtiene el progreso comparativo de la clase (grafico de area/linea).
-   * @param {string} [timeRange='7d'] - '7d' o '30d'
+   * @param {string} [timeRange='7d'] - '7d', '30d' o '90d'
+   * @param {Object} [filters] - Filtros opcionales: contextId, mechanicId
    * @param {Object} [config] - Configuracion de Axios
    * @returns {Promise<Array>} Datos para el grafico
    */
-  getClassroomComparison: async (timeRange = '7d', config = {}) => {
+  getClassroomComparison: async (timeRange = '7d', { contextId, mechanicId } = {}, config = {}) => {
     const response = await api.get('/analytics/classroom/comparison', {
-      params: { timeRange },
+      params: {
+        timeRange,
+        ...(contextId && { contextId }),
+        ...(mechanicId && { mechanicId })
+      },
       ...config
     });
     return extractData(response);
@@ -29,13 +38,18 @@ const analyticsService = {
 
   /**
    * Obtiene tendencias con cambio porcentual (periodo actual vs anterior).
-   * @param {string} [timeRange='7d'] - '7d' o '30d'
+   * @param {string} [timeRange='7d'] - '7d', '30d' o '90d'
+   * @param {Object} [filters] - Filtros opcionales: contextId, mechanicId
    * @param {Object} [config] - Configuracion de Axios
    * @returns {Promise<Object>} KPIs con current, previous, change, changePercent
    */
-  getClassroomTrends: async (timeRange = '7d', config = {}) => {
+  getClassroomTrends: async (timeRange = '7d', { contextId, mechanicId } = {}, config = {}) => {
     const response = await api.get('/analytics/classroom/trends', {
-      params: { timeRange },
+      params: {
+        timeRange,
+        ...(contextId && { contextId }),
+        ...(mechanicId && { mechanicId })
+      },
       ...config
     });
     return extractData(response);

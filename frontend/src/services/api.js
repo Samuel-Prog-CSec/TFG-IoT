@@ -557,24 +557,6 @@ export const extractErrorMessage = (error) => {
   return 'Ha ocurrido un error inesperado';
 };
 
-/**
- * Extrae errores de validación de una respuesta de la API
- * @param {Error} error - Error de axios
- * @returns {Object} Objeto con errores por campo
- */
-export const extractValidationErrors = (error) => {
-  const errors = {};
-  const validationErrors = error.response?.data?.errors || [];
-  
-  validationErrors.forEach((err) => {
-    if (err.field) {
-      errors[err.field] = err.message;
-    }
-  });
-  
-  return errors;
-};
-
 // ============================================
 // API ENDPOINTS - AUTH
 // ============================================

@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Play, Pause, Volume2, VolumeX, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 

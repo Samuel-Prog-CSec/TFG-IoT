@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback, useReducer, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
   Search,
@@ -645,7 +645,9 @@ export default function CardDecksPage() {
                       options={[
                         { value: '', label: 'Todos los contextos' },
                         ...contexts.map((ctx) => ({
-                          value: ctx._id,
+                          // El DTO de contexto expone `id` (no `_id`); con `_id`
+                          // el value era undefined y el filtro no aplicaba.
+                          value: ctx.id || ctx._id,
                           label: ctx.name,
                         })),
                       ]}

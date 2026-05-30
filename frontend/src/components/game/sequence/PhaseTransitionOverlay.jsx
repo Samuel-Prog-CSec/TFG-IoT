@@ -13,7 +13,7 @@
  */
 import { memo, useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Eye } from 'lucide-react';
 
 // Fallback usado si el backend no envía `gracePeriodMs` (eventos antiguos

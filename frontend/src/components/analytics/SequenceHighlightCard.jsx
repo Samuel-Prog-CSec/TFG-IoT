@@ -19,7 +19,7 @@ function SequenceHighlightCard({ summary }) {
   ];
 
   return (
-    <GlassCard className="p-5 flex flex-col">
+    <GlassCard className="p-5 flex flex-col transition-[border-color,box-shadow] duration-300 hover:border-border-strong hover:shadow-[var(--shadow-md)]">
       <div className="flex items-center gap-3 mb-4">
         <div className="size-12 rounded-xl bg-accent-amber/15 flex items-center justify-center" aria-hidden="true">
           <ListOrdered size={22} className="text-accent-amber" />

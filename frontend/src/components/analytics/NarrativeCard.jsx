@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { CheckCircle2, Lightbulb, Target, MessageSquare } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';

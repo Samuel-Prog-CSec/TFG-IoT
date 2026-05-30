@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Legend,
 } from 'recharts';
@@ -32,7 +32,7 @@ import ReportPreviewSidebar from '../components/analytics/ReportPreviewSidebar';
 import RecentReports from '../components/analytics/RecentReports';
 import reportsService from '../services/reports';
 import { toast } from 'sonner';
-import { useChartMotion } from '../components/analytics/ChartsTheme';
+import { useChartMotion, legendTextFormatter } from '../components/analytics/ChartsTheme';
 import ThemedChartContainer from '../components/analytics/ThemedChartContainer';
 
 /**
@@ -140,11 +140,22 @@ function LearningCurvesSection({ data, loading }) {
           <h3 className="text-base font-semibold text-text-primary font-display">
             Curvas de Aprendizaje
           </h3>
+          {/* Etiqueta de ventana fija: las curvas siempre usan 90 días
+              independientemente del selector temporal global de la página. */}
+          <span className="text-xs text-text-muted whitespace-nowrap">
+            últimos 90 días
+          </span>
         </div>
-        <div className="h-[200px] flex items-center justify-center">
-          <p className="text-sm text-text-muted text-center">
-            Se necesitan más datos de partidas repetidas para generar las curvas de aprendizaje.
-          </p>
+        <div className="h-[200px] flex flex-col items-center justify-center text-center gap-3 px-4">
+          <div className="flex size-14 items-center justify-center rounded-2xl bg-brand-base/10" aria-hidden="true">
+            <TrendingUp size={26} className="text-brand-base" />
+          </div>
+          <div>
+            <p className="text-text-primary font-semibold">Aún no hay curvas que trazar</p>
+            <p className="text-sm text-text-muted mt-1 max-w-xs mx-auto">
+              Las curvas aparecen cuando un alumno repite la misma sesión varias veces. Anima a tu clase a volver a jugar y verás aquí su progreso.
+            </p>
+          </div>
         </div>
       </GlassCard>
     );
@@ -178,6 +189,14 @@ function LearningCurvesSection({ data, loading }) {
         summary={accessibleSummary}
         dataTable={dataTable}
         dataTableCaption="Puntuación final por curva de aprendizaje"
+        headerExtra={
+          // La curva de aprendizaje necesita un horizonte amplio para captar
+          // la mejora con la repetición, por eso siempre usa 90 días y no el
+          // selector temporal global de la página. Se etiqueta para ser honestos.
+          <span className="text-xs text-text-muted whitespace-nowrap">
+            últimos 90 días
+          </span>
+        }
       >
       {/* Altura y margenes ajustados: el label "Intento" del eje X chocaba
           con la leyenda inferior. Solucion definitiva: leyenda arriba del
@@ -225,9 +244,9 @@ function LearningCurvesSection({ data, loading }) {
               verticalAlign="top"
               align="center"
               iconSize={10}
+              formatter={legendTextFormatter}
               wrapperStyle={{
                 fontSize: '11px',
-                color: 'var(--color-text-muted)',
                 paddingBottom: 12,
                 lineHeight: 1.6,
               }}

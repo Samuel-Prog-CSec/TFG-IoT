@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { Music, Upload, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';

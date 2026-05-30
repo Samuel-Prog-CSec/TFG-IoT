@@ -13,7 +13,7 @@
 
 import { useCallback, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
-import { motion, useAnimationControls, AnimatePresence } from 'framer-motion';
+import { m as motion, useAnimationControls, AnimatePresence } from 'framer-motion';
 import { Bell, BellRing } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
@@ -164,7 +164,13 @@ export default function NotificationBell({ compact = false }) {
               'absolute -top-1 -right-1 z-20',
               'min-w-[18px] h-[18px] px-1 rounded-full',
               'bg-gradient-to-br from-brand-base to-accent-pink',
-              'text-white text-nano font-bold leading-none',
+              // OJO: el color del número va en los <span> hoja (más abajo), NO
+              // aquí. tailwind-merge dentro de `cn` malclasifica el tamaño custom
+              // `text-nano` como si fuera un `text-{color}` y, al fusionar, elimina
+              // `text-white` → el contador heredaba el morado `text-brand-light`
+              // del botón (contraste ~1.7:1 sobre el degradado). Manteniendo el
+              // tamaño aquí y el color en la hoja evitamos el conflicto de merge.
+              'text-nano font-bold leading-none',
               'flex items-center justify-center',
               'shadow-[0_4px_10px_var(--color-brand-glow)]',
               'border border-background-base overflow-hidden',
@@ -172,7 +178,7 @@ export default function NotificationBell({ compact = false }) {
             )}
           >
             {shouldReduceMotion ? (
-              <span>{badgeLabel}</span>
+              <span className="text-white">{badgeLabel}</span>
             ) : (
               <AnimatePresence mode="popLayout" initial={false}>
                 <motion.span
@@ -181,7 +187,7 @@ export default function NotificationBell({ compact = false }) {
                   animate={{ y: 0, opacity: 1 }}
                   exit={{ y: 10, opacity: 0 }}
                   transition={{ type: 'spring', stiffness: 500, damping: 28 }}
-                  className="inline-block"
+                  className="inline-block text-white"
                 >
                   {badgeLabel}
                 </motion.span>

@@ -1,5 +1,5 @@
 import { memo, useState, useEffect, useRef } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Star } from 'lucide-react';
 import { cn } from '../../lib/utils';

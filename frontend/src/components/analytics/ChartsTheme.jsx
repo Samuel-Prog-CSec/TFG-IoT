@@ -152,6 +152,22 @@ export const commonGridProps = Object.freeze({
 });
 
 /**
+ * Formatter de leyenda canónico para `<Legend formatter={legendTextFormatter} />`.
+ *
+ * Recharts, por defecto, colorea el TEXTO de cada item de la leyenda con el
+ * color de su serie. En tema claro las series de croma medio (oklch L≈0.6)
+ * caen a ~3.7-4.2:1 sobre el fondo del card — bajo WCAG AA 4.5:1 para 11px
+ * (el `wrapperStyle.color` no basta: Recharts lo sobrescribe por item). Este
+ * formatter pinta el texto con `--color-text-secondary` (contraste alto en
+ * ambos temas) mientras Recharts sigue dibujando el swatch con el color de la
+ * serie, de modo que la asociación serie↔color se conserva en el icono. De
+ * paso cumple WCAG 1.4.1 (no transmitir información solo con el color del texto).
+ */
+export function legendTextFormatter(value) {
+  return <span style={{ color: 'var(--color-text-secondary)' }}>{value}</span>;
+}
+
+/**
  * Componente que dropa los `<defs>` globales de la app de charts. Se
  * monta DENTRO del `<ResponsiveContainer>` (no fuera) — Recharts inyecta
  * un `<svg>` raíz y todos los `<defs>` viven dentro de ese SVG.

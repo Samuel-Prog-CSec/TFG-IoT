@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { X, AlertTriangle, Archive, Trash2, Info, CheckCircle } from 'lucide-react';
 import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';

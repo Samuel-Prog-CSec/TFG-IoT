@@ -432,6 +432,15 @@ Los endpoints de reportes (E17, E18) estructuran sus respuestas en niveles jerá
 | Engagement y contenido (classroom) | 300s (5 min) | Consultas que agregan datos de toda la clase. Cambian con cada partida pero el profesor no necesita datos al segundo |
 | Datos individuales de estudiante | 300s (5 min) | Pueden cambiar tras cada partida pero el impacto visual en un gráfico de semanas es mínimo |
 
+### 3.6. Alcance del filtro de contenido del Dashboard (contexto/mecánica)
+
+El Dashboard docente permite filtrar por contexto temático y mecánica. Qué vistas responden al filtro y cuáles permanecen globales es una decisión deliberada (ver ADR-190):
+
+- **Responden al filtro** (mismo subconjunto): KPIs (`summary`), distribución (`distribution`), tendencia diaria (`comparison`) y listado de alumnos (`students`). Todas resuelven sus `sessionIds` vía `resolveTeacherSessionIds`, que aísla el camino filtrado (query directa a `GameSession` por `{createdBy, contextId?, mechanicId?}`) del camino sin filtro (lista cacheada compartida), garantizando regresión cero cuando no hay filtro.
+- **Permanecen globales** (con rótulo de alcance honesto en la UI cuando hay filtro activo): el «Mapa de Calor de Dificultad» (es una comparación cruzada Contexto×Mecánica — filtrarlo por un contexto lo reduciría a una fila y perdería su propósito) y «Actividad Semanal» (patrón temporal de cuándo se juega, no específico de contenido).
+
+**Rango temporal `90d`:** los selectores de la UI ofrecen «Trimestre actual» / «Últimos 90 días» (→ `90d`). Todos los endpoints de aula y de alumno alcanzables desde esos selectores aceptan `7d/30d/90d` y centralizan el cálculo en `getDateRange`. ADR-190 cerró el desfase en `comparison`/`heatmap`/`student summary`, cuyos validators habían quedado en `7d/30d` pese a que la UI ya ofrecía `90d`.
+
 ---
 
 ## 4. Implementación Frontend: Suite de Analytics

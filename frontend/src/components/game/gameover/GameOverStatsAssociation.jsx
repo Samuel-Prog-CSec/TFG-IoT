@@ -13,7 +13,7 @@
  */
 import { memo, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { Link2, XCircle, Clock3, Hourglass, AlarmClock, Sparkles } from 'lucide-react';
 import MetricPill from '../../ui/MetricPill';
 

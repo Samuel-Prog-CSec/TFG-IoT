@@ -1,6 +1,6 @@
 import { useMemo } from 'react';
 import { AlertTriangle, CheckCircle, ChevronRight, Pause } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { cn, listContainerVariants, listItemVariants } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';

@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { AlarmClock } from 'lucide-react';
 import { cn } from '../../lib/utils';

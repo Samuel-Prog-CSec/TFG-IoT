@@ -9,7 +9,7 @@
 
 import { useState, useEffect } from 'react';
 import { useLocation, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import Turnstile from 'react-turnstile';
 import {
   LogIn, Mail, Lock, Eye, EyeOff, AlertCircle, CheckCircle, Info, Clock,
@@ -271,7 +271,7 @@ export default function Login() {
               style={{ fontSize: 'var(--text-fluid-hero)' }}>
             Acerca el cartón.
             <br />
-            <span className="bg-gradient-to-br from-brand-light via-brand-base to-accent-pink bg-clip-text text-transparent">
+            <span className="text-brand-base">
               Suceden cosas.
             </span>
           </h1>
@@ -409,6 +409,7 @@ export default function Login() {
               <motion.form
                 ref={formRef}
                 onSubmit={handleSubmit}
+                noValidate
                 className="space-y-6"
                 initial={shouldReduceMotion ? false : 'hidden'}
                 animate="visible"

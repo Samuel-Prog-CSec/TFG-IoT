@@ -326,7 +326,7 @@ const MfaManagementPanel = ({ status, onChange }) => {
               <ShieldOff className="size-4" aria-hidden /> Quiero deshabilitar
             </ButtonPremium>
           ) : (
-            <form onSubmit={handleDisableSubmit} className="space-y-3">
+            <form onSubmit={handleDisableSubmit} noValidate className="space-y-3">
               <label
                 htmlFor="mfa-disable-password"
                 className="block text-xs font-medium uppercase tracking-wide text-text-muted"
@@ -469,7 +469,7 @@ const MfaSetupWizard = ({ onCompleted }) => {
           <ul className="space-y-2 text-text-muted mb-6 list-disc pl-5">
             <li>Necesitas una app de autenticación (Google Authenticator, Authy, 1Password…).</li>
             <li>Tras habilitar MFA tu sesión se cerrará y deberás volver a iniciar sesión.</li>
-            <li>Recibirás 8 códigos de respaldo de un solo uso — guárdalos en lugar seguro.</li>
+            <li>Recibirás 8 códigos de respaldo de un solo uso. Guárdalos en lugar seguro.</li>
           </ul>
           <ButtonPremium
             type="button"
@@ -541,7 +541,7 @@ const MfaSetupWizard = ({ onCompleted }) => {
         <div className="bg-background-elevated border border-border-default rounded-2xl p-6 shadow-sm">
           <h2 className="text-xl font-semibold mb-2 text-text-primary">3 · Códigos de respaldo</h2>
           <p className="text-sm text-text-muted mb-4">
-            Cada código sirve una sola vez. <strong>Guárdalos ahora</strong> — no se mostrarán de
+            Cada código sirve una sola vez. <strong>Guárdalos ahora</strong>: no se mostrarán de
             nuevo. Si pierdes el dispositivo y los códigos, no podrás acceder.
           </p>
           <div className="grid grid-cols-2 gap-2 bg-background-base border border-border-default rounded-lg p-4 font-mono text-sm mb-4">

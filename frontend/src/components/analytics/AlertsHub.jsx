@@ -13,7 +13,7 @@
  */
 
 import { memo, useMemo, useState, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import { AlertTriangle, ChevronRight, Filter, User, Layers } from 'lucide-react';

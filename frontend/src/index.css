@@ -705,6 +705,17 @@
   @apply bg-gradient-to-br from-brand-light via-brand-base to-accent-indigo bg-clip-text text-transparent;
 }
 
+/* Display "hero": fuerza el eje óptico (opsz) de Bricolage Grotesque al máximo
+   (96) para los momentos de mayor jerarquía — score del GameOver, KPI principal
+   del dashboard. El opsz alto engrosa los remates y cierra la caja, dándole una
+   "presencia" editorial que el optical-sizing automático (atado al font-size) no
+   alcanza. Se combina con font-extrabold (wght 800, el máximo cargado) y tracking
+   negativo. Reservado a 1-2 cifras heroicas por pantalla, nunca texto corrido. */
+@utility text-display-hero {
+  font-variation-settings: "opsz" 96;
+  letter-spacing: -0.035em;
+}
+
 /* Gameplay: Fondo inmersivo de juego con gradientes animados.
    T-954 (Phase 7): superpone radial-gradients con el color atmósfera del
    contexto activo. Cuando `<html data-atmosphere>` está presente, los

@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useReducer } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { useConfetti } from '../hooks/useConfetti';
 import {
   Eye,
@@ -709,7 +709,7 @@ export default function DeckEditPage() {
                         </div>
                         <h3 className="font-medium text-text-primary mb-1">{context.name}</h3>
                         <p className="text-xs text-text-muted">
-                          {context.assets?.length || 0} assets
+                          {context.assets?.length || 0} recursos
                         </p>
                       </motion.button>
                       );

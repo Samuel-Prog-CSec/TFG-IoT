@@ -5,7 +5,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, useId, cloneElement, isValidElement } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../lib/utils';
 
 /** Offset en px entre el trigger y el tooltip */

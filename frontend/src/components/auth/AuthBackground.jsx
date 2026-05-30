@@ -20,7 +20,7 @@
  */
 
 import { useEffect, useState } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import {
   Globe2, Dog, Palette, Hash, Shapes,
 } from 'lucide-react';

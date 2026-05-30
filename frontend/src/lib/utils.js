@@ -1,5 +1,36 @@
 import { clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+// tailwind-merge extendido con los tamaños de fuente CUSTOM del design system
+// (`--text-*` de index.css). Sin registrarlos, tailwind-merge no sabe que
+// `text-nano`/`text-micro`/`text-fluid-*` son font-size y los trata como un
+// `text-{color}`: al fusionar `cn('text-white text-nano')` descartaba
+// `text-white` (conserva solo el último «text-*»), dejando el texto con el color
+// heredado del ancestro (p.ej. el contador del badge de notificaciones caía a
+// ~1.7:1 de contraste — ADR-191/PROP-135). Registrarlos en el grupo `font-size`
+// los separa del grupo de color y ambos sobreviven al merge.
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      'font-size': [
+        {
+          text: [
+            'micro',
+            'nano',
+            'fluid-xs',
+            'fluid-sm',
+            'fluid-base',
+            'fluid-lg',
+            'fluid-xl',
+            'fluid-2xl',
+            'fluid-3xl',
+            'fluid-hero',
+          ],
+        },
+      ],
+    },
+  },
+});
 
 /**
  * Utility function to merge tailwind classes effectively.

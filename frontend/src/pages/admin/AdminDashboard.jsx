@@ -17,7 +17,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import {
   Shield,
   Users,
@@ -116,6 +116,9 @@ function AdminDashboardHeader({ timeRange, onTimeRangeChange, generatedAt }) {
           className="w-full sm:w-52"
           aria-label="Periodo de análisis"
         />
+        <p className="text-xs text-text-muted/80 leading-snug max-w-52 sm:text-right">
+          El periodo afecta a actividad y rendimiento; los totales del centro son a fecha de hoy.
+        </p>
         {generatedAt && (
           <p className="text-xs text-text-muted tabular-nums">
             Actualizado {new Date(generatedAt).toLocaleTimeString('es-ES', { hour: '2-digit', minute: '2-digit' })}
@@ -589,6 +592,19 @@ export default function AdminDashboard() {
             message={error}
             onRetry={fetchData}
           />
+        )}
+
+        {/* Refetch fallido con datos previos en pantalla: banner no
+            bloqueante. Mantenemos los datos (aunque obsoletos) visibles y
+            avisamos de que la última actualización no se completó. */}
+        {error && data && (
+          <div
+            role="status"
+            className="flex items-center gap-3 rounded-xl border border-warning-base/30 bg-warning-base/10 px-4 py-3 text-sm text-warning-on-alpha"
+          >
+            <AlertTriangle size={18} className="shrink-0" aria-hidden="true" />
+            <span>No se pudo actualizar la vista del centro. Mostrando los últimos datos disponibles.</span>
+          </div>
         )}
 
         {loading && !data && <AdminDashboardSkeleton />}

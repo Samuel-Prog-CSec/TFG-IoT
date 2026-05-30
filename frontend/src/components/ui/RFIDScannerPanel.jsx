@@ -10,7 +10,7 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence, useSpring, useTransform, useReducedMotion } from 'framer-motion';
+import { m as motion, AnimatePresence, useSpring, useTransform, useReducedMotion } from 'framer-motion';
 import { CreditCard, Wifi, WifiOff, Plus, Trash2, AlertCircle, Zap, LogOut } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useConfetti } from '../../hooks/useConfetti';
@@ -432,7 +432,7 @@ export default function RFIDScannerPanel({
               <Plus size={18} />
               Simular Escaneo (Dev)
             </motion.button>
-            <p className="text-nano text-text-disabled text-center mt-2">
+            <p className="text-nano text-text-muted text-center mt-2">
               Modo simulacion activo para pruebas locales
             </p>
           </div>

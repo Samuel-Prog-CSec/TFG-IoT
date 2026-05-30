@@ -301,6 +301,39 @@ describe('Analytics Endpoints (T-601)', () => {
     });
   });
 
+  describe('GET /api/analytics/classroom/comparison', () => {
+    it('debe retornar la serie temporal de comparación', async () => {
+      const res = await request(app)
+        .get('/api/analytics/classroom/comparison?timeRange=7d')
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(Array.isArray(res.body.data)).toBe(true);
+    });
+
+    it('debe aceptar timeRange=90d (cohorte "Trimestre actual" del Dashboard)', async () => {
+      // QA 2026-05-30: antes 90d se trataba como 7d (rangeDays inline) → 8 puntos.
+      // El fix rellena el rango completo: 90d → 91 puntos (i = 90..0 inclusive).
+      const res = await request(app)
+        .get('/api/analytics/classroom/comparison?timeRange=90d')
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(Array.isArray(res.body.data)).toBe(true);
+      expect(res.body.data.length).toBe(91);
+    });
+
+    it('debe aceptar el filtro de contexto (la tendencia responde al filtro)', async () => {
+      const res = await request(app)
+        .get(`/api/analytics/classroom/comparison?timeRange=30d&contextId=${context._id}`)
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(Array.isArray(res.body.data)).toBe(true);
+    });
+  });
+
   describe('GET /api/analytics/student/:id/summary', () => {
     it('debe retornar resumen completo del estudiante', async () => {
       const studentId = students[0]._id.toString();
@@ -320,6 +353,18 @@ describe('Analytics Endpoints (T-601)', () => {
       expect(data).toHaveProperty('classComparison');
       expect(data.classComparison).toHaveProperty('studentAvgScore');
       expect(data.classComparison).toHaveProperty('classAvgScore');
+    });
+
+    it('debe aceptar timeRange=90d en el resumen del alumno', async () => {
+      // QA 2026-05-30: el selector del perfil ofrece 90d pero el schema solo
+      // aceptaba 7d/30d → 400. `getDateRange` ya soportaba 90d.
+      const studentId = students[0]._id.toString();
+      const res = await request(app)
+        .get(`/api/analytics/student/${studentId}/summary?timeRange=90d`)
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.success).toBe(true);
     });
 
     it('debe rechazar acceso a estudiante de otro profesor', async () => {
@@ -372,6 +417,17 @@ describe('Analytics Endpoints (T-601)', () => {
         expect(entry).toHaveProperty('hour');
         expect(entry).toHaveProperty('count');
       }
+    });
+
+    it('debe aceptar timeRange=90d ("Trimestre actual")', async () => {
+      // QA 2026-05-30: el schema solo aceptaba 7d/30d → 90d daba 400 y
+      // "Actividad Semanal" quedaba vacía.
+      const res = await request(app)
+        .get('/api/analytics/classroom/heatmap?timeRange=90d')
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data).toHaveProperty('heatmap');
     });
   });
 
@@ -426,8 +482,10 @@ describe('Analytics Endpoints (T-601)', () => {
     });
 
     it('debe rechazar timeRange inválido en trends', async () => {
+      // '90d' es válido (cohorte "Trimestre actual" del Dashboard); usamos un
+      // valor genuinamente fuera del enum para verificar el rechazo Zod.
       const res = await request(app)
-        .get('/api/analytics/classroom/trends?timeRange=90d')
+        .get('/api/analytics/classroom/trends?timeRange=invalid')
         .set(makeAuthHeaders(token));
 
       expect(res.statusCode).toBe(400);
@@ -666,6 +724,120 @@ describe('Analytics Endpoints (T-601)', () => {
 
       expect(res.statusCode).toBe(200);
       expect(res.body.data.timeRange).toBe('7d');
+    });
+  });
+
+  // T-942 Fase E: filtros opcionales de contexto/mecanica en summary y
+  // distribution. La vista por defecto agrega el aula completa; con filtro
+  // activo los KPIs se recalculan desde las partidas que casan con esa sesion.
+  // Estos tests verifican que el filtro se acepta, estrecha el dataset y
+  // rechaza un ObjectId invalido.
+  describe('Filtros por contexto/mecanica (summary + distribution)', () => {
+    // ObjectId valido en formato pero que no corresponde a ninguna sesion del
+    // profesor — sirve para comprobar que el filtro EXCLUYE lo que no casa.
+    const NON_MATCHING_OID = '507f1f77bcf86cd799439099';
+
+    it('distribution: el filtro por mechanicId estrecha el total de alumnos', async () => {
+      // Sin filtro: la distribucion cuenta los 5 alumnos activos (lifetime).
+      const unfiltered = await request(app)
+        .get('/api/analytics/classroom/distribution')
+        .set(makeAuthHeaders(token));
+      expect(unfiltered.statusCode).toBe(200);
+      expect(unfiltered.body.data.totalStudents).toBe(5);
+
+      // Con la mecanica sembrada: solo los alumnos con partidas completadas en
+      // esa sesion (Riesgo, Promedio, Bueno = 3). El dataset se estrecha.
+      const filtered = await request(app)
+        .get(`/api/analytics/classroom/distribution?mechanicId=${mechanic._id}`)
+        .set(makeAuthHeaders(token));
+      expect(filtered.statusCode).toBe(200);
+      expect(filtered.body.data.distribution).toHaveLength(4);
+      expect(filtered.body.data.totalStudents).toBe(3);
+      expect(filtered.body.data.totalStudents).toBeLessThan(unfiltered.body.data.totalStudents);
+    });
+
+    it('distribution: acepta contextId con la forma esperada', async () => {
+      const res = await request(app)
+        .get(`/api/analytics/classroom/distribution?contextId=${context._id}`)
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data.distribution).toHaveLength(4);
+      const tiers = res.body.data.distribution.map(d => d.tier);
+      expect(tiers).toEqual(['risk', 'average', 'good', 'excellent']);
+      // El contexto sembrado tiene las 3 partidas → 3 alumnos.
+      expect(res.body.data.totalStudents).toBe(3);
+    });
+
+    it('summary: el filtro por mechanicId que no casa devuelve datos distintos', async () => {
+      // Sin filtro: hay partidas sembradas → totalGames > 0.
+      const unfiltered = await request(app)
+        .get('/api/analytics/classroom/summary')
+        .set(makeAuthHeaders(token));
+      expect(unfiltered.statusCode).toBe(200);
+      expect(unfiltered.body.data.totalGames).toBeGreaterThan(0);
+
+      // Con una mecanica que no corresponde a ninguna sesion: 0 partidas.
+      const filtered = await request(app)
+        .get(`/api/analytics/classroom/summary?mechanicId=${NON_MATCHING_OID}`)
+        .set(makeAuthHeaders(token));
+      expect(filtered.statusCode).toBe(200);
+      expect(filtered.body.data).toHaveProperty('studentsInRisk');
+      expect(filtered.body.data).toHaveProperty('averageScore');
+      expect(filtered.body.data).toHaveProperty('totalGames');
+      expect(filtered.body.data.totalGames).toBe(0);
+      expect(filtered.body.data.totalGames).not.toBe(unfiltered.body.data.totalGames);
+    });
+
+    it('summary: acepta contextId con la forma esperada', async () => {
+      const res = await request(app)
+        .get(`/api/analytics/classroom/summary?contextId=${context._id}`)
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.success).toBe(true);
+      expect(res.body.data).toHaveProperty('studentsInRisk');
+      expect(res.body.data).toHaveProperty('averageScore');
+      expect(res.body.data).toHaveProperty('totalGames');
+      expect(res.body.data).toHaveProperty('gamesToday');
+    });
+
+    it('summary: rechaza un mechanicId que no es ObjectId (400)', async () => {
+      const res = await request(app)
+        .get('/api/analytics/classroom/summary?mechanicId=not-an-objectid')
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('distribution: rechaza un contextId que no es ObjectId (400)', async () => {
+      const res = await request(app)
+        .get('/api/analytics/classroom/distribution?contextId=not-an-objectid')
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(400);
+    });
+
+    it('students: el filtro por mechanicId responde 200 (regresion 500) y filtra', async () => {
+      // Regresion: el filtro por contexto/mecanica en el controlador usaba
+      // `s._id` cuando el DTO de estudiante expone `s.id` → undefined.toString()
+      // → 500. Solo se ejercitaba cuando el frontend enviaba un filtro valido
+      // (antes nunca lo hacia por el bug de `value` en las opciones del Dashboard).
+      const res = await request(app)
+        .get(`/api/analytics/classroom/students?sort=score&order=desc&mechanicId=${mechanic._id}`)
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.success).toBe(true);
+      // 3 alumnos jugaron en la mecanica sembrada → por debajo del umbral
+      // k-anonimidad → respuesta agregada. Lo relevante: NO es 500.
+      const payload = res.body.data;
+      if (payload.aggregatedOnly) {
+        expect(payload.total).toBe(3);
+      } else {
+        expect(payload.students.length).toBe(3);
+      }
     });
   });
 });

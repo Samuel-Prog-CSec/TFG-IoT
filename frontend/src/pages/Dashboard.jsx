@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, CalendarClock, Layers, ChevronRight, Target, Clock, UserCheck, CheckCircle2, Sparkles } from 'lucide-react';
 import ErrorState from '../components/ui/ErrorState';
 import { listContainerVariants, listItemVariants, crossfadeVariants, formatDate } from '../lib/utils';
@@ -84,11 +84,14 @@ export default function Dashboard() {
       const mechanics = mechRes?.data?.data || [];
       setContextOptions([
         { value: '', label: 'Todos los contextos' },
-        ...contexts.map(c => ({ value: c._id, label: c.name }))
+        // El DTO de contexto expone `id` (no `_id`); usar `_id` dejaba el value
+        // en undefined → el SelectPremium seleccionaba siempre la 1ª opción y no
+        // se enviaba el filtro al backend.
+        ...contexts.map(c => ({ value: c.id, label: c.name }))
       ]);
       setMechanicOptions([
         { value: '', label: 'Todas las mecánicas' },
-        ...mechanics.map(m => ({ value: m._id, label: m.displayName || m.name }))
+        ...mechanics.map(m => ({ value: m.id, label: m.displayName || m.name }))
       ]);
       return undefined;
     }).catch(() => { /* errores individuales ya manejados */ });
@@ -137,17 +140,34 @@ export default function Dashboard() {
         setLoading(true);
         // Summary y Trends son criticos (KPIs principales). El resto son secundarios:
         // si fallan, la pagina sigue funcionando con datos parciales.
+        // Filtros de contenido activos del Dashboard (contexto/mecánica). Se
+        // reparten a los endpoints de aula para que KPIs, tendencia y
+        // distribución respondan al mismo subconjunto que el listado de
+        // alumnos (T-942 Fase E).
+        const filterParams = {
+          ...(selectedContextId && { contextId: selectedContextId }),
+          ...(selectedMechanicId && { mechanicId: selectedMechanicId })
+        };
+        const hasContentFilter = Boolean(selectedContextId || selectedMechanicId);
+
+        // Resumen y distribución solo reciben timeRange cuando hay un filtro de
+        // contenido activo: en la vista por defecto (sin contexto ni mecánica)
+        // estos KPIs y la distribución siguen siendo lifetime, idénticos a su
+        // comportamiento previo. La tendencia siempre usó timeRange, así que se
+        // mantiene tal cual.
+        const summaryParams = hasContentFilter ? { timeRange, ...filterParams } : {};
+        const distributionParams = hasContentFilter ? { timeRange, ...filterParams } : {};
+
         const [summaryData, trendsData, progress, difficultiesData, students, distribution, alerts, heatmap] = await Promise.all([
-          analyticsService.getClassroomSummary({ signal: controller.signal }),
-          analyticsService.getClassroomTrends(timeRange, { signal: controller.signal }),
-          analyticsService.getClassroomComparison(timeRange, { signal: controller.signal }).catch(() => []),
+          analyticsService.getClassroomSummary(summaryParams, { signal: controller.signal }),
+          analyticsService.getClassroomTrends(timeRange, filterParams, { signal: controller.signal }),
+          analyticsService.getClassroomComparison(timeRange, filterParams, { signal: controller.signal }).catch(() => []),
           analyticsService.getClassroomDifficulties({ signal: controller.signal }).catch(() => []),
           analyticsService.getClassroomStudents({
             sort: 'score', order: 'desc',
-            ...(selectedContextId && { contextId: selectedContextId }),
-            ...(selectedMechanicId && { mechanicId: selectedMechanicId })
+            ...filterParams
           }, { signal: controller.signal }).catch(() => null),
-          analyticsService.getClassroomDistribution({}, { signal: controller.signal }).catch(() => null),
+          analyticsService.getClassroomDistribution(distributionParams, { signal: controller.signal }).catch(() => null),
           analyticsService.getAlerts({ limit: 5 }, { signal: controller.signal }).catch(() => null),
           analyticsService.getClassroomHeatmap(timeRange, { signal: controller.signal }).catch(() => null)
         ]);
@@ -537,12 +557,26 @@ export default function Dashboard() {
                     </Suspense>
                   </motion.div>
                   <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    {/* QA 2026-05-30: el mapa de dificultad es una comparación
+                        cruzada Contexto×Mecánica, así que se mantiene global
+                        aunque haya un filtro de contenido activo. Lo etiquetamos
+                        para ser honestos (no es que el filtro no funcione). */}
+                    {(selectedContextId || selectedMechanicId) && (
+                      <p className="text-xs text-text-muted mb-2 px-1">
+                        Vista global · no se ajusta al filtro de contenido
+                      </p>
+                    )}
                     <Suspense fallback={<SkeletonChart height={260} />}>
                       <DifficultyHeatmap data={difficulties} />
                     </Suspense>
                   </motion.div>
                   {heatmapData && (
                     <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                      {(selectedContextId || selectedMechanicId) && (
+                        <p className="text-xs text-text-muted mb-2 px-1">
+                          Vista global · no se ajusta al filtro de contenido
+                        </p>
+                      )}
                       <Suspense fallback={<SkeletonChart height={220} />}>
                         <ActivityHeatmap data={heatmapData} />
                       </Suspense>

@@ -21,7 +21,7 @@
 
 import { useEffect, useId, useRef } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Pencil, Loader2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useInlineEdit } from '../../hooks/useInlineEdit';

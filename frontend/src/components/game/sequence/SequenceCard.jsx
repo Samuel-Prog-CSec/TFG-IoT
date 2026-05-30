@@ -16,7 +16,7 @@
  */
 import { memo } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { CheckCircle2, XCircle, Clock3 } from 'lucide-react';
 import CardAssetPreview from '../../ui/CardAssetPreview';
 import { cn } from '../../../lib/utils';

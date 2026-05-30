@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search, Gamepad2 } from 'lucide-react';
 import { cn, calculateStars, EASING } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
@@ -1212,7 +1212,7 @@ export default function GameSession() {
             </div>
             {sessionIsMemory ? (
               <div className="hidden sm:block">
-                <div className="text-nano text-text-disabled uppercase tracking-wider">Parejas</div>
+                <div className="text-nano text-text-muted uppercase tracking-wider">Parejas</div>
                 <div className="text-sm text-text-primary font-bold font-display">
                   {Math.floor((memoryStats.matchedCount || 0) / 2)}
                   <span className="text-text-muted font-normal"> / {Math.floor((memoryStats.totalCards || 0) / 2)}</span>
@@ -1220,7 +1220,7 @@ export default function GameSession() {
               </div>
             ) : (
               <div className="hidden sm:block">
-                <div className="text-nano text-text-disabled uppercase tracking-wider">Ronda</div>
+                <div className="text-nano text-text-muted uppercase tracking-wider">Ronda</div>
                 <div className="text-sm text-text-primary font-bold font-display">
                   {currentRound}
                   <span className="text-text-muted font-normal"> / {totalRounds}</span>

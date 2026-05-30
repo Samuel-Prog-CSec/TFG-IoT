@@ -1,6 +1,6 @@
 import { useState, useEffect, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   Palette,
   Image as ImageIcon,
@@ -210,7 +210,7 @@ export default function ContextDetailPage() {
                     {context.contextId}
                   </span>
                   <span className="text-sm text-text-muted">
-                    {assets.length} assets en total
+                    {assets.length} recursos en total
                   </span>
                 </div>
               </div>
@@ -241,7 +241,7 @@ export default function ContextDetailPage() {
             <h3 className="text-lg font-medium text-text-primary mb-2">Este contexto está vacío</h3>
             <p className="text-text-muted mb-6">Añade imágenes o audios para usarlos en los mazos de cartas.</p>
             <ButtonPremium onClick={() => setShowUploadModal(true)} variant="secondary">
-              Añadir el primer asset
+              Añadir el primer recurso
             </ButtonPremium>
           </GlassCard>
         ) : (
@@ -641,7 +641,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
         </div>
 
         <div className="p-6 overflow-y-auto">
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} noValidate className="space-y-5">
             {/* File Dropzone */}
             <div
               role="button"
@@ -687,7 +687,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
                 return (
                   <div className="text-center px-4">
                     <ImageIcon size={32} className="mx-auto text-text-muted mb-3" />
-                    <p className="text-sm font-medium text-text-primary mb-1">Click para seleccionar imagen</p>
+                    <p className="text-sm font-medium text-text-primary mb-1">Haz clic para seleccionar una imagen</p>
                     <p className="text-xs text-text-muted">
                       {uploadConfig?.image?.allowedFormats?.join(', ')} (Max {uploadConfig?.image?.maxInputSizeMB}MB)
                     </p>

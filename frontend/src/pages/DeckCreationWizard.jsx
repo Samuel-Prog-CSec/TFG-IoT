@@ -14,7 +14,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { useConfetti } from '../hooks/useConfetti';
 import {
   ArrowLeft,
@@ -44,6 +44,7 @@ import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
 import useInlineSuccess from '../hooks/useInlineSuccess';
 import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
+import ErrorState from '../components/ui/ErrorState';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { decksAPI, extractErrorMessage } from '../services/api';
 import useDeckWizardDraft, { formatDraftDate } from '../hooks/useDeckWizardDraft';
@@ -416,6 +417,8 @@ export default function DeckCreationWizard() {
           <StepContext
             contexts={contexts}
             loadingContexts={loadingContexts}
+            contextsError={contextsError}
+            onRetryContexts={refetchContexts}
             selectedContext={selectedContext}
             onSelectContext={handleSelectContext}
           />
@@ -798,6 +801,8 @@ function StepCards({
 function StepContext({
   contexts,
   loadingContexts,
+  contextsError,
+  onRetryContexts,
   selectedContext,
   onSelectContext
 }) {
@@ -813,6 +818,19 @@ function StepContext({
           ))}
         </div>
       </GlassCard>
+    );
+  }
+
+  // Estado de error: si la carga de contextos falló no debemos mostrar el
+  // empty-state (que sugeriría que no hay contextos), sino un error con
+  // reintento — así el profesor entiende que es un fallo de red, no falta de datos.
+  if (contextsError) {
+    return (
+      <ErrorState
+        title="No se pudieron cargar los contextos"
+        message={contextsError}
+        onRetry={onRetryContexts}
+      />
     );
   }
 
@@ -953,7 +971,7 @@ function StepAssign({
             <div className="flex items-center gap-2 text-sm text-text-secondary">
               <Wand2 size={16} className="text-accent-indigo" />
               <span>
-                {unassignedCards.length} carta(s) y {unassignedAssets.length} asset(s) sin asignar
+                {unassignedCards.length} carta(s) y {unassignedAssets.length} recurso(s) sin asignar
               </span>
             </div>
             <ButtonPremium
@@ -1117,7 +1135,7 @@ function StepAssign({
             </>
           ) : (
             <div className="flex items-center justify-center h-64 text-text-muted">
-              <p>Selecciona una carta para asignar un asset</p>
+              <p>Selecciona una carta para asignar un recurso</p>
             </div>
           )}
         </GlassCard>
@@ -1229,6 +1247,8 @@ StepCards.propTypes = {
 StepContext.propTypes = {
   contexts: PropTypes.arrayOf(PropTypes.object).isRequired,
   loadingContexts: PropTypes.bool.isRequired,
+  contextsError: PropTypes.string,
+  onRetryContexts: PropTypes.func,
   selectedContext: PropTypes.object,
   onSelectContext: PropTypes.func.isRequired
 };

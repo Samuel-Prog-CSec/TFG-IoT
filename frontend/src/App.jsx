@@ -9,7 +9,7 @@ import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { lazy, Suspense, memo, useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
 import { Toaster } from 'sonner';
-import { LazyMotion, domAnimation } from 'framer-motion';
+import { LazyMotion, domMax } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
 import { ThemeProvider, useTheme } from './context/ThemeContext';
 import { AtmosphereProvider } from './context/AtmosphereContext';
@@ -284,16 +284,16 @@ function ThemeAwareToaster() {
 export default function App() {
   return (
     /*
-     * T-907 INT2: LazyMotion + features={domAnimation} carga ~25 KB del bundle
-     * de Framer Motion en lugar de los ~50 KB del bundle completo. La
-     * migración de `motion.X` → `m.X` se hizo via alias `m as motion` en los
-     * imports (28 archivos) para no tocar el JSX existente; el componente
-     * subyacente es ahora la versión "light" `m`, que cumple con LazyMotion.
-     * Sin `strict` por seguridad: si algún archivo usa `motion.X` directo en
-     * lugar del alias, Framer carga el bundle completo dinámicamente en lugar
-     * de lanzar error en runtime — degradación graceful.
+     * T-907 INT2 + QA 2026-05-30: LazyMotion evita cargar el bundle completo de
+     * Framer Motion. TODOS los componentes usan la versión "light" `m` (vía alias
+     * `m as motion` en los imports, JSX intacto), así que el `motion` completo se
+     * tree-shakea del bundle. Se usan `features={domMax}` (y no `domAnimation`)
+     * porque la app emplea shared-element transitions con `layoutId` (DeckCard,
+     * SessionDetail, ThemeToggle, AppLayout, InsightsReports…) y el feature de
+     * layout NO está en `domAnimation`. Aun siendo domMax mayor que domAnimation,
+     * eliminar el bundle completo de `motion` deja un neto menor.
      */
-    <LazyMotion features={domAnimation}>
+    <LazyMotion features={domMax}>
       <ThemeProvider>
         <AtmosphereProvider>
           <BrowserRouter>

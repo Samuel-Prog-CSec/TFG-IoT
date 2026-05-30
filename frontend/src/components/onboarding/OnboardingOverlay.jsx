@@ -1,7 +1,7 @@
 import { useEffect, useState, useCallback } from 'react';
 import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, X, ArrowRight } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
@@ -353,7 +353,7 @@ function ModalStep({ step, currentStep, totalSteps, isFirstStep, isLastStep, onP
             onComplete={onComplete}
           />
 
-          <p className="text-center mt-4 text-xs text-text-disabled">
+          <p className="text-center mt-4 text-xs text-text-muted">
             Puedes volver a ver el tutorial desde la barra lateral en cualquier momento.
           </p>
 

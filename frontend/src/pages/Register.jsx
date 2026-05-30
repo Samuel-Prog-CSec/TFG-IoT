@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useMemo } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   UserPlus,
   Mail,
@@ -280,7 +280,7 @@ export default function Register() {
               style={{ fontSize: 'var(--text-fluid-hero)' }}>
             Tu primer mazo,
             <br />
-            <span className="bg-gradient-to-br from-accent-cyan via-accent-indigo to-brand-base bg-clip-text text-transparent">
+            <span className="text-brand-base">
               en cinco minutos.
             </span>
           </h1>
@@ -399,6 +399,7 @@ export default function Register() {
               <motion.form
                 ref={formRef}
                 onSubmit={handleSubmit}
+                noValidate
                 className="space-y-5"
                 initial={shouldReduceMotion ? false : "hidden"}
                 animate="visible"

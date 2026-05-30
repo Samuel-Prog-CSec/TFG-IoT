@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { 
   Users, 
   UserCheck, 

@@ -23,7 +23,7 @@ import {
   Download
 } from 'lucide-react';
 import ConsentDetailPanel from './ConsentDetailPanel';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { usersAPI, extractErrorMessage, isAbortError } from '../../services/api';
 import ButtonPremium from '../../components/ui/ButtonPremium';
@@ -128,7 +128,7 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
               <p className="text-text-muted">Modifica los datos del alumno.</p>
             </header>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} noValidate className="space-y-6">
               <InputPremium
                 label="Nombre completo"
                 placeholder="Ej: Juan Pérez"
@@ -286,7 +286,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
               <p className="text-text-muted">Asigna un nuevo alumno a un profesor y clase.</p>
             </header>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} noValidate className="space-y-6">
               <InputPremium
                 label="Nombre completo"
                 placeholder="Ej: Juan Pérez"
@@ -338,7 +338,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                 </div>
                 <p className="text-xs text-text-muted leading-relaxed">
                   De acuerdo con el Art. 8 del RGPD y el Art. 7 de la LOPDGDD,
-                  el tratamiento de datos de menores de 14 a{'\u00F1'}os requiere
+                  el tratamiento de datos de menores de 14 años requiere
                   el consentimiento del titular de la patria potestad o tutela.
                 </p>
 
@@ -353,19 +353,19 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                       }))
                     }
                     className="mt-1 size-4 rounded border-border-primary text-brand-base
-                      focus:ring-brand-base focus:ring-offset-0"
+                      focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2"
                   />
                   <span className="text-sm text-text-primary leading-relaxed">
                     Confirmo que el tutor/a legal ha otorgado consentimiento
                     expreso para el tratamiento de datos con fines de
-                    seguimiento educativo y an{'\u00E1'}lisis de rendimiento.
+                    seguimiento educativo y análisis de rendimiento.
                   </span>
                 </label>
 
                 {formData.consentGranted && (
                   <InputPremium
                     label="Nombre del tutor/a legal"
-                    placeholder={'Ej: Ana Garc\u00EDa L\u00F3pez'}
+                    placeholder="Ej: Ana García López"
                     value={formData.consentGrantedBy}
                     onChange={(e) =>
                       setFormData(prev => ({
@@ -563,7 +563,7 @@ export default function StudentManagement() {
   // lista virtualizada. Captura handlers + state via closure — no hace
   // falta pasarlos como props.
   const renderStudentCard = (student) => (
-    <GlassCard className="p-5 hover:border-brand-base/40 group transition-[border-color] duration-300 relative overflow-hidden h-full flex flex-col">
+    <GlassCard className="p-5 hover:border-brand-base/40 group transition-[border-color,transform,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lg)] relative overflow-hidden h-full flex flex-col">
       {/* Acciones */}
       <div className="absolute top-3 right-3 z-10">
         <div className="relative">

@@ -42,7 +42,12 @@ export default function AlertStatusFilter({ value, onChange, counts = {} }) {
                 'tabular-nums rounded-md px-1.5 py-0.5 text-nano',
                 isActive
                   ? 'bg-background-base/40'
-                  : 'bg-background-surface/40 text-text-disabled'
+                  // `text-text-muted` (no `text-disabled`): el chip es un filtro
+                  // clicable, no un control deshabilitado. `text-disabled` rinde
+                  // ~2.4:1 sobre el pill en claro (falla WCAG AA); `text-muted`
+                  // está tonalizado para ~5:1 en ambos temas (misma convención
+                  // que EmptyState/D3-004). El conteo sigue de-enfatizado pero legible.
+                  : 'bg-background-surface/40 text-text-muted'
               )}
             >
               {count}

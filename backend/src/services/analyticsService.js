@@ -165,9 +165,13 @@ async function getStudentDifficulties(studentId) {
  * KPIs principales: Estudiantes en riesgo, media de clase, actividad hoy.
  *
  * @param {string} teacherId - ID del profesor
+ * @param {Object} [filters] - Filtros opcionales del Dashboard (T-942 Fase E)
+ * @param {string} [filters.contextId] - Limita a sesiones de este contexto
+ * @param {string} [filters.mechanicId] - Limita a sesiones de esta mecánica
+ * @param {string} [filters.timeRange] - '7d' | '30d' | '90d' (acota globalStats)
  * @returns {Promise<Object>} KPIs calculados
  */
-async function getClassroomSummary(teacherId) {
+async function getClassroomSummary(teacherId, { contextId, mechanicId, timeRange } = {}) {
   // T-904 Fase A: span manual sobre el agregado completo (lookup+facet pueden
   // ser caros en datasets grandes; visibilidad de p95 imprescindible para
   // detectar regresiones de Mongo Atlas M0).
@@ -179,19 +183,28 @@ async function getClassroomSummary(teacherId) {
         'teacher.id': teacherId?.toString()
       }
     },
-    () => _getClassroomSummaryImpl(teacherId)
+    () => _getClassroomSummaryImpl(teacherId, { contextId, mechanicId, timeRange })
   );
 }
 
-async function _getClassroomSummaryImpl(teacherId) {
+async function _getClassroomSummaryImpl(teacherId, { contextId, mechanicId, timeRange } = {}) {
+  const hasFilter = Boolean(contextId || mechanicId);
+
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
   const [excludedIds, teacherSessionIds] = await Promise.all([
     getAnalyticsExcludedPlayerIds(teacherId),
     // A.3 (pre-v1.0.0): prefiltrar sessionIds del profesor para hacer
     // `$match` ANTES de `$lookup` — reduce 50× el escaneo en GamePlay.
-    getTeacherSessionIds(teacherId)
+    // T-942 Fase E: cuando hay filtro contexto/mecánica se restringe a las
+    // sesiones que casan; sin filtro devuelve la misma lista cacheada que antes.
+    resolveTeacherSessionIds(teacherId, { contextId, mechanicId })
   ]);
   const teacherOid = new mongoose.Types.ObjectId(teacherId);
+
+  // T-942 Fase E: si llega timeRange acotamos globalStats con la misma fecha
+  // de inicio que el resto de endpoints (`getDateRange`). Solo afecta a
+  // globalStats (promedio/total del rango); `todayActivity` sigue siendo "hoy".
+  const startDate = timeRange ? getDateRange(timeRange).currentStart : null;
 
   const pipeline = [
     {
@@ -204,6 +217,7 @@ async function _getClassroomSummaryImpl(teacherId) {
       $facet: {
         // Promedio global y tendencia
         globalStats: [
+          ...(startDate ? [{ $match: { completedAt: { $gte: startDate } } }] : []),
           {
             $group: {
               _id: null,
@@ -233,15 +247,26 @@ async function _getClassroomSummaryImpl(teacherId) {
   // (lifetime). Antes el KPI usaba la media reciente de partidas, lo que
   // producía discrepancias entre el contador (9) y la cuenta de filas con badge
   // EN RIESGO (8). Ahora ambas vistas leen la misma fuente.
+  //
+  // T-942 Fase E: cuando hay un filtro de contexto/mecánica activo, el
+  // `studentMetrics.averageScore` (lifetime, global a todas las mecánicas) ya
+  // no representa el riesgo dentro del subconjunto filtrado. Recalculamos el
+  // riesgo desde las partidas FILTRADAS: media por alumno y conteo de los que
+  // caen en [0, 50). La exclusión por consentimiento (Art. 21 RGPD) se respeta
+  // igual vía `$nin: excludedIds`.
+  const riskPromise = hasFilter
+    ? _countStudentsInRiskFromPlays(teacherSessionIds, excludedIds)
+    : userRepository.count({
+        createdBy: teacherOid,
+        role: 'student',
+        status: 'active',
+        ...ANALYTICS_CONSENT_FILTER,
+        'studentMetrics.averageScore': { $gte: 0, $lt: 50 }
+      });
+
   const [results, studentsInRisk] = await Promise.all([
     gamePlayRepository.aggregate(pipeline, { maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS }),
-    userRepository.count({
-      createdBy: teacherOid,
-      role: 'student',
-      status: 'active',
-      ...ANALYTICS_CONSENT_FILTER,
-      'studentMetrics.averageScore': { $gte: 0, $lt: 50 }
-    })
+    riskPromise
   ]);
 
   const data = results[0];
@@ -255,24 +280,72 @@ async function _getClassroomSummaryImpl(teacherId) {
 }
 
 /**
+ * T-942 Fase E: cuenta alumnos "en riesgo" (media de score en [0, 50)) a
+ * partir de las partidas completadas de un conjunto de sesiones — el camino
+ * filtrado por contexto/mecánica del Dashboard. Agrupa por `playerId`,
+ * promedia `score` y cuenta los grupos por debajo de 50. Respeta la exclusión
+ * por consentimiento (Art. 21 RGPD).
+ *
+ * Solo se usa cuando hay un filtro activo; el camino sin filtro sigue leyendo
+ * `studentMetrics.averageScore` (lifetime) como hasta ahora.
+ *
+ * @param {Array<import('mongoose').Types.ObjectId>} sessionIds
+ * @param {Array<import('mongoose').Types.ObjectId>} excludedIds
+ * @returns {Promise<number>}
+ * @private
+ */
+async function _countStudentsInRiskFromPlays(sessionIds, excludedIds) {
+  const pipeline = [
+    {
+      $match: {
+        sessionId: { $in: sessionIds },
+        status: 'completed',
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
+      }
+    },
+    {
+      $group: {
+        _id: '$playerId',
+        avgScore: { $avg: '$score' }
+      }
+    },
+    { $match: { avgScore: { $gte: 0, $lt: 50 } } },
+    { $count: 'count' }
+  ];
+
+  const [result] = await gamePlayRepository.aggregate(pipeline, {
+    maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS
+  });
+  return result?.count || 0;
+}
+
+/**
  * Compara el rendimiento del estudiante con la media general de la clase
  * para un periodo de tiempo.
  *
  * @param {string} teacherId - ID del profesor (para contexto de clase)
- * @param {string} timeRange - '7d' o '30d'
+ * @param {string} [timeRange] - '7d' | '30d' | '90d'
+ * @param {Object} [filters] - Filtros opcionales del Dashboard (QA 2026-05-30)
+ * @param {string} [filters.contextId] - Limita a sesiones de este contexto
+ * @param {string} [filters.mechanicId] - Limita a sesiones de esta mecánica
  */
-async function getClassroomComparison(teacherId, timeRange = '7d') {
+async function getClassroomComparison(teacherId, timeRange = '7d', { contextId, mechanicId } = {}) {
   const today = new Date();
   const startDate = new Date(today);
-  const rangeDays = timeRange === '30d' ? 30 : 7;
+  // QA 2026-05-30: soporte 90d (antes `=== '30d' ? 30 : 7` ignoraba 90d y lo
+  // trataba como 7d). El selector del Dashboard ofrece "Trimestre actual" → 90d.
+  const rangeDays = timeRange === '90d' ? 90 : timeRange === '30d' ? 30 : 7;
   startDate.setDate(today.getDate() - rangeDays);
 
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
   // A.3 (pre-v1.0.0): prefiltrar sessionIds — sin el `$lookup game_sessions`
   // posterior (los campos de session no se usan en este pipeline).
+  // QA 2026-05-30: con filtro de contexto/mecánica se restringe a las sesiones
+  // que casan (mismo patrón que summary/trends/distribution); sin filtro
+  // devuelve la lista cacheada compartida, byte por byte igual que antes.
   const [excludedIds, teacherSessionIds] = await Promise.all([
     getAnalyticsExcludedPlayerIds(teacherId),
-    getTeacherSessionIds(teacherId)
+    resolveTeacherSessionIds(teacherId, { contextId, mechanicId })
   ]);
 
   const pipeline = [
@@ -590,6 +663,48 @@ async function getTeacherSessionIds(teacherId, options = {}) {
 }
 
 /**
+ * T-942 Fase E: resuelve los `_id` de sesiones del profesor honrando los
+ * filtros opcionales de contexto/mecánica del Dashboard.
+ *
+ * Aísla el camino filtrado del default para garantizar regresión cero
+ * (constraint crítico): cuando NO hay `contextId` NI `mechanicId`, delega en
+ * `getTeacherSessionIds(teacherId)` — exactamente la misma lista cacheada que
+ * usaban los pipelines hasta ahora, byte por byte. Solo cuando llega al menos
+ * un filtro se hace una query directa a GameSession por
+ * `{ createdBy, contextId?, mechanicId? }`, apoyada en los índices compuestos
+ * `{createdBy:1, contextId:1}` / `{createdBy:1, mechanicId:1}`.
+ *
+ * Devuelve siempre ObjectId (no string): igual que `getTeacherSessionIds`, el
+ * consumidor inserta el resultado en `$match { sessionId: { $in: ids } }` y un
+ * string no casaría contra el campo `sessionId` (ObjectId) — ADR-183.
+ *
+ * @param {string} teacherId
+ * @param {Object} [filters]
+ * @param {string} [filters.contextId] - ObjectId del contexto (24 hex) opcional
+ * @param {string} [filters.mechanicId] - ObjectId de la mecánica (24 hex) opcional
+ * @returns {Promise<Array<import('mongoose').Types.ObjectId>>}
+ * @private
+ */
+async function resolveTeacherSessionIds(teacherId, { contextId, mechanicId } = {}) {
+  // Sin filtros → camino default intacto (lista cacheada compartida).
+  if (!contextId && !mechanicId) {
+    return getTeacherSessionIds(teacherId);
+  }
+
+  // Camino filtrado: query directa sin caché. La combinación
+  // teacher×contexto×mecánica es de baja cardinalidad por petición y el
+  // dashboard ya cachea el endpoint completo en `cache:analytics` con una
+  // key que incluye los filtros, así que no merece su propia entrada.
+  const query = {
+    createdBy: new mongoose.Types.ObjectId(teacherId),
+    ...(contextId && { contextId: new mongoose.Types.ObjectId(contextId) }),
+    ...(mechanicId && { mechanicId: new mongoose.Types.ObjectId(mechanicId) })
+  };
+  const sessions = await gameSessionRepository.find(query, { select: '_id' });
+  return sessions.map(s => s._id);
+}
+
+/**
  * Rangos de rendimiento para clasificación de estudiantes.
  * @private
  */
@@ -870,9 +985,20 @@ async function getClassroomStudents(
  * Distribución de rendimiento en 4 rangos.
  *
  * @param {string} teacherId - ID del profesor
+ * @param {Object} [filters] - Filtros opcionales del Dashboard (T-942 Fase E)
+ * @param {string} [filters.contextId] - Limita a sesiones de este contexto
+ * @param {string} [filters.mechanicId] - Limita a sesiones de esta mecánica
+ * @param {string} [filters.timeRange] - '7d' | '30d' | '90d' (acota partidas)
  * @returns {Promise<Array>} Distribución con count y porcentaje por rango
  */
-async function getClassroomDistribution(teacherId) {
+async function getClassroomDistribution(teacherId, { contextId, mechanicId, timeRange } = {}) {
+  // T-942 Fase E: con filtro de contexto/mecánica activo, la distribución se
+  // recalcula desde las partidas filtradas (media por alumno → tier). Sin
+  // filtro mantiene EXACTAMENTE la implementación lifetime de studentMetrics.
+  if (contextId || mechanicId) {
+    return _getClassroomDistributionFromPlays(teacherId, { contextId, mechanicId, timeRange });
+  }
+
   const students = await userRepository.find(
     {
       createdBy: new mongoose.Types.ObjectId(teacherId),
@@ -903,11 +1029,79 @@ async function getClassroomDistribution(teacherId) {
 }
 
 /**
+ * T-942 Fase E: recalcula la distribución en 4 tiers a partir de las partidas
+ * de un conjunto filtrado de sesiones (contexto/mecánica). Agrupa por alumno,
+ * promedia `score` y clasifica cada promedio en su tier. Respeta la exclusión
+ * por consentimiento (Art. 21 RGPD) y la acotación temporal opcional.
+ *
+ * Devuelve el mismo shape `{ distribution, totalStudents }` que el camino sin
+ * filtro, así que el frontend no distingue entre ambos.
+ *
+ * @param {string} teacherId
+ * @param {Object} filters
+ * @param {string} [filters.contextId]
+ * @param {string} [filters.mechanicId]
+ * @param {string} [filters.timeRange]
+ * @returns {Promise<{distribution: Array, totalStudents: number}>}
+ * @private
+ */
+async function _getClassroomDistributionFromPlays(
+  teacherId,
+  { contextId, mechanicId, timeRange } = {}
+) {
+  const [excludedIds, sessionIds] = await Promise.all([
+    getAnalyticsExcludedPlayerIds(teacherId),
+    resolveTeacherSessionIds(teacherId, { contextId, mechanicId })
+  ]);
+
+  const startDate = timeRange ? getDateRange(timeRange).currentStart : null;
+
+  const pipeline = [
+    {
+      $match: {
+        sessionId: { $in: sessionIds },
+        status: 'completed',
+        ...(startDate && { completedAt: { $gte: startDate } }),
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
+      }
+    },
+    {
+      $group: {
+        _id: '$playerId',
+        avgScore: { $avg: '$score' }
+      }
+    }
+  ];
+
+  const perStudent = await gamePlayRepository.aggregate(pipeline, {
+    maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS
+  });
+
+  const totalStudents = perStudent.length;
+  const distribution = PERFORMANCE_TIERS.map(({ tier, label, min, max }) => {
+    const count = perStudent.filter(s => {
+      const score = s.avgScore ?? 0;
+      return score >= min && score <= max;
+    }).length;
+
+    return {
+      range: `${min}-${max}`,
+      tier,
+      label,
+      count,
+      percentage: totalStudents > 0 ? Math.round((count / totalStudents) * 100 * 10) / 10 : 0
+    };
+  });
+
+  return { distribution, totalStudents };
+}
+
+/**
  * Calcula la fecha de inicio según el timeRange.
  * @private
  */
 const getDateRange = (timeRange = '7d') => {
-  const days = timeRange === '30d' ? 30 : 7;
+  const days = timeRange === '90d' ? 90 : timeRange === '30d' ? 30 : 7;
   const now = new Date();
   const currentStart = new Date(now);
   currentStart.setDate(now.getDate() - days);
@@ -921,18 +1115,23 @@ const getDateRange = (timeRange = '7d') => {
  *
  * @param {string} teacherId - ID del profesor
  * @param {string} [timeRange='7d'] - Rango temporal
+ * @param {Object} [filters] - Filtros opcionales del Dashboard (T-942 Fase E)
+ * @param {string} [filters.contextId] - Limita a sesiones de este contexto
+ * @param {string} [filters.mechanicId] - Limita a sesiones de esta mecánica
  * @returns {Promise<Object>} KPIs con valores actuales, anteriores y cambio porcentual
  */
-async function getClassroomTrends(teacherId, timeRange = '7d') {
+async function getClassroomTrends(teacherId, timeRange = '7d', { contextId, mechanicId } = {}) {
   const { now, currentStart, previousStart } = getDateRange(timeRange);
   const teacherOid = new mongoose.Types.ObjectId(teacherId);
 
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
   // A.3 (pre-v1.0.0): prefiltrar sessionIds del profesor — los facets no
   // necesitan campos de session, eliminamos el `$lookup` por completo.
+  // T-942 Fase E: con filtro de contexto/mecánica se restringe a las sesiones
+  // que casan; sin filtro devuelve la misma lista cacheada que antes.
   const [excludedIds, teacherSessionIds] = await Promise.all([
     getAnalyticsExcludedPlayerIds(teacherId),
-    getTeacherSessionIds(teacherId)
+    resolveTeacherSessionIds(teacherId, { contextId, mechanicId })
   ]);
 
   // Pipeline para obtener stats de ambos períodos en un solo query

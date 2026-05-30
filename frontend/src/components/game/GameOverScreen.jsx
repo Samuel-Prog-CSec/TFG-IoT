@@ -1,5 +1,5 @@
 import { memo, useMemo, useEffect, useRef } from 'react';
-import { motion, useSpring, useTransform } from 'framer-motion';
+import { m as motion, useSpring, useTransform } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Star, Trophy, RotateCcw, Home, PartyPopper, Flame, Sparkles as SparklesIcon, Sparkle } from 'lucide-react';
 import { cn, calculateStars } from '../../lib/utils';
@@ -319,7 +319,7 @@ function GameOverScreen({
               // resuelve a oklch 98% en dark (≈blanco) y a oklch 20% en light
               // (gris oscuro). El text-white hardcoded dejaba el "75" en blanco
               // sobre la card translúcida claro = invisible (QA 2026-05-07).
-              className="text-[var(--text-fluid-3xl)] font-bold font-display text-text-primary mb-2 tabular-nums"
+              className="text-[var(--text-fluid-3xl)] font-extrabold font-display text-display-hero text-text-primary mb-2 tabular-nums"
               aria-label={
                 summary?.maxScore
                   ? `Puntuación final: ${score} de ${summary.maxScore} puntos`

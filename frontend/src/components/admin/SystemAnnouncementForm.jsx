@@ -6,7 +6,7 @@
 
 import { useEffect, useId, useState } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { X, Send, Save } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import {
@@ -112,6 +112,7 @@ export default function SystemAnnouncementForm({ open, mode, initial, onClose, o
           key="form"
           onClick={e => e.stopPropagation()}
           onSubmit={handleSubmit}
+          noValidate
           initial={{ y: 16, opacity: 0 }}
           animate={{ y: 0, opacity: 1 }}
           exit={{ y: 16, opacity: 0 }}

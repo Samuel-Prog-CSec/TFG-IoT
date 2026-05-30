@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Heart, Sparkle } from 'lucide-react';
 import { cn } from '../../lib/utils';

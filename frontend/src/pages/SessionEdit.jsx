@@ -7,7 +7,7 @@
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';

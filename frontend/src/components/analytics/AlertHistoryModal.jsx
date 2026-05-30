@@ -7,7 +7,7 @@
 
 import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   X,
   Sparkles,
@@ -137,7 +137,7 @@ export default function AlertHistoryModal({ alertId, onClose }) {
                             {formatRelativeTime(event.at)}
                           </p>
                           {event.severity && (
-                            <p className="mt-1 text-micro text-text-disabled">
+                            <p className="mt-1 text-micro text-text-muted">
                               Severidad: <span className="font-medium">{event.severity}</span>
                               {event.reason && <span className="ml-2">({event.reason})</span>}
                             </p>

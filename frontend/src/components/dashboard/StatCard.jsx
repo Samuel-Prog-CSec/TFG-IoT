@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight, ChevronRight } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, motionConfig } from '../../lib/utils';
@@ -89,7 +89,7 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
               h1 como título de página. Las KPI cards son la segunda jerarquía;
               saltar a h3 viola heading-order WCAG 1.3.1 (auditoría 24/05/2026). */}
           <h2 className={cn("text-text-muted font-semibold tracking-[0.08em] uppercase", compact ? "text-micro mb-1" : "text-xs mb-2")}>{title}</h2>
-          <div className={cn("font-bold text-text-primary font-display tracking-tight tabular-nums leading-none", compact ? "text-2xl mb-2" : "text-5xl mb-3")}>
+          <div className={cn("text-text-primary font-display tabular-nums leading-none", compact ? "font-bold tracking-tight text-2xl mb-2" : "font-extrabold text-5xl mb-3 text-display-hero")}>
             <AnimatedNumber value={value} />
           </div>
           {(() => {

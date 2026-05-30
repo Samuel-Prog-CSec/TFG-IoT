@@ -16,8 +16,8 @@ vi.mock('../../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => ({ shouldReduceMotion: true }),
 }));
 
-vi.mock('framer-motion', () => ({
-  motion: new Proxy(
+vi.mock('framer-motion', () => {
+  const motionProxy = new Proxy(
     {},
     {
       get: (_, tag) => {
@@ -41,9 +41,13 @@ vi.mock('framer-motion', () => ({
         return Component;
       },
     }
-  ),
-  AnimatePresence: ({ children }) => <>{children}</>,
-}));
+  );
+  return {
+    motion: motionProxy,
+    m: motionProxy,
+    AnimatePresence: ({ children }) => <>{children}</>,
+  };
+});
 
 vi.mock('../../ui/GlassCard', () => ({
   default: ({ children, className, ...props }) => (

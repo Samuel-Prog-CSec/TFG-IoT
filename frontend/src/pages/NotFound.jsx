@@ -7,7 +7,7 @@
 
 import { useNavigate } from 'react-router-dom';
 import { Home } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { ROUTES } from '../constants/routes';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -20,7 +20,7 @@ export default function NotFound() {
   useDocumentTitle('Página no encontrada');
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background-base px-4">
+    <main className="min-h-screen flex items-center justify-center bg-background-base px-4">
       <motion.div
         className="text-center max-w-md"
         initial={{ opacity: 0, y: 20 }}
@@ -47,6 +47,6 @@ export default function NotFound() {
           </ButtonPremium>
         </div>
       </motion.div>
-    </div>
+    </main>
   );
 }

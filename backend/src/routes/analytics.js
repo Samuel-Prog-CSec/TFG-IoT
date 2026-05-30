@@ -14,8 +14,10 @@ const {
   analyticsStudentParamsSchema,
   analyticsTimeRangeQuerySchema,
   classroomStudentsQuerySchema,
+  classroomSummaryQuerySchema,
   classroomDistributionQuerySchema,
   classroomTrendsQuerySchema,
+  classroomComparisonQuerySchema,
   studentSummaryQuerySchema,
   classroomHeatmapQuerySchema,
   classroomRankingsQuerySchema,
@@ -98,12 +100,12 @@ router.get(
 // Rutas de clase (profesor)
 router.get(
   '/classroom/summary',
-  validateQuery(emptyObjectSchema),
+  validateQuery(classroomSummaryQuerySchema),
   asyncHandler(analyticsController.getClassroomSummary)
 );
 router.get(
   '/classroom/comparison',
-  validateQuery(analyticsTimeRangeQuerySchema),
+  validateQuery(classroomComparisonQuerySchema),
   asyncHandler(analyticsController.getClassroomComparison)
 );
 router.get(

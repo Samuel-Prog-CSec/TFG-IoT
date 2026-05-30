@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import {
   Palette,
   Plus,
@@ -38,7 +38,7 @@ import ConfirmationModal, {
 } from '../../components/ui/ConfirmationModal';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import useInlineSuccess from '../../hooks/useInlineSuccess';
-import { cn, formatDate } from '../../lib/utils';
+import { cn, formatDate, motionConfig, listContainerVariants, listItemVariants } from '../../lib/utils';
 
 const CONTEXT_ID_REGEX = /^[a-z0-9-]+$/;
 
@@ -112,6 +112,7 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
         exit={{ opacity: 0, y: 8, scale: 0.97 }}
         transition={{ duration: 0.2 }}
         onSubmit={handleSubmit}
+        noValidate
         role="dialog"
         aria-modal="true"
         aria-labelledby="context-form-title"
@@ -202,7 +203,13 @@ function AdminContextCard({ context, onEdit, onDelete }) {
   const audiosCount = context.assets?.filter(a => a.audioUrl).length ?? 0;
 
   return (
-    <article className="flex flex-col gap-4 rounded-2xl border border-border-default bg-background-elevated/60 p-5">
+    <motion.article
+      variants={listItemVariants}
+      whileHover={{ y: -4, scale: 1.01 }}
+      whileTap={{ scale: 0.99 }}
+      transition={motionConfig.spring}
+      className="flex flex-col gap-4 rounded-2xl border border-border-default bg-background-elevated/60 p-5 transition-[box-shadow,border-color] duration-300 hover:border-border-strong hover:shadow-[var(--shadow-lg)]"
+    >
       <header className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
           <div className="flex size-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
@@ -224,7 +231,7 @@ function AdminContextCard({ context, onEdit, onDelete }) {
 
       <dl className="grid grid-cols-3 gap-2 text-center text-xs">
         <div className="rounded-lg border border-border-subtle bg-background-base/40 p-2">
-          <dt className="text-text-muted">Assets</dt>
+          <dt className="text-text-muted">Recursos</dt>
           <dd className="text-base font-bold text-text-primary tabular-nums">{totalAssets}</dd>
         </div>
         <div className="rounded-lg border border-border-subtle bg-background-base/40 p-2">
@@ -262,7 +269,7 @@ function AdminContextCard({ context, onEdit, onDelete }) {
           <Trash2 size={14} className="mr-1" /> Eliminar
         </ButtonPremium>
       </div>
-    </article>
+    </motion.article>
   );
 }
 
@@ -323,7 +330,12 @@ function renderContextsSection({
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <motion.div
+      className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      variants={listContainerVariants(0.04)}
+      initial="hidden"
+      animate="visible"
+    >
       {filtered.map(ctx => (
         <AdminContextCard
           key={ctx.id || ctx._id}
@@ -332,7 +344,7 @@ function renderContextsSection({
           onDelete={onDeleteRequest}
         />
       ))}
-    </div>
+    </motion.div>
   );
 }
 

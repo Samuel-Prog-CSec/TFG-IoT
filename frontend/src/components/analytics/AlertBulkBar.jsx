@@ -4,7 +4,7 @@
  */
 
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { BellOff, Pause, X } from 'lucide-react';
 
 export default function AlertBulkBar({ count, onDismissAll, onSnoozeAll, onClear }) {

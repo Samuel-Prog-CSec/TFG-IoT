@@ -22,7 +22,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import {
   CircleCheck,
   CircleAlert,

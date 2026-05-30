@@ -1,5 +1,5 @@
 import { memo, useMemo, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { PartyPopper, Flame, Brain, Link2, ListOrdered, Sparkles, Star } from 'lucide-react';
 import { cn } from '../../lib/utils';

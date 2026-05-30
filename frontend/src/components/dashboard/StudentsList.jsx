@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { ChevronRight, Medal, Trophy, Award } from 'lucide-react';
 import PropTypes from 'prop-types';
@@ -215,7 +215,7 @@ function StudentsList({ students }) {
       ) : (
         <div className="flex flex-col items-center justify-center py-8 text-center">
           <p className="text-text-muted text-sm">Aún no hay datos de estudiantes.</p>
-          <p className="text-text-disabled text-xs mt-1">Los datos aparecerán cuando los alumnos jueguen partidas.</p>
+          <p className="text-text-muted text-xs mt-1">Los datos aparecerán cuando los alumnos jueguen partidas.</p>
         </div>
       )}
 

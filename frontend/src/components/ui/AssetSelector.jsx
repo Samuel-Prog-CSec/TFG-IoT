@@ -7,7 +7,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Search, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import CardAssetPreview from './CardAssetPreview';

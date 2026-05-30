@@ -51,7 +51,7 @@ function StudentProgressSparkline({
     // sutil mejor que un line chart vacío que se vería roto.
     return (
       <div
-        className="flex items-center justify-center text-text-disabled text-xs"
+        className="flex items-center justify-center text-text-muted text-xs"
         style={{ height }}
         aria-label={ariaLabel || 'Sin datos suficientes para sparkline'}
       >

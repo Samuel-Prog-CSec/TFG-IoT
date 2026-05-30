@@ -8,7 +8,7 @@
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarClock,
   PlusCircle,
@@ -142,8 +142,14 @@ const BORDER_CLASSES = {
   completed: 'border-l-success-base/40',
 };
 
+// Jerarquía de juego: las sesiones accionables (borrador listo para jugar y
+// partida activa) "flotan" con una sombra brand tenue; las completadas quedan
+// planas y, por contraste, recogidas — sin atenuar opacidad ni tocar el
+// contraste del texto (eso rompería WCAG AA). El borrador suma el drop-shadow
+// brand sobre su borde discontinuo (sigue comunicando "borrador") para señalar
+// "esta es la que puedes lanzar"; la activa ya destaca con su anillo + glow.
 const STATUS_CARD_CLASSES = {
-  created: 'border-dashed border-warning-base/30',
+  created: 'border-dashed border-warning-base/30 shadow-[0_10px_28px_-16px_var(--color-brand-glow)]',
   active: 'ring-1 ring-brand-base/30 shadow-[0_0_12px_var(--color-brand-glow)]',
   completed: 'border-b-2 border-b-success-base/40',
 };

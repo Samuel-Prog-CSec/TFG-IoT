@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo } from "react";
 import { useNavigate } from "react-router-dom";
-import { motion, AnimatePresence } from "framer-motion";
+import { m as motion, AnimatePresence } from "framer-motion";
 import {
   Users,
   Trophy,
@@ -13,6 +13,7 @@ import {
   ArrowDown,
   GraduationCap,
   ListOrdered,
+  ShieldCheck,
 } from "lucide-react";
 import { getMechanicTheme, MECHANIC_KEYS } from "../lib/mechanicTheme";
 import {
@@ -305,7 +306,7 @@ export default function StudentsAnalytics() {
               { sort: "score", order: "desc" },
               { signal: controller.signal },
             ),
-            analyticsService.getClassroomSummary({ signal: controller.signal }),
+            analyticsService.getClassroomSummary({}, { signal: controller.signal }),
             analyticsService.getClassroomDistribution(
               {},
               { signal: controller.signal },
@@ -738,7 +739,16 @@ export default function StudentsAnalytics() {
             )}
 
             {/* ─── Students Table ──────────────────────────────────── */}
-            {!error && !loading && totalStudents === 0 && (
+            {/* Supresión por k-anonimidad (RGPD): el backend devuelve
+                `aggregatedOnly` cuando el grupo es demasiado pequeño para
+                mostrar alumnos individuales sin riesgo de reidentificación.
+                No es ausencia de datos, así que mostramos un mensaje de
+                privacidad en lugar del empty-state genérico. */}
+            {!error && !loading && students?.aggregatedOnly && (
+              <PrivacyAggregatedState shouldReduceMotion={shouldReduceMotion} />
+            )}
+
+            {!error && !loading && !students?.aggregatedOnly && totalStudents === 0 && (
               <EmptyState shouldReduceMotion={shouldReduceMotion} />
             )}
 
@@ -1014,6 +1024,44 @@ function EmptyState({ shouldReduceMotion }) {
       >
         Cuando tus alumnos jueguen sus primeras partidas, aquí podrás ver su
         rendimiento y progreso.
+      </motion.p>
+    </GlassCard>
+  );
+}
+
+/**
+ * Estado de privacidad por k-anonimidad (RGPD). Se muestra cuando el backend
+ * suprime el detalle individual porque el grupo es demasiado pequeño para
+ * exponer alumnos sin riesgo de reidentificación. No es ausencia de datos:
+ * lo aclaramos con un mensaje propio en lugar del empty-state genérico.
+ */
+function PrivacyAggregatedState({ shouldReduceMotion }) {
+  return (
+    <GlassCard className="text-center py-16">
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="mx-auto mb-6 flex size-20 items-center justify-center rounded-2xl bg-brand-base/10 text-brand-base"
+      >
+        <ShieldCheck size={40} aria-hidden="true" />
+      </motion.div>
+      <motion.p
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.1 }}
+        className="text-text-primary text-lg font-semibold"
+      >
+        Datos agregados por privacidad
+      </motion.p>
+      <motion.p
+        initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15 }}
+        className="text-text-muted mt-2 max-w-md mx-auto"
+      >
+        El grupo es demasiado pequeño para mostrar alumnos individuales sin
+        riesgo de reidentificación (RGPD). Cuando haya más alumnos con partidas,
+        verás aquí el detalle individual.
       </motion.p>
     </GlassCard>
   );

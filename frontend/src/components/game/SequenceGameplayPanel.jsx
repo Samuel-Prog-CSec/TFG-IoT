@@ -15,7 +15,7 @@
  */
 import { memo, useCallback, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Sparkles } from 'lucide-react';
 import SequenceBoard from './sequence/SequenceBoard';
 import FallbackTouchPanelSequence from './sequence/FallbackTouchPanelSequence';
