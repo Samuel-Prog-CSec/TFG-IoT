@@ -72,6 +72,7 @@ export function useGameFeedback({
    * @param {Object} gameContext - { currentRound, totalRounds, timeLeft, timeLimit, matchedCount, totalCards, attempts }
    * @returns {{ isCorrect: boolean, points: number, message: string }}
    */
+  // eslint-disable-next-line sonarjs/cyclomatic-complexity -- evaluación de feedback (acierto/fallo/timeout/streak) por mecánica; refactor diferido por riesgo en gameplay
   const processValidationResult = useCallback((payload, gameContext = {}) => {
     const isCorrect = Boolean(payload?.isCorrect && !payload?.timeout);
     const points = Number(payload?.pointsAwarded || 0);
@@ -134,7 +135,7 @@ export function useGameFeedback({
       }
     } else if (isCorrect) {
       const reachedStreak = streakRef.current >= MASCOT_STREAK_THRESHOLD;
-      nextMood = reachedStreak ? 'celebrating' : mechanicTypeRef.current ? 'happy' : 'celebrating';
+      nextMood = !reachedStreak && mechanicTypeRef.current ? 'happy' : 'celebrating';
       if (mechanicTypeRef.current) {
         nextMessage =
           pickMascotMessage(mechanicTypeRef.current, reachedStreak ? 'streakReached' : 'correctAnswer') ||
@@ -213,6 +214,7 @@ export function useGameFeedback({
     // listeners no necesitan re-registrarse.
     // T-953 Fase 2.7: añadido `fireBurst` para micro-celebraciones cada 5
     // aciertos consecutivos.
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- mechanicType se lee vía mechanicTypeRef.current a propósito para mantener el callback estable y no re-registrar listeners (ver comentario arriba)
   }, [isMemoryMode, shouldReduceMotion, fireFromElement, fireBurst]);
 
   const clearFeedback = useCallback(() => {

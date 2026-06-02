@@ -38,6 +38,7 @@ import { toast } from 'sonner';
 import PropTypes from 'prop-types';
 import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { getId } from '../lib/entityId';
 import { useAuth } from '../context/AuthContext';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
@@ -210,7 +211,7 @@ export default function SessionDetail() {
 
     setDeleteLoading(true);
     try {
-      await sessionsAPI.deleteSession(session.id || session._id);
+      await sessionsAPI.deleteSession(getId(session));
       toast.success('Sesión eliminada');
       deleteModal.close();
       navigate(ROUTES.SESSIONS);
@@ -228,9 +229,9 @@ export default function SessionDetail() {
 
     setCloneLoading(true);
     try {
-      const response = await sessionsAPI.cloneSession(session.id || session._id);
+      const response = await sessionsAPI.cloneSession(getId(session));
       const clonedSession = extractData(response);
-      const clonedSessionId = clonedSession?.id || clonedSession?._id;
+      const clonedSessionId = getId(clonedSession);
       const clonedMechanicName = (clonedSession?.mechanic?.name || '').toString().toLowerCase();
 
       toast.success('Sesión clonada', {
@@ -258,7 +259,7 @@ export default function SessionDetail() {
     setPlayerModalOpen(true);
     setSelectedStudentId('');
 
-    const teacherId = user?.id || user?._id;
+    const teacherId = getId(user);
     if (!teacherId) {
       toast.error('No se pudo determinar el profesor.');
       return;
@@ -286,7 +287,7 @@ export default function SessionDetail() {
       toast.warning('Selecciona un alumno antes de iniciar.');
       return;
     }
-    const sid = session?.id || session?._id;
+    const sid = getId(session);
     setPlayerModalOpen(false);
     navigate(`${ROUTES.GAME(sid)}?playerId=${encodeURIComponent(selectedStudentId)}`);
   }, [selectedStudentId, session, navigate]);
@@ -406,7 +407,7 @@ export default function SessionDetail() {
             {isMemorySession && (
               <ButtonPremium
                 variant="secondary"
-                onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(session.id || session._id))}
+                onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(getId(session)))}
               >
                 <Map size={16} />
                 Ver mapping
@@ -417,7 +418,7 @@ export default function SessionDetail() {
               <ButtonPremium
                 variant="primary"
                 onClick={() => {
-                  const sid = session.id || session._id;
+                  const sid = getId(session);
                   if (isMemorySession) {
                     navigate(ROUTES.BOARD_SETUP_WITH_ID(sid));
                   } else {
@@ -449,7 +450,7 @@ export default function SessionDetail() {
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
-                  onClick={() => navigate(ROUTES.SESSION_EDIT(session.id || session._id))}
+                  onClick={() => navigate(ROUTES.SESSION_EDIT(getId(session)))}
                   disabled={!canEdit}
                   aria-label="Editar sesión"
                 >
@@ -486,7 +487,7 @@ export default function SessionDetail() {
             </div>
             <ButtonPremium
               variant="secondary"
-              onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(session.id || session._id))}
+              onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(getId(session)))}
             >
               <Map size={16} />
               Configurar tablero
@@ -793,7 +794,7 @@ export default function SessionDetail() {
                   placeholder="Seleccionar alumno..."
                   label="Alumno"
                   options={availableStudents.map(student => ({
-                    value: student.id || student._id,
+                    value: getId(student),
                     label: student.name
                   }))}
                   className="w-full"

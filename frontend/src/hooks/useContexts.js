@@ -7,6 +7,7 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { contextsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { getId, sameId } from '../lib/entityId';
 
 /**
  * Hook para cargar y gestionar contextos de juego
@@ -116,8 +117,8 @@ export function useContexts({ autoLoad = true, onlyActive = true, showInactive =
       // pasando documentos crudos con `_id`. Aceptamos ambos para evitar
       // mismatches silenciosos como el que provocaba que todos los contextos
       // apareciesen seleccionados en el wizard de mazos (QA 26/04/2026).
-      const lookup = typeof contextId === 'object' ? (contextId._id || contextId.id) : contextId;
-      return contexts.find(ctx => (ctx._id || ctx.id) === lookup);
+      const lookup = typeof contextId === 'object' ? getId(contextId) : contextId;
+      return contexts.find(ctx => sameId(ctx, lookup));
     },
     [contexts]
   );

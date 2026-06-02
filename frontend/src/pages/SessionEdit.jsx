@@ -12,6 +12,7 @@ import { Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { getId, findById } from '../lib/entityId';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
@@ -198,12 +199,12 @@ export default function SessionEdit() {
   });
 
   const deckOptions = useMemo(() => decks.map((deck) => ({
-    value: deck.id || deck._id,
+    value: getId(deck),
     label: deck.name
   })), [decks]);
 
   const selectedDeckFromCatalog = useMemo(
-    () => decks.find(deck => (deck.id || deck._id) === deckId) || null,
+    () => findById(decks, deckId) || null,
     [decks, deckId]
   );
 
@@ -259,7 +260,7 @@ export default function SessionEdit() {
 
     if (isAssociationSession) {
       if (associationChallengePlan.length !== parsedConfig.numberOfRounds) {
-        toast.error('Configura todos los retos de Association antes de guardar');
+        toast.error('Configura todos los retos de Asociación antes de guardar');
         return;
       }
 
@@ -418,7 +419,7 @@ export default function SessionEdit() {
 
           {isAssociationSession && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-text-primary">Retos de Association por ronda</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Retos de Asociación por ronda</h2>
               {associationChallengePlan.length === 0 ? (
                 <p className="text-sm text-warning-base">
                   No hay retos configurables. Revisa el mazo o el número de rondas.

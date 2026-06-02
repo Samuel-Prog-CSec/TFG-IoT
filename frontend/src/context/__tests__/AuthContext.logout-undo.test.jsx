@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from 'vitest';
-import { act, render, screen, cleanup } from '@testing-library/react';
+import { act, render, cleanup } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 // T-957: flujo de logout con ventana de undo (5s) + beacon en pagehide.

@@ -10,6 +10,7 @@ const gameMechanicRepository = require('../repositories/gameMechanicRepository')
 const gameContextRepository = require('../repositories/gameContextRepository');
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
+const { toMechanicType } = require('./gamePlayScoring');
 const mongoose = require('mongoose');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const { cacheInvalidatePattern } = require('../utils/cacheHelper');
@@ -128,6 +129,7 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
 
   const clonedSession = gameSessionRepository.build({
     mechanicId: sourceSession.mechanicId,
+    mechanicType: toMechanicType(mechanic.name),
     deckId: sourceSession.deckId,
     sensorId: sourceSession.sensorId,
     name: sourceSession.name || undefined,
@@ -275,6 +277,7 @@ async function createSession({
   // Crear sesión
   const session = await gameSessionRepository.create({
     mechanicId,
+    mechanicType: toMechanicType(mechanic.name),
     contextId,
     config,
     cardMappings,
@@ -453,6 +456,7 @@ async function createSessionFromDeck({
   // Construir sesión a partir del mazo
   const session = gameSessionRepository.build({
     mechanicId,
+    mechanicType: toMechanicType(mechanicName),
     deckId,
     contextId: contextId || undefined,
     sensorId,

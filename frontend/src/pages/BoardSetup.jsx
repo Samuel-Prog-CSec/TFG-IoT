@@ -13,6 +13,7 @@ import { captureException } from '../lib/sentry';
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { ROUTES } from '../constants/routes';
+import { getId } from '../lib/entityId';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import SelectPremium from '../components/ui/SelectPremium';
@@ -87,7 +88,7 @@ export default function BoardSetup() {
 
                         setSession(currentSession);
 
-                        const teacherId = user?.id || user?._id;
+                        const teacherId = getId(user);
                         const requestOptions = signal ? { signal } : {};
                         const studentsResponse = teacherId
                             ? await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, requestOptions)
@@ -343,7 +344,7 @@ export default function BoardSetup() {
                         onChange={(val) => setSelectedStudentId(val)}
                         placeholder="Asignar Estudiante"
                         options={availableStudents.map(student => ({
-                            value: student.id || student._id,
+                            value: getId(student),
                             label: student.name
                         }))}
                         className="w-64"

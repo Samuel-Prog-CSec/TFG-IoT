@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- patrón contexto: Provider + hook en el mismo archivo; solo afecta al HMR de dev */
 /**
  * @fileoverview Contexto de tema (claro / oscuro / auto).
  *
@@ -217,7 +218,9 @@ export function ThemeProvider({ children }) {
       // `finished` resuelve cuando la animación termina o se cancela. Soltamos
       // el lock respetando MIN_LOCK_MS; si por alguna razón nunca resuelve
       // (caso patológico), un timer de seguridad libera a los 650ms.
-      transition.finished.then(releaseRespectingMinHold, releaseRespectingMinHold);
+      transition.finished
+        .then(releaseRespectingMinHold)
+        .catch(releaseRespectingMinHold);
       globalThis.setTimeout(release, 650);
       return;
     }

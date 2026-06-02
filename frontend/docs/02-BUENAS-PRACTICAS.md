@@ -392,3 +392,29 @@ Cada `<img>` no decorativo lleva HTML attrs `width` + `height` + `loading="lazy"
 ```
 
 Tailwind `size-N` NO sustituye los HTML attrs — el browser usa los atributos HTML para reservar layout box antes del fetch.
+
+---
+
+## Mantenimiento v1.0.0 — Resolución de identificadores `id` / `_id` (ADR-193)
+
+Los DTO de dominio del backend exponen **tanto `id` como `_id`**. Resolverlos a mano (`x.id || x._id`) se filtraba como bugs recurrentes: etiquetas «Desconocido» cuando un `.find(x => x._id === filtro)` no casaba (el DTO traía `id`), o comparaciones `undefined === undefined` que daban `true`.
+
+**Regla:** usar `lib/entityId.js`, no leer `id`/`_id` a mano.
+
+```jsx
+import { getId, sameId, findById } from '../lib/entityId';
+
+getId(entity);              // entity.id ?? entity._id, normalizado a string o null
+sameId(a, b);              // compara por id normalizado (b admite un id string); nunca true si ambos sin id
+findById(list, idOrEntity); // .find por id normalizado; seguro ante listas no-array
+
+// Evitar:
+const m = mechanics.find(x => x._id === filtro); // "Desconocido" si el DTO trae `id`
+const same = a._id === b._id;                    // undefined === undefined → true
+
+// Preferir:
+const m2 = findById(mechanics, filtro);
+const same2 = sameId(a, b);
+```
+
+**Excepción:** no aplica a campos semánticos propios (`studentId`, `contextId`, `uid`, `sensorId`, `playerId`), que identifican por otro criterio y se leen explícitamente.

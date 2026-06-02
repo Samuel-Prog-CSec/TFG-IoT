@@ -115,8 +115,10 @@ function generateName(idx) {
 }
 
 async function run() {
+  // eslint-disable-next-line sonarjs/process-argv -- script CLI de dev: lee el count de partidas de argv
   const count = Number(process.argv[2]) || 1200;
   if (!Number.isFinite(count) || count <= 0) {
+    // eslint-disable-next-line sonarjs/process-argv -- script CLI de dev: argv en el mensaje de error
     logger.error(`count inválido: ${process.argv[2]}`);
     process.exit(1);
   }
@@ -187,7 +189,7 @@ async function run() {
     logger.info(`[seed-bulk] Insertados ${result.length} students bulk.`);
   } catch (err) {
     // BulkWriteError con writeErrors detallados — los registramos sin fallar
-    // todo el script para que la mayoría se inserten.
+    // el script completo para que la mayoría se inserten.
     const inserted = err.result?.insertedCount;
     if (Number.isFinite(inserted)) {
       logger.warn(

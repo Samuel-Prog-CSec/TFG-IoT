@@ -13,6 +13,7 @@
  */
 
 import { ROUTES } from '../constants/routes';
+import { getId } from './entityId';
 
 /**
  * @param {Object} session
@@ -37,7 +38,7 @@ export function getPrimaryActionForSession(session) {
  * @returns {string} ruta absoluta
  */
 export function getPlayRouteForSession(session) {
-  const id = session?.id || session?._id;
+  const id = getId(session);
   if (!id) return ROUTES.SESSIONS;
   const mechanicName = (session.mechanic?.name || '').toLowerCase();
   if (mechanicName === 'memory') {

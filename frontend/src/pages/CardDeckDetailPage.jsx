@@ -12,6 +12,7 @@ import { ArrowLeft, Pencil, Layers, CreditCard, Calendar, Archive } from 'lucide
 import { toast } from 'sonner';
 import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { getId } from '../lib/entityId';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioPlayBadge from '../components/ui/AudioPlayBadge';
@@ -142,7 +143,7 @@ export default function CardDeckDetailPage() {
   const archived = isDeckArchived(deck);
   const statusLabel = archived ? 'Archivado' : 'Activo';
   const contextName = getContextName(deck);
-  const currentDeckId = deck?.id || deck?._id;
+  const currentDeckId = getId(deck);
 
   if (loading && !deck) {
     return (

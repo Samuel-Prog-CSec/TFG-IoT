@@ -17,6 +17,7 @@ import CardAssetPreview from '../../ui/CardAssetPreview';
 import EmptyState from '../../ui/EmptyState';
 import ButtonPremium from '../../ui/ButtonPremium';
 import { ROUTES } from '../../../constants/routes';
+import { getId } from '../../../lib/entityId';
 
 function SessionDetailAssociationPanel({ session }) {
   const navigate = useNavigate();
@@ -30,7 +31,7 @@ function SessionDetailAssociationPanel({ session }) {
     [session]
   );
 
-  const sessionId = session?.id || session?._id;
+  const sessionId = getId(session);
   const isDraft = session?.status === 'created';
 
   if (plan.length === 0) {

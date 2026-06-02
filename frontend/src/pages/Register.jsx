@@ -512,7 +512,11 @@ export default function Register() {
                     placeholder="••••••••"
                     value={formData.confirmPassword}
                     onChange={handleChange}
-                    error={validationErrors.confirmPassword}
+                    // El error de campo solo cubre el caso "confirma tu contraseña"
+                    // (campo vacío). El mismatch/coincidencia lo comunica el
+                    // indicador en vivo de abajo, evitando mostrar el mismo
+                    // mensaje "no coinciden" dos veces.
+                    error={formData.confirmPassword ? undefined : validationErrors.confirmPassword}
                     icon={<Shield className="size-5" />}
                     autoComplete="new-password"
                   />
@@ -537,6 +541,8 @@ export default function Register() {
                       initial={{ opacity: 0 }}
                       animate={{ opacity: 1 }}
                       exit={{ opacity: 0 }}
+                      role="status"
+                      aria-live="polite"
                       className={cn(
                         'flex items-center gap-2 text-sm',
                         formData.password === formData.confirmPassword
@@ -546,12 +552,12 @@ export default function Register() {
                     >
                       {formData.password === formData.confirmPassword ? (
                         <>
-                          <Check className="size-4" />
+                          <Check className="size-4" aria-hidden="true" />
                           Las contraseñas coinciden
                         </>
                       ) : (
                         <>
-                          <X className="size-4" />
+                          <X className="size-4" aria-hidden="true" />
                           Las contraseñas no coinciden
                         </>
                       )}

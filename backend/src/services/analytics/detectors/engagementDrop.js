@@ -28,6 +28,7 @@ class EngagementDropDetector extends AlertDetector {
 
     // engagementService no soporta paralelización masiva en cache miss; vamos
     // estudiante a estudiante. Si no hay engagement previo (poca data), skip.
+    // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
     for (const student of students) {
       const sid = student._id.toString();
       let current = null;

@@ -52,9 +52,13 @@ COPY nginx-zones.conf /etc/nginx/conf.d/00-zones.conf
 # Puerto de la aplicación
 EXPOSE 80
 
-# Health check para nginx
+# Health check para nginx.
+# Usa 127.0.0.1 (no `localhost`): dentro del contenedor `localhost` resuelve
+# primero a IPv6 (::1), pero nginx solo escucha en IPv4 (`listen 80;`), de modo
+# que `localhost` daria "connection refused" y marcaria el contenedor como
+# unhealthy pese a servir correctamente. Forzar IPv4 evita el falso negativo.
 HEALTHCHECK --interval=30s --timeout=10s --start-period=5s --retries=3 \
-    CMD wget --no-verbose --tries=1 --spider http://localhost/health || exit 1
+    CMD wget --no-verbose --tries=1 --spider http://127.0.0.1/health || exit 1
 
 # Comando de inicio
 CMD ["nginx", "-g", "daemon off;"]

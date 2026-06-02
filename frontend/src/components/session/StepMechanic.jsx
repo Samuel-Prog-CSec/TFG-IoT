@@ -9,6 +9,7 @@ import PropTypes from 'prop-types';
 import { m as motion } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { getId } from '../../lib/entityId';
 import GlassCard from '../ui/GlassCard';
 import { SkeletonCard } from '../ui/SkeletonShimmer';
 import { isMechanicSelectable } from './sessionHelpers';
@@ -47,7 +48,7 @@ export default function StepMechanic({ mechanics, loading, selectedMechanicId, o
         {mechanics.map((mechanic) => {
           const meta = getMechanicMeta(mechanic.name);
           const IconComponent = meta.icon;
-          const mechanicId = mechanic.id || mechanic._id;
+          const mechanicId = getId(mechanic);
           const selectable = isMechanicSelectable(mechanic);
           const selected = selectable && selectedMechanicId === mechanicId;
           // Tema canónico de la mecánica para tintar la card seleccionada con

@@ -51,6 +51,7 @@ class PlateauDetectedDetector extends AlertDetector {
     const studentMap = new Map(students.map(s => [s._id.toString(), s]));
     const findings = [];
 
+    // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
     for (const r of results) {
       if (!Array.isArray(r.recent) || r.recent.length < minGames) {
         continue;

@@ -47,7 +47,10 @@ services:
       - "com.rfid-games.service=frontend"
       - "com.rfid-games.description=React SPA served by Nginx"
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost/health"]
+      # 127.0.0.1 (no `localhost`): dentro del contenedor `localhost` resuelve a
+      # IPv6 (::1) pero nginx escucha solo en IPv4 (`listen 80;`) -> connection
+      # refused y falso "unhealthy". Forzar IPv4 evita el falso negativo.
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1/health"]
       interval: 30s
       timeout: 10s
       retries: 3

@@ -18,6 +18,7 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
 import analyticsService from '../../services/analytics';
 import { isAbortError } from '../../services/api';
 import { captureException } from '../../lib/sentry';
+import { getId } from '../../lib/entityId';
 import GlassCard from '../ui/GlassCard';
 import SelectPremium from '../ui/SelectPremium';
 import ButtonPremium from '../ui/ButtonPremium';
@@ -143,7 +144,7 @@ function StudentRankingList({ title, icon: Icon, tone, students }) {
       <div className="space-y-1.5">
         {students.slice(0, 5).map((s, idx) => (
           <div
-            key={s.id || s._id || s.studentId || idx}
+            key={getId(s) || s.studentId || idx}
             className={`flex items-center justify-between px-3 py-2 rounded-lg ${palette.row}`}
           >
             <span className="text-sm text-text-primary truncate">{s.name || s.studentName || `Alumno ${idx + 1}`}</span>
@@ -443,23 +444,25 @@ function ReportGenerator({
   // el informe en pantalla. El effect compara por valores primitivos para no
   // engancharse a la identidad del objeto (cada render del padre crea uno
   // nuevo si construye el literal inline).
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- comparamos primitivos para evitar re-engancharnos a la identidad del objeto (padre lo construye inline)
+   
   useEffect(() => {
     if (!initialDefaults) return;
     if (initialDefaults.reportType) setReportType(initialDefaults.reportType);
     if (initialDefaults.period) setPeriod(initialDefaults.period);
     if (initialDefaults.format) setFormat(initialDefaults.format);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps por campos primitivos a propósito: no re-ejecutar por la identidad del objeto initialDefaults (ver comentario arriba)
   }, [initialDefaults?.reportType, initialDefaults?.period, initialDefaults?.format]);
 
   // Caso "Reabrir": el padre nos pasa meta + payload del informe persistido.
   // Sincronizamos dropdowns para que el form refleje el informe en vista
   // (sin re-generar). preloadedReport se gestiona en el effect de abajo.
-  // eslint-disable-next-line react-hooks/exhaustive-deps -- mismo razonamiento: comparamos primitivos
+   
   useEffect(() => {
     if (!preloadedMeta) return;
     if (preloadedMeta.reportType) setReportType(preloadedMeta.reportType);
     if (preloadedMeta.period) setPeriod(preloadedMeta.period);
     if (preloadedMeta.format) setFormat(preloadedMeta.format);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- deps por campos primitivos a propósito: no re-ejecutar por la identidad del objeto preloadedMeta (ver comentario arriba)
   }, [preloadedMeta?.reportType, preloadedMeta?.period, preloadedMeta?.format]);
 
   // Notificar al padre cuando cambian los meta para que actualice su preview.

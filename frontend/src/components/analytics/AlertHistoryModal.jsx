@@ -56,15 +56,21 @@ export default function AlertHistoryModal({ alertId, onClose }) {
     const controller = new AbortController();
     setLoading(true);
     setError(null);
-    analyticsService
-      .getAlertHistory(alertId, { signal: controller.signal })
-      .then(res => setData(res))
-      .catch(err => {
+    const loadHistory = async () => {
+      try {
+        const res = await analyticsService.getAlertHistory(alertId, {
+          signal: controller.signal
+        });
+        setData(res);
+      } catch (err) {
         if (err.name !== 'CanceledError' && err.name !== 'AbortError') {
           setError(err.message || 'No se pudo cargar el historial');
         }
-      })
-      .finally(() => setLoading(false));
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadHistory();
     return () => controller.abort();
   }, [alertId]);
 

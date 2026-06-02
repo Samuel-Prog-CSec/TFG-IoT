@@ -543,6 +543,7 @@ function generateGamePlaysData(sessions, students) {
     return acc;
   }, {});
 
+  // eslint-disable-next-line sonarjs/cyclomatic-complexity -- seeder de dev (generación de gameplays); complejidad aceptable fuera de producción
   students.forEach((student, index) => {
     const teacherId = (student.createdBy || '').toString();
     const teacherSessions = sessionsByTeacher[teacherId] || [];

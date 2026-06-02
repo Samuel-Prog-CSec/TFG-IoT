@@ -19,6 +19,7 @@ import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
 import { ROUTES } from '../../constants/routes';
 import { getContextTheme } from '../../lib/contextTheme';
+import { getId } from '../../lib/entityId';
 
 const MotionLink = motion.create(Link);
 import { useSharedLayoutTransition } from '../../hooks/useSharedLayoutTransition';
@@ -226,7 +227,7 @@ export default function DeckCard({
   // ese flujo no hay navegación al detalle, así que no aplica el hero.
   const heroLayoutId = useSharedLayoutTransition(
     selectable ? null : 'deck',
-    deck?._id || deck?.id
+    getId(deck)
   );
 
   // Preview de hasta 6 miniaturas. El conteo REAL de tarjetas debe salir de
@@ -702,7 +703,7 @@ function DeckHoverActions({ selectable, showActions, deck, onView, onEdit, onDel
     return null;
   }
 
-  const deckId = deck.id || deck._id;
+  const deckId = getId(deck);
 
   return (
     <motion.div

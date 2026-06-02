@@ -10,6 +10,7 @@
  */
 
 import * as Sentry from '@sentry/react';
+import { getId } from './entityId';
 
 let isSentryEnabled = false;
 
@@ -137,7 +138,7 @@ export const setUserContext = (user) => {
   if (isSentryEnabled) {
     if (user) {
       Sentry.setUser({
-        id: user._id || user.id,
+        id: getId(user),
         role: user.role
       });
     } else {

@@ -10,6 +10,7 @@ const gameSessionRepository = require('../repositories/gameSessionRepository');
 const userRepository = require('../repositories/userRepository');
 const { recalculateSessionStatusFromPlays } = require('./sessionStatusService');
 const notificationService = require('./notificationService');
+const { computeMaxScore } = require('./gamePlayScoring');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'gamePlayService' });
 
@@ -111,39 +112,11 @@ async function createPlay({ sessionId, playerId, creatorId }) {
   // Validar jugador
   await validatePlayer(playerId, sessionId);
 
-  // Calcular maxScore teórico para integridad de puntuaciones (P19, ADR-114).
-  // Cada mecánica tiene su fórmula propia y se detecta por la "huella" de
-  // datos que persiste:
-  //  - Secuencia: tiene `sequencePlan` con N rondas, cada una de longitud
-  //    variable. maxScore = Σ longitud × pointsPerCorrect.
-  //  - Memoria: tiene `boardLayout` con todas las cartas en grid 2D.
-  //    maxScore = (boardLayout.length / 2) × pointsPerCorrect (asumiendo
-  //    parejas; si en futuro se introduce groupSize parametrizable, hay que
-  //    propagarlo aquí).
-  //  - Asociación / fallback: maxScore = numberOfRounds × pointsPerCorrect.
-  //
-  // Este maxScore es el techo absoluto del score: pre-validate del modelo
-  // GamePlay clampa cualquier $inc que lo supere (defensa ante eventos
-  // duplicados).
-  const rounds = Number(session.config?.numberOfRounds) || 1;
-  const points = Number(session.config?.pointsPerCorrect) || 10;
-  const sequencePlan = Array.isArray(session.sequencePlan) ? session.sequencePlan : [];
-  const boardLayout = Array.isArray(session.boardLayout) ? session.boardLayout : [];
-  const totalSequenceCards = sequencePlan.reduce((acc, r) => acc + (Number(r.length) || 0), 0);
-
-  let maxScore;
-  if (totalSequenceCards > 0) {
-    // Secuencia
-    maxScore = Math.max(1, totalSequenceCards * points);
-  } else if (boardLayout.length > 0) {
-    // Memoria: parejas presentes en el tablero.
-    const MEMORY_GROUP_SIZE = 2;
-    const numberOfPairs = Math.max(1, Math.floor(boardLayout.length / MEMORY_GROUP_SIZE));
-    maxScore = Math.max(1, numberOfPairs * points);
-  } else {
-    // Asociación o fallback genérico.
-    maxScore = Math.max(1, rounds * points);
-  }
+  // Techo de puntuación teórico (P19, ADR-114): usa el tipo explícito de la
+  // sesión (`mechanicType`) y, si falta (sesiones legacy aún sin migrar),
+  // infiere por huella de datos. La fórmula por mecánica vive en
+  // `gamePlayScoring.js`, testeada en aislamiento (ADR-193).
+  const maxScore = computeMaxScore(session);
 
   // Crear partida
   const play = await gamePlayRepository.create({

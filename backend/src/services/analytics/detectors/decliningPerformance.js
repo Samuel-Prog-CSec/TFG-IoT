@@ -22,7 +22,7 @@ class DecliningPerformanceDetector extends AlertDetector {
     super({ type: 'declining_performance' });
   }
 
-  async run({ teacherId, students, referenceDate = new Date() } = {}) {
+  async run({ students, referenceDate = new Date() } = {}) {
     if (!students?.length) {
       return [];
     }
@@ -74,6 +74,7 @@ class DecliningPerformanceDetector extends AlertDetector {
     }
 
     const findings = [];
+    // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
     for (const student of students) {
       const sid = student._id.toString();
       const data = byStudent[sid];

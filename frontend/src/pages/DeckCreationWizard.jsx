@@ -33,6 +33,7 @@ import {
   Eye
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { getId } from '../lib/entityId';
 import { buildCardMappingsPayload } from '../lib/cardMapping';
 import WizardStepper from '../components/ui/WizardStepper';
 import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
@@ -352,7 +353,7 @@ export default function DeckCreationWizard() {
         name: deckName.trim(),
         // El DTO del backend (toGameContextDTOV1) devuelve `id`, pero por
         // resiliencia ante futuros cambios de contrato aceptamos también `_id`.
-        contextId: selectedContext._id || selectedContext.id,
+        contextId: getId(selectedContext),
         cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
@@ -847,8 +848,8 @@ function StepContext({
         {contexts.map((context) => {
           // El DTO toGameContextDTOV1 expone `id`; mantenemos compat con `_id`
           // por si en algun consumidor el documento Mongoose llega crudo.
-          const contextKey = context._id || context.id;
-          const selectedKey = selectedContext?._id || selectedContext?.id;
+          const contextKey = getId(context);
+          const selectedKey = getId(selectedContext);
           const isSelected = Boolean(selectedKey) && selectedKey === contextKey;
           return (
           <motion.button

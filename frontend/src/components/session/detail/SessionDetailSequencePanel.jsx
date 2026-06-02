@@ -18,6 +18,7 @@ import CardAssetPreview from '../../ui/CardAssetPreview';
 import EmptyState from '../../ui/EmptyState';
 import ButtonPremium from '../../ui/ButtonPremium';
 import { ROUTES } from '../../../constants/routes';
+import { getId } from '../../../lib/entityId';
 import { SEQUENCE_DIFFICULTY_RULES } from '../../../constants/sequenceConfig';
 
 function SessionDetailSequencePanel({ session }) {
@@ -33,7 +34,7 @@ function SessionDetailSequencePanel({ session }) {
   );
 
   const sequenceConfig = session?.sequenceConfig || {};
-  const sessionId = session?.id || session?._id;
+  const sessionId = getId(session);
   const isDraft = session?.status === 'created';
   const difficultyRule = SEQUENCE_DIFFICULTY_RULES[session?.difficulty] || null;
 

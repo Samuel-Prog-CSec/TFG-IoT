@@ -90,6 +90,7 @@ class MasteryMilestoneDetector extends AlertDetector {
     // Solo emitimos 1 milestone por estudiante por corrida — evita unique index.
     const seenPerStudent = new Set();
 
+    // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
     for (const r of results) {
       const sid = r._id.playerId.toString();
       const contextId = r._id.contextId ? r._id.contextId.toString() : null;

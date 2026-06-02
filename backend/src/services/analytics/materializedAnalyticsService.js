@@ -519,6 +519,7 @@ async function reconcileLeaderboards({ teacherIds } = {}) {
   let driftDetected = 0;
   let driftCorrected = 0;
 
+  // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
   for (const teacherId of teachersToProcess) {
     const teacherOid = toObjectId(teacherId);
     if (!teacherOid) {
@@ -627,6 +628,7 @@ async function reconcileLeaderboards({ teacherIds } = {}) {
           // lugar de dos, idéntico semánticamente y más legible al iterar.
           const expected = new Map();
           for (const row of rawRows) {
+            // eslint-disable-next-line sonarjs/nested-control-flow -- guard-continue en la reconciliación de leaderboards; el nivel de anidamiento es intencional
             if (!row._id) {
               continue;
             }

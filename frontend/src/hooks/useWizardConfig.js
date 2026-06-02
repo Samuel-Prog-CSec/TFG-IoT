@@ -12,6 +12,7 @@ import {
   extractData
 } from '../services/api';
 import { webSerialService } from '../services/webSerialService';
+import { getId } from '../lib/entityId';
 import {
   DIFFICULTY_PRESETS,
   MEMORY_DIFFICULTY_PRESETS,
@@ -110,7 +111,7 @@ export function useWizardConfig({ mechanics }) {
   // --- Handlers ---
 
   const handleSelectDeck = useCallback(async (deck) => {
-    const deckId = deck.id || deck._id;
+    const deckId = getId(deck);
     // Actualizacion inmediata con datos de lista para feedback visual
     setSelectedDeck(deck);
     setSessionConfig(prev => ({
@@ -136,7 +137,7 @@ export function useWizardConfig({ mechanics }) {
       return;
     }
 
-    const mechanicId = mechanic.id || mechanic._id;
+    const mechanicId = getId(mechanic);
     const mechanicName = resolveMechanicName(mechanic);
     setSelectedMechanic(mechanic);
     setSessionConfig(prev => {

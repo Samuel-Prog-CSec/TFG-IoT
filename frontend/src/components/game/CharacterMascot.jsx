@@ -118,6 +118,7 @@ const greetingPool = [
 // (GameSession.jsx re-renderiza por cada scan; las props de la mascota solo
 // cambian en eventos significativos — mood, message, mechanicType — y el
 // shallow-compare por defecto detecta eso correctamente).
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- mapeo de mood→animación/expresión de la mascota con muchas variantes
 function CharacterMascot({
   mood = 'idle',
   message,

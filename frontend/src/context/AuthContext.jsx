@@ -25,7 +25,7 @@ import { setUserContext, captureException } from '../lib/sentry';
 
 // T-957: ventana de cortesía del logout con undo. El cliente espera este
 // número de ms antes de invalidar tokens en el backend; si el usuario pulsa
-// "Deshacer" en el toast antes del timeout, todo el estado queda intacto.
+// "Deshacer" en el toast antes del timeout, el estado queda intacto.
 const DEFAULT_LOGOUT_UNDO_MS = 5000;
 
 // ============================================

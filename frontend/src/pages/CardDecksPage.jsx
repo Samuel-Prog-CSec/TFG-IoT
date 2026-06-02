@@ -60,6 +60,7 @@ import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { ROUTES } from '../constants/routes';
+import { getId, sameId } from '../lib/entityId';
 import PageHeader from '../components/ui/PageHeader';
 import ErrorState from '../components/ui/ErrorState';
 import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
@@ -109,7 +110,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
           saltar a la nueva posición instantáneamente (T-952 Fase 2). */}
       <AnimatePresence mode="popLayout">
         {decks.map((deck) => {
-          const deckId = deck.id || deck._id;
+          const deckId = getId(deck);
           return (
             <motion.div
               key={deckId}
@@ -353,14 +354,14 @@ export default function CardDecksPage() {
   };
 
   const handleViewDeck = (deck) => {
-    const deckId = deck.id || deck._id;
+    const deckId = getId(deck);
     if (deckId) {
       navigate(ROUTES.CARD_DECKS_DETAIL(deckId));
     }
   };
 
   const handleEditDeck = (deck) => {
-    const deckId = deck.id || deck._id;
+    const deckId = getId(deck);
     if (deckId) {
       navigate(ROUTES.CARD_DECKS_EDIT(deckId));
     }
@@ -377,13 +378,13 @@ export default function CardDecksPage() {
   // refresca desde backend para revertir.
   const handleRenameDeck = useCallback(
     (deck) => async (newName) => {
-      const deckId = deck.id || deck._id;
+      const deckId = getId(deck);
       if (!deckId) return;
       const previousName = deck.name;
       const trimmed = (newName || '').trim();
       if (!trimmed || trimmed === previousName) return;
       setDecks((current) =>
-        current.map((d) => ((d.id || d._id) === deckId ? { ...d, name: trimmed } : d)),
+        current.map((d) => (sameId(d, deckId) ? { ...d, name: trimmed } : d)),
       );
       try {
         await decksAPI.updateDeck(deckId, { name: trimmed });
@@ -395,7 +396,7 @@ export default function CardDecksPage() {
         // pero el backend lo rechazó; volvemos al estado previo.
         setDecks((current) =>
           current.map((d) =>
-            (d.id || d._id) === deckId ? { ...d, name: previousName } : d,
+            sameId(d, deckId) ? { ...d, name: previousName } : d,
           ),
         );
         toast.error('No se pudo guardar el nombre', {
@@ -412,7 +413,7 @@ export default function CardDecksPage() {
     
     setArchiveLoading(true);
     try {
-      const deckId = archivingDeck.id || archivingDeck._id;
+      const deckId = getId(archivingDeck);
       if (!deckId) {
         throw new Error('No se encontró el ID del mazo.');
       }
@@ -453,7 +454,7 @@ export default function CardDecksPage() {
     filters.contextFilter && {
       key: 'context',
       label: (() => {
-        const ctx = contexts.find((c) => c._id === filters.contextFilter);
+        const ctx = contexts.find((c) => sameId(c, filters.contextFilter));
         return `Contexto: ${ctx?.name || 'Desconocido'}`;
       })(),
       onRemove: () => dispatchFilters({ type: 'SET_CONTEXT', payload: '' }),
@@ -647,7 +648,7 @@ export default function CardDecksPage() {
                         ...contexts.map((ctx) => ({
                           // El DTO de contexto expone `id` (no `_id`); con `_id`
                           // el value era undefined y el filtro no aplicaba.
-                          value: ctx.id || ctx._id,
+                          value: getId(ctx),
                           label: ctx.name,
                         })),
                       ]}

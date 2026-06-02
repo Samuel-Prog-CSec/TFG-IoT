@@ -378,6 +378,7 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
     const sessionData = {
       name: template.description,
       mechanicId: mechanic._id,
+      mechanicType: mechanic.name,
       deckId: deck._id,
       contextId: deck.contextId,
       config: {

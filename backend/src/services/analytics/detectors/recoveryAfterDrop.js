@@ -54,6 +54,7 @@ class RecoveryAfterDropDetector extends AlertDetector {
     }
 
     const findings = [];
+    // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
     for (const [sid, resolvedAlert] of latestByStudent.entries()) {
       const student = studentMap.get(sid);
       if (!student) {

@@ -94,9 +94,9 @@ export const SUPER_ADMIN_TRACK = Object.freeze([
     type: 'modal',
     icon: Shield,
     variant: 'warning',
-    title: 'Bienvenida, dirección',
+    title: 'Te damos la bienvenida, dirección',
     description:
-      'Eres la dirección de tu centro. Aquí gestionas a tus profesores, al alumnado y al material común. Lo que hagas en este panel solo afecta a tu centro: tranquila, no se rompe nada de fuera. Vamos a darte un tour de dos minutos.',
+      'Eres la dirección de tu centro. Aquí gestionas a tus profesores, al alumnado y al material común. Lo que hagas en este panel solo afecta a tu centro: no te preocupes, no se rompe nada de fuera. Vamos a darte un tour de dos minutos.',
   },
   {
     type: 'spotlight',

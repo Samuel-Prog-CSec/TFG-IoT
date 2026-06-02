@@ -155,7 +155,8 @@ const joinRoom = (socket, room) =>
     socket.emit('test:join', { room }, ack => {
       clearTimeout(timer);
       if (ack?.ok === false) {
-        return reject(new Error(`test:join rechazado: ${ack?.error}`));
+        reject(new Error(`test:join rechazado: ${ack?.error}`));
+        return;
       }
       resolve(ack);
     });

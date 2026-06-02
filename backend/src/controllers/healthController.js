@@ -95,12 +95,17 @@ const readinessCheck = (_req, res) => {
 
   const ready = !shuttingDown && explicitReady && mongoConnected && redisOk;
 
+  let redisStatus = 'down';
+  if (redisConnected) {
+    redisStatus = redisCircuit === 'open' ? 'degraded' : 'ok';
+  }
+
   res.status(ready ? 200 : 503).json({
     ready,
     shuttingDown,
     checks: {
       mongo: mongoConnected ? 'ok' : 'down',
-      redis: redisConnected ? (redisCircuit === 'open' ? 'degraded' : 'ok') : 'down',
+      redis: redisStatus,
       redisCircuit
     },
     timestamp: new Date().toISOString()

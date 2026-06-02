@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- exporta el wrapper de chart junto a helpers de accesibilidad; solo afecta al HMR de dev */
 /**
  * @fileoverview Wrapper de accesibilidad para charts Recharts (T-952 Fase 0.C).
  *

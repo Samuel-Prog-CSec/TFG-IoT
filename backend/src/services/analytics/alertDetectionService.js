@@ -244,6 +244,7 @@ async function maybeReopenDismissed(teacherId, findings, now) {
     return 0;
   }
 
+  // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
   for (const finding of criticalFindings) {
     const dismissed = await smartAlertRepository.findOne(
       {

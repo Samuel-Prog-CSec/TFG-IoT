@@ -20,7 +20,7 @@ export function useInlineSuccess({ duration = DEFAULT_DURATION } = {}) {
   const [visible, setVisible] = useState(false);
   const timerRef = useRef(null);
   // Guard de desmontaje: evita que setTimeout llame `setVisible(false)`
-  // tras el unmount (React loggea warning y, sobre todo, evita estado
+  // tras el unmount (React loggea warning y, en particular, evita estado
   // stuck en true tras desmonte → re-monte rápido en StrictMode dev).
   const isMountedRef = useRef(true);
 

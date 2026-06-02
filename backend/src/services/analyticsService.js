@@ -334,7 +334,12 @@ async function getClassroomComparison(teacherId, timeRange = '7d', { contextId, 
   const startDate = new Date(today);
   // QA 2026-05-30: soporte 90d (antes `=== '30d' ? 30 : 7` ignoraba 90d y lo
   // trataba como 7d). El selector del Dashboard ofrece "Trimestre actual" → 90d.
-  const rangeDays = timeRange === '90d' ? 90 : timeRange === '30d' ? 30 : 7;
+  let rangeDays = 7;
+  if (timeRange === '90d') {
+    rangeDays = 90;
+  } else if (timeRange === '30d') {
+    rangeDays = 30;
+  }
   startDate.setDate(today.getDate() - rangeDays);
 
   // Excluir estudiantes sin consentimiento de analytics (Art. 21 RGPD)
@@ -1101,7 +1106,12 @@ async function _getClassroomDistributionFromPlays(
  * @private
  */
 const getDateRange = (timeRange = '7d') => {
-  const days = timeRange === '90d' ? 90 : timeRange === '30d' ? 30 : 7;
+  let days = 7;
+  if (timeRange === '90d') {
+    days = 90;
+  } else if (timeRange === '30d') {
+    days = 30;
+  }
   const now = new Date();
   const currentStart = new Date(now);
   currentStart.setDate(now.getDate() - days);
@@ -1299,6 +1309,7 @@ async function getStudentSummary(studentId, timeRange = '30d') {
   );
 }
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- agregación del resumen del alumno: múltiples métricas en un pipeline; refactor diferido
 async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
   const { currentStart } = getDateRange(timeRange);
   const studentOid = new mongoose.Types.ObjectId(studentId);

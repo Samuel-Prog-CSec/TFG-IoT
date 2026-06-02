@@ -42,11 +42,20 @@ export default function AlertsEffectivenessPanel({ days = 30 }) {
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
-    analyticsService
-      .getAlertsEffectiveness({ days }, { signal: controller.signal })
-      .then(setData)
-      .catch(() => null)
-      .finally(() => setLoading(false));
+    const loadEffectiveness = async () => {
+      try {
+        const result = await analyticsService.getAlertsEffectiveness(
+          { days },
+          { signal: controller.signal }
+        );
+        setData(result);
+      } catch {
+        setData(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+    loadEffectiveness();
     return () => controller.abort();
   }, [days]);
 

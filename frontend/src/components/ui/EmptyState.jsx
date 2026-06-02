@@ -45,6 +45,56 @@ export default function EmptyState({
 
   const isFiltered = variant === 'filtered';
 
+  // Héroe visual: precedencia illustration > mascot > icon (extraído del JSX
+  // para evitar ternarios anidados en el render).
+  let heroVisual = null;
+  if (illustration) {
+    heroVisual = (
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
+        className={cn(
+          'mx-auto mb-6 flex items-center justify-center',
+          // Float sutil sobre la ilustracion: refuerza la metafora "objeto fisico
+          // que descansa sobre la mesa". El reset global de prefers-reduced-motion
+          // en index.css lo neutraliza automaticamente si el usuario lo prefiere.
+          !shouldReduceMotion && 'animate-float'
+        )}
+      >
+        {illustration}
+      </motion.div>
+    );
+  } else if (mascot) {
+    heroVisual = (
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.85, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: DURATION.entrance, ease: EASING.outExpo, delay: 0.05 }}
+        // Bloque hero de mascota: alto reservado para que la burbuja
+        // de diálogo no recorte sobre el título. La mascota ya tiene
+        // su propio float interno, no aplicamos animate-float aquí.
+        className="relative mx-auto mb-7 flex h-32 items-end justify-center"
+      >
+        {mascot}
+      </motion.div>
+    );
+  } else if (icon) {
+    heroVisual = (
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
+        className={cn(
+          "mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-glass-bg text-text-muted",
+          !shouldReduceMotion && "animate-float"
+        )}
+      >
+        {icon}
+      </motion.div>
+    );
+  }
+
   return (
     <GlassCard className={cn('p-10 text-center', className)}>
       {isFiltered && (
@@ -58,46 +108,7 @@ export default function EmptyState({
         </motion.span>
       )}
 
-      {illustration ? (
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
-          className={cn(
-            'mx-auto mb-6 flex items-center justify-center',
-            // Float sutil sobre la ilustracion: refuerza la metafora "objeto fisico
-            // que descansa sobre la mesa". El reset global de prefers-reduced-motion
-            // en index.css lo neutraliza automaticamente si el usuario lo prefiere.
-            !shouldReduceMotion && 'animate-float'
-          )}
-        >
-          {illustration}
-        </motion.div>
-      ) : mascot ? (
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.85, y: 8 }}
-          animate={{ opacity: 1, scale: 1, y: 0 }}
-          transition={{ duration: DURATION.entrance, ease: EASING.outExpo, delay: 0.05 }}
-          // Bloque hero de mascota: alto reservado para que la burbuja
-          // de diálogo no recorte sobre el título. La mascota ya tiene
-          // su propio float interno, no aplicamos animate-float aquí.
-          className="relative mx-auto mb-7 flex h-32 items-end justify-center"
-        >
-          {mascot}
-        </motion.div>
-      ) : icon && (
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
-          className={cn(
-            "mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-glass-bg text-text-muted",
-            !shouldReduceMotion && "animate-float"
-          )}
-        >
-          {icon}
-        </motion.div>
-      )}
+      {heroVisual}
 
       {title && (
         <TitleTag

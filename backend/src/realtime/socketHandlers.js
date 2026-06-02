@@ -1299,7 +1299,7 @@ const ensureRfidSensorConsistency = (socket, modeState, payload) => {
 };
 
 const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, logger) =>
-  // T-904 Fase A: span manual para todo el procesamiento del scan
+  // T-904 Fase A: span manual para el procesamiento completo del scan
   // (HMAC, mode lookup, validación de owner, ingest). Atributos básicos sin PII.
   Sentry.startSpan(
     {

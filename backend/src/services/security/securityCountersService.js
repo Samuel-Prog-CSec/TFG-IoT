@@ -11,7 +11,7 @@
  * Una limpieza perezosa (ZREMRANGEBYSCORE) se ejecuta cada N llamadas.
  *
  * Fail-open: si Redis no responde, increment y count NO lanzan; count devuelve
- * 0 y los detectores asumen "todo bien" (mejor falso negativo que falsa alarma).
+ * 0 y los detectores asumen «sin incidencias» (mejor falso negativo que falsa alarma).
  *
  * @module services/security/securityCountersService
  */

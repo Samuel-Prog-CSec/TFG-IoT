@@ -151,6 +151,7 @@ Antes de cada release, ejecuta este checklist desde Claude Code con Playwright M
 
 - **Aurora atmosphere a opacity-10 + color-mix con bg-base**: en `AppLayout.jsx` la capa decorativa se mezcla 10-12% con el fondo base. Más opacidad rompe contraste de breadcrumbs y subtítulos sobre la capa. Documentado en `Architecture_Decisions.md` (ADR pendiente Sprint 0).
 - **Tokens `-on-light` semánticos (post-Sprint 0)**: planificado en `documentation/Architecture_Decisions.md` para eliminar los 57 workarounds `light:text-*-dark` por tokens semánticos puros.
+- **Cards clicables operables por teclado (WCAG 2.1.1)**: los primitivos de tarjeta navegable (`HoverLiftCard`, `StatCard`), cuando reciben un manejador de activación, exponen `role="button"` + `tabIndex={0}` + activación con Enter/Espacio + anillo de foco; sin manejador no fingen interactividad. Evita que una tarjeta navegable con ratón quede fuera del alcance de teclado y lector de pantalla (caso real: las tarjetas de Contextos, que no llevan botón interno). Documentado en `Architecture_Decisions.md` (ADR-192).
 
 ---
 

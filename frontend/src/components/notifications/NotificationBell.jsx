@@ -54,7 +54,6 @@ export default function NotificationBell({ compact = false }) {
     markRead,
     markAllRead,
     loadMore,
-    openPanel,
     closePanel,
     togglePanel
   } = useNotifications();
@@ -93,7 +92,8 @@ export default function NotificationBell({ compact = false }) {
           rotate: [0, -8, 6, -3, 0],
           transition: { duration: 0.8, ease: 'easeOut' }
         })
-        .finally(() => setCelebrationActive(false));
+        .then(() => setCelebrationActive(false))
+        .catch(() => setCelebrationActive(false));
     } else {
       // Bump suave para cualquier otra notif.
       controls.start({

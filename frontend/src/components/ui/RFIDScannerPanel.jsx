@@ -13,6 +13,7 @@ import PropTypes from 'prop-types';
 import { m as motion, AnimatePresence, useSpring, useTransform, useReducedMotion } from 'framer-motion';
 import { CreditCard, Wifi, WifiOff, Plus, Trash2, AlertCircle, Zap, LogOut } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { sameId } from '../../lib/entityId';
 import { useConfetti } from '../../hooks/useConfetti';
 import RFIDConnector from './RFIDConnector';
 import webSerialService from '../../services/webSerialService';
@@ -188,9 +189,14 @@ export default function RFIDScannerPanel({
     // Si tenemos cartas disponibles (pasadas desde el padre), usamos una de ellas
     if (availableCards && availableCards.length > 0) {
       // Filtrar las que ya están escaneadas
-      const availableToScan = availableCards.filter(
-        c => !scannedCards.some(sc => sc._id === c._id || sc.uid === c.uid)
-      );
+      const availableToScan = availableCards.filter((c) => {
+        // Deduplicar por UID (huella fisica de la tarjeta, siempre presente) o,
+        // en su defecto, por id de carta. `sameId` aporta las guardas de verdad
+        // que evitan el falso positivo `undefined === undefined` que marcaria
+        // TODAS las cartas como ya escaneadas si los DTO exponen `id` en lugar
+        // de `_id`.
+        return !scannedCards.some((sc) => sameId(sc, c) || (c.uid && sc.uid && c.uid === sc.uid));
+      });
 
       if (availableToScan.length > 0) {
         // Seleccionar aleatoria

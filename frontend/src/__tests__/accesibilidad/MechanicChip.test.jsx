@@ -3,7 +3,7 @@
  * `StudentsAnalytics` (rendimiento desglosado por mecánica).
  *
  * Cada chip combina icono + dot del tier + texto sr-only. La estructura
- * crítica es el `<span role="img" aria-label={...}>` que envuelve todo.
+ * crítica es el `<span role="img" aria-label={...}>` que lo envuelve.
  * Validamos las 3 mecánicas × 4 tiers × 2 temas.
  */
 

@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- patrón contexto: Provider + hooks en el mismo archivo; solo afecta al HMR de dev */
 import {
   createContext,
   useCallback,

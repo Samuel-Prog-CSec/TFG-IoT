@@ -23,6 +23,8 @@
     "migrate:clamp-scores": "node scripts/migrate-clamp-scores.js",
     "migrate:alerts-backfill": "node scripts/migrate-alerts-backfill.js",
     "migrate:alerts-backfill:dry-run": "node scripts/migrate-alerts-backfill.js --dry-run",
+    "migrate:mechanic-type": "node scripts/migrate-mechanic-type.js",
+    "migrate:mechanic-type:dry-run": "node scripts/migrate-mechanic-type.js --dry-run",
     "data:audit": "node scripts/dataAudit.js",
     "data:retention": "node scripts/dataRetention.js",
     "data:retention:dry-run": "node scripts/dataRetention.js --dry-run",

@@ -276,7 +276,7 @@ export default function GameSession() {
         Number.isFinite(feedbackDelayMs) && feedbackDelayMs > 0 ? feedbackDelayMs : 1400
       );
     },
-    [scheduleFeedbackClear, processValidationResult, currentRound, totalRounds, timeLeft, roundTime, memoryStats, playCorrect, playIncorrect, clearAnnouncedThresholds]
+    [scheduleFeedbackClear, processValidationResult, currentRound, totalRounds, timeLeft, roundTime, memoryStats, playCorrect, playIncorrect, clearAnnouncedThresholds, dispatch]
   );
 
   const handleNewRound = useCallback(
@@ -309,7 +309,7 @@ export default function GameSession() {
       playRoundStart();
       setSrAnnouncement(`Ronda ${Number(payload?.roundNumber || 1)} de ${nextTotalRounds} iniciada.`);
     },
-    [clearPendingTimeouts, normalizeChallenge, clearFeedback, playRoundStart, setTimeLeft, clearAnnouncedThresholds]
+    [clearPendingTimeouts, normalizeChallenge, clearFeedback, playRoundStart, setTimeLeft, clearAnnouncedThresholds, dispatch]
   );
 
   const handlePlayPaused = useCallback(payload => {
@@ -321,7 +321,7 @@ export default function GameSession() {
     if (Number.isFinite(remaining) && remaining >= 0) {
       setTimeLeft(Math.max(0, Math.ceil(remaining / 1000)));
     }
-  }, [clearFeedback, setTimeLeft]);
+  }, [clearFeedback, setTimeLeft, dispatch]);
 
   const handlePlayResumed = useCallback(
     payload => {
@@ -337,7 +337,7 @@ export default function GameSession() {
       clearAnnouncedThresholds();
       setSrAnnouncement('Partida reanudada.');
     },
-    [normalizeChallenge, clearFeedback, setTimeLeft, clearAnnouncedThresholds]
+    [normalizeChallenge, clearFeedback, setTimeLeft, clearAnnouncedThresholds, dispatch]
   );
 
   const handlePlayState = useCallback(payload => {
@@ -394,7 +394,7 @@ export default function GameSession() {
         totalCards: Number(payload.memoryState.totalCards || 0)
       });
     }
-  }, [normalizeChallenge, setTimeLeft]);
+  }, [normalizeChallenge, setTimeLeft, dispatch]);
 
   const handleMemoryTurnState = useCallback(payload => {
     const phase = payload?.phase;
@@ -441,7 +441,7 @@ export default function GameSession() {
     ) {
       setMemoryFeedbackActive(false);
     }
-  }, [setTimeLeft]);
+  }, [setTimeLeft, dispatch]);
 
   const handleGameOver = useCallback(payload => {
     playGameOver();
@@ -478,7 +478,7 @@ export default function GameSession() {
       }, 1200);
       pendingTimeoutRef.current.push(celebrationTimeout);
     }
-  }, [clearPendingTimeouts, clearFeedback, correctAnswers, shouldReduceMotion, playGameOver]);
+  }, [clearPendingTimeouts, clearFeedback, correctAnswers, shouldReduceMotion, playGameOver, dispatch]);
 
   const handlePlayInterrupted = useCallback(payload => {
     clearPendingTimeouts();
@@ -494,7 +494,7 @@ export default function GameSession() {
 
     setSrAnnouncement('La partida fue interrumpida.');
     toast.warning(interruptionMessage);
-  }, [clearPendingTimeouts, clearFeedback, score]);
+  }, [clearPendingTimeouts, clearFeedback, score, dispatch]);
 
   const handleSrAnnouncement = useCallback((msg) => {
     setSrAnnouncement(msg);
@@ -547,7 +547,7 @@ export default function GameSession() {
     dispatch({ type: 'AWAIT_RESPONSE', value: false });
     clearAnnouncedThresholds();
     setTimeLeft(roundTimeRef.current || ROUND_TIME);
-  }, [setTimeLeft, clearAnnouncedThresholds]);
+  }, [setTimeLeft, clearAnnouncedThresholds, dispatch]);
 
   const handleSequencePhaseReproducing = useCallback(payload => {
     // Sincronizar `overlayDurationMs` con el `gracePeriodMs` del backend para
@@ -599,7 +599,7 @@ export default function GameSession() {
     } else {
       dispatch({ type: 'AWAIT_RESPONSE', value: true });
     }
-  }, [setTimeLeft, clearAnnouncedThresholds]);
+  }, [setTimeLeft, clearAnnouncedThresholds, dispatch]);
 
   const handleSequenceCardResult = useCallback(payload => {
     const TYPE_TO_STATUS = {
@@ -661,7 +661,7 @@ export default function GameSession() {
         setSequenceState(prev => ({ ...prev, hint: null }));
       }, 3500);
     }
-  }, [playCorrect, playIncorrect, processValidationResult, currentRound, totalRounds]);
+  }, [playCorrect, playIncorrect, processValidationResult, currentRound, totalRounds, dispatch]);
 
   const handleSequenceRoundResult = useCallback(payload => {
     const TYPE_TO_STATUS = {
@@ -717,7 +717,7 @@ export default function GameSession() {
     sequenceCollectTimerRef.current = setTimeout(() => {
       setSequenceState(prev => ({ ...prev, isCollecting: true }));
     }, 2400);
-  }, [playSuccess, processValidationResult, currentRound, totalRounds]);
+  }, [playSuccess, processValidationResult, currentRound, totalRounds, dispatch]);
 
   const socket = useGameSocket({
     sessionId,
@@ -791,7 +791,7 @@ export default function GameSession() {
       }
     }
     snapshotHydratedRef.current = true;
-  }, [playId]);
+  }, [playId, dispatch]);
 
   // Persistir snapshot tras cada transición relevante. Se ejecuta en cada
   // cambio del estado coordinado del juego — sessionStorage write es

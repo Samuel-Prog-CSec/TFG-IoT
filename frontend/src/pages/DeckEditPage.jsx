@@ -23,6 +23,7 @@ import {
   RefreshCw
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { getId } from '../lib/entityId';
 import {
   buildCardMappingsPayload,
   normalizeCardMappingsFromDeck
@@ -216,7 +217,7 @@ export default function DeckEditPage() {
     // "Tienes cambios sin guardar" + el guard de beforeunload activos sin que el
     // usuario tocara nada (QA 2026-05-25; mismo síntoma que BUG-DECK-2 por la vía
     // del contexto). `selectedContext` es null hasta que el usuario elige otro.
-    const selectedContextId = selectedContext?._id || selectedContext?.id || null;
+    const selectedContextId = getId(selectedContext);
     const contextChanged = selectedContextId != null && selectedContextId !== originalContext;
     const cardsChanged = JSON.stringify(originalCardIds) !== JSON.stringify(currentCardIds);
 
@@ -302,8 +303,8 @@ export default function DeckEditPage() {
   const handleContextChange = useCallback((context) => {
     // El DTO toGameContextDTOV1 expone `id`; mantenemos compat con `_id` por
     // si llegase un documento Mongoose crudo desde otro consumidor.
-    const incomingKey = context?._id || context?.id;
-    const currentKey = effectiveContext?._id || effectiveContext?.id;
+    const incomingKey = getId(context);
+    const currentKey = getId(effectiveContext);
     if (incomingKey && incomingKey === currentKey) return;
 
     setSelectedContext(context);
@@ -351,7 +352,7 @@ export default function DeckEditPage() {
     try {
       const updateData = {
         name: deckName.trim(),
-        contextId: effectiveContext._id || effectiveContext.id,
+        contextId: getId(effectiveContext),
         cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
@@ -383,7 +384,7 @@ export default function DeckEditPage() {
       setDeck(prev => ({
         ...prev,
         name: deckName.trim(),
-        contextId: effectiveContext._id || effectiveContext.id,
+        contextId: getId(effectiveContext),
         cardMappings: updatedCardMappings
       }));
       
@@ -459,7 +460,7 @@ export default function DeckEditPage() {
     if (asset?.key) acc.set(asset.key, (acc.get(asset.key) || 0) + 1);
     return acc;
   }, new Map());
-  const currentDeckId = deck?.id || deck?._id || deckId;
+  const currentDeckId = getId(deck) || deckId;
 
   return (
     <div className="min-h-full bg-background-deep p-4 lg:p-8">
@@ -681,8 +682,8 @@ export default function DeckEditPage() {
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     {contexts.map((context) => {
-                      const ctxKey = context._id || context.id;
-                      const effectiveKey = effectiveContext?._id || effectiveContext?.id;
+                      const ctxKey = getId(context);
+                      const effectiveKey = getId(effectiveContext);
                       const isSelected = Boolean(effectiveKey) && effectiveKey === ctxKey;
                       return (
                       <motion.button

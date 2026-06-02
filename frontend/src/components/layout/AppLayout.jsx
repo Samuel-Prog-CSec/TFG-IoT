@@ -366,7 +366,7 @@ export default function AppLayout() {
 
         {/* Toggle expand/compact (solo visible en ≥lg, no en drawer).
             QA 2026-05-12: en modo expandido el boton vivia como fila propia
-            entre Logo y User Info, desplazando todo el contenido hacia
+            entre Logo y User Info, desplazando el contenido completo hacia
             abajo. Ahora flota absolutamente sobre el borde derecho del
             sidebar (alineado con el centro vertical del logo) — no roba
             espacio al flujo vertical. En modo compact se mantiene como

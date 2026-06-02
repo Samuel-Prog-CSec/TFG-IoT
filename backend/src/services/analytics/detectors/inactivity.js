@@ -23,6 +23,7 @@ class InactivityDetector extends AlertDetector {
     const { info: infoDays, warning: warningDays } = ALERT_TYPES.inactivity.thresholds;
     const findings = [];
 
+    // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
     for (const student of students) {
       const lastPlayed = student.studentMetrics?.lastPlayedAt;
       if (!lastPlayed) {

@@ -18,6 +18,7 @@ import InputPremium from '../components/ui/InputPremium';
 import SelectPremium from '../components/ui/SelectPremium';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
 import { cn } from '../lib/utils';
+import { getId, findById } from '../lib/entityId';
 import AdminPageShell from '../components/admin/AdminPageHero';
 
 export default function TransferStudents() {
@@ -34,15 +35,15 @@ export default function TransferStudents() {
   const [reason, setReason] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const currentUserId = user?.id || user?._id;
+  const currentUserId = getId(user);
 
   const selectedStudent = useMemo(
-    () => students.find(s => (s.id || s._id) === selectedStudentId),
+    () => findById(students, selectedStudentId),
     [students, selectedStudentId]
   );
 
   const selectedTeacher = useMemo(
-    () => teachers.find(t => (t.id || t._id) === selectedTeacherId),
+    () => findById(teachers, selectedTeacherId),
     [teachers, selectedTeacherId]
   );
 
@@ -170,7 +171,7 @@ export default function TransferStudents() {
         const classroomLabel = student.profile?.classroom ? ` · ${student.profile.classroom}` : '';
 
         return {
-          value: student.id || student._id,
+          value: getId(student),
           label: `${student.name}${classroomLabel}`,
           icon: <User size={18} />
         };
@@ -181,7 +182,7 @@ export default function TransferStudents() {
   const teacherOptions = useMemo(
     () =>
       teachers.flatMap(teacher => {
-        const id = teacher.id || teacher._id;
+        const id = getId(teacher);
         if (id === sourceTeacherId) return [];
         return [{
           value: id,
@@ -214,7 +215,7 @@ export default function TransferStudents() {
               <SelectPremium
                 label="Profesor Origen"
                 options={teachers.map(teacher => ({
-                  value: teacher.id || teacher._id,
+                  value: getId(teacher),
                   label: teacher.name || teacher.email,
                   icon: <Users size={18} />
                 }))}

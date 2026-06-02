@@ -25,6 +25,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { contextsAPI, extractData, extractErrorMessage, isAbortError } from '../../services/api';
+import { getId } from '../../lib/entityId';
 import ButtonPremium from '../../components/ui/ButtonPremium';
 import InputPremium from '../../components/ui/InputPremium';
 import AdminPageShell from '../../components/admin/AdminPageHero';
@@ -338,7 +339,7 @@ function renderContextsSection({
     >
       {filtered.map(ctx => (
         <AdminContextCard
-          key={ctx.id || ctx._id}
+          key={getId(ctx)}
           context={ctx}
           onEdit={openEdit}
           onDelete={onDeleteRequest}
@@ -414,7 +415,7 @@ export default function AdminContexts() {
     setSubmitting(true);
     try {
       if (formMode === 'edit' && editing) {
-        await contextsAPI.updateContext(editing.id || editing._id, payload);
+        await contextsAPI.updateContext(getId(editing), payload);
         toast.success(`Contexto "${payload.name}" actualizado.`);
       } else {
         await contextsAPI.createContext(payload);
@@ -470,9 +471,9 @@ export default function AdminContexts() {
   };
 
   const performDelete = async ctx => {
-    setPendingDeleteId(ctx.id || ctx._id);
+    setPendingDeleteId(getId(ctx));
     try {
-      await contextsAPI.deleteContext(ctx.id || ctx._id);
+      await contextsAPI.deleteContext(getId(ctx));
       toast.success(`Contexto "${ctx.name}" eliminado junto con sus archivos en Storage.`);
       await loadContexts();
     } catch (err) {

@@ -56,6 +56,23 @@ export default function HoverLiftCard({
   const { shouldReduceMotion } = useReducedMotion();
   const glowCls = TINT_GLOW[glowTint] || TINT_GLOW.brand;
 
+  // Si la card es clicable debe ser operable por teclado: role=button, foco
+  // tabulable y activación con Enter/Espacio (WCAG 2.1.1 Keyboard + 2.4.7 Focus
+  // Visible). Sin esto, las cards con onClick sin botón interno (p. ej. las de
+  // Contextos) dejaban fuera a usuarios de teclado y lector de pantalla.
+  const interactiveProps = onClick
+    ? {
+        role: 'button',
+        tabIndex: 0,
+        onKeyDown: (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(e);
+          }
+        },
+      }
+    : {};
+
   return (
     <motion.div
       onClick={onClick}
@@ -65,9 +82,12 @@ export default function HoverLiftCard({
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       className={cn(
         'relative transition-shadow duration-300 will-change-transform',
+        onClick &&
+          'rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
         glowCls,
         className
       )}
+      {...interactiveProps}
       {...rest}
     >
       {children}

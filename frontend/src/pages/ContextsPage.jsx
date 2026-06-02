@@ -38,6 +38,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { getId } from '../lib/entityId';
 import ScanlineOverlay from '../components/ui/ScanlineOverlay';
 import { listContainerVariants, motionConfig, DURATION, EASING } from '../lib/utils';
 import { getContextTheme } from '../lib/contextTheme';
@@ -160,7 +161,7 @@ export default function ContextsPage() {
       setShowCreateModal(false);
       refetch();
       // Navegar al detalle del contexto recién creado
-      const destId = newContext?.id || newContext?._id;
+      const destId = getId(newContext);
       if (destId) {
         navigate(ROUTES.CONTEXT_DETAIL(destId));
       }
@@ -299,7 +300,7 @@ export default function ContextsPage() {
               >
                 <AnimatePresence>
                   {filteredContexts.map((context) => {
-                    const contextResId = context._id || context.id;
+                    const contextResId = getId(context);
                     return (
                       <motion.div
                         key={contextResId}
@@ -354,6 +355,7 @@ function ContextCard({ context, onClick }) {
     <HoverLiftCard
       glowTint={glowTint}
       onClick={onClick}
+      ariaLabel={`Ver detalles del contexto ${context.name}`}
       className="group cursor-pointer h-full"
     >
       <GlassCard className="relative overflow-hidden h-full p-6 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">

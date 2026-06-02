@@ -73,6 +73,7 @@ export default function AlertActionsMenu({
       </button>
 
       {open && (
+        // eslint-disable-next-line jsx-a11y/click-events-have-key-events, jsx-a11y/interactive-supports-focus -- onClick solo hace stopPropagation (evita que el clic en un ítem burbujee a la fila); los ítems del menú son <button> nativos con soporte de teclado completo
         <div
           role="menu"
           aria-label="Acciones de la alerta"

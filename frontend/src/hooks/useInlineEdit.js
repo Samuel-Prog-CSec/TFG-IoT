@@ -7,7 +7,7 @@
  *    asíncrono y una función opcional `validate(value) => null | string`
  *    (devuelve mensaje de error o null si válido).
  *  - El hook gestiona el draft local, isEditing, isSaving, error.
- *  - `commit()` valida y dispara `onSave`. Si todo OK, vuelve a no-edit;
+ *  - `commit()` valida y dispara `onSave`. Si es válido, vuelve a no-edit;
  *    si error, muestra el mensaje y deja el draft abierto para corregir.
  *  - `cancel()` descarta el draft y vuelve al valor externo.
  *  - `start()` entra en modo edición copiando el valor actual al draft.

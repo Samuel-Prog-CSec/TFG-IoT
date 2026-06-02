@@ -49,6 +49,7 @@ function computeCategoryDominance(byValueAccuracy) {
   let bestRatio = -1;
 
   const slugs = Object.keys(byValueAccuracy).sort();
+  // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
   for (const slug of slugs) {
     const stats = byValueAccuracy[slug] || {};
     const total = Number(stats.total || 0);

@@ -32,7 +32,6 @@ const {
   csrfProtection, // Middleware CSRF
   helmetOptions,
   globalRateLimiter,
-  authRateLimiter,
   initRateLimiters
 } = require('./config/security');
 const rfidService = require('./services/rfidService');

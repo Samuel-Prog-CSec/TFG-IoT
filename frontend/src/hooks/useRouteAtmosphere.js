@@ -123,23 +123,33 @@ export function useRouteAtmosphere() {
     const controller = new AbortController();
     let isCancelled = false;
 
-    fetchAtmosphereSlug(matched, controller.signal).then((slug) => {
-      if (isCancelled) {
-        return;
-      }
-      if (!slug) {
-        if (lastResolvedKeyRef.current !== 'default') {
+    const resolveAtmosphere = async () => {
+      try {
+        const slug = await fetchAtmosphereSlug(matched, controller.signal);
+        if (isCancelled) {
+          return;
+        }
+        if (!slug) {
+          if (lastResolvedKeyRef.current !== 'default') {
+            lastResolvedKeyRef.current = 'default';
+            clearAtmosphere();
+          }
+          return;
+        }
+        if (lastResolvedKeyRef.current !== slug) {
+          lastResolvedKeyRef.current = slug;
+          setAtmosphere(slug);
+        }
+      } catch {
+        // Error de red o cancelación (AbortController): caemos al atmosphere por defecto
+        if (!isCancelled && lastResolvedKeyRef.current !== 'default') {
           lastResolvedKeyRef.current = 'default';
           clearAtmosphere();
         }
-        return;
       }
-      const key = slug;
-      if (lastResolvedKeyRef.current !== key) {
-        lastResolvedKeyRef.current = key;
-        setAtmosphere(slug);
-      }
-    });
+    };
+
+    resolveAtmosphere();
 
     return () => {
       isCancelled = true;

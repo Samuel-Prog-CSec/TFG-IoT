@@ -21,7 +21,7 @@
     document.documentElement.dataset.theme = resolved;
     const meta = document.querySelector('meta[name="theme-color"]');
     if (meta) meta.setAttribute('content', resolved === 'light' ? '#fbf7ee' : '#0f172a');
-  } catch (e) {
+  } catch {
     document.documentElement.dataset.theme = 'dark';
   }
 })();

@@ -14,7 +14,6 @@
 
 jest.mock('ioredis', () => require('ioredis-mock'));
 
-const mongoose = require('mongoose');
 const materializedAnalytics = require('../src/services/analytics/materializedAnalyticsService');
 const { connectRedis, disconnectRedis } = require('../src/config/redis');
 const redisService = require('../src/services/redisService');

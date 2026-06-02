@@ -11,7 +11,7 @@ const { objectIdSchema, paginationSchema, sanitizedString } = require('./commonV
 // preprocess se invoca incluso cuando el valor entrante es `undefined` y
 // pasa el resultado al schema interno, que termina rechazando el undefined
 // con "expected nonoptional, received undefined". El patrón recomendado en
-// Zod 4 es envolver todo el preprocess en `.optional()` para que el outer
+// Zod 4 es envolver el preprocess completo en `.optional()` para que el outer
 // `ZodOptional` cortocircuite cuando el query param no viene presente
 // (QA 2026-05-07: panel /admin/contexts crasheaba con 400 al cargar).
 const booleanQuerySchema = z

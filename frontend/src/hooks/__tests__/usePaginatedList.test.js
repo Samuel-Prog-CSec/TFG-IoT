@@ -101,7 +101,7 @@ describe('usePaginatedList', () => {
     });
 
     // Antes del timeout no debe haber refetch nuevo.
-    await new Promise((r) => setTimeout(r, 50));
+    await new Promise((resolve) => setTimeout(resolve, 50));
     expect(fetcher).toHaveBeenCalledTimes(1);
 
     // Avanzar el timer para pasar el debounce.

@@ -25,6 +25,7 @@ import AudioUploadModal from '../components/ui/AudioUploadModal';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import { cn } from '../lib/utils';
+import { getId } from '../lib/entityId';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
@@ -87,7 +88,7 @@ export default function ContextDetailPage() {
 
   // Eliminar asset completo (imagen + audio)
   const performDeleteAsset = async (asset) => {
-    const contextDocId = context._id || context.id;
+    const contextDocId = getId(context);
 
     setIsDeletingAsset(asset.key);
     try {
@@ -120,7 +121,7 @@ export default function ContextDetailPage() {
 
   // Eliminar solo el audio de un asset (conservar imagen)
   const performDeleteAudio = async (asset) => {
-    const contextDocId = context._id || context.id;
+    const contextDocId = getId(context);
 
     setIsDeletingAudio(asset.key);
     try {
@@ -252,13 +253,13 @@ export default function ContextDetailPage() {
                   key={asset.key}
                   asset={asset}
                   index={i}
-                  contextId={context._id || context.id}
+                  contextId={getId(context)}
                   onDelete={handleDeleteAsset}
                   isDeleting={isDeletingAsset === asset.key}
                   onDeleteAudio={handleDeleteAudio}
                   isDeletingAudio={isDeletingAudio === asset.key}
                   onManageAudio={(a) => setAudioModalAsset(a)}
-                  currentUserId={currentUser?.id || currentUser?._id}
+                  currentUserId={getId(currentUser)}
                 />
               ))}
             </AnimatePresence>
@@ -282,7 +283,7 @@ export default function ContextDetailPage() {
           <AudioUploadModal
             assetKey={audioModalAsset.key}
             assetValue={audioModalAsset.value}
-            contextId={context._id || context.id}
+            contextId={getId(context)}
             currentAudioUrl={audioModalAsset.audioUrl || null}
             onClose={() => setAudioModalAsset(null)}
             onSuccess={() => {
@@ -605,7 +606,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
       // `toGameContextDTOV1` expone `id` (no `_id`), por lo que sin este
       // fallback el upload caia al `contextId` (slug) y el backend respondia
       // 400 "ID de MongoDB invalido" (QA 26/04/2026).
-      await contextsAPI.uploadImage(context._id || context.id || context.contextId, data);
+      await contextsAPI.uploadImage(getId(context) || context.contextId, data);
       toast.success('Imagen subida correctamente');
       onSuccess();
     } catch (err) {

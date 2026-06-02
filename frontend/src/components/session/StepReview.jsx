@@ -17,6 +17,7 @@ import GlassCard from '../ui/GlassCard';
 import InputPremium from '../ui/InputPremium';
 import CardAssetPreview from '../ui/CardAssetPreview';
 import AudioPlayBadge from '../ui/AudioPlayBadge';
+import { getId } from '../../lib/entityId';
 import { normalizeMechanicName } from './sessionHelpers';
 import { deckShape, mechanicShape, configShape } from './sessionPropTypes';
 
@@ -67,7 +68,7 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
               {selectedDeck?.cardMappings?.length > 0 && (
                 <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1 max-w-full">
                   {selectedDeck.cardMappings.slice(0, 8).map((m) => (
-                    <div key={m.uid || m.id || m._id} className="relative flex-shrink-0">
+                    <div key={m.uid || getId(m)} className="relative flex-shrink-0">
                       <CardAssetPreview
                         asset={m.displayData}
                         className="size-10 rounded-lg"

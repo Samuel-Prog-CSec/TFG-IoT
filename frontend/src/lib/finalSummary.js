@@ -27,6 +27,7 @@
  * @param {number|null} [maxScore=null] - máximo teórico calculado por backend
  * @returns {Object} summary
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- normalización de resumen final con campos opcionales por mecánica (memory/sequence/association)
 export function normalizeFinalSummary(
   rawMetrics,
   score,

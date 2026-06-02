@@ -13,6 +13,7 @@ import { AnimatePresence, m as motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Filter } from 'lucide-react';
 import { cn, listContainerVariants } from '../../lib/utils';
+import { getId } from '../../lib/entityId';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import {
   SEVERITY_STYLES,
@@ -307,7 +308,7 @@ function SystemAlertsHub({
           <AnimatePresence mode="popLayout">
             {filteredAlerts.map(alert => (
               <SystemAlertCard
-                key={alert.id || alert._id}
+                key={getId(alert)}
                 alert={alert}
                 shouldReduceMotion={shouldReduceMotion}
                 selectable={selectable}

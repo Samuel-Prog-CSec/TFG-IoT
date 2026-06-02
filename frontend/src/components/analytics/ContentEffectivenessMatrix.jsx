@@ -3,6 +3,7 @@ import { m as motion } from 'framer-motion';
 import { BarChart3, Gamepad2, TrendingUp, CircleCheck, CircleAlert, CircleX, Circle } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, DURATION, EASING } from '../../lib/utils';
+import { getId } from '../../lib/entityId';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from '../ui/GlassCard';
 import { scoreToRAGWithNull as getRAGColor } from '../../constants/analyticsThresholds';
@@ -68,7 +69,7 @@ function ContentEffectivenessMatrix({ data, groupBy = 'context' }) {
         // que no pasaron por la pipeline actualizada (defense in depth).
         const displayName = groupBy === 'mechanic' ? formatMechanicName(rawName) : rawName;
         return {
-          id: item.id || item._id || rawName,
+          id: getId(item) || rawName,
           name: displayName,
           score: item.avgScore ?? item.averageScore ?? item.score ?? null,
           totalPlays: item.totalPlays ?? item.gamesPlayed ?? item.totalGames ?? 0,

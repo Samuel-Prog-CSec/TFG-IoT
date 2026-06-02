@@ -17,6 +17,7 @@ import EmptyState from '../../ui/EmptyState';
 import ButtonPremium from '../../ui/ButtonPremium';
 import { useNavigate } from 'react-router-dom';
 import { ROUTES } from '../../../constants/routes';
+import { getId } from '../../../lib/entityId';
 
 const MEMORY_GROUP_SIZE = 2;
 
@@ -32,7 +33,7 @@ function SessionDetailMemoryPanel({ session }) {
   );
 
   const numberOfPairs = Math.floor(boardLayout.length / MEMORY_GROUP_SIZE);
-  const sessionId = session?.id || session?._id;
+  const sessionId = getId(session);
   const hasBoard = boardLayout.length > 0;
 
   // Calculamos columnas razonables para el tablero (entre 4 y 6) según total

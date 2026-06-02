@@ -2,7 +2,7 @@
  * @fileoverview Tests del detector `plateauDetected` — implementación nueva T-941.
  *
  * Antes de T-941, `plateau_detected` figuraba en ALERT_TYPES pero ningún
- * detector lo implementaba. Estos tests verifican que el TODO está cerrado.
+ * detector lo implementaba. Estos tests verifican que la tarea pendiente está resuelta.
  */
 
 const detector = require('../../../../src/services/analytics/detectors/plateauDetected');

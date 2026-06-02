@@ -21,8 +21,8 @@ const { SEQUENCE_PHASE } = require('../../constants/enums');
 //   3. ~460ms de respiro antes del reparto de la siguiente ronda.
 //
 // Antes (1700ms) el alumno solo veía 800ms las cartas reveladas y la
-// partida saturaba (QA 2026-05-06: "todo pasa demasiado deprisa, el niño
-// no puede ver cómo le fue").
+// partida saturaba (QA 2026-05-06: «pasa demasiado deprisa, el niño
+// no puede ver cómo le fue»).
 const FEEDBACK_PAUSE_MS = 3500;
 
 // Margen entre que el frontend muestra el `PhaseTransitionOverlay` (countdown

@@ -17,6 +17,7 @@ import {
   extractErrorMessage,
   isAbortError
 } from '../services/api';
+import { getId } from '../lib/entityId';
 import { toast } from 'sonner';
 
 const SOCKET_ERROR_MESSAGES = {
@@ -175,7 +176,7 @@ export function useGameSocket({
       return searchParamsPlayerId;
     }
 
-    const teacherId = user?.id || user?._id;
+    const teacherId = getId(user);
     if (!teacherId) {
       throw new Error('No se pudo determinar el profesor para crear la partida.');
     }
@@ -186,7 +187,7 @@ export function useGameSocket({
     });
     const students = extractData(studentsRes) || [];
 
-    const firstStudentId = students?.[0]?.id || students?.[0]?._id;
+    const firstStudentId = getId(students?.[0]);
     if (!firstStudentId) {
       throw new Error('No hay alumnos disponibles para iniciar la partida.');
     }
@@ -198,20 +199,20 @@ export function useGameSocket({
     const inProgressRes = await playsAPI.getPlays({ sessionId, status: 'in-progress', limit: 1 }, { signal });
     const inProgressPlays = extractData(inProgressRes) || [];
     const foundInProgress = inProgressPlays?.[0];
-    if (foundInProgress?.id || foundInProgress?._id) {
+    if (getId(foundInProgress)) {
       return {
-        playId: foundInProgress.id || foundInProgress._id,
-        playerId: foundInProgress.playerId || foundInProgress.player?.id || foundInProgress.player?._id
+        playId: getId(foundInProgress),
+        playerId: foundInProgress.playerId || getId(foundInProgress.player)
       };
     }
 
     const pausedRes = await playsAPI.getPlays({ sessionId, status: 'paused', limit: 1 }, { signal });
     const pausedPlays = extractData(pausedRes) || [];
     const foundPaused = pausedPlays?.[0];
-    if (foundPaused?.id || foundPaused?._id) {
+    if (getId(foundPaused)) {
       return {
-        playId: foundPaused.id || foundPaused._id,
-        playerId: foundPaused.playerId || foundPaused.player?.id || foundPaused.player?._id
+        playId: getId(foundPaused),
+        playerId: foundPaused.playerId || getId(foundPaused.player)
       };
     }
 
@@ -220,7 +221,7 @@ export function useGameSocket({
     const createdPlay = extractData(createPlayRes);
 
     return {
-      playId: createdPlay?.id || createdPlay?._id,
+      playId: getId(createdPlay),
       playerId
     };
   }, [resolvePlayerId, sessionId]);
@@ -658,7 +659,7 @@ export function useGameSocket({
 
     const createPlayRes = await playsAPI.createPlay({ sessionId, playerId });
     const newPlay = extractData(createPlayRes);
-    const nextPlayId = newPlay?.id || newPlay?._id;
+    const nextPlayId = getId(newPlay);
 
     if (!nextPlayId) {
       throw new Error('No se pudo crear una nueva partida.');

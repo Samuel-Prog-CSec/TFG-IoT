@@ -28,6 +28,7 @@ const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger
  * @param {Buffer} buffer
  * @returns {{mime: string}|null}
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- detector de magic bytes: cadena de comprobaciones por formato (RFC); dividirlo perjudicaría la trazabilidad de la validación de seguridad
 const detectMagic = buffer => {
   if (!Buffer.isBuffer(buffer) || buffer.length < 3) {
     return null;

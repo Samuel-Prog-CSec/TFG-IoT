@@ -27,6 +27,7 @@ import { cn } from '../../lib/utils';
 import { useInlineEdit } from '../../hooks/useInlineEdit';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- edición inline con estados (idle/editing/saving/error) y manejadores de teclado
 export default function InlineEditableText({
   value,
   onSave,

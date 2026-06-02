@@ -26,6 +26,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminAPI, extractErrorMessage, isAbortError } from '../../services/api';
+import { getId, sameId } from '../../lib/entityId';
 import ButtonPremium from '../../components/ui/ButtonPremium';
 import InputPremium from '../../components/ui/InputPremium';
 import GlassCard from '../../components/ui/GlassCard';
@@ -460,19 +461,19 @@ export default function ApprovalPanel() {
 
     try {
       if (type === 'approve') {
-        await adminAPI.approveTeacher(user._id || user.id);
+        await adminAPI.approveTeacher(getId(user));
         toast.success(`${user.name} ha sido aprobado correctamente`, {
           icon: <CheckCircle className="size-5 text-success-base" />,
         });
       } else {
-        await adminAPI.rejectTeacher(user._id || user.id, reason);
+        await adminAPI.rejectTeacher(getId(user), reason);
         toast.success(`${user.name} ha sido rechazado`, {
           icon: <XCircle className="size-5 text-error-base" />,
         });
       }
 
       // Actualizar lista
-      setTeachers((prev) => prev.filter((t) => (t._id || t.id) !== (user._id || user.id)));
+      setTeachers((prev) => prev.filter((t) => !sameId(t, user)));
       setPagination((prev) => ({ ...prev, total: Math.max(0, prev.total - 1) }));
       
       closeModal();
@@ -629,7 +630,7 @@ export default function ApprovalPanel() {
                 <AnimatePresence mode="popLayout">
                   {filteredTeachers.map((teacher) => (
                     <PendingTeacherCard
-                      key={teacher._id || teacher.id}
+                      key={getId(teacher)}
                       teacher={teacher}
                       onApprove={() => openModal('approve', teacher)}
                       onReject={() => openModal('reject', teacher)}

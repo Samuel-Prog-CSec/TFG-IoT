@@ -45,7 +45,23 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
       transition={motionConfig.spring}
       onClick={onClick}
       aria-label={`${title}: ${value}`}
-      className="group cursor-pointer relative block h-full"
+      {...(onClick && {
+        role: 'button',
+        tabIndex: 0,
+        onKeyDown: (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(e);
+          }
+        },
+      })}
+      className={cn(
+        'group relative block h-full',
+        // Solo es clicable (cursor + foco por teclado + activación Enter/Espacio)
+        // cuando recibe onClick; si no, no debe parecer interactiva (WCAG 2.1.1).
+        onClick &&
+          'cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base'
+      )}
     >
       <GlassCard
         variant="default"

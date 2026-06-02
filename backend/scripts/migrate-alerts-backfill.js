@@ -24,6 +24,7 @@ const userRepository = require('../src/repositories/userRepository');
 
 const MONGODB_URI = process.env.MONGODB_URI || 'mongodb://localhost:27017/rfid_games';
 
+// eslint-disable-next-line sonarjs/process-argv -- script CLI de dev: lee flags --dry-run/--teacher-id/--passes de argv
 const args = process.argv.slice(2);
 const DRY_RUN = args.includes('--dry-run');
 const teacherArg = args.find(a => a.startsWith('--teacher-id='));

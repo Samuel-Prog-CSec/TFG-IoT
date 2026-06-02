@@ -133,11 +133,14 @@ function buildEvents({ rounds, profile, sessionConfig, cardMappings, baseTime })
     };
     const errorMapping = cardMappings[r % Math.max(cardMappings.length, 1)] || expected;
 
-    const elapsed = success
-      ? Math.min(profile.avgSpeed + Math.random() * 800, timeLimitMs)
-      : timeout
-        ? timeLimitMs
-        : Math.min(profile.avgSpeed + 1500, timeLimitMs);
+    let elapsed;
+    if (success) {
+      elapsed = Math.min(profile.avgSpeed + Math.random() * 800, timeLimitMs);
+    } else if (timeout) {
+      elapsed = timeLimitMs;
+    } else {
+      elapsed = Math.min(profile.avgSpeed + 1500, timeLimitMs);
+    }
     responseTimes.push(elapsed);
 
     events.push({
@@ -148,13 +151,16 @@ function buildEvents({ rounds, profile, sessionConfig, cardMappings, baseTime })
 
     let eventType = 'correct';
     let pointsAwarded = pointsPerCorrect;
+    let cardUid = expected.uid;
     if (timeout) {
       eventType = 'timeout';
       pointsAwarded = 0;
+      cardUid = undefined;
       timeoutAttempts += 1;
     } else if (!success) {
       eventType = 'error';
       pointsAwarded = penaltyPerError;
+      cardUid = errorMapping.uid;
       errorAttempts += 1;
     } else {
       correctAttempts += 1;
@@ -165,12 +171,7 @@ function buildEvents({ rounds, profile, sessionConfig, cardMappings, baseTime })
     events.push({
       timestamp: new Date(roundStart + elapsed),
       eventType,
-      cardUid:
-        eventType === 'timeout'
-          ? undefined
-          : eventType === 'error'
-            ? errorMapping.uid
-            : expected.uid,
+      cardUid,
       expectedValue: expected.assignedValue,
       actualValue: eventType === 'correct' ? expected.assignedValue : errorMapping.assignedValue,
       pointsAwarded,
@@ -413,7 +414,9 @@ function generatePlay({ student, session, profile, daysAgo, perStudentIndex }) {
 // Main
 // ──────────────────────────────────────────────────────────────────────
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- script de dev (enriquecimiento de gameplays); complejidad aceptable fuera de producción
 async function main() {
+  // eslint-disable-next-line sonarjs/process-argv -- script CLI de dev: lee flags de argv intencionalmente
   const args = process.argv.slice(2);
   const dryRun = args.includes('--dry-run');
   const perStudentArg = args.find(a => a.startsWith('--per-student='));
@@ -422,6 +425,7 @@ async function main() {
   const mongoUri =
     process.env.MONGO_URI || process.env.MONGODB_URI || 'mongodb://mongo:27017/rfid_games_db';
   await mongoose.connect(mongoUri);
+  // eslint-disable-next-line sonarjs/slow-regex -- `//[^@]+@` es una clase única sin anidamiento ni backtracking catastrófico (enmascara credenciales del URI en logs)
   logger.info(`Conectado a Mongo (${mongoUri.replace(/\/\/[^@]+@/, '//***@')})`);
 
   const students = await User.find({ role: 'student', status: 'active' });

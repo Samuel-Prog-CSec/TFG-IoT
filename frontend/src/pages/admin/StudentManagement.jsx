@@ -26,6 +26,7 @@ import ConsentDetailPanel from './ConsentDetailPanel';
 import { m as motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { usersAPI, extractErrorMessage, isAbortError } from '../../services/api';
+import { getId } from '../../lib/entityId';
 import ButtonPremium from '../../components/ui/ButtonPremium';
 import InputPremium from '../../components/ui/InputPremium';
 import SelectPremium from '../../components/ui/SelectPremium';
@@ -88,7 +89,7 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
         }
       };
 
-      await usersAPI.updateUser(student.id || student._id, payload);
+      await usersAPI.updateUser(getId(student), payload);
       toast.success('Alumno actualizado correctamente');
       onUpdated();
       // Pequeña pausa para que el usuario perciba el toast antes de que
@@ -321,7 +322,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                 label="Profesor Responsable"
                 placeholder="Selecciona un profesor"
                 options={teachers.map(t => ({
-                  value: t.id || t._id,
+                  value: getId(t),
                   label: t.name || t.email,
                   icon: <Users size={16} />
                 }))}
@@ -522,7 +523,7 @@ export default function StudentManagement() {
   };
 
   const handleExportClick = async (student) => {
-    const studentId = student.id || student._id;
+    const studentId = getId(student);
     setActiveMenuId(null);
     try {
       const res = await usersAPI.exportStudentData(studentId);
@@ -547,7 +548,7 @@ export default function StudentManagement() {
 
     setIsHardDeleting(true);
     try {
-      await usersAPI.hardDeleteUser(selectedStudent.id || selectedStudent._id);
+      await usersAPI.hardDeleteUser(getId(selectedStudent));
       toast.success('Datos del alumno eliminados permanentemente (Art. 17 RGPD)');
       fetchInitialData(pagination.page);
       setIsHardDeleteModalOpen(false);
@@ -571,7 +572,7 @@ export default function StudentManagement() {
             <button
               onClick={(e) => {
                 e.stopPropagation();
-                setActiveMenuId(activeMenuId === (student.id || student._id) ? null : (student.id || student._id));
+                setActiveMenuId(activeMenuId === getId(student) ? null : getId(student));
               }}
               className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors"
               aria-label="Acciones"
@@ -581,7 +582,7 @@ export default function StudentManagement() {
           </Tooltip>
 
           <AnimatePresence>
-            {activeMenuId === (student.id || student._id) && (
+            {activeMenuId === getId(student) && (
               <>
                 <button
                   type="button"
@@ -796,7 +797,7 @@ export default function StudentManagement() {
                       if (!student) return null;
                       return (
                         <div
-                          key={student.id || student._id}
+                          key={getId(student)}
                           data-index={vItem.index}
                           ref={virtual.measureElement}
                           style={{
@@ -826,7 +827,7 @@ export default function StudentManagement() {
               className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)]"
             >
               {students.map((student) => (
-                <motion.div key={student.id || student._id} variants={staggerItem}>
+                <motion.div key={getId(student)} variants={staggerItem}>
                   {renderStudentCard(student)}
                 </motion.div>
               ))}

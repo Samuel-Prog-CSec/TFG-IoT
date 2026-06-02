@@ -28,6 +28,7 @@ import { useReducedMotion } from "../hooks/useReducedMotion";
 import analyticsService from "../services/analytics";
 import { isAbortError } from "../services/api";
 import { captureException } from "../lib/sentry";
+import { getId } from "../lib/entityId";
 import { ROUTES } from "../constants/routes";
 import ChartErrorBoundary from "../components/common/ChartErrorBoundary";
 import GlassCard from "../components/ui/GlassCard";
@@ -877,7 +878,7 @@ function SortIcon({ field, sortField, sortOrder }) {
 
 function StudentRow({ student, navigate }) {
   const tier = getTierBadge(student.tier);
-  const studentId = student.id || student._id || student.studentId;
+  const studentId = getId(student) || student.studentId;
 
   return (
     <tr

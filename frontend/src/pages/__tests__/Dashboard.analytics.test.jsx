@@ -214,7 +214,9 @@ describe('Dashboard — integracion analytics', () => {
 
     expect(screen.getByText('Puntuación Media')).toBeInTheDocument();
     expect(screen.getByText('Partidas Hoy')).toBeInTheDocument();
-    expect(screen.getByText('Partidas Totales')).toBeInTheDocument();
+    // El KPI «Partidas Totales» se renombró a «Partidas» (ADR-192): ahora
+    // refleja el periodo seleccionado, no el acumulado de por vida.
+    expect(screen.getByText('Partidas')).toBeInTheDocument();
   });
 
   it('muestra KPIs secundarios con datos del summary', async () => {

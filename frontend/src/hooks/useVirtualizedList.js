@@ -73,6 +73,7 @@ export function useVirtualizedList({
     return () => Number(estimateSize) || 80;
   }, [estimateSize]);
 
+  // eslint-disable-next-line react-hooks/incompatible-library -- TanStack Virtual devuelve funciones no memoizables; limitación conocida de la librería (sin impacto: el hook no se memoiza)
   const virtualizer = useVirtualizer({
     count: shouldVirtualize ? count : 0,
     getScrollElement: () => scrollElement,

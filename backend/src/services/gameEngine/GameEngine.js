@@ -448,6 +448,7 @@ class GameEngine {
         }
       },
       () =>
+        // eslint-disable-next-line sonarjs/cyclomatic-complexity -- orquestación stateful del arranque de partida; refactor diferido por riesgo de regresión en gameplay
         this.executeWithPlayLock(playId, 'startPlay', async () => {
           // Idempotencia distribuida: en despliegues multi-instancia con Socket.IO adapter,
           // dos instancias pueden recibir start_play concurrentes para el mismo playId.
@@ -654,6 +655,7 @@ class GameEngine {
    * @returns {Promise<void>}
    * @emits game_over - Con puntuación final y métricas
    */
+  // eslint-disable-next-line sonarjs/no-inconsistent-returns -- early-return void en el guard; el resto de la función también retorna void
   async endPlay(playId, { abandoned = false } = {}) {
     const playState = this.activePlays.get(playId);
     if (!playState) {
@@ -690,6 +692,7 @@ class GameEngine {
    * @param {boolean} options.abandoned
    * @returns {Promise<void>}
    */
+  // eslint-disable-next-line sonarjs/cognitive-complexity, sonarjs/cyclomatic-complexity -- finalización de partida (game_over): orquestación stateful; refactor diferido por riesgo de regresión en gameplay
   async _endPlayInternal(playId, playState, { abandoned }) {
     logger.info(
       `Finalizando partida ${playId}${abandoned ? ' (abandonada por inactividad)' : ''}...`
@@ -876,12 +879,12 @@ class GameEngine {
     const finalMetrics = playState.playDoc.metrics?.toObject
       ? playState.playDoc.metrics.toObject()
       : { ...(playState.playDoc.metrics || {}) };
-    const mode =
-      playState.mechanicName === 'memory'
-        ? 'memory'
-        : playState.mechanicName === 'sequence'
-          ? 'sequence'
-          : 'association';
+    let mode = 'association';
+    if (playState.mechanicName === 'memory') {
+      mode = 'memory';
+    } else if (playState.mechanicName === 'sequence') {
+      mode = 'sequence';
+    }
 
     const emittedSummary = finalSummary.buildFinalSummary(playState.mechanicName, playState);
     if (mode === 'sequence') {

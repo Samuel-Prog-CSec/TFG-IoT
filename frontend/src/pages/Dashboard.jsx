@@ -14,6 +14,7 @@ import { useAuth } from '../context/AuthContext';
 import analyticsService from '../services/analytics';
 import { isAbortError, contextsAPI, mechanicsAPI } from '../services/api';
 import { captureException } from '../lib/sentry';
+import { getId } from '../lib/entityId';
 import { ROUTES } from '../constants/routes';
 // El onboarding se monta a nivel de AppLayout para cubrir teacher y
 // super_admin desde cualquier ruta autenticada (T-951 Fase 4).
@@ -87,11 +88,11 @@ export default function Dashboard() {
         // El DTO de contexto expone `id` (no `_id`); usar `_id` dejaba el value
         // en undefined → el SelectPremium seleccionaba siempre la 1ª opción y no
         // se enviaba el filtro al backend.
-        ...contexts.map(c => ({ value: c.id, label: c.name }))
+        ...contexts.map(c => ({ value: getId(c), label: c.name }))
       ]);
       setMechanicOptions([
         { value: '', label: 'Todas las mecánicas' },
-        ...mechanics.map(m => ({ value: m.id, label: m.displayName || m.name }))
+        ...mechanics.map(m => ({ value: getId(m), label: m.displayName || m.name }))
       ]);
       return undefined;
     }).catch(() => { /* errores individuales ya manejados */ });
@@ -148,15 +149,14 @@ export default function Dashboard() {
           ...(selectedContextId && { contextId: selectedContextId }),
           ...(selectedMechanicId && { mechanicId: selectedMechanicId })
         };
-        const hasContentFilter = Boolean(selectedContextId || selectedMechanicId);
-
-        // Resumen y distribución solo reciben timeRange cuando hay un filtro de
-        // contenido activo: en la vista por defecto (sin contexto ni mecánica)
-        // estos KPIs y la distribución siguen siendo lifetime, idénticos a su
-        // comportamiento previo. La tendencia siempre usó timeRange, así que se
-        // mantiene tal cual.
-        const summaryParams = hasContentFilter ? { timeRange, ...filterParams } : {};
-        const distributionParams = hasContentFilter ? { timeRange, ...filterParams } : {};
+        // El filtro temporal afecta al dashboard completo de forma coherente:
+        // resumen (KPIs) y distribución reciben siempre `timeRange`, igual que la
+        // tendencia, para que cambiar el periodo mueva todos los widgets y no solo
+        // unos pocos. Antes los KPIs y la distribución eran lifetime salvo que
+        // hubiera un filtro de contexto/mecánica activo, lo que resultaba confuso
+        // (2 de 8 KPIs reaccionaban al periodo y 6 no, sin pista para el usuario).
+        const summaryParams = { timeRange, ...filterParams };
+        const distributionParams = { timeRange, ...filterParams };
 
         const [summaryData, trendsData, progress, difficultiesData, students, distribution, alerts, heatmap] = await Promise.all([
           analyticsService.getClassroomSummary(summaryParams, { signal: controller.signal }),
@@ -257,7 +257,12 @@ export default function Dashboard() {
     return kpi?.current ?? null;
   }, [trends]);
 
-  const periodLabel = timeRange === '30d' ? 'vs mes anterior' : 'vs semana pasada';
+  let periodLabel = 'vs semana pasada';
+  if (timeRange === '90d') {
+    periodLabel = 'vs trimestre anterior';
+  } else if (timeRange === '30d') {
+    periodLabel = 'vs mes anterior';
+  }
 
   // Derivar contadores de estudiantes activos
   const activeStudentsCount = useMemo(() => {
@@ -409,7 +414,7 @@ export default function Dashboard() {
 
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
-                    title="Partidas Totales"
+                    title="Partidas"
                     value={summary?.totalGames || 0}
                     trend={getTrend('totalGames')}
                     periodLabel={periodLabel}

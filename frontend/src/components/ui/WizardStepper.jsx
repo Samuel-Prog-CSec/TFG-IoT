@@ -107,6 +107,13 @@ function WizardStepItem({
     onStepClick(index);
   };
 
+  let stepStateLabel = '';
+  if (isCompleted) {
+    stepStateLabel = ' (completado)';
+  } else if (isActive) {
+    stepStateLabel = ' (actual)';
+  }
+
   return (
     <motion.div
       className="flex flex-col items-center gap-2 relative"
@@ -121,7 +128,7 @@ function WizardStepItem({
         // BUG-A11Y-STEPPER-BUTTON (QA Sprint 0): el botón sólo tenía icono,
         // sin nombre accesible. Añadir aria-label compuesto desde título +
         // estado.
-        aria-label={`Paso ${index + 1}: ${step.title}${isCompleted ? ' (completado)' : isActive ? ' (actual)' : ''}`}
+        aria-label={`Paso ${index + 1}: ${step.title}${stepStateLabel}`}
         aria-current={isActive ? 'step' : undefined}
         className={getStepButtonClassName({ isActive, isCompleted, isClickable })}
         whileHover={isClickable ? { scale: 1.1 } : {}}

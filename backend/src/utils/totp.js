@@ -12,6 +12,7 @@
 
 const crypto = require('node:crypto');
 
+// eslint-disable-next-line no-secrets/no-secrets -- alfabeto Base32 público (RFC 4648), no es un secreto
 const BASE32_ALPHABET = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ234567';
 const DEFAULT_DIGITS = 6;
 const DEFAULT_PERIOD = 30;
@@ -48,6 +49,7 @@ const encodeBase32 = buffer => {
  * @returns {Buffer}
  */
 const decodeBase32 = input => {
+  // eslint-disable-next-line sonarjs/slow-regex -- `=+$` cuantificador único anclado al final; sin backtracking catastrófico
   const cleaned = input.replace(/=+$/u, '').toUpperCase();
   let bits = 0;
   let value = 0;

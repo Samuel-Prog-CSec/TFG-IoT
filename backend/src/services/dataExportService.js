@@ -9,7 +9,6 @@
  */
 
 const userRepository = require('../repositories/userRepository');
-const gamePlayRepository = require('../repositories/gamePlayRepository');
 const { NotFoundError, ForbiddenError } = require('../utils/errors');
 const { pseudonymize } = require('../utils/pseudonymize');
 const logger = require('../utils/logger').child({ component: 'dataExportService' });
@@ -44,7 +43,7 @@ async function exportStudentData(studentId, requestingUser) {
 
   // A.5 (pre-v1.0.0): cursor + `.lean()` para evitar el spike de memoria
   // pico cuando un alumno con 500+ partidas se exporta. La consulta
-  // directa con `find` carga TODO en heap antes de mapear; el cursor
+  // directa con `find` carga el dataset completo en heap antes de mapear; el cursor
   // procesa documento a documento con `for await`, manteniendo la RAM
   // intermedia acotada. El array final mantiene el shape esperado por
   // el controller (Art. 20 RGPD — formato portable).

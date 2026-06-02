@@ -67,6 +67,7 @@ const redactPaths = [
  */
 // eslint-disable-next-line regexp/no-obscure-range -- Intencional: el rango U+0000-U+001F cubre TODO el control set ASCII (NUL, BS, TAB, LF, VT, FF, CR, ESC, etc.). Es el redactor canónico contra log injection y debe ser explícito.
 const CONTROL_CHAR_RANGE = `[${String.fromCharCode(0)}-${String.fromCharCode(31)}${String.fromCharCode(127)}]`;
+// eslint-disable-next-line security/detect-non-literal-regexp -- patrón fijo derivado de String.fromCharCode (control chars), no de entrada de usuario
 const CONTROL_CHARS_REGEX = new RegExp(CONTROL_CHAR_RANGE, 'g');
 
 /**

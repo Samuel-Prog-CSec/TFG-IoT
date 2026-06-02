@@ -9954,3 +9954,111 @@ Ante la pregunta «¿está TODO corregido?», se hizo un barrido (contraste OKLC
 
 **Verificación:** 590/590 frontend, lint 0 errores, build de producción OK, navegador (contador de filtro 5.97:1, SystemAlerts re-auditado 0 issues). **Honestidad de alcance:** se corrigió cada instancia de cada patrón identificado (badge, leyendas, `text-disabled`) con migración completa a nivel de código; las pantallas auditadas quedan limpias. No constituye una garantía exhaustiva de «cada pantalla × cada estado × ambos temas» — estos fallos son ciegos a Lighthouse/axe, de modo que un barrido total seguiría siendo recomendable como práctica continua, pero no quedan instancias conocidas sin corregir de los patrones detectados.
 
+---
+
+## ADR-192: QA integral pre-entrega v1.0.0 (cont.) — corrección del `maxScore` de Asociación, el filtro temporal del dashboard gobierna todos los KPIs, afordancia única de progreso en onboarding y operabilidad por teclado de cards clicables [Full-stack, Analytics, UX, Accessibility]
+
+### Contexto
+
+Sesión de QA exhaustiva de extremo a extremo sobre el stack Docker (frontend construido en modo desarrollo para exponer `__rfidSim` y poder simular el sensor 1:1, peor caso de resolución 1366×768), recorriendo la aplicación como usuario real en ambos temas. Sobre una base muy madura (varias auditorías previas, Lighthouse 100/100 ×18) afloraron un defecto funcional de scoring de severidad **alta**, una incoherencia de filtrado del dashboard y un puñado de pulidos de accesibilidad y microcopy. Esta entrada recoge las decisiones; la bitácora detallada vive en `development/qa-audit-2026-06-01/findings.md` (efímera, no es la memoria del TFG).
+
+### Decisión 1 — Detección de mecánica por «huella de datos»: comprobar `associationChallengePlan` ANTES de `boardLayout` [Backend, ALTO]
+
+`gamePlayService.createPlay` calcula el `maxScore` teórico (techo de integridad de puntuación, ADR-114) infiriendo la mecánica por los datos que la sesión persiste. La cadena original era `sequencePlan` → `boardLayout` → fallback, asumiendo que solo Memoria tiene tablero. **Pero las sesiones de Asociación también persisten `boardLayout`** (el paso `BoardSetup` es obligatorio para colocar las cartas), de modo que toda partida de Asociación jugada en vivo se clasificaba como Memoria y recibía `maxScore = (cartas / 2) × puntos` en lugar de `rondas × puntos` (p. ej. **30 en vez de 60**).
+
+Efecto observado E2E: una partida de Asociación con 5/6 aciertos y una penalización guardó un score real ≈47 que el pre-validate del modelo `GamePlay` **clampaba a 30**, y el GameOver mostraba **30/30 = 100 %** (engañoso) además de inflar el porcentaje `score/maxScore` en las analíticas. Solo afectaba a partidas **jugadas en vivo**; los seeds ya usaban la fórmula correcta, por eso no se había detectado antes.
+
+**Decisión:** la huella propia de Asociación es su `associationChallengePlan` (una carta objetivo por ronda), que Memoria no tiene. La cadena de detección pasa a **Secuencia → Asociación → Memoria → fallback**, comprobando el challenge plan antes que el tablero. Se documenta en el propio código por qué el orden importa (Asociación y Memoria son indistinguibles por el tablero). Verificado: Asociación rinde `maxScore = 60` (rondas×puntos) y Memoria sigue rindiendo `60` (parejas×puntos) — la reordenación no rompe Memoria.
+
+### Decisión 2 — El filtro temporal del dashboard del docente gobierna TODO el dashboard [Frontend, UX]
+
+En la vista por defecto, el selector de periodo solo movía la gráfica de Tendencia y 2 de los 8 KPIs (Acierto/Tiempo, derivados de `trends`); el resto de KPIs y la Distribución permanecían en modo «histórico total» salvo que hubiera además un filtro de contexto/mecánica activo (un gate `hasContentFilter`). El resultado era confuso: cambiar «7 días»→«30 días» dejaba 6 KPIs inmóviles.
+
+**Decisión del responsable del proyecto: que el periodo afecte a todo.** Se elimina el gate; `summaryParams` y `distributionParams` reciben siempre el `timeRange`. Se corrige el KPI «Partidas Totales»→«Partidas» (ahora es del periodo, no acumulado) y el `periodLabel` para el rango de 90 días («vs trimestre anterior», antes heredaba «vs semana pasada»). Se mantiene intencionadamente la ventana fija de «Alumnos Activos … últimos 7 días» (es una métrica de actividad reciente, no del periodo). Verificado: 7d→54 partidas / 30d→165, y todos los KPIs+Distribución responden al periodo.
+
+### Decisión 3 — Onboarding: una sola afordancia de progreso + copy de dirección en neutro [Frontend, a11y, UX]
+
+El overlay de onboarding pintaba **tres** representaciones del mismo progreso: barra continua (`role="progressbar"`), contador «Paso X de Y» y una fila de puntos marcada como `role="tablist"`/`tab`. Los puntos no eran interactivos → uso indebido de la semántica ARIA de pestañas, además de redundancia visual (señalado por el usuario). **Decisión:** eliminar la fila de puntos y conservar barra + contador (afordancia explícita querida para usuarios no técnicos); componente `StepDots`→`StepProgress`. Además, el paso 1 del track de `super_admin` usaba género femenino («Bienvenida… tranquila») mientras el de docente es neutro; se homogeneiza a neutro («Te damos la bienvenida, dirección… no te preocupes») preservando el tono cálido. Ambos verificados en vivo (`progressbars:1, tabs:0`).
+
+### Decisión 4 — Operabilidad por teclado de las cards clicables [Frontend, a11y]
+
+`HoverLiftCard` (primitivo usado, entre otros, por las cards de Contextos, que no llevan botón interno) y `StatCard` (KPIs del dashboard) renderizaban `<motion.div|article onClick>` sin `role`/`tabIndex`/`onKeyDown`: clicables con ratón pero invisibles para teclado y lector de pantalla (WCAG 2.1.1). **Decisión:** cuando reciben `onClick`, ambos primitivos añaden `role="button"` + `tabIndex={0}` + `onKeyDown` (Enter/Espacio) + anillo de foco; cuando no, no fingen interactividad. `ContextCard` propaga `ariaLabel`. Patrón idéntico al que `StudentsList` ya tenía.
+
+### Decisión 5 — Pulidos menores (microcopy y etiquetas) [Frontend]
+
+- **Register:** el mensaje «Las contraseñas no coinciden» se duplicaba (error de campo en submit + indicador en vivo). El `error` del campo `confirmPassword` se reserva para «vacío»; el indicador en vivo cubre match/mismatch y se le añade `aria-live="polite"` para anunciarlo.
+- **Chips de filtro activo «Desconocido»:** `SessionsPage` y `CardDecksPage` buscaban mecánica/contexto por `_id`, pero los DTO exponen `id` → la etiqueta del chip salía «Desconocida» (el filtro funcionaba; era solo el rótulo). Fix con patrón robusto `(c.id || c._id)` y `displayName || name`. Mismo gotcha ya documentado en el Dashboard.
+- **`SessionEdit`:** «Retos de Association» (nombre interno inglés) → «Asociación» en `<h2>` y en el toast de error.
+- **PrivacyPage:** re-acentuado completo de los strings de UI (página legal pública): arrays de contenido + JSX (H1, subtítulos, footer «Agencia Española…»).
+- **Limpieza:** borrados 3 ficheros muertos confirmados por `grep` (`DifficultyBar.jsx`, `StudentProgressSparkline.jsx`, `constants/microcopy.js`).
+
+### Verificación de seguridad (sin cambio — confirmación de diseño)
+
+El **MFA step-up** (T-905 B7) se validó disparando una acción crítica real (purga RGPD de un alumno): la API devolvió `428 Precondition Required` y el cableado frontend está completo (`api.js` interceptor → evento global `mfa:challenge-required` → `MfaChallengeModal` montado en `App.jsx` → reintento con `X-MFA-Token`). Se confirma que **no es un bypass**: el modelo es step-up a nivel de acción, no un gate de login. No se completó la deleción (datos de menor sembrado preservados).
+
+### Cambios
+
+`backend/src/services/gamePlayService.js` (D1); `frontend/src/pages/Dashboard.jsx` (D2); `frontend/src/components/onboarding/OnboardingOverlay.jsx`, `frontend/src/constants/onboardingTracks.js` (D3); `frontend/src/components/ui/HoverLiftCard.jsx`, `frontend/src/components/dashboard/StatCard.jsx` (D4); `frontend/src/pages/Register.jsx`, `frontend/src/pages/SessionsPage.jsx`, `frontend/src/pages/CardDecksPage.jsx`, `frontend/src/pages/SessionEdit.jsx`, `frontend/src/pages/PrivacyPage.jsx`, + 3 borrados (D5).
+
+### Consecuencias
+
+- **Positivos:** se corrige un porcentaje de scoring engañoso que afectaba a GameOver y analíticas de toda partida de Asociación en vivo (defecto alto); el dashboard pasa a ser coherente con su filtro temporal; el onboarding deja de abusar de ARIA y de excluir por género; las cards clicables son operables por teclado (WCAG 2.1.1). Todo lo demás es microcopy/etiquetas, sin lógica de negocio.
+- **Alcance:** 1 archivo backend (scoring), ~9 archivos frontend, 3 borrados. El fix de `maxScore` solo cambia el cálculo del techo en `createPlay` (no toca el motor de eventos ni el clamp del modelo).
+- **Diferido honesto:** 36 «dead exports» de Fallow sin triar en lote (bajo valor, algunos pueden ser API de tests) y la limpieza de hotspots de complejidad siguen aparcados (riesgo de regresión en semana de release; coherente con ADR-189). Documentado como higiene de seguimiento, no defecto funcional.
+
+### Adenda — cierre de los dos findings colgantes (misma sesión)
+
+1. **Dedup frágil en el panel de escaneo RFID (modo simulación).** La selección de carta del botón de simulación deduplicaba por `_id` (`sc._id === c._id`), que con un DTO que expone `id` daría `undefined === undefined → true` y marcaría TODAS las cartas como ya escaneadas. **Investigado: inalcanzable en runtime** — ningún padre pasa la prop `availableCards` (siempre el default vacío) y el botón de simulación está limitado a `MODE === 'development'`; el escaneo real deduplica por `uid`. Se blindó igualmente con dedup robusto por `uid` (huella física, siempre presente) + `id||_id` con guardas de verdad, eliminando la trampa latente.
+
+2. **Falso «unhealthy» del contenedor frontend (IPv4/IPv6).** El healthcheck `wget http://localhost/health` resolvía `localhost`→`::1` (IPv6) dentro del contenedor, pero nginx solo escucha en IPv4 (`listen 80;`) → connection refused → unhealthy pese a servir correctamente. La definición efectiva vivía en `docker-compose.yml` (sobrescribe la `HEALTHCHECK` del Dockerfile), de ahí que un rebuild de imagen no bastara. **Fix:** `localhost`→`127.0.0.1` en compose y Dockerfile (coherencia); `--force-recreate` del servicio → healthy al primer probe. El backend ya estaba healthy porque su healthcheck usa `node http.get` (resuelve ambas familias), no `wget`.
+
+---
+
+## ADR-193: Endurecimiento del núcleo — `mechanicType` explícito en la sesión (fin de la detección por «huella de datos») y normalizador central `id`/`_id` en el frontend [Full-stack, Mantenibilidad, Backend, Frontend, Analytics]
+
+### Contexto
+
+Tras la auditoría de v1.0.0, la valoración del estado del código señaló dos fragilidades **estructurales** del núcleo (clases de bug recurrentes, no defectos puntuales):
+
+1. **El tipo de mecánica de una partida se infería por «huella de datos»** (presencia de `sequencePlan` / `associationChallengePlan` / `boardLayout`). Un acoplamiento implícito que ya había producido un bug de scoring ALTO (ADR-192): Asociación se clasificaba como Memoria porque ambas persisten `boardLayout`, y el GameOver mostraba «30/30 = 100 %».
+2. **La frontera DTO (`id`) vs Mongoose (`_id`) se resolvía ad-hoc** en decenas de sitios del frontend, filtrándose como etiquetas «Desconocido» (`.find(x => x._id === filtro)` que no casaba) y comparaciones `undefined === undefined`.
+
+Se decidió endurecer ambos puntos. Los dos monolitos del dominio (`GameSession` UI 1655 LOC y `GameEngine`) se dejan **fuera de alcance** a propósito (riesgo de regresión en semana de release; coherente con ADR-189).
+
+### Decisión 1 — Campo explícito `GameSession.mechanicType` [Backend]
+
+El tipo base de mecánica (`association` | `sequence` | `memory`) pasa a ser un **campo denormalizado** en la sesión, fuente de verdad para el scoring y auto-descriptivo (sin `populate`):
+
+- **Modelo**: `mechanicType` (enum, indexado, **no required**). No required a propósito: las sesiones legacy se rellenan por migración y el scoring conserva un fallback.
+- **Asignación en todas las vías de creación** (`createSession`, `createSessionFromDeck`, `cloneSession`, seeder) vía un helper `toMechanicType(name)` que mapea `GameMechanic.name` al enum **o devuelve null** para mecánicas custom/no estándar (evita romper el enum; esos casos caen al fallback). Sin el helper, una mecánica con `name` arbitrario (p. ej. de tests) hacía fallar la validación del enum → 400 en la creación.
+- **Scoring**: el cálculo del techo de puntuación se **extrae a una función pura** `computeMaxScore(session)` (módulo `gamePlayScoring.js`), que usa `mechanicType` y, si falta (legacy), infiere por huella manteniendo el orden Secuencia → Asociación → Memoria. `createPlay` deja de tener ~45 líneas de detección inline y delega en la función, ahora testeable en aislamiento.
+- **Migración** `migrate:mechanic-type` (idempotente, con `--dry-run`): backfill desde `GameMechanic.name` y, si no resuelve, por huella.
+
+**Alternativa descartada:** leer `session.mechanicId.name` por `populate` en `createPlay` (como ya hace el GameEngine). Se prefirió denormalizar para que la sesión sea auto-descriptiva, evitar un join en el camino caliente y separar el *tipo base* (familia de scoring/flujo) del *mechanicId* concreto, de cara a futuras mecánicas custom.
+
+### Decisión 2 — Normalizador central `lib/entityId.js` [Frontend]
+
+Un helper único resuelve el identificador de cualquier entidad de dominio:
+
+- `getId(entity)` → `entity.id ?? entity._id` normalizado a string, o null (null-safe).
+- `sameId(a, b)` → comparación por id normalizado con **guardas de verdad** (nunca true si ambos sin id); acepta entidad o id string.
+- `findById(list, idOrEntity)` → `.find` por id normalizado, seguro ante listas no-array.
+
+Migración **completa** (no piloto, CLAUDE.md): los ~36 archivos que resolvían `id`/`_id` de entidades pasan a usar los helpers (`x.id || x._id` → `getId(x)`; `.find(x => x._id === t)` → `findById`; comparaciones → `sameId`). Se **excluyen** los campos semánticos propios (`studentId`, `contextId`, `uid`, `sensorId`, `playerId`), que identifican por otro criterio. El mini-helper previo `resolveMechanicId` se reescribe sobre `getId`.
+
+### Cambios
+
+**Backend:** `services/gamePlayScoring.js` (nuevo: `computeMaxScore`/`inferMechanicTypeFromShape`/`toMechanicType`/`MECHANIC_TYPES`), `services/gamePlayService.js` (createPlay delega), `models/GameSession.js` (campo enum), `services/gameSessionService.js` (3 asignaciones), `seeders/06-sessions.js`, `scripts/migrate-mechanic-type.js` + scripts npm. Tests: `tests/gamePlayScoring.test.js`, `tests/sessionMechanicType.test.js`.
+**Frontend:** `lib/entityId.js` (nuevo) + `lib/__tests__/entityId.test.js`; migración de ~36 archivos (pages/components/hooks/lib) a `getId`/`sameId`/`findById`.
+
+### Verificación
+
+- **Backend: 1514/1514 (125 suites), lint 0 errores.** +15 tests (computeMaxScore por mecánica incl. regresión Asociación con `boardLayout`; `toMechanicType` con mecánica custom → null; persistencia del enum + scoring round-trip). Un fallo intermedio propio (mecánica `test-mechanic` fuera del enum → 400 en 3 suites de gameplay) se detectó por la suite completa y se corrigió con `toMechanicType`.
+- **Frontend: 601/601 (67 archivos), lint 0 errores** (81 warnings preexistentes). +11 tests de `entityId`.
+- **Build de producción OK** (rebuild Docker). **E2E navegado** en la app: migración aplicada (42 sesiones, `distinct(mechanicType) = ['association','memory','sequence']`, 0 sin resolver); una partida de Asociación creada desde la UI rinde `session.mechanicType = 'association'` y `play.maxScore = 50` (5 rondas × 10, **no 30** = 6 cartas/2 × 10) tanto en BD como en el GameOver («0 / 50 puntos»). Navegación y consola sin errores de la app (los 2 errores de consola son inyecciones de una extensión Kaspersky bloqueadas por el CSP, ajenas al código).
+
+### Consecuencias
+
+- **Positivos:** se elimina la clase de bug «mecánica mal clasificada» (el scoring ya no depende de una heurística frágil) y la clase «id/_id mal resuelto» (un único punto, orden unificado, guardas de verdad). El cálculo de scoring queda aislado y exhaustivamente testeado. Robustez ante mecánicas custom (no rompen el enum; caen al fallback).
+- **Alcance:** núcleo de scoring (1 función pura + 1 campo) y frontera de identidad del frontend; sin tocar los monolitos `GameEngine`/`GameSession`-UI (diferidos con criterio). Migración de datos disponible para sesiones legacy; el fallback cubre las no migradas.
+

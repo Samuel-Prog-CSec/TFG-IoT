@@ -115,6 +115,7 @@ const MfaManagementPanel = ({ status, onChange }) => {
   const lowBackup = remaining > 0 && remaining < 3;
   const exhaustedBackup = remaining === 0;
   const backupTone = exhaustedBackup || lowBackup ? 'warning' : 'default';
+  const backupPlural = remaining === 1 ? '' : 's';
 
   const getBackupHint = () => {
     if (exhaustedBackup) return 'Regenera ya — no tienes códigos disponibles';
@@ -259,7 +260,7 @@ const MfaManagementPanel = ({ status, onChange }) => {
             <span>
               {exhaustedBackup
                 ? 'Has consumido todos los códigos de respaldo. Sin ellos, si pierdes el dispositivo MFA no podrás acceder. Genera nuevos cuanto antes.'
-                : `Solo te quedan ${remaining} código${remaining === 1 ? '' : 's'} de respaldo. Te recomendamos regenerarlos.`}
+                : `Solo te quedan ${remaining} código${backupPlural} de respaldo. Te recomendamos regenerarlos.`}
             </span>
           </div>
         )}

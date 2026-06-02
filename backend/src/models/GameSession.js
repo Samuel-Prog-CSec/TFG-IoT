@@ -83,6 +83,15 @@ const gameSessionSchema = new mongoose.Schema(
       ref: 'GameMechanic',
       required: true
     },
+    // Tipo de mecánica denormalizado desde GameMechanic.name. Fuente de verdad
+    // explícita para scoring y flujo de juego (evita inferir por "huella de
+    // datos"). No required: las sesiones legacy se rellenan por migración y el
+    // cálculo de maxScore tiene fallback por huella mientras tanto (ADR-193).
+    mechanicType: {
+      type: String,
+      enum: ['association', 'sequence', 'memory'],
+      index: true
+    },
     deckId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'CardDeck',

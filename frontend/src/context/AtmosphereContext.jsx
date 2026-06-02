@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- patrón contexto: Provider + hook en el mismo archivo; solo afecta al HMR de dev */
 /**
  * @fileoverview AtmosphereContext — atmósfera dinámica por contexto (T-954).
  *

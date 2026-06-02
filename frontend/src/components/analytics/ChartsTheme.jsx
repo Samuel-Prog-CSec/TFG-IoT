@@ -1,3 +1,4 @@
+/* eslint-disable react-refresh/only-export-components -- módulo de tema de charts: exporta componentes junto a helpers/constantes de tema por cohesión; solo afecta al HMR de dev */
 /**
  * @fileoverview Sistema de tema canónico para charts Recharts (T-953 Fase A).
  *
@@ -20,7 +21,7 @@
  *
  *  3. `chartTokens` — strings con los tokens compartidos para grid, ejes,
  *     tooltip background, border. Evita duplicar literales como
- *     `var(--color-border-subtle)` por todo el código.
+ *     `var(--color-border-subtle)` a lo largo del código.
  *
  *  4. `<ThemedTooltipCard>` — wrapper de tooltip con el estilo canónico
  *     (`bg-background-elevated/95 border border-border-default rounded-lg

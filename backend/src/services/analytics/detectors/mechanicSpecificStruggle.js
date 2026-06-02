@@ -98,6 +98,7 @@ class MechanicSpecificStruggleDetector extends AlertDetector {
     const studentMap = new Map(students.map(s => [s._id.toString(), s]));
     const findings = [];
 
+    // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
     for (const [sid, mechs] of byStudent.entries()) {
       if (mechs.length < 2) {
         continue;

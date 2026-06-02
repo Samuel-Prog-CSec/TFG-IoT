@@ -93,6 +93,7 @@ const encryptField = (plaintext, aad = '') => {
   }
   const key = getKey();
   const iv = crypto.randomBytes(IV_BYTES);
+  // eslint-disable-next-line sonarjs/encryption -- AES-256-GCM (AEAD) con IV aleatorio por operación y AAD; uso verificado y seguro
   const cipher = crypto.createCipheriv(ALGORITHM, key, iv);
   if (aad) {
     cipher.setAAD(Buffer.from(aad, 'utf8'));
@@ -127,6 +128,7 @@ const decryptField = (envelope, aad = '') => {
   const ciphertext = Buffer.from(ciphertextHex, 'hex');
 
   const key = getKey();
+  // eslint-disable-next-line sonarjs/encryption -- AES-256-GCM (AEAD) con verificación de authTag; uso verificado y seguro
   const decipher = crypto.createDecipheriv(ALGORITHM, key, iv);
   decipher.setAuthTag(tag);
   if (aad) {

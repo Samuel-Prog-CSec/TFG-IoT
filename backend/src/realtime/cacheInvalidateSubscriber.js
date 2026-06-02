@@ -135,6 +135,7 @@ const startCacheInvalidateSubscriber = async () => {
   const SUBSCRIBE_BASE_DELAY_MS = 1000;
   let subscribed = false;
   let lastErr = null;
+  // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- bucle de reintentos: break al éxito y break en el último intento
   for (let attempt = 0; attempt < SUBSCRIBE_RETRIES; attempt += 1) {
     try {
       await subscriberClient.subscribe(CACHE_INVALIDATE_CHANNEL);

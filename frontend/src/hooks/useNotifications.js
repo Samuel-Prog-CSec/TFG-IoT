@@ -20,6 +20,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { notificationsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import socketService from '../services/socket';
 import { useAuth } from '../context/AuthContext';
+import { getId } from '../lib/entityId';
 
 const DEFAULT_PAGE_SIZE = 20;
 const NOTIFICATION_EVENT = 'notification:created';
@@ -29,7 +30,7 @@ const NOTIFICATION_EVENT = 'notification:created';
  */
 export default function useNotifications({ pageSize = DEFAULT_PAGE_SIZE } = {}) {
   const { isAuthenticated, user } = useAuth();
-  const userId = user?.id || user?._id || null;
+  const userId = getId(user);
 
   const [notifications, setNotifications] = useState([]);
   const [unreadCount, setUnreadCount] = useState(0);

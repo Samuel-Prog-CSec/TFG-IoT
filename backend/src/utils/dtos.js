@@ -1070,6 +1070,7 @@ const toSmartAlertDTOV1 = (doc, opts = {}) => {
  * @param {string} [opts.pinnedByName]
  * @returns {object|null}
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- mapeo DTO con múltiples campos opcionales; lineal y trazable, dividirlo no aporta claridad
 const toSystemAlertDTOV1 = (doc, opts = {}) => {
   if (!doc) {
     return null;

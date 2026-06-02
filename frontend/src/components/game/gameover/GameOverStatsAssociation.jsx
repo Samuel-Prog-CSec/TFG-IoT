@@ -42,7 +42,7 @@ function GameOverStatsAssociation({ summary, totalRounds, correctAnswers }) {
   // primera categoría alfabéticamente cuando hay empate. Si el alumno
   // acertó 5 categorías al 100% (caso real durante QA: Vaca/Cerdo/Gallina/
   // Caballo/Pato todos 1/1), la UI muestra "Caballo" y le quita mérito al
-  // hecho de que dominó todo. Detectamos el empate aquí y mostramos un
+  // hecho de que lo dominó por completo. Detectamos el empate aquí y mostramos un
   // mensaje motivador en su lugar.
   const dominanceSummary = useMemo(() => {
     if (!categoryDominance) return null;

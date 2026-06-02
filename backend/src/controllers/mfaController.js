@@ -272,6 +272,7 @@ const verifyBackupCode = async (req, res) => {
   // loguearlo aparte.
   let matchedIndex = -1;
   let reuseAttempt = false;
+  // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- recorrido completo intencional: continue salta no-match/usados, break al confirmar match
   for (let i = 0; i < userDoc.mfa.backupCodes.length; i++) {
     const entry = userDoc.mfa.backupCodes[i];
     const matches = await bcrypt.compare(backupCode, entry.hash);

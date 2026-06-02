@@ -139,7 +139,7 @@ function FeedbackOverlay({ type, points = 0, mechanicType = null, onComplete }) 
         >
           {/* Icono hero per mecánica (T-953 Fase 3) — Brain/Link2/
               ListOrdered en success según mecánica; Flame en error.
-              Sin emojis, todo Lucide para consistencia design system. */}
+              Sin emojis, solo Lucide para consistencia design system. */}
           <motion.div
             animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.2, 1],

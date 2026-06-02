@@ -20,8 +20,6 @@ const TEACHER = {
 };
 
 describe('CSRF defense (B9)', () => {
-  let accessToken;
-
   beforeEach(async () => {
     await User.deleteMany({});
     await User.create({
@@ -30,11 +28,10 @@ describe('CSRF defense (B9)', () => {
       accountStatus: 'approved',
       status: 'active'
     });
-    const res = await request(app).post('/api/auth/login').send({
+    await request(app).post('/api/auth/login').send({
       email: TEACHER.email,
       password: TEACHER.password
     });
-    accessToken = res.body?.data?.accessToken;
   });
 
   // Nota: en NODE_ENV=test, `csrfProtection` salta CSRF para no romper la suite.

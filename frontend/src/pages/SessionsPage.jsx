@@ -32,6 +32,7 @@ import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ROUTES } from '../constants/routes';
+import { getId, sameId, findById } from '../lib/entityId';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import HoverLiftCard from '../components/ui/HoverLiftCard';
@@ -215,7 +216,7 @@ const SessionCard = memo(function SessionCard({
   const isMemoryMechanic = String(session.mechanic?.name || '').toLowerCase() === 'memory';
   const roundsOrPairsLabel = isMemoryMechanic ? 'Parejas' : 'Rondas';
   const contextLabel = session.context?.name || 'Contexto';
-  const sessionId = session.id || session._id;
+  const sessionId = getId(session);
   const canEdit = session.status === 'created';
   const canDelete = session.status === 'created';
   const borderClass = BORDER_CLASSES[session.status] || 'border-l-background-surface/50';
@@ -506,7 +507,7 @@ const renderSessionsContent = ({
           hermanos colapsan vía animación de layout sin saltar (T-952 Fase 2). */}
       <AnimatePresence mode="popLayout">
         {sessions.map((session) => {
-          const sessionId = session.id || session._id;
+          const sessionId = getId(session);
           return (
             <motion.div
               key={sessionId}
@@ -586,7 +587,7 @@ export default function SessionsPage() {
   const mechanicOptions = useMemo(() => [
     { value: '', label: 'Todas' },
     ...mechanics.map((mechanic) => ({
-      value: mechanic.id || mechanic._id,
+      value: getId(mechanic),
       label: mechanic.displayName || mechanic.name
     }))
   ], [mechanics]);
@@ -594,7 +595,7 @@ export default function SessionsPage() {
   const contextOptions = useMemo(() => [
     { value: '', label: 'Todos' },
     ...contexts.map((context) => ({
-      value: context.id || context._id,
+      value: getId(context),
       label: context.name
     }))
   ], [contexts]);
@@ -729,14 +730,14 @@ export default function SessionsPage() {
   // vea el cambio instantáneamente.
   const handleRename = useCallback(
     (session) => async (newName) => {
-      const sessionId = session.id || session._id;
+      const sessionId = getId(session);
       if (!sessionId) return;
       const previousName = session.name || session.deck?.name || '';
       const trimmed = (newName || '').trim();
       if (!trimmed || trimmed === previousName) return;
       setSessions((current) =>
         current.map((s) =>
-          (s.id || s._id) === sessionId ? { ...s, name: trimmed } : s,
+          sameId(s, sessionId) ? { ...s, name: trimmed } : s,
         ),
       );
       try {
@@ -747,7 +748,7 @@ export default function SessionsPage() {
       } catch (err) {
         setSessions((current) =>
           current.map((s) =>
-            (s.id || s._id) === sessionId ? { ...s, name: previousName } : s,
+            sameId(s, sessionId) ? { ...s, name: previousName } : s,
           ),
         );
         toast.error('No se pudo guardar el nombre', {
@@ -764,7 +765,7 @@ export default function SessionsPage() {
 
     setDeleteLoading(true);
     try {
-      await sessionsAPI.deleteSession(selectedSession.id || selectedSession._id);
+      await sessionsAPI.deleteSession(getId(selectedSession));
       toast.success('Sesión eliminada', {
         description: 'La configuración se eliminó correctamente.'
       });
@@ -785,9 +786,9 @@ export default function SessionsPage() {
 
     setCloneLoading(true);
     try {
-      const response = await sessionsAPI.cloneSession(selectedSession.id || selectedSession._id);
+      const response = await sessionsAPI.cloneSession(getId(selectedSession));
       const clonedSession = extractData(response);
-      const clonedSessionId = clonedSession?.id || clonedSession?._id;
+      const clonedSessionId = getId(clonedSession);
       const clonedMechanicName = (clonedSession?.mechanic?.name || '').toString().toLowerCase();
 
       toast.success('Sesión clonada', {
@@ -821,6 +822,12 @@ export default function SessionsPage() {
 
   const hasActiveFilters = filters.statusFilter || filters.difficultyFilter || filters.mechanicFilter || filters.contextFilter;
 
+  // Los DTOs de mecánica y contexto exponen `id` (no `_id`); buscar por `_id`
+  // dejaba el chip de filtro activo en "Desconocida"/"Desconocido" aunque el
+  // filtro sí se aplicaba (al backend se envía el id correcto).
+  const mechanicMatch = findById(mechanics, filters.mechanicFilter);
+  const contextMatch = findById(contexts, filters.contextFilter);
+
   const activeFilterChips = [
     filters.statusFilter && {
       key: 'status',
@@ -834,12 +841,12 @@ export default function SessionsPage() {
     },
     filters.mechanicFilter && {
       key: 'mechanic',
-      label: `Mecánica: ${mechanics.find((m) => m._id === filters.mechanicFilter)?.name || 'Desconocida'}`,
+      label: `Mecánica: ${mechanicMatch?.displayName || mechanicMatch?.name || 'Desconocida'}`,
       onRemove: () => dispatchFilters({ type: 'SET_MECHANIC', payload: '' }),
     },
     filters.contextFilter && {
       key: 'context',
-      label: `Contexto: ${contexts.find((c) => c._id === filters.contextFilter)?.name || 'Desconocido'}`,
+      label: `Contexto: ${contextMatch?.name || 'Desconocido'}`,
       onRemove: () => dispatchFilters({ type: 'SET_CONTEXT', payload: '' }),
     },
   ].filter(Boolean);

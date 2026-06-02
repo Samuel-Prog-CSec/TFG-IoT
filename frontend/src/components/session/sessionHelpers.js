@@ -5,6 +5,8 @@
  * @module components/session/sessionHelpers
  */
 
+import { getId } from '../../lib/entityId';
+
 // Configuracion del wizard. Los titulos siguen el patron verbo+sustantivo
 // para coherencia visual del stepper (la mezcla "Seleccionar Mazo" / "Mecanica"
 // / "Reglas" / "Crear" hacia que el primer paso pareciera de distinto tipo
@@ -150,7 +152,7 @@ export const isMechanicSelectable = mechanic => {
   return ENABLED_SESSION_MECHANICS.has(normalizedName);
 };
 
-export const resolveMechanicId = mechanic => mechanic?.id || mechanic?._id;
+export const resolveMechanicId = mechanic => getId(mechanic);
 export const resolveMechanicName = mechanic => normalizeMechanicName(mechanic);
 
 export const findMechanicById = (mechanics, mechanicId) => {

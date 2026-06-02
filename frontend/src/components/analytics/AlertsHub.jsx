@@ -18,6 +18,7 @@ import { useNavigate } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import { AlertTriangle, ChevronRight, Filter, User, Layers } from 'lucide-react';
 import { cn, listContainerVariants, listItemVariants } from '../../lib/utils';
+import { getId } from '../../lib/entityId';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { formatRelativeTime } from '../../lib/dateUtils';
 import {
@@ -71,6 +72,7 @@ SeverityCounter.propTypes = {
   count: PropTypes.number
 };
 
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- card de alerta con múltiples estados (activa/snoozed/resuelta) y acciones condicionales
 function AlertCard({
   alert,
   shouldReduceMotion,
@@ -498,7 +500,7 @@ function AlertsHub({
                 <AnimatePresence mode="popLayout">
                   {groupAlertsList.map(alert => (
                     <AlertCard
-                      key={alert.id || alert._id}
+                      key={getId(alert)}
                       alert={alert}
                       shouldReduceMotion={shouldReduceMotion}
                       selectable={selectable}
@@ -524,7 +526,7 @@ function AlertsHub({
           <AnimatePresence mode="popLayout">
             {filteredAlerts.map(alert => (
               <AlertCard
-                key={alert.id || alert._id}
+                key={getId(alert)}
                 alert={alert}
                 shouldReduceMotion={shouldReduceMotion}
                 selectable={selectable}

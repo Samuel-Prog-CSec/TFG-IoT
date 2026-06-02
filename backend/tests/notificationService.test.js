@@ -77,6 +77,7 @@ describe('notificationService (integración)', () => {
       });
       expect(k1).toBe(k2);
       expect(k1).not.toBe(k3);
+      // eslint-disable-next-line security/detect-non-literal-regexp -- userId generado en el test (genId), no es entrada externa
       expect(k1).toMatch(new RegExp(`^${userId}:play_completed:`));
     });
 

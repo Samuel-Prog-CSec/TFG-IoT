@@ -206,7 +206,7 @@ function GameOverScreen({
 
   // Sound effect proporcional al tier (silencio si 0⭐).
   useEffect(() => {
-    if (shouldReduceMotion) return;
+    if (shouldReduceMotion) return undefined;
     const t = setTimeout(() => soundEffectsService.playGameOverFanfare(stars), 250);
     return () => clearTimeout(t);
   }, [stars, shouldReduceMotion]);
@@ -475,7 +475,7 @@ function GameOverScreen({
           inferior izquierda del overlay (fuera del card para no competir
           con el scoreboard), escalada 1.4x. Solo visible >=md para no
           saturar pantallas pequeñas. `aria-hidden` porque el dialog ya
-          comunica todo lo importante (`aria-labelledby`/`aria-describedby`)
+          comunica la información importante (`aria-labelledby`/`aria-describedby`)
           y la mascota duplicaría con la burbuja. */}
       <div
         aria-hidden="true"

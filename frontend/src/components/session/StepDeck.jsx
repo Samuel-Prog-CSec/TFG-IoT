@@ -16,6 +16,7 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { getId } from '../../lib/entityId';
 import GlassCard from '../ui/GlassCard';
 import ButtonPremium from '../ui/ButtonPremium';
 import CardAssetPreview from '../ui/CardAssetPreview';
@@ -73,7 +74,7 @@ export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {decks.map((deck) => {
-          const deckId = deck.id || deck._id;
+          const deckId = getId(deck);
           const cardsPreview = deck.cardMappings || [];
           const cardsCount = deck.cardsCount || deck.cardMappings?.length || 0;
           const contextName = deck.context?.name || deck.contextId?.name || 'Contexto';
@@ -107,7 +108,7 @@ export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
             <div className="flex gap-1.5 mb-3 h-8 overflow-hidden">
               {cardsPreview.slice(0, 6).map((mapping) => (
                 <CardAssetPreview
-                  key={mapping.uid || mapping.id || mapping._id}
+                  key={mapping.uid || getId(mapping)}
                   asset={mapping.displayData}
                   className="size-8 rounded-md flex-shrink-0"
                   fallbackLabel={mapping.displayData?.display || mapping.displayData?.emoji || '\uD83C\uDFB3'}

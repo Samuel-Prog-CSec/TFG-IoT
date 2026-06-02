@@ -25,6 +25,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { sessionsAPI, extractData, extractErrorMessage } from '../services/api';
+import { getId } from '../lib/entityId';
 import WizardStepper from '../components/ui/WizardStepper';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
@@ -224,8 +225,8 @@ export default function CreateSession() {
 
       // Memoria -> BoardSetup para configurar tablero, Asociacion -> Detalle de sesion
       const targetRoute = isMemorySelected
-        ? ROUTES.BOARD_SETUP_WITH_ID(newSession._id || newSession.id)
-        : ROUTES.SESSION_DETAIL(newSession._id || newSession.id);
+        ? ROUTES.BOARD_SETUP_WITH_ID(getId(newSession))
+        : ROUTES.SESSION_DETAIL(getId(newSession));
 
       setTimeout(() => {
         navigate(targetRoute);

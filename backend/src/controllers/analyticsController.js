@@ -20,7 +20,7 @@ const consentService = require('../services/consentService');
  * T-942 Fase E: añade un sufijo de filtros a una cache key SOLO cuando hay
  * algún filtro activo. Garantiza que la vista por defecto (sin contexto ni
  * mecánica) conserve su key histórica intacta — los tests de cobertura de
- * caché dependen de ello y, sobre todo, evita que un resultado filtrado se
+ * caché dependen de ello y, en particular, evita que un resultado filtrado se
  * sirva (o sea servido) desde la entrada sin filtrar y viceversa.
  *
  * @param {string} baseKey - Key base ya construida (ej. `summary:<teacherId>`)
