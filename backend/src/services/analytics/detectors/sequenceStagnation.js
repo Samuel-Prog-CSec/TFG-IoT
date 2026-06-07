@@ -14,7 +14,7 @@
 const { AlertDetector } = require('./_base');
 const { ALERT_TYPES } = require('../../../config/alerts');
 const gamePlayRepository = require('../../../repositories/gamePlayRepository');
-const { toObjectId } = require('../analyticsHelpers');
+const { toObjectId, getStartDate } = require('../analyticsHelpers');
 
 class SequenceStagnationDetector extends AlertDetector {
   constructor() {
@@ -29,34 +29,36 @@ class SequenceStagnationDetector extends AlertDetector {
     const { minStagnantGames } = ALERT_TYPES.sequence_stagnation.thresholds;
     const studentIds = students.map(s => toObjectId(s._id));
 
-    // Join con game_sessions → game_mechanics para filtrar mechanicType=sequence
+    // Join con game_sessions para filtrar por mechanicType=sequence
+    // (campo denormalizado, ADR-193). Antes hacía doble $lookup
+    // (game_sessions → game_mechanics) por mechanic.name; ahora un único
+    // $lookup con sub-pipeline que solo proyecta mechanicType evita arrastrar
+    // el doc de sesión completo (cardMappings/boardLayout/sequencePlan) y
+    // elimina por completo el join a game_mechanics.
+    // La cota temporal (90d) permite que el índice {playerId,status,completedAt}
+    // limite el scan a partidas recientes: un alumno inactivo >90d no debe alertar.
     const pipeline = [
       {
         $match: {
           playerId: { $in: studentIds },
           status: 'completed',
+          completedAt: { $gte: getStartDate('90d') },
           'metrics.maxSequenceLengthAchieved': { $exists: true, $gt: 0 }
         }
       },
       {
         $lookup: {
           from: 'game_sessions',
-          localField: 'sessionId',
-          foreignField: '_id',
+          let: { sid: '$sessionId' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$sid'] } } },
+            { $project: { mechanicType: 1, _id: 0 } }
+          ],
           as: 'session'
         }
       },
       { $unwind: '$session' },
-      {
-        $lookup: {
-          from: 'game_mechanics',
-          localField: 'session.mechanicId',
-          foreignField: '_id',
-          as: 'mechanic'
-        }
-      },
-      { $unwind: '$mechanic' },
-      { $match: { 'mechanic.slug': 'sequence' } },
+      { $match: { 'session.mechanicType': 'sequence' } },
       { $sort: { completedAt: -1 } },
       {
         $group: {

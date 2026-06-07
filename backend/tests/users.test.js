@@ -322,6 +322,32 @@ describe('User Management Endpoints', () => {
       expect(res.statusCode).toBe(400);
     });
 
+    it('rechaza email/password en el body (defensa mass-assignment)', async () => {
+      const student = await User.create({
+        name: 'Student MassAssign',
+        role: 'student',
+        createdBy: teacherUser._id,
+        status: 'active',
+        consent: {
+          granted: true,
+          grantedBy: 'Tutor Test',
+          grantedAt: new Date(),
+          purposes: ['educational_tracking', 'performance_analytics'],
+          policyVersion: '1.0'
+        }
+      });
+
+      const res = await request(app)
+        .put(`/api/users/${student._id}`)
+        .set('Authorization', `Bearer ${adminToken}`)
+        .set('User-Agent', 'jest-test')
+        .set('Accept-Language', 'en')
+        .set('Accept-Encoding', 'gzip')
+        .send({ password: 'Hacked1234!' });
+
+      expect(res.statusCode).toBe(400);
+    });
+
     it('should fail to update student as teacher (Forbidden)', async () => {
       const student = await User.create({
         name: 'Student Forbidden Update',

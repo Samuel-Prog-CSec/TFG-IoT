@@ -22,6 +22,7 @@ import { toast } from 'sonner';
 
 import GlassCard from '../components/ui/GlassCard';
 import HoverLiftCard from '../components/ui/HoverLiftCard';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import PageHeader from '../components/ui/PageHeader';
 import InputPremium from '../components/ui/InputPremium';
@@ -196,45 +197,56 @@ export default function ContextsPage() {
 
         {/* Stats globales */}
         <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-[var(--space-fluid-gutter)] mb-8">
-          <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center">
-              <Palette size={22} className="text-accent-indigo" />
-            </div>
-            <div>
-              <p className="text-2xl font-semibold text-text-primary font-display">{contexts.length}</p>
-              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Contextos</p>
-            </div>
-          </GlassCard>
-
-          <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-success-base/10 flex items-center justify-center">
-              <ImageIcon size={22} className="text-success-base" />
-            </div>
-            <div>
-              <p className="text-2xl font-semibold text-text-primary font-display">{totalImages}</p>
-              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Imágenes</p>
+          {/* El flex va en un div interno, NO en el className de GlassCard
+              (envuelve sus children → las clases de layout no alineaban los
+              hijos y el icono quedaba desplazado, mismo fix que Mazos). QA 2026-06-04. */}
+          <GlassCard className="p-4">
+            <div className="flex items-center gap-4">
+              <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center shrink-0">
+                <Palette size={22} className="text-accent-indigo" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold text-text-primary font-display">{contexts.length}</p>
+                <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Contextos</p>
+              </div>
             </div>
           </GlassCard>
 
-          <GlassCard className="p-4 flex items-center gap-4">
-            {/* Tile neutro cuando no hay audios: amarillo sugiere warning y
-                aquí es solo un contador informativo (QA 22/04/2026). */}
-            <div className={`size-12 rounded-xl flex items-center justify-center ${totalAudio > 0 ? 'bg-warning-base/10' : 'bg-background-surface/60'}`}>
-              <Music size={22} className={totalAudio > 0 ? 'text-warning-base' : 'text-text-muted'} />
-            </div>
-            <div>
-              <p className="text-2xl font-semibold text-text-primary font-display">{totalAudio}</p>
-              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Audios</p>
+          <GlassCard className="p-4">
+            <div className="flex items-center gap-4">
+              <div className="size-12 rounded-xl bg-success-base/10 flex items-center justify-center shrink-0">
+                <ImageIcon size={22} className="text-success-base" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold text-text-primary font-display">{totalImages}</p>
+                <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Imágenes</p>
+              </div>
             </div>
           </GlassCard>
 
-          <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-brand-base/10 flex items-center justify-center">
-              <ImageIcon size={22} className="text-brand-light" />
+          <GlassCard className="p-4">
+            <div className="flex items-center gap-4">
+              {/* Tile neutro cuando no hay audios: amarillo sugiere warning y
+                  aquí es solo un contador informativo (QA 22/04/2026). */}
+              <div className={`size-12 rounded-xl flex items-center justify-center shrink-0 ${totalAudio > 0 ? 'bg-warning-base/10' : 'bg-background-surface/60'}`}>
+                <Music size={22} className={totalAudio > 0 ? 'text-warning-base' : 'text-text-muted'} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold text-text-primary font-display">{totalAudio}</p>
+                <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Audios</p>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-semibold text-text-primary font-display">{totalAssets}</p>
-              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Recursos totales</p>
+          </GlassCard>
+
+          <GlassCard className="p-4">
+            <div className="flex items-center gap-4">
+              <div className="size-12 rounded-xl bg-brand-base/10 flex items-center justify-center shrink-0">
+                <ImageIcon size={22} className="text-brand-light" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold text-text-primary font-display">{totalAssets}</p>
+                <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Recursos totales</p>
+              </div>
             </div>
           </GlassCard>
         </div>
@@ -345,10 +357,12 @@ function ContextCard({ context, onClick }) {
   const assetCount = context.assetsCount ?? context.assets?.length ?? 0;
   const imagesCount = context.imageCount ?? context.assets?.filter(a => a.imageUrl)?.length ?? 0;
   const audioCount = context.audioCount ?? context.assets?.filter(a => a.audioUrl)?.length ?? 0;
-  // 3 previews (antes 5): con 5 chips + gap + badge "+N" los nombres quedaban
-  // ilegibles (cada chip recortado a 3-4 chars tipo "R... A... Ver..."). Con
-  // 3 chips y un ancho por chip mas generoso se leen palabras completas.
-  const previews = context.assets?.filter(a => a.display)?.slice(0, 3).map(a => a.display) || [];
+  // Galería (2026-06-04): las IMÁGENES reales de los recursos (banderas, formas,
+  // números…) son la identidad del contexto y van como banda héroe arriba.
+  // Antes eran chips de TEXTO que truncaban ("Cuadrado"→"Cuadr…", QA 2026-06-04).
+  const HERO_TILES = 4;
+  const tiles = context.assets?.slice(0, HERO_TILES) || [];
+  const hiddenAssets = Math.max(0, assetCount - tiles.length);
   const glowTint = resolveContextGlow(context);
 
   return (
@@ -358,33 +372,66 @@ function ContextCard({ context, onClick }) {
       ariaLabel={`Ver detalles del contexto ${context.name}`}
       className="group cursor-pointer h-full"
     >
-      <GlassCard className="relative overflow-hidden h-full p-6 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
+      <GlassCard className="relative overflow-hidden h-full p-5 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
         {/* Scanline signature con visibilidad CSS-controlled via group-hover. */}
         <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-        <div className="flex justify-between items-start mb-6">
-          <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center border border-accent-indigo/20 group-hover:bg-accent-indigo/20 transition-colors">
-            <ContextIcon context={context} />
+
+        {/* HERO: imágenes reales de los recursos del contexto. Sin icono
+            genérico — el contenido ES la identidad (galería, como en Mazos). */}
+        {tiles.length > 0 && (
+          <div className="relative mb-4 overflow-hidden rounded-xl p-3 bg-background-elevated/50 ring-1 ring-inset ring-border-subtle">
+            <div className="flex items-center gap-2">
+              {tiles.map((asset, i) => {
+                const label = asset.display || asset.value || '?';
+                const initials = (() => {
+                  if (!label || label === '?') return label;
+                  if (/\p{Emoji}/u.test(label)) return label;
+                  const words = label.trim().split(/\s+/);
+                  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+                  return label.slice(0, 2).toUpperCase();
+                })();
+                return (
+                  <div
+                    key={asset.key || i}
+                    className="size-12 rounded-xl border border-white/10 flex items-center justify-center text-2xl overflow-hidden shadow-[var(--shadow-inset-card)] ring-1 ring-black/5 flex-shrink-0"
+                    style={{ backgroundColor: asset.dominantColor || 'var(--color-background-elevated)' }}
+                    title={label}
+                  >
+                    <CardAssetPreview
+                      asset={asset}
+                      className="w-full h-full rounded-xl"
+                      showSkeleton={false}
+                      fallbackLabel={initials}
+                      fallbackClassName={!asset.imageUrl ? 'p-0.5 text-white/90 font-bold' : undefined}
+                    />
+                  </div>
+                );
+              })}
+              {hiddenAssets > 0 && (
+                <div className="size-12 rounded-xl bg-background-base/60 border border-border-default flex items-center justify-center text-sm font-bold text-text-secondary flex-shrink-0">
+                  +{hiddenAssets}
+                </div>
+              )}
+            </div>
           </div>
-          <div className="flex items-center gap-1 text-text-muted group-hover:text-accent-indigo transition-colors">
+        )}
+
+        {/* Nombre + afordancia "Ver detalles". h2: la página tiene h1
+            "Contextos Temáticos"; saltar a h3 viola heading-order (WCAG 1.3.1). */}
+        <div className="flex items-start justify-between gap-3 mb-2">
+          <h2 className="min-w-0 text-xl font-semibold text-text-primary tracking-tight line-clamp-1 truncate" title={context.name}>
+            {context.name}
+          </h2>
+          <span className="shrink-0 flex items-center gap-1 text-text-muted group-hover:text-accent-indigo transition-colors">
             <span className="text-sm font-medium">Ver detalles</span>
             <ChevronRight size={16} />
-          </div>
+          </span>
         </div>
 
-        {/* h2: el page tiene h1 "Contextos Temáticos"; saltar a h3 viola
-            heading-order (auditoría 24/05/2026). */}
-        <h2 className="text-xl font-semibold text-text-primary tracking-tight mb-2 line-clamp-1 truncate" title={context.name}>
-          {context.name}
-        </h2>
-
-        <div className="flex items-center gap-2 mb-6">
-          {/* Slug técnico (`geography-europe`) se mantiene solo en la vista admin
-              (`/admin/contexts`) porque es útil como identificador; en la vista
-              teacher resulta ruido visual y mezcla español con kebab-case (QA 22/04/2026). */}
+        <div className="flex items-center gap-2 mb-4">
           {context.isActive ? (
-            // BUG-A11Y-CONTRAST-CONTEXT-ACTIVE-A (QA Sprint 0 post-v0.5.0):
-            // text-success-base sobre bg-success-base/10 daba 4.44:1 en
-            // light, just below AA. light:text-success-dark cumple.
+            // BUG-A11Y-CONTRAST-CONTEXT-ACTIVE-A: text-success-on-alpha cumple AA
+            // en ambos temas sobre bg-success-base/10.
             <span className="text-xs font-medium text-success-on-alpha bg-success-base/10 px-2 py-1 rounded-full">
               Activo
             </span>
@@ -397,9 +444,8 @@ function ContextCard({ context, onClick }) {
 
         <div className="flex items-center justify-between mt-auto pt-4 border-t border-border-subtle">
           <div className="flex items-center gap-3 text-sm text-text-muted">
-            {/* Tooltip content compone "{N} recursos en total" para que
-                coincida con el texto visible "{N} total" (WCAG 2.5.3
-                label-content-name-mismatch — auditoría 24/05/2026). */}
+            {/* Tooltip "{N} recursos en total" coincide con el texto visible
+                "{N} total" (WCAG 2.5.3 label-content-name-mismatch). */}
             <Tooltip content={`${assetCount} ${assetCount === 1 ? 'recurso' : 'recursos'} en total`}>
               <div className="flex items-center gap-1.5">
                 <span className="font-medium text-text-secondary">{assetCount}</span> total
@@ -420,27 +466,6 @@ function ContextCard({ context, onClick }) {
             </Tooltip>
           </div>
         </div>
-
-        {previews.length > 0 && (
-          <div
-            className="mt-4 flex items-center gap-2 pt-4 border-t border-border-subtle"
-            title={context.assets?.flatMap(a => a.display ? [a.display] : []).join(', ')}
-          >
-            {previews.map((preview, i) => (
-              <span
-                key={`${preview}-${i}`}
-                className="flex-1 min-w-0 truncate rounded-full border border-border-subtle bg-background-elevated/40 px-2.5 py-1 text-xs font-medium text-text-secondary text-center"
-              >
-                {preview}
-              </span>
-            ))}
-            {assetCount > previews.length && (
-              <div className="shrink-0 flex items-center justify-center h-7 px-2 rounded-full border border-border-subtle bg-background-elevated/60 text-micro font-semibold text-text-muted">
-                +{assetCount - previews.length}
-              </div>
-            )}
-          </div>
-        )}
       </GlassCard>
     </HoverLiftCard>
   );

@@ -253,27 +253,37 @@ async function getHealthStatus(rfidService = null) {
     overallStatus = 'degraded';
   }
 
+  // En producción NO exponemos detalles del runtime en el endpoint público:
+  // nodeVersion permite mapear CVEs del runtime exacto, y pid/memoria/cpu/platform
+  // dan señal para fingerprinting y timing (OWASP A05 Security Misconfiguration).
+  // Quedan disponibles en el endpoint autenticado de métricas (super_admin).
+  const isProduction = (process.env.NODE_ENV || 'development') === 'production';
+
   return {
     status: overallStatus,
     issues,
     timestamp: new Date().toISOString(),
     uptime,
     environment: process.env.NODE_ENV || 'development',
-    nodeVersion: process.version,
     services: {
       mongodb: mongoHealth,
       redis: redisHealth,
       rfid: rfidHealth
     },
-    system: {
-      memory,
-      // CPU delta desde la última invocación (Bloque G). Útil para picos
-      // de carga visibles en /api/health y para dashboards.
-      cpu,
-      pid: process.pid,
-      platform: process.platform,
-      arch: process.arch
-    }
+    ...(isProduction
+      ? {}
+      : {
+          nodeVersion: process.version,
+          system: {
+            memory,
+            // CPU delta desde la última invocación (Bloque G). Útil para picos
+            // de carga visibles en /api/health y para dashboards.
+            cpu,
+            pid: process.pid,
+            platform: process.platform,
+            arch: process.arch
+          }
+        })
   };
 }
 

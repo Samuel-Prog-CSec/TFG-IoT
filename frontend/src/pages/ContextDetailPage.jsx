@@ -94,14 +94,14 @@ export default function ContextDetailPage() {
     try {
       // deleteImage elimina el asset completo incluyendo audio si lo tiene
       await contextsAPI.deleteImage(contextDocId, asset.key);
-      toast.success(`Asset "${asset.value}" eliminado`);
+      toast.success(`Recurso "${asset.value}" eliminado`);
       await fetchContext();
     } catch (err) {
       const msg = extractErrorMessage(err);
       if (err?.response?.status === 409) {
-        toast.error('No se puede eliminar: el asset está en uso por un mazo activo', { description: msg });
+        toast.error('No se puede eliminar: el recurso está en uso por un mazo activo', { description: msg });
       } else {
-        toast.error('Error al eliminar el asset', { description: msg });
+        toast.error('Error al eliminar el recurso', { description: msg });
       }
     } finally {
       setIsDeletingAsset(null);
@@ -110,8 +110,8 @@ export default function ContextDetailPage() {
 
   const handleDeleteAsset = (asset) => {
     deleteAssetConfirm.openModal({
-      title: 'Eliminar asset',
-      description: `Vas a eliminar "${asset.value}" (${asset.key}). Se borrará la imagen, los audios asociados y los archivos del almacenamiento del centro. Si está en uso por un mazo activo, la operación se rechazará.`,
+      title: 'Eliminar recurso',
+      description: `Vas a eliminar "${asset.value}". Se borrará la imagen, los audios asociados y los archivos del almacenamiento del centro. Si está en uso por un mazo activo, la operación se rechazará.`,
       confirmText: 'Eliminar definitivamente',
       cancelText: 'Cancelar',
       variant: 'danger',
@@ -320,7 +320,7 @@ function computeAssetOwnership(asset, currentUserId) {
     return {
       canManage: true,
       ownershipLabel: 'Subido por ti',
-      ownershipTooltip: 'Eres el creador del asset y puedes gestionarlo.'
+      ownershipTooltip: 'Eres el creador del recurso y puedes gestionarlo.'
     };
   }
 
@@ -328,7 +328,7 @@ function computeAssetOwnership(asset, currentUserId) {
     return {
       canManage: false,
       ownershipLabel: `Subido por ${ownerName}`,
-      ownershipTooltip: `Solo ${ownerName} puede eliminar o reemplazar este asset.`
+      ownershipTooltip: `Solo ${ownerName} puede eliminar o reemplazar este recurso.`
     };
   }
 
@@ -354,7 +354,7 @@ function AssetCardAudioSection({
         onClick={(e) => { e.stopPropagation(); if (canManage) onManageAudio(asset); }}
         disabled={!canManage}
         aria-disabled={!canManage}
-        title={canManage ? 'Adjuntar un archivo de audio MP3/OGG a este asset' : audioActionsTooltip}
+        title={canManage ? 'Añade un audio (MP3/OGG) que sonará al pasar esta tarjeta en una partida' : audioActionsTooltip}
         className={cn(
           'flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium border border-dashed transition-colors duration-200',
           canManage
@@ -412,7 +412,7 @@ function AssetCardAudioSection({
 
 function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, isDeletingAudio = false, onManageAudio, currentUserId }) {
   const { canManage, ownershipLabel, ownershipTooltip } = computeAssetOwnership(asset, currentUserId);
-  const deleteTooltip = canManage ? 'Eliminar asset completo' : ownershipTooltip;
+  const deleteTooltip = canManage ? 'Eliminar recurso completo' : ownershipTooltip;
   const audioActionsTooltip = canManage ? null : ownershipTooltip;
 
   return (
@@ -479,7 +479,7 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
                     : 'text-text-disabled cursor-not-allowed opacity-60'
                 )}
                 title={deleteTooltip}
-                aria-label={canManage ? 'Eliminar asset completo' : `Bloqueado: ${ownershipTooltip}`}
+                aria-label={canManage ? 'Eliminar recurso completo' : `Bloqueado: ${ownershipTooltip}`}
               >
                 {isDeleting
                   ? <Loader2 size={14} className="animate-spin" />

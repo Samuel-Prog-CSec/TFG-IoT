@@ -1022,7 +1022,10 @@ const revalidateSocketAuth = async (socket, eventName) => {
     setAuthCacheEntry(accessToken, {
       userId: user._id.toString(),
       userRole: user.role,
-      tokenExp: decoded.exp
+      tokenExp: decoded.exp,
+      // `jti` para poder purgar esta entrada en una revocación individual del
+      // token (`token_revoked`) sin esperar al TTL de 30 s del cache.
+      jti: decoded.jti
     });
 
     return true;
@@ -1633,6 +1636,7 @@ const registerSocketHandlers = ({
       'pause_play',
       'resume_play',
       'next_round',
+      'board_ready',
       'join_card_assignment',
       'leave_card_assignment',
       'join_admin_room',
@@ -1885,6 +1889,29 @@ const purgeAuthCacheByUserId = userId => {
   return purged;
 };
 
+/**
+ * Purga del auth cache la entrada cuyo token tiene el `jti` indicado.
+ * Se ejecuta en la revocación individual de un token (logout de un dispositivo,
+ * rotación de refresh), cerrando la ventana de ≤30 s en la que un token revocado
+ * seguía validando eventos socket sensibles vía cache hit.
+ *
+ * @param {string} jti
+ * @returns {number} Número de entradas purgadas
+ */
+const purgeAuthCacheByJti = jti => {
+  if (!jti) {
+    return 0;
+  }
+  let purged = 0;
+  for (const [token, cached] of authRevalidationCache.entries()) {
+    if (cached.jti === jti) {
+      authRevalidationCache.delete(token);
+      purged++;
+    }
+  }
+  return purged;
+};
+
 // Registrar listeners para eventos de revocación de tokens
 authEventBus.on('all_tokens_revoked', ({ userId, reason }) => {
   const purged = purgeAuthCacheByUserId(userId);
@@ -1897,10 +1924,17 @@ authEventBus.on('all_tokens_revoked', ({ userId, reason }) => {
   }
 });
 
-authEventBus.on('token_revoked', () => {
-  // Para revocación individual no tenemos el token string (solo JTI).
-  // El impacto es mínimo: una sola entrada expirará en ≤30s.
-  // La purga por userId cubre el caso de seguridad importante.
+authEventBus.on('token_revoked', ({ jti } = {}) => {
+  // Revocación individual: purgamos la entrada por `jti`. El access cache de
+  // socket guarda el `jti` (ver setAuthCacheEntry), así que ya no dependemos
+  // del TTL de 30 s para invalidar un token revocado en la capa WebSocket.
+  const purged = purgeAuthCacheByJti(jti);
+  if (purged > 0) {
+    logger.info('Auth cache purgado por revocación de token individual', {
+      jti,
+      entriesPurged: purged
+    });
+  }
 });
 
 /**

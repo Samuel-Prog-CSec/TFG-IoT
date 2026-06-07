@@ -80,7 +80,7 @@ function SequenceProgressChart({ data = EMPTY_DATA, height = 240, showLegend = t
 
   if (points.length === 0) {
     return (
-      <GlassCard className="p-6 flex flex-col items-center justify-center text-center" style={{ minHeight: height }}>
+      <GlassCard className="p-6 text-center" contentClassName="flex flex-col items-center justify-center" style={{ minHeight: height }}>
         <div className="size-14 rounded-full bg-accent-amber/15 flex items-center justify-center mb-3" aria-hidden="true">
           <ListOrdered size={26} className="text-accent-amber" />
         </div>

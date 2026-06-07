@@ -217,7 +217,7 @@ describe('Data Export Endpoint (Art. 20 RGPD)', () => {
         .set('Accept-Encoding', 'gzip');
 
       const data = res.body.data || res.body;
-      expect(data.student.pseudoId).toMatch(/^[0-9a-f]{8}$/);
+      expect(data.student.pseudoId).toMatch(/^[0-9a-f]{16}$/);
     });
   });
 });

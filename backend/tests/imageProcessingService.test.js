@@ -172,6 +172,29 @@ describe('imageProcessingService', () => {
         /demasiado pequeña/i
       );
     });
+
+    it('reconvierte un Error crudo de sharp (bomba que excede limitInputPixels) en ValidationError 400, sin filtrar el mensaje interno', async () => {
+      const mockFile = {
+        buffer: Buffer.from('decompression-bomb'),
+        originalname: 'bomb.png',
+        mimetype: 'image/png',
+        size: 1024
+      };
+
+      mockGetFileType.mockResolvedValue({ mime: 'image/png', ext: 'png' });
+      // sharp lanza un Error CRUDO al exceder limitInputPixels, ANTES de decodificar
+      mockSharpInstance.metadata.mockRejectedValueOnce(
+        new Error('Input image exceeds pixel limit')
+      );
+
+      const err = await imageProcessingService.processImage(mockFile).catch(e => e);
+      // contrato HTTP correcto: error operacional 400 (no 500 inesperado)
+      expect(err.statusCode).toBe(400);
+      expect(err.isOperational).toBe(true);
+      // mensaje en español amigable; NO filtra el mensaje interno de sharp
+      expect(err.message).toMatch(/no es válida o es demasiado grande/i);
+      expect(err.message).not.toMatch(/pixel limit/i);
+    });
   });
 
   describe('extractDominantColor', () => {

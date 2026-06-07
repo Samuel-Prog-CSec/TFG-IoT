@@ -243,11 +243,13 @@ describe('Dashboard — integracion analytics', () => {
     });
   });
 
-  it('muestra el subtitulo descriptivo del dashboard', async () => {
+  it('muestra el subtitulo contextual del saludo ligado al dato', async () => {
+    // Con `studentsInRisk: 2` el subtítulo se personaliza (momento de firma,
+    // 2026-06-04) en vez del genérico "Resumen de actividad…".
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText('Resumen de actividad y análisis de rendimiento')).toBeInTheDocument();
+      expect(screen.getByText('Hoy, 2 alumnos necesitan tu atención')).toBeInTheDocument();
     });
   });
 
@@ -286,8 +288,10 @@ describe('Dashboard — integracion analytics', () => {
       expect(screen.getByText('Alumnos en Riesgo')).toBeInTheDocument();
     });
 
-    // El SelectPremium de tiempo siempre se renderiza con aria-label
-    expect(screen.getByLabelText('Filtrar por rango de tiempo')).toBeInTheDocument();
+    // El SelectPremium de tiempo se renderiza con aria-label = propósito + valor
+    // seleccionado (BUG-A11Y-SELECT-NAME-B, QA 2026-06-04): "Filtrar por rango
+    // de tiempo: Últimos 7 días". Match por prefijo para no acoplar al valor.
+    expect(screen.getByLabelText(/^Filtrar por rango de tiempo/)).toBeInTheDocument();
   });
 
   it('muestra la lista de estudiantes cuando hay datos', async () => {

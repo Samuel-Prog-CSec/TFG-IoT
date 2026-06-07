@@ -1437,3 +1437,9 @@ La utilidad `cacheInvalidatePattern` se añadió a `utils/cacheHelper.js` y reut
 Cuarta queue registrada en `queues/index.js` junto a `data-retention`, `gdpr-exports` y `notifications`. Mismo prefijo `${KEY_PREFIX}bull`. Cron `*/15 * * * *` programado por `scheduleAlertDetectionCron` (env `ALERT_DETECTION_CRON`) con `jobId: 'alert-detection-cron'` para garantizar idempotencia ante reinicios. El worker `alertDetectionWorker.js` se arranca en el proceso `worker.js` separado.
 
 Esto confirma que las 3 conexiones Redis por instancia (principal de datos + pub/sub adapter Socket.IO + subscribers `rfidMode` y `cacheInvalidate`) coexisten sin interferencias en una misma instancia Upstash.
+
+## TTLs en materialización analytics (2026-06-05, ADR-196)
+
+Cierre de dos keys que crecían sin cota (riesgo en Upstash free-tier 256 MB):
+- **`student:metrics:<id>` (Hash, T-931)**: las escrituras `HINCRBY`/`HSET` de cada `endPlay` no fijaban EXPIRE → una key viva indefinidamente por cada alumno que jugara alguna vez. Se añade `EXPIRE` 90 d (`STUDENT_METRICS_TTL_SECONDS`) en la escritura en vivo y el mismo TTL en el `HSET` del reconciliador nocturno, que así renueva la ventana de los alumnos activos; los inactivos caen solos (Mongo es la fuente de verdad y el Hash es caché reconstruible).
+- **`system:meta:lastRetentionRun`**: el worker de retención usaba `set` sin TTL → `setWithTTL` 30 d. Se refresca a diario; solo expira si el job deja de correr, que es justo lo que el detector `data_retention_lag` debe señalar (lee null → lag).

@@ -66,13 +66,9 @@ const validateStudentRequirements = user => {
   if (!user.createdBy && user.isNew) {
     throw new Error('Los alumnos deben ser creados por un profesor (campo createdBy requerido)');
   }
-  // Minimización de datos — Art. 5.1.c RGPD: la fecha de nacimiento completa
-  // tiene alto potencial identificativo y no aporta valor pedagógico respecto a la edad simple
-  if (user.profile?.birthdate) {
-    throw new Error(
-      'Los alumnos NO deben tener fecha de nacimiento (principio de minimización, Art. 5.1.c RGPD). Usar profile.age en su lugar.'
-    );
-  }
+  // Minimización de datos — Art. 5.1.c RGPD: `profile.birthdate` se eliminó del
+  // schema por completo (ADR-197); ya no hace falta un guard explícito porque
+  // Mongoose (strict) descarta cualquier asignación de un campo no declarado.
   // Consentimiento parental obligatorio — Art. 8 RGPD + Art. 7 LOPDGDD
   if (user.isNew) {
     if (!user.consent?.granted) {
@@ -116,7 +112,6 @@ const hashPasswordIfNeeded = async user => {
  * @property {string} [profile.avatar] - URL del avatar del usuario
  * @property {number} [profile.age] - Edad del alumno (solo para students)
  * @property {string} [profile.classroom] - Aula o clase a la que pertenece el alumno
- * @property {Date} [profile.birthdate] - Fecha de nacimiento del alumno
  * @property {Object} studentMetrics - Métricas agregadas del alumno (solo para students)
  * @property {number} studentMetrics.totalGamesPlayed - Total de partidas jugadas
  * @property {number} studentMetrics.totalScore - Puntuación total acumulada
@@ -186,7 +181,9 @@ const userSchema = new mongoose.Schema(
         trim: true,
         maxlength: [50, 'El nombre de la clase no puede exceder 50 caracteres']
       },
-      birthdate: Date,
+      // `birthdate` ELIMINADO del schema (Art. 5.1.c RGPD, minimización): no se
+      // almacena fecha de nacimiento de NADIE; para alumnos se usa `age`. Mongoose
+      // (strict) descarta cualquier asignación y el validador la rechaza (ADR-197).
       // Estado del onboarding interactivo (T-951 PROP-13). Se persiste
       // en backend en lugar de solo localStorage para que el progreso
       // sobreviva al cambio de dispositivo — crítico para super_admin
@@ -641,5 +638,13 @@ userSchema.index({ createdBy: 1 });
  * Caso de uso: GET /api/analytics/classroom/students (lista filtrada por profesor).
  */
 userSchema.index({ createdBy: 1, role: 1 });
+
+/**
+ * Índice compuesto para queries de administración por rol + estado de cuenta.
+ * Caso de uso principal: panel de aprobaciones del super_admin
+ * (`{ role: 'teacher', accountStatus: 'pending_approval' }`). Sin este índice la
+ * query resuelve por `role` y filtra `accountStatus` con un scan en memoria.
+ */
+userSchema.index({ role: 1, accountStatus: 1 });
 
 module.exports = mongoose.model('User', userSchema);

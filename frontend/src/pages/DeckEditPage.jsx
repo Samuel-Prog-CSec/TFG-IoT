@@ -24,6 +24,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getId } from '../lib/entityId';
+import { validateAssignmentCardinality } from '../lib/deckCardinality';
 import {
   buildCardMappingsPayload,
   normalizeCardMappingsFromDeck
@@ -108,6 +109,9 @@ export default function DeckEditPage() {
   const [selectedCards, setSelectedCards] = useState([]);
   const [selectedContext, setSelectedContext] = useState(null);
   const [cardAssignments, setCardAssignments] = useState({});
+  // Entrada manual de UID en el modal "Añadir cartas" (paridad con el wizard de
+  // creación, QA 2026-06-04): permite añadir tarjetas sin lector físico.
+  const [manualUid, setManualUid] = useState('');
   
   // Hook de contextos
   const { contexts, loading: contextsLoading, findContextById } = useContexts({ 
@@ -250,6 +254,17 @@ export default function DeckEditPage() {
   // hasta una eventual migración a Data Router.
   const { confirmExit, confirmExitModalProps } = useUnsavedChanges(hasChanges);
 
+  // Cerrar el modal "Añadir cartas" con Escape (WCAG modal-escape). El modal ya
+  // cierra con click-fuera y la X, pero faltaba la tecla Escape (QA 2026-06-04).
+  useEffect(() => {
+    if (!ui.showAddCards) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') dispatchUI({ type: 'HIDE_ADD_CARDS' });
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [ui.showAddCards]);
+
   // Handlers
   const handleAddCard = useCallback((card) => {
     if (selectedCards.length >= MAX_CARDS) {
@@ -279,6 +294,26 @@ export default function DeckEditPage() {
       // Silencioso: el check es informativo, no crítico
     });
   }, [selectedCards, deckId]);
+
+  // Añadir una carta escribiendo su UID a mano (sin lector físico).
+  const handleAddManualCard = useCallback(() => {
+    const uid = manualUid.trim().toUpperCase();
+    if (!/^[0-9A-F]{1,16}$/.test(uid)) {
+      toast.warning('UID no válido', { description: 'Introduce un identificador en hexadecimal (0-9, A-F).' });
+      return;
+    }
+    handleAddCard({ uid });
+    setManualUid('');
+  }, [manualUid, handleAddCard]);
+
+  // Generar el siguiente UID secuencial (8 dígitos hex) a partir de los existentes.
+  const handleGenerateUid = useCallback(() => {
+    const max = selectedCards.reduce((acc, c) => {
+      const n = parseInt(c.uid, 16);
+      return Number.isNaN(n) ? acc : Math.max(acc, n);
+    }, -1);
+    setManualUid((max + 1).toString(16).toUpperCase().padStart(8, '0'));
+  }, [selectedCards]);
 
   const handleRemoveCard = useCallback((uid) => {
     if (selectedCards.length <= MIN_CARDS) {
@@ -343,6 +378,18 @@ export default function DeckEditPage() {
     const unassigned = selectedCards.filter(c => !cardAssignments[c.uid]);
     if (unassigned.length > 0) {
       toast.error(`Hay ${unassigned.length} carta(s) sin asignar`);
+      dispatchUI({ type: 'SET_ACTIVE_TAB', payload: 'assign' });
+      return;
+    }
+
+    // Validar cardinalidad de recursos ANTES de llamar al backend (QA 2026-06-04):
+    // el servidor exige que cada valor aparezca 1 vez (Asociación/Secuencia) o
+    // exactamente 2 veces (parejas para Memoria). Si añades una carta de más a un
+    // mazo 1:1 y reutilizas un recurso, el estado queda "mixto" y el backend
+    // respondía con un 400 técnico. Aquí damos un mensaje claro y guiamos al tab.
+    const cardinality = validateAssignmentCardinality(selectedCards, cardAssignments);
+    if (!cardinality.valid) {
+      toast.error('Recursos repetidos sin formar parejas', { description: cardinality.reason });
       dispatchUI({ type: 'SET_ACTIVE_TAB', payload: 'assign' });
       return;
     }
@@ -814,6 +861,9 @@ export default function DeckEditPage() {
             onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
           >
             <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="add-cards-title"
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
@@ -821,7 +871,7 @@ export default function DeckEditPage() {
               className="bg-background-base border border-border-default rounded-2xl p-6 max-w-3xl w-full max-h-[80vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-text-primary">Añadir cartas</h3>
+                <h3 id="add-cards-title" className="text-lg font-semibold text-text-primary">Añadir cartas</h3>
                 <Tooltip content="Cerrar">
                   <button
                     onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
@@ -830,6 +880,41 @@ export default function DeckEditPage() {
                     <X size={20} className="text-text-muted" />
                   </button>
                 </Tooltip>
+              </div>
+
+              {/* Entrada manual de UID — paridad con el wizard de creación, para
+                  añadir tarjetas sin lector físico (QA 2026-06-04). */}
+              <div className="mb-4 rounded-xl border border-border-default bg-background-elevated/40 p-3">
+                <label htmlFor="edit-manual-uid" className="block text-sm font-medium text-text-secondary mb-2">
+                  Entrada manual de UID
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <input
+                    id="edit-manual-uid"
+                    type="text"
+                    value={manualUid}
+                    onChange={(e) => setManualUid(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddManualCard(); } }}
+                    placeholder="Ej: 0000000A"
+                    className="flex-1 px-3 py-2 rounded-lg bg-background-base/60 border border-border-default text-text-primary placeholder:text-text-muted text-sm focus-ring"
+                  />
+                  <button
+                    type="button"
+                    onClick={handleGenerateUid}
+                    className="px-3 py-2 rounded-lg text-sm font-medium border border-border-default text-text-secondary hover:text-text-primary hover:bg-background-surface/60 transition-colors duration-200"
+                  >
+                    Generar UID
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleAddManualCard}
+                    disabled={!manualUid.trim()}
+                    className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-brand-base hover:bg-brand-dark disabled:opacity-50 disabled:pointer-events-none transition-colors duration-200"
+                  >
+                    Agregar
+                  </button>
+                </div>
+                <p className="mt-1.5 text-xs text-text-muted">¿Sin lector a mano? Escribe el identificador de la tarjeta o genera uno.</p>
               </div>
 
               <RFIDScannerPanel

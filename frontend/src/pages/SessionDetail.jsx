@@ -473,14 +473,14 @@ export default function SessionDetail() {
         </header>
 
         {canEdit && isAssociationSession && session.requiresAssociationPlanConfiguration && (
-          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex items-center gap-3">
-            <AlertTriangle size={18} />
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base" contentClassName="flex items-center gap-3">
+            <AlertTriangle size={18} className="shrink-0" />
             Esta sesión es un clon con borrador de retos precargado. Revísalo y guarda la configuración antes de iniciar.
           </GlassCard>
         )}
 
         {canEdit && isMemorySession && !hasMemoryBoardConfigured && (
-          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex flex-wrap items-center justify-between gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base" contentClassName="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <AlertTriangle size={18} />
               Esta sesión de memoria requiere configurar el tablero antes de iniciar.
@@ -784,7 +784,7 @@ export default function SessionDetail() {
               )}
               {!loadingStudents && availableStudents.length === 0 && (
                 <div className="text-center py-6 text-text-muted text-sm">
-                  No hay alumnos asignados. Crea o asigna alumnos desde el panel de administracion.
+                  Aún no tienes alumnos en tu aula. La dirección del centro puede asignártelos desde el Panel de dirección.
                 </div>
               )}
               {!loadingStudents && availableStudents.length > 0 && (

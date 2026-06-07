@@ -617,13 +617,18 @@ export default function ApprovalPanel() {
         >
           {(() => {
             if (loading) return <LoadingSkeleton />;
+            // Centramos el estado vacío en un área generosa (capada a 560px) en
+            // vez de dejarlo pegado arriba con el hueco entero debajo — se veía
+            // descompensado en pantallas grandes/4K (QA 2026-06-04).
             if (filteredTeachers.length === 0) return (
-              <EmptyState
-                title="Todo al día"
-                description="No hay solicitudes pendientes. Cuando nuevos profesores se registren, aparecerán aquí para que les des paso."
-                illustration={<EmptyAlertsIllustration size={180} />}
-                className="bg-transparent"
-              />
+              <div className="flex items-center justify-center min-h-[min(45vh,560px)]">
+                <EmptyState
+                  title="Todo al día"
+                  description="No hay solicitudes pendientes. Cuando nuevos profesores se registren, aparecerán aquí para que les des paso."
+                  illustration={<EmptyAlertsIllustration size={180} />}
+                  className="bg-transparent"
+                />
+              </div>
             );
             return (
               <div className="space-y-4">

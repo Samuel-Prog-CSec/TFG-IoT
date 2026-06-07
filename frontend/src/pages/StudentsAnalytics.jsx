@@ -250,12 +250,13 @@ const TABLE_COLUMNS = [
   { key: "classroom", label: "Aula", sortable: true },
   { key: "totalGames", label: "Partidas", sortable: true },
   { key: "averageScore", label: "Puntuación", sortable: true },
-  { key: "accuracyRate", label: "Tasa de acierto", sortable: true },
+  { key: "accuracyRate", label: "Acierto", sortable: true },
   { key: "avgResponseTime", label: "Tiempo Resp", sortable: true },
-  // T-922 criterio 7: vista comparativa con "Mejor Secuencia". Tooltip
-  // explica que es la longitud máxima de secuencia reproducida correctamente.
-  { key: "maxSequenceLengthAchieved", label: "Mejor Secuencia", sortable: true },
-  { key: "lastPlayedAt", label: "Última Actividad", sortable: true },
+  // T-922 criterio 7: vista comparativa con la mejor secuencia. El tooltip de
+  // cada celda explica que es la longitud máxima reproducida correctamente; la
+  // cabecera se acorta a "Secuencia" para que la tabla quepa sin recortes a 1366.
+  { key: "maxSequenceLengthAchieved", label: "Secuencia", sortable: true },
+  { key: "lastPlayedAt", label: "Actividad", sortable: true },
   { key: "tier", label: "Nivel", sortable: true },
 ];
 
@@ -773,7 +774,7 @@ export default function StudentsAnalytics() {
                             <th
                               key={col.key}
                               scope="col"
-                              className="px-4 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap"
+                              className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap"
                               aria-sort={(() => {
                                 if (col.sortable && sortField === col.key)
                                   return sortOrder === "asc"
@@ -820,7 +821,7 @@ export default function StudentsAnalytics() {
                   </div>
 
                   {/* Result count footer */}
-                  <div className="px-4 py-3 border-t border-border-subtle text-xs text-text-muted">
+                  <div className="px-3 py-3 border-t border-border-subtle text-xs text-text-muted">
                     Mostrando {processedStudents.length} de {totalStudents}{" "}
                     alumnos
                     {debouncedSearch || tierFilter ? " (filtrado)" : ""}
@@ -876,9 +877,21 @@ function SortIcon({ field, sortField, sortOrder }) {
   );
 }
 
+// Color de la barra de puntuación por nivel. Clases completas (Tailwind purga
+// las construidas por interpolación). Barra RAG escaneable en la columna
+// Puntuación: de un vistazo se ve quién va alto/bajo (elevación 2026-06-04).
+const TIER_BAR_CLASS = {
+  excellent: "bg-success-base",
+  good: "bg-success-base",
+  average: "bg-warning-base",
+  risk: "bg-error-base",
+};
+
 function StudentRow({ student, navigate }) {
   const tier = getTierBadge(student.tier);
   const studentId = getId(student) || student.studentId;
+  const scorePct = Math.min(100, Math.max(0, Number(student.averageScore) || 0));
+  const scoreBarClass = TIER_BAR_CLASS[student.tier] || "bg-text-muted";
 
   return (
     <tr
@@ -893,7 +906,7 @@ function StudentRow({ student, navigate }) {
       className="border-b border-border-subtle/50 last:border-b-0 hover:bg-background-surface/40 cursor-pointer transition-colors duration-150 focus:outline-none focus:bg-background-surface/40 focus:ring-1 focus:ring-brand-base/30 focus:ring-inset"
     >
       {/* Avatar + Name */}
-      <td className="px-4 py-3">
+      <td className="px-3 py-3">
         <div className="flex items-center gap-3 min-w-[180px]">
           <div
             className="flex items-center justify-center size-9 rounded-full bg-gradient-to-br from-brand-base/30 to-accent-indigo/30 text-text-primary text-xs font-bold shrink-0 border border-border-subtle"
@@ -908,35 +921,48 @@ function StudentRow({ student, navigate }) {
       </td>
 
       {/* Classroom */}
-      <td className="px-4 py-3 text-text-secondary whitespace-nowrap">
+      <td className="px-3 py-3 text-text-secondary whitespace-nowrap">
         {student.classroom || "-"}
       </td>
 
       {/* Total games */}
-      <td className="px-4 py-3 text-text-secondary text-center whitespace-nowrap">
+      <td className="px-3 py-3 text-text-secondary text-center whitespace-nowrap">
         {student.totalGames ?? 0}
       </td>
 
-      {/* Average score */}
-      <td className="px-4 py-3 font-semibold text-text-primary text-center whitespace-nowrap">
-        {formatPercent(student.averageScore)}%
+      {/* Average score — barra RAG escaneable + valor (elevación 2026-06-04) */}
+      <td className="px-3 py-3 whitespace-nowrap">
+        <div className="flex items-center justify-center gap-2">
+          <span
+            className="hidden sm:block h-1.5 w-12 overflow-hidden rounded-full bg-background-surface ring-1 ring-inset ring-border-subtle"
+            aria-hidden="true"
+          >
+            <span
+              className={`block h-full rounded-full ${scoreBarClass}`}
+              style={{ width: `${scorePct}%` }}
+            />
+          </span>
+          <span className="font-semibold text-text-primary tabular-nums">
+            {formatPercent(student.averageScore)}%
+          </span>
+        </div>
       </td>
 
       {/* Accuracy rate */}
-      <td className="px-4 py-3 text-text-secondary text-center whitespace-nowrap">
+      <td className="px-3 py-3 text-text-secondary text-center whitespace-nowrap">
         {student.accuracyRate != null
           ? `${formatPercent(student.accuracyRate)}%`
           : "-"}
       </td>
 
       {/* Response time */}
-      <td className="px-4 py-3 text-text-secondary text-center whitespace-nowrap">
+      <td className="px-3 py-3 text-text-secondary text-center whitespace-nowrap">
         {formatResponseTime(student.avgResponseTime)}
       </td>
 
       {/* Mejor Secuencia (T-922 criterio 7) — longitud máxima reproducida */}
       <td
-        className="px-4 py-3 text-center whitespace-nowrap"
+        className="px-3 py-3 text-center whitespace-nowrap"
         title={
           student.maxSequenceLengthAchieved > 0
             ? `Longitud máxima reproducida: ${student.maxSequenceLengthAchieved} cartas`
@@ -954,7 +980,7 @@ function StudentRow({ student, navigate }) {
       </td>
 
       {/* Last activity */}
-      <td className="px-4 py-3 whitespace-nowrap">
+      <td className="px-3 py-3 whitespace-nowrap">
         <div className="flex items-center gap-2">
           <span
             className={`inline-block size-2 rounded-full shrink-0 ${getActivityColor(student.lastPlayedAt)}`}
@@ -967,7 +993,7 @@ function StudentRow({ student, navigate }) {
       </td>
 
       {/* Tier badge — global + chips por mecánica (ADR-E) */}
-      <td className="px-4 py-3 whitespace-nowrap">
+      <td className="px-3 py-3 whitespace-nowrap">
         <div className="flex flex-col items-start gap-1">
           <span
             className={`inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full text-micro font-semibold uppercase tracking-[0.08em] border ${tier.className}`}

@@ -536,43 +536,60 @@ export default function CardDecksPage() {
         transition={{ delay: shouldReduceMotion ? 0 : 0.08 }}
         className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5"
       >
-        <GlassCard className="p-3 flex items-center gap-3">
-          <div className="size-9 rounded-lg bg-accent-indigo/15 flex items-center justify-center">
-            <Layers size={16} className="text-accent-indigo" />
-          </div>
-          <div>
-            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.active}</p>
-            <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Activos</p>
-          </div>
-        </GlassCard>
-        <GlassCard className="p-3 flex items-center gap-3">
-          <div className="size-9 rounded-lg bg-background-surface/60 flex items-center justify-center">
-            <Archive size={16} className="text-text-muted" />
-          </div>
-          <div>
-            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.archived}</p>
-            <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Archivados</p>
+        {/* El flex va en un div interno, NO en el className de GlassCard:
+            GlassCard envuelve sus children en un div propio, así que las clases
+            de layout pasadas por className no alinean los hijos (icono+texto
+            quedaban apilados y el glyph se veía desplazado). QA 2026-06-04. */}
+        <GlassCard className="p-3">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-lg bg-accent-indigo/15 flex items-center justify-center shrink-0">
+              <Layers size={16} className="text-accent-indigo" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.active}</p>
+              <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Activos</p>
+            </div>
           </div>
         </GlassCard>
-        <GlassCard className="p-3 flex items-center gap-3">
-          <div className="size-9 rounded-lg bg-brand-base/15 flex items-center justify-center">
-            <CreditCard size={16} className="text-brand-light" />
+        <GlassCard className="p-3">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-lg bg-background-surface/60 flex items-center justify-center shrink-0">
+              <Archive size={16} className="text-text-muted" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.archived}</p>
+              <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Archivados</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.total}</p>
-            <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Total</p>
+        </GlassCard>
+        <GlassCard className="p-3">
+          <div className="flex items-center gap-3">
+            <div className="size-9 rounded-lg bg-brand-base/15 flex items-center justify-center shrink-0">
+              <CreditCard size={16} className="text-brand-light" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.total}</p>
+              <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Total</p>
+            </div>
           </div>
         </GlassCard>
       </motion.div>
 
-      {/* Barra de búsqueda y filtros */}
+      {/* Barra de búsqueda y filtros. `relative z-30`: el dropdown de los
+          filtros se renderiza dentro de esta sección; sin un z-index que la
+          eleve, la rejilla de mazos (posterior en el DOM) pintaba sus cards
+          ENCIMA del dropdown y lo tapaba (no era overflow, era stacking).
+          z-30 queda por encima de la rejilla y por debajo de modales (QA 2026-06-04). */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: shouldReduceMotion ? 0 : 0.1 }}
-        className="mb-6"
+        className="mb-6 relative z-30"
       >
-        <GlassCard className="p-4">
+        {/* overflow-visible: GlassCard clipa por defecto (overflow-hidden base);
+            aquí lo anulamos para que el dropdown de los filtros (SelectPremium,
+            sin portal) no quede recortado por la card (QA 2026-06-04). */}
+        <GlassCard className="p-4 overflow-visible">
           <div className="flex flex-col sm:flex-row gap-4">
             {/* Búsqueda */}
             <div className="relative flex-1">
@@ -614,14 +631,18 @@ export default function CardDecksPage() {
             </button>
           </div>
 
-          {/* Filtros expandibles */}
+          {/* Filtros expandibles. Entrada con opacity + slide (NO animación de
+              altura): animar `height` exigía `overflow-hidden`, que recortaba el
+              dropdown de los SelectPremium (sin portal). Con fade+slide no hace
+              falta clipar y el dropdown se ve completo (QA 2026-06-04). */}
           <AnimatePresence>
             {showFilters && (
               <motion.div
-                initial={shouldReduceMotion ? false : { opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mt-4 pt-4 border-t border-border-subtle overflow-hidden"
+                initial={shouldReduceMotion ? false : { opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                className="mt-4 pt-4 border-t border-border-subtle"
               >
                 <div className="flex flex-wrap gap-4">
                   {/* Filtro por estado */}

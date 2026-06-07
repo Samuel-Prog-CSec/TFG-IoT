@@ -10,7 +10,7 @@ const logger = require('../../utils/logger').child({ component: 'gameEngine' });
 const userRepository = require('../../repositories/userRepository');
 const { SCAN_IGNORED_REASONS, PLAY_INTERRUPTED_REASONS } = require('../../constants/errorCodes');
 const redisService = require('../redisService');
-const { cacheInvalidateNamespace } = require('../../utils/cacheHelper');
+const { cacheInvalidatePattern } = require('../../utils/cacheHelper');
 // T-931 (pre-v1.0.0) — materialización Redis para hot reads dashboard.
 const materializedAnalytics = require('../analytics/materializedAnalyticsService');
 const { recalculateSessionStatusFromPlays } = require('../sessionStatusService');
@@ -851,9 +851,45 @@ class GameEngine {
 
       await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
 
-      // Invalidar cache de analytics para garantizar frescura en el dashboard del profesor
-      // inmediatamente después de completar/abandonar la partida. Fire-and-forget.
-      cacheInvalidateNamespace('cache:analytics').catch(err => {
+      // Invalidación ACOTADA del cache de analytics (D1). Una partida terminada deja
+      // stale (a) las analíticas del ALUMNO que jugó (engagement, summary…) y (b) las del
+      // PROFESOR dueño que agregan esa partida (contentEffectiveness, comparison,
+      // distribution, difficulties, teacherSessions…). Se invalida con dos patrones
+      // amplios por id —`*<studentId>*` y `*<teacherId>*`— que cubren CUALQUIER forma de
+      // key (presente o futura) de ese alumno/profesor sin tocar el cache de OTROS (los
+      // ObjectId de 24 hex no colisionan como substring entre sí). Antes se flusheaba el
+      // namespace ENTERO en cada partida → el cache de 300 s nunca maduraba y se gastaban
+      // comandos Upstash de más. Fire-and-forget.
+      //
+      // NOTA DE RENDIMIENTO (verificada con benchmark): NO sustituir estos dos
+      // patrones por un conjunto de patrones "anclados por prefijo"
+      // (`summary:<id>:*`, `engagement:<id>:*`, …). `scanByNamespace` usa
+      // `SCAN ... MATCH`, y MATCH en Redis es un FILTRO posterior, no un seek por
+      // prefijo: cada SCAN recorre el keyspace COMPLETO independientemente del
+      // patrón. Por tanto N patrones anclados = N barridos del keyspace, mientras
+      // que estos 2 patrones amplios = 2 barridos. Medido sobre el Redis del
+      // contenedor: 2 SCAN amplios = ~300 iteraciones de cursor; 26 SCAN anclados
+      // (7 familias de alumno + 19 de profesor) = ~7300 iteraciones (~13× peor),
+      // 348 ms → 4275 ms. Además, anclar exige mantener a mano la lista de
+      // familias de key: si se olvida una, se reintroduce el bug de charts
+      // vacíos/stale con datos de menores (ADR-183). El patrón amplio por id es
+      // a la vez el más barato y el más seguro (auto-cubre toda familia presente
+      // o futura). La alternativa GENUINAMENTE más rápida sería un índice inverso
+      // (SET por id poblado en `cacheGet`, invalidación = SMEMBERS+DEL: ~6 cmds,
+      // 0 barridos) — descartada por ahora: el keyspace real es pequeño (~100
+      // keys ⇒ ~4 iteraciones por endPlay) y el refactor tocaría ~26 call-sites
+      // de `cacheGet`, con su propio riesgo de staleness si alguno se omite.
+      const invalidationTeacherId = playState.sessionDoc?.createdBy;
+      const invalidationStudentId = playState.playDoc.playerId;
+      const cacheInvalidations = [
+        cacheInvalidatePattern('cache:analytics', `*${invalidationStudentId}*`)
+      ];
+      if (invalidationTeacherId) {
+        cacheInvalidations.push(
+          cacheInvalidatePattern('cache:analytics', `*${invalidationTeacherId}*`)
+        );
+      }
+      Promise.all(cacheInvalidations).catch(err => {
         logger.warn('endPlay: fallo al invalidar cache:analytics (ignorado)', {
           playId,
           error: err.message

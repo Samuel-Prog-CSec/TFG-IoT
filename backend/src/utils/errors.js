@@ -158,6 +158,30 @@ class UnprocessableEntityError extends AppError {
 }
 
 /**
+ * Error de demasiadas peticiones (429 Too Many Requests).
+ * Se lanza cuando se supera un límite de intentos en una ventana de tiempo
+ * (ej: lockout per-user del challenge MFA frente a fuerza bruta del código TOTP).
+ *
+ * @class TooManyRequestsError
+ * @extends AppError
+ *
+ * @example
+ * throw new TooManyRequestsError('Demasiados intentos MFA fallidos', 'MFA_LOCKED');
+ */
+class TooManyRequestsError extends AppError {
+  /**
+   * @param {string} [message='Demasiadas peticiones'] - Mensaje de error
+   * @param {string} [code] - Código semántico opcional para el cliente
+   */
+  constructor(message = 'Demasiadas peticiones', code) {
+    super(message, 429);
+    if (code) {
+      this.code = code;
+    }
+  }
+}
+
+/**
  * Error interno del servidor (500 Internal Server Error).
  * Se lanza cuando ocurre un error inesperado que no es operacional.
  *
@@ -185,5 +209,6 @@ module.exports = {
   ForbiddenError,
   ConflictError,
   UnprocessableEntityError,
+  TooManyRequestsError,
   InternalServerError
 };

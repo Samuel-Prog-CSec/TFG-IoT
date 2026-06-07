@@ -86,7 +86,13 @@ const cardVariants = cva(
  *
  * @param {Object} props
  * @param {React.ReactNode} props.children - Contenido de la card
- * @param {string} props.className - Clases adicionales tailwind
+ * @param {string} props.className - Clases adicionales tailwind (van a la RAÍZ
+ *   de la card: padding, borde, hover, sombra…).
+ * @param {string} [props.contentClassName] - Clases de LAYOUT para el wrapper
+ *   interno que contiene a los children (flex/grid/items/justify/gap). NECESARIO
+ *   para alinear los hijos: GlassCard envuelve los children en un div propio, así
+ *   que las clases de layout pasadas por `className` se aplican a la raíz y NO
+ *   alinean a los hijos. Usa `contentClassName` para eso (QA 2026-06-04).
  * @param {'default'|'solid'|'subtle'|'gradient'} props.variant - Variante visual
  * @param {'none'|'sm'|'md'|'lg'} props.padding - Padding interno
  * @param {boolean} props.interactive - Activa efectos de hover (elevación y border)
@@ -98,6 +104,7 @@ const GlassCard = ({
   ref,
   children,
   className,
+  contentClassName,
   variant,
   padding,
   interactive,
@@ -130,8 +137,10 @@ const GlassCard = ({
         <div className="absolute inset-0 bg-gradient-to-br from-brand-base/20 to-transparent opacity-50 pointer-events-none" />
       )}
 
-      {/* Contenido principal posicionado jerárquicamente por encima de los decoradores */}
-      <div className="relative z-10 h-full w-full">
+      {/* Contenido principal posicionado jerárquicamente por encima de los
+          decoradores. `contentClassName` permite que las clases de layout
+          (flex/grid…) alineen a los children desde aquí (ver JSDoc). */}
+      <div className={cn('relative z-10 h-full w-full', contentClassName)}>
         {children}
       </div>
     </Component>
@@ -141,6 +150,7 @@ const GlassCard = ({
 GlassCard.propTypes = {
   children: PropTypes.node.isRequired,
   className: PropTypes.string,
+  contentClassName: PropTypes.string,
   variant: PropTypes.oneOf(['default', 'solid', 'subtle', 'gradient']),
   padding: PropTypes.oneOf(['none', 'sm', 'md', 'lg']),
   interactive: PropTypes.bool,

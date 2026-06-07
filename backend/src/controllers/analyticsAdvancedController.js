@@ -9,9 +9,14 @@
 
 const { sendSuccess } = require('../utils/responseHelper');
 const { cacheGet } = require('../utils/cacheHelper');
-const { ensureStudentBelongsToTeacher } = require('../utils/ownershipHelpers');
+const {
+  ensureStudentBelongsToTeacher,
+  ensureResourceOwnershipOrAdmin
+} = require('../utils/ownershipHelpers');
 const userRepository = require('../repositories/userRepository');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
 const consentService = require('../services/consentService');
+const { NotFoundError } = require('../utils/errors');
 
 // Sub-servicios de analytics
 // NOTA (T-941): los endpoints de alertas viven ahora en `alertsController.js`
@@ -106,6 +111,23 @@ exports.getStudentEvolution = async (req, res) => {
  */
 exports.getGameplayRounds = async (req, res) => {
   const { id } = req.params;
+
+  // AUTHZ (corrige IDOR): resolver propiedad y consentimiento ANTES de servir
+  // el desglose ronda-a-ronda. Es el único endpoint de analytics que recibe un
+  // recurso por path; sin este check, cualquier profesor podía leer las partidas
+  // (cardUid, tiempos, fatiga) de alumnos de OTRO profesor saltándose además la
+  // puerta de consentimiento (RGPD Art. 21). Mismo patrón que
+  // gamePlayController.getPlayById: ownership sobre la sesión poblada (sin
+  // round-trip extra) + requireConsent sobre el alumno de la partida.
+  const play = await gamePlayRepository.findById(id, {
+    select: 'sessionId playerId',
+    populate: { path: 'sessionId', select: 'createdBy' }
+  });
+  if (!play) {
+    throw new NotFoundError('Partida');
+  }
+  ensureResourceOwnershipOrAdmin(play.sessionId, req.user, 'partida');
+  await consentService.requireConsent(play.playerId.toString(), 'performance_analytics');
 
   const data = await cacheGet(
     'cache:analytics',

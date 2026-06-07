@@ -1010,8 +1010,8 @@ function ReportsTabContent({ shouldReduceMotion }) {
       {/* Seccion 2 — Generador + Preview lateral */}
       <section ref={generatorRef} aria-labelledby="reports-generator-heading">
         <h2 id="reports-generator-heading" className="sr-only">Generador de informes</h2>
-        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 lg:items-start">
-          <div className="min-w-0">
+        <div className="grid grid-cols-1 lg:grid-cols-[1fr_360px] gap-6 lg:items-stretch">
+          <div className="min-w-0 h-full">
             <ReportGenerator
               initialDefaults={appliedDefaults}
               onAfterGenerate={handleAfterGenerate}
@@ -1020,7 +1020,7 @@ function ReportsTabContent({ shouldReduceMotion }) {
               preloadedMeta={preloaded?.meta || null}
             />
           </div>
-          <aside className="min-w-0">
+          <aside className="min-w-0 lg:self-start">
             <ReportPreviewSidebar
               reportType={previewMeta.reportType}
               period={previewMeta.period}

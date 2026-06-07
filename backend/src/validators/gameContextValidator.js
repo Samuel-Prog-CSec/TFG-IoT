@@ -113,64 +113,39 @@ const contextIdSchema = z
     'El contextId solo puede contener letras minúsculas, números, guiones y guiones bajos'
   );
 
+// `assets` NO se acepta en la creación: el contexto se crea vacío y los assets se
+// añaden después por los endpoints dedicados (upload con WebP + ownership por
+// uploadedBy). Igual que en la actualización (ADR-197), esto impide inyectar URLs
+// externas arbitrarias vía la API JSON saltándose el pipeline de imágenes.
 const createGameContextSchema = z
   .object({
     contextId: contextIdSchema,
 
-    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }),
-
-    assets: z
-      .array(assetSchema)
-      .min(0)
-      .max(30, 'No se pueden tener más de 30 assets')
-      .optional()
-      .default([])
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' })
   })
-  .strict()
-  .refine(
-    data => {
-      // Validar que las keys de los assets sean únicas (si hay alguno)
-      const keys = (data.assets || []).map(asset => asset.key);
-      const uniqueKeys = new Set(keys);
-      return keys.length === uniqueKeys.size;
-    },
-    {
-      message: 'Las claves (keys) de los assets deben ser únicas',
-      path: ['assets']
-    }
-  );
+  .strict();
 
 /**
  * Schema para actualizar un contexto existente.
  * Permite actualización parcial pero valida unicidad de keys si se modifican assets.
  */
+// NOTA SEGURIDAD (ADR-197): `assets` NO es actualizable por esta vía. Los assets se
+// gestionan EXCLUSIVAMENTE por los endpoints dedicados (POST /images|/audio,
+// DELETE .../:assetKey), que aplican validación de magic bytes, conversión WebP y
+// ownership por `uploadedBy`. Permitir reemplazar el array `assets` aquí dejaba que un
+// super_admin inyectara URLs externas arbitrarias (validadas solo como `z.string().url()`)
+// que el frontend renderiza como `<img src>`, saltándose el pipeline, perdiendo el
+// `uploadedBy` de los profesores y dejando archivos huérfanos en Storage.
 const updateGameContextSchema = z
   .object({
     contextId: contextIdSchema.optional(),
 
-    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }).optional(),
-
-    assets: z.array(assetSchema).min(0).max(30).optional()
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }).optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
     message: 'Debe proporcionar al menos un campo para actualizar'
-  })
-  .refine(
-    data => {
-      // Si se actualizan assets, validar unicidad
-      if (data.assets) {
-        const keys = data.assets.map(asset => asset.key);
-        const uniqueKeys = new Set(keys);
-        return keys.length === uniqueKeys.size;
-      }
-      return true;
-    },
-    {
-      message: 'Las claves (keys) de los assets deben ser únicas',
-      path: ['assets']
-    }
-  );
+  });
 
 /**
  * Schema para query params de búsqueda de contextos.

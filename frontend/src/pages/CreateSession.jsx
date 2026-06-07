@@ -217,7 +217,7 @@ export default function CreateSession() {
       });
       saveBadge.trigger();
 
-      toast.success('¡Sesión creada!', {
+      toast.success('Sesión creada', {
         description: isMemorySelected
           ? 'Redirigiendo a la configuración del tablero…'
           : 'Redirigiendo al detalle de la sesión…'

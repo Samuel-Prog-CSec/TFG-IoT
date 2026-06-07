@@ -17,7 +17,7 @@ const { AlertDetector } = require('./_base');
 const { ALERT_TYPES } = require('../../../config/alerts');
 const gamePlayRepository = require('../../../repositories/gamePlayRepository');
 const smartAlertRepository = require('../../../repositories/smartAlertRepository');
-const { toObjectId } = require('../analyticsHelpers');
+const { toObjectId, getStartDate } = require('../analyticsHelpers');
 
 class MasteryMilestoneDetector extends AlertDetector {
   constructor() {
@@ -32,21 +32,29 @@ class MasteryMilestoneDetector extends AlertDetector {
     const { accuracyMin, minPlays } = ALERT_TYPES.mastery_milestone.thresholds;
     const studentIds = students.map(s => toObjectId(s._id));
 
-    // Pipeline: agrupa partidas por (alumno, contexto). Necesitamos hacer
-    // $lookup a game_sessions para acceder al contextId que NO está en
-    // GamePlay directamente.
+    // Pipeline: agrupa partidas por (alumno, contexto). Necesitamos un único
+    // $lookup a game_sessions para acceder al contextId que NO está en GamePlay.
+    // El sub-pipeline proyecta solo contextId para no arrastrar el doc de sesión
+    // completo (cardMappings/boardLayout) al $group. No hay join a
+    // game_mechanics (este detector no filtra por mecánica).
+    // Cota temporal 90d: aprovecha el índice {playerId,status,completedAt}; un
+    // dominio sostenido en un contexto se mide sobre actividad reciente.
     const pipeline = [
       {
         $match: {
           playerId: { $in: studentIds },
-          status: 'completed'
+          status: 'completed',
+          completedAt: { $gte: getStartDate('90d') }
         }
       },
       {
         $lookup: {
           from: 'game_sessions',
-          localField: 'sessionId',
-          foreignField: '_id',
+          let: { sid: '$sessionId' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$sid'] } } },
+            { $project: { contextId: 1, _id: 0 } }
+          ],
           as: 'session'
         }
       },

@@ -72,7 +72,17 @@ const startDataRetentionWorker = () => {
           // el proceso worker y el backend HTTP (lazy require para evitar ciclos).
           try {
             const redisService = require('../services/redisService');
-            await redisService.set('system:meta', 'lastRetentionRun', new Date().toISOString());
+            // setWithTTL (30d) en vez de set sin expiry: la key se refresca en
+            // cada corrida (cadencia diaria), así que el TTL solo la recoge si el
+            // job deja de ejecutarse — justo el caso que el detector
+            // `data_retention_lag` quiere señalar (lee null → lag). Evita una key
+            // permanente (convención del proyecto: toda key con TTL).
+            await redisService.setWithTTL(
+              'system:meta',
+              'lastRetentionRun',
+              new Date().toISOString(),
+              30 * 24 * 60 * 60
+            );
           } catch {
             // No bloquea el job.
           }

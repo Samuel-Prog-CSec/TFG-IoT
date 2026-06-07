@@ -185,7 +185,10 @@ const initRateLimiters = () => {
  */
 const corsWhitelist = process.env.CORS_WHITELIST
   ? process.env.CORS_WHITELIST.split(',')
-      .map(origin => origin.trim())
+      // Normalizar: quitar espacios y la barra final. Evita el footgun de que
+      // `https://app.eduplay.com/` (con slash en la env) nunca case con el Origin
+      // del navegador (`https://app.eduplay.com`) y provoque un fallo CORS opaco.
+      .map(origin => origin.trim().replace(/\/$/, ''))
       .filter(Boolean)
   : [
       'http://localhost:3000',
@@ -214,9 +217,16 @@ const corsOptions = {
   origin: (origin, callback) => {
     const isProduction = process.env.NODE_ENV === 'production';
 
+    // Rechazo limpio (sin cabeceras CORS) en vez de lanzar un Error: pasar un
+    // Error al callback de cors() lo propaga al error handler → HTTP 500 (incluso
+    // en preflight OPTIONS), generando ruido en Sentry. Con callback(null, false)
+    // cors() omite Access-Control-Allow-Origin y el navegador bloquea la respuesta;
+    // un cliente no-navegador no obtiene ventaja (CORS no es un control server-side).
+
     // En producción: SIEMPRE requerir origin
     if (isProduction && !origin) {
-      return callback(new Error('Origin header requerido en producción'), false);
+      logger.warn('CORS: petición sin cabecera Origin rechazada en producción');
+      return callback(null, false);
     }
 
     // En desarrollo: Permitir peticiones sin origin (Postman, curl, etc.)
@@ -227,9 +237,10 @@ const corsOptions = {
     // Validación estricta contra whitelist
     if (corsWhitelist.includes(origin)) {
       return callback(null, true);
-    } else {
-      return callback(new Error(`Origin ${origin} no autorizado por política CORS`), false);
     }
+
+    logger.warn({ origin }, 'CORS: origen no autorizado rechazado');
+    return callback(null, false);
   },
   credentials: true, // Permitir cookies y headers de autenticación
   optionsSuccessStatus: 204,
@@ -453,7 +464,10 @@ const buildHelmetOptions = (env = process.env.NODE_ENV) => {
     },
     crossOriginEmbedderPolicy: false, // Audio/video cross-origin requieren COEP off
     crossOriginResourcePolicy: { policy: 'cross-origin' }, // Recursos de Supabase
-    xPoweredBy: false,
+    // X-Powered-By se elimina a nivel Express con `app.disable('x-powered-by')` en
+    // server.js. NO usar `xPoweredBy: false` aquí: en helmet v7+ ese valor DESACTIVA
+    // el borrado de la cabecera (semántica invertida), que es justo lo contrario de
+    // lo que se pretendía y dejaba `X-Powered-By: Express` expuesto.
     hsts: {
       // T-905 B5: 2 años en prod para hstspreload.org (requisito de inclusión).
       maxAge: isProd ? 63072000 : 31536000,
@@ -663,6 +677,23 @@ const exportDataRateLimiter = createRateLimiter({
   keyGenerator: userOrIpKeyGenerator
 });
 
+// Límite dedicado para generación/exportación de informes de aula (E17/E18/E19).
+// Son las operaciones de analytics más caras (aggregations + serialización del
+// aula entera) y la salida de mayor riesgo de exfiltración de datos de menores.
+// Más estricto que el analyticsRateLimiter global (30/min) sin molestar al docente.
+const reportExportRateLimiter = createRateLimiter({
+  prefix: 'report_export',
+  windowMs: 60 * 1000, // 1 minuto
+  max: Number.parseInt(process.env.RATE_LIMIT_REPORT_EXPORT_MAX, 10) || (isDev ? 60 : 10),
+  message: {
+    success: false,
+    message: 'Demasiadas exportaciones de informes, espera un momento'
+  },
+  standardHeaders: true,
+  legacyHeaders: false,
+  keyGenerator: userOrIpKeyGenerator
+});
+
 /**
  * Rate limiter específico para acciones administrativas masivas
  * (aprobar/rechazar profesores). Defense-in-depth ante un super_admin
@@ -705,6 +736,7 @@ module.exports = {
   analyticsRateLimiter,
   uploadRateLimiter,
   exportDataRateLimiter,
+  reportExportRateLimiter,
   adminApprovalRateLimiter,
   initRateLimiters,
   corsWhitelist,

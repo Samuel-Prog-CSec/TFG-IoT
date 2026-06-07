@@ -73,6 +73,16 @@ const TIME_RANGE_MS = {
 const LEADERBOARD_TTL_SECONDS = 8 * 24 * 60 * 60;
 
 /**
+ * TTL del Hash `student:metrics:<id>` (90 días). Sin él, cada alumno que haya
+ * jugado alguna vez deja una key viva indefinidamente — fuga de memoria lenta
+ * en Redis free-tier (Upstash 256MB). El reconciliador nocturno refresca este
+ * TTL para los alumnos activos; un alumno inactivo >90d cae solo (su métrica
+ * vive en Mongo como fuente de verdad — el Hash es caché materializada
+ * reconstruible). (C1)
+ */
+const STUDENT_METRICS_TTL_SECONDS = 90 * 24 * 60 * 60;
+
+/**
  * Tope máximo de miembros por leaderboard ZSET (D10-001).
  *
  * Los leaderboards por docente acumulan `score`/`plays` por contexto y por
@@ -251,6 +261,11 @@ async function recordPlayCompletion(payload) {
           p.hset(studentHashKey, 'maxSequenceLengthAchieved', String(maxSequenceLengthAchieved));
         }
       }
+
+      // (C1) TTL del Hash: sin esto la key crece sin cota (un Hash por alumno,
+      // vivo para siempre). EXPIRE en cada escritura renueva la ventana de los
+      // alumnos activos; los inactivos caen solos sin acumular en Upstash.
+      p.expire(studentHashKey, STUDENT_METRICS_TTL_SECONDS);
     }, 't931-write');
 
     if (contextId || mechanicId) {
@@ -769,18 +784,26 @@ async function reconcileStudentMetrics() {
       );
       const samples = m.totalGamesPlayed || 0;
 
-      await redisService.hset(NAMESPACES.STUDENT_METRICS, studentIdStr, {
-        totalGamesPlayed: String(m.totalGamesPlayed || 0),
-        totalCorrectAnswers: String(m.totalCorrectAnswers || 0),
-        totalErrors: String(m.totalErrors || 0),
-        totalTimeouts: String(m.totalTimeouts || 0),
-        sumScoresHundredths: String(sumScoresHundredths),
-        sumResponseTimeMs: String(sumResponseTimeMs),
-        responseTimeSamples: String(samples),
-        lastPlayedAt: m.lastPlayedAt ? String(new Date(m.lastPlayedAt).getTime()) : '0',
-        maxSequenceLengthAchieved: String(m.maxSequenceLengthAchieved || 0),
-        sequencesCompleted: String(m.sequencesCompleted || 0)
-      });
+      await redisService.hset(
+        NAMESPACES.STUDENT_METRICS,
+        studentIdStr,
+        {
+          totalGamesPlayed: String(m.totalGamesPlayed || 0),
+          totalCorrectAnswers: String(m.totalCorrectAnswers || 0),
+          totalErrors: String(m.totalErrors || 0),
+          totalTimeouts: String(m.totalTimeouts || 0),
+          sumScoresHundredths: String(sumScoresHundredths),
+          sumResponseTimeMs: String(sumResponseTimeMs),
+          responseTimeSamples: String(samples),
+          lastPlayedAt: m.lastPlayedAt ? String(new Date(m.lastPlayedAt).getTime()) : '0',
+          maxSequenceLengthAchieved: String(m.maxSequenceLengthAchieved || 0),
+          sequencesCompleted: String(m.sequencesCompleted || 0)
+          // (C1) Mismo TTL que la escritura en vivo: el reconciliador renueva la
+          // ventana de 90d para los alumnos activos en lugar de dejar la key
+          // permanente (HSET preserva el EXPIRE solo si se vuelve a fijar).
+        },
+        STUDENT_METRICS_TTL_SECONDS
+      );
       processed += 1;
     } catch (err) {
       logger.warn('T-931 reconcileStudentMetrics error (student)', {

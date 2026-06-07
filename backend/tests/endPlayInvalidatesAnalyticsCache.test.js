@@ -1,7 +1,9 @@
 /**
- * @fileoverview Verifica que GameEngine.endPlay invalida el namespace 'cache:analytics'
- * de forma fire-and-forget tras persistir la partida. Usa ioredis-mock como backend real
- * para observar el efecto (keys borradas) y mocks ligeros para dependencies transversales.
+ * @fileoverview Verifica que GameEngine.endPlay invalida el cache 'cache:analytics'
+ * de forma ACOTADA (D1) tras persistir la partida: TODAS las analíticas del alumno que
+ * jugó y del profesor dueño (patrones amplios por id `*<studentId>*` y `*<teacherId>*`),
+ * NO el namespace entero. Las keys de OTROS alumnos/profesores deben SOBREVIVIR.
+ * Fire-and-forget. Usa ioredis-mock como backend real.
  */
 
 jest.mock('ioredis', () => require('ioredis-mock'));
@@ -15,7 +17,7 @@ const redisService = require('../src/services/redisService');
 const userRepository = require('../src/repositories/userRepository');
 const GameEngine = require('../src/services/gameEngine');
 
-describe('GameEngine.endPlay invalidates cache:analytics', () => {
+describe('GameEngine.endPlay invalida cache:analytics de forma acotada (D1)', () => {
   let engine;
   let io;
 
@@ -78,7 +80,8 @@ describe('GameEngine.endPlay invalidates cache:analytics', () => {
 
     engine.activePlays.set(playId, {
       playDoc,
-      sessionDoc: { cardMappings: [] },
+      // createdBy = profesor dueño → endPlay invalida también teacherSessions:teacher-1:*
+      sessionDoc: { cardMappings: [], createdBy: 'teacher-1' },
       roundTimer: null,
       nextRoundTimer: null,
       playTimer: null,
@@ -87,27 +90,71 @@ describe('GameEngine.endPlay invalidates cache:analytics', () => {
     });
   };
 
-  it('borra las keys de cache:analytics al completar una partida normalmente', async () => {
-    await seedAnalyticsCache(['summary:teacher-xyz', 'trends:teacher-xyz:7d']);
+  it('invalida TODAS las analíticas del alumno + profesor de la partida; las de otros sobreviven', async () => {
+    await seedAnalyticsCache([
+      // TODAS las formas de key del profesor teacher-1 (las que agregan la partida):
+      'contentEffectiveness:teacher-1:30d:context:undefined',
+      'comparison:teacher-1:7d',
+      'distribution:teacher-1:f:::7d',
+      'difficulties:teacher-1',
+      'teacherSessions:teacher-1:active',
+      'excluded:teacher-1',
+      // ...y las del alumno student-1:
+      'engagement:student:student-1:30d',
+      // De OTROS profesores/alumnos → deben SOBREVIVIR (scoping por id):
+      'contentEffectiveness:teacher-2:30d:context:undefined',
+      'engagement:student:student-2:30d'
+    ]);
     const playId = 'play-abc';
     registerFakePlayState(playId);
 
     await engine.endPlay(playId);
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    expect(await redisService.get('cache:analytics', 'summary:teacher-xyz')).toBeNull();
-    expect(await redisService.get('cache:analytics', 'trends:teacher-xyz:7d')).toBeNull();
+    // TODAS las del profesor + alumno de la partida → invalidadas
+    expect(
+      await redisService.get(
+        'cache:analytics',
+        'contentEffectiveness:teacher-1:30d:context:undefined'
+      )
+    ).toBeNull();
+    expect(await redisService.get('cache:analytics', 'comparison:teacher-1:7d')).toBeNull();
+    expect(await redisService.get('cache:analytics', 'distribution:teacher-1:f:::7d')).toBeNull();
+    expect(await redisService.get('cache:analytics', 'difficulties:teacher-1')).toBeNull();
+    expect(
+      await redisService.get('cache:analytics', 'teacherSessions:teacher-1:active')
+    ).toBeNull();
+    expect(await redisService.get('cache:analytics', 'excluded:teacher-1')).toBeNull();
+    expect(
+      await redisService.get('cache:analytics', 'engagement:student:student-1:30d')
+    ).toBeNull();
+    // De OTROS profesores/alumnos → SOBREVIVEN (la mejora de D1: sin flush global)
+    expect(
+      await redisService.get(
+        'cache:analytics',
+        'contentEffectiveness:teacher-2:30d:context:undefined'
+      )
+    ).not.toBeNull();
+    expect(
+      await redisService.get('cache:analytics', 'engagement:student:student-2:30d')
+    ).not.toBeNull();
   });
 
-  it('también borra keys tras una partida abandonada', async () => {
-    await seedAnalyticsCache(['distribution:teacher-xyz']);
+  it('también invalida (acotado) tras una partida abandonada', async () => {
+    await seedAnalyticsCache([
+      'engagement:student:student-1:7d',
+      'engagement:student:student-2:7d'
+    ]);
     const playId = 'play-def';
     registerFakePlayState(playId, { abandoned: true });
 
     await engine.endPlay(playId, { abandoned: true });
     await new Promise(resolve => setTimeout(resolve, 100));
 
-    expect(await redisService.get('cache:analytics', 'distribution:teacher-xyz')).toBeNull();
+    expect(await redisService.get('cache:analytics', 'engagement:student:student-1:7d')).toBeNull();
+    expect(
+      await redisService.get('cache:analytics', 'engagement:student:student-2:7d')
+    ).not.toBeNull();
   });
 
   it('no lanza si no había playState en memoria', async () => {

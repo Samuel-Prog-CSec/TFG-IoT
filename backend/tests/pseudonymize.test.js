@@ -46,7 +46,36 @@ describe('pseudonymize', () => {
     expect(pseudonymize('')).toBeNull();
   });
 
-  it('PSEUDO_ID_LENGTH es 8', () => {
-    expect(PSEUDO_ID_LENGTH).toBe(8);
+  it('PSEUDO_ID_LENGTH es 16', () => {
+    expect(PSEUDO_ID_LENGTH).toBe(16);
+  });
+
+  it('aplica HMAC con clave: el secreto cambia el resultado (no es SHA-256 plano)', () => {
+    const original = process.env.PSEUDONYMIZE_SECRET;
+    try {
+      process.env.PSEUDONYMIZE_SECRET = 'clave-de-prueba-A';
+      const keyed = pseudonymize(sampleId);
+      const plain = require('node:crypto')
+        .createHash('sha256')
+        .update(sampleId)
+        .digest('hex')
+        .slice(0, PSEUDO_ID_LENGTH);
+      expect(keyed).not.toBe(plain);
+    } finally {
+      process.env.PSEUDONYMIZE_SECRET = original;
+    }
+  });
+
+  it('claves distintas producen pseudoIds distintos para el mismo id', () => {
+    const original = process.env.PSEUDONYMIZE_SECRET;
+    try {
+      process.env.PSEUDONYMIZE_SECRET = 'clave-A';
+      const a = pseudonymize(sampleId);
+      process.env.PSEUDONYMIZE_SECRET = 'clave-B';
+      const b = pseudonymize(sampleId);
+      expect(a).not.toBe(b);
+    } finally {
+      process.env.PSEUDONYMIZE_SECRET = original;
+    }
   });
 });

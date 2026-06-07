@@ -64,14 +64,22 @@ const increment = async (eventType, now = Date.now()) => {
     const redis = getRedis();
     const key = buildKey(eventType);
     const member = `${now}:${crypto.randomBytes(4).toString('hex')}`;
-    await redis.zadd(key, now, member);
-    await redis.expire(key, Math.ceil((WINDOW_MS * 2) / 1000));
 
     callCount += 1;
-    if (callCount % CLEAN_EVERY_N === 0) {
-      // Limpieza perezosa.
-      await redis.zremrangebyscore(key, '-inf', now - WINDOW_MS);
+    const shouldClean = callCount % CLEAN_EVERY_N === 0;
+
+    // Un único round-trip: zadd + expire (+ limpieza perezosa cada N llamadas) en
+    // pipeline. Este contador se incrementa en ráfaga justo durante un ataque
+    // (credential stuffing); colapsar los 2-3 comandos a 1 round-trip reduce la
+    // presión sobre Redis/Upstash en el peor momento. ioredis aplica el keyPrefix
+    // también dentro del pipeline (no hay doble-prefijo).
+    const pipeline = redis.pipeline();
+    pipeline.zadd(key, now, member);
+    pipeline.expire(key, Math.ceil((WINDOW_MS * 2) / 1000));
+    if (shouldClean) {
+      pipeline.zremrangebyscore(key, '-inf', now - WINDOW_MS);
     }
+    await pipeline.exec();
     return true;
   } catch (error) {
     logger.warn('securityCounters: increment falló', { eventType, error: error.message });

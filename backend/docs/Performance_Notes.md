@@ -567,7 +567,7 @@ Tras cerrar el cuerpo principal de T-907, se ejecutaron las 6 mejoras "follow-up
 
 ### INT3 — Cache `getStudentEngagement` TTL 10 min
 
-`services/analytics/engagementService.js`: la función `getStudentEngagement(studentId, { timeRange })` se envuelve con `cacheGet('cache:analytics', engagement:student:{studentId}:{timeRange}, fetch, 600)`. La lógica de aggregation pasa a `computeStudentEngagement` (función privada, sin cache).
+`services/analytics/engagementService.js`: la función `getStudentEngagement(studentId, { timeRange })` se envuelve con `cacheGet('cache:analytics', engagement:student:{studentId}:{timeRange}, fetch, 600)`. La lógica de aggregation pasa a `computeStudentEngagement` (sin cache; exportada para tests de igualdad). El cómputo de los 5 componentes ponderados se factoriza en el núcleo puro `computeEngagementComponents`, compartido con `computeStudentEngagementBatch` (ver más abajo "`engagementDrop` N+1 → batch"), garantizando que el score por alumno sea idéntico por ambos caminos.
 
 El sub-pipeline más caro es `abandonmentDetails` (dos `$lookup` anidados sobre GameSession y GameContext) — ~300-800 ms en Atlas M0 con un alumno que acumula 50+ partidas. Con el cache:
 - Cold (miss): mismo coste.
@@ -702,3 +702,57 @@ Verificado via mongosh `getIndexes()` que GamePlay tiene los compound necesarios
 `backend/src/services/dataRetentionService.js`: refactor a cursor + batches `BATCH_SIZE=500` con `maxTimeMS=30_000`/batch. Idempotente. Previene timeout >2min sobre datasets grandes (100k+ docs) que dispararían SIGKILL Koyeb.
 
 **Tests añadidos**: nuevas suites del Bloque B en `backend/tests/` (`cacheLayerTelemetry`, `leaderboardZset`, `studentMetricsMaterialized`, `pubsubQueueRetry`, `analyticsReconcile`).
+
+---
+
+## Auditoría de mantenimiento pre-v1.0.0 (2026-06-05) — ver ADR-196
+
+### Migración completa del prefiltro `$match`-antes-de-`$lookup`
+`contentEffectivenessService` (efectividad/dificultad/curvas) y `sessionAnalysisService.getCardAnalysis` hacían `$lookup` sobre **toda** `game_plays` y filtraban `session.createdBy` después. Migrados al patrón A.3 ya usado en `analyticsService`: prefiltro `sessionId ∈ getTeacherSessionIds(teacher)` (cacheado 300 s) + `$match` ANTES del `$lookup`. Coste O(plays_del_profesor) en vez de O(total), crítico por el `$unwind '$events'` posterior. `getTeacherSessionIds` se exporta para reutilización (lazy require, sin ciclo).
+
+### Otras optimizaciones de query
+- `GET /api/plays` reutiliza `getTeacherSessionIds` (cache 300 s) en vez de re-consultar `game_sessions` en cada petición.
+- `getPlayById`: ownership resuelta con el documento ya poblado (`createdBy` en el `select`) → 1 round-trip menos.
+- `resumePlay`: populate acotado a `createdBy config` (~10-30× menos bytes que la sesión completa con cardMappings/boardLayout).
+- Índice `User { role:1, accountStatus:1 }` para el panel de aprobaciones (confirmado faltante vía MongoDB MCP).
+
+### Recomendaciones de escala diferidas (riesgo/beneficio desfavorable en semana de release)
+- **`getStudentSummary` `$facet`**: el `$lookup` de sesiones se repite por rama; reestructurar para hacerlo una vez antes del `$facet` (confianza media; validar `mechanicType` poblado).
+- **Virtualización de la tabla `StudentsAnalytics`**: `useVirtualizedList` existe pero virtualizar una `<table>` semántica con cabeceras sortables es invasivo (a11y/layout); alternativa preferible: paginación server-side si N alumnos crece.
+- **Subscribers pub/sub (`rfidMode`/`cacheInvalidate`) no se re-suscriben tras reconexión Redis**: nulo en single-instance; en multi-instancia registrar su re-arranque en el `onReconnect` global de `config/redis`.
+- **TTL de leaderboard por rango**: los ZSET 24h/7d/30d comparten TTL 8 d; TTLs por rango evitarían servir miembros stale del 24h.
+
+## Segundo pase de auditoría pre-v1.0.0 (2026-06-06) — ver ADR-197
+
+### Índice aplicado
+- **`GamePlay { playerId:1, status:1, completedAt:-1 }`** (orden ESR): la mayoría de analytics por alumno filtran `status:'completed'` y ordenan/acotan por `completedAt`; antes resolvían por `{playerId,completedAt}` (no cubre el filtro status) o `{playerId,status,startedAt}` (sort por startedAt → sort en memoria al pedir completedAt). `autoIndex` activo → se construye en todos los entornos. Tras añadirlo, valorar si `{playerId,completedAt}` queda redundante (es prefijo) cuando las queries siempre llevan status.
+
+### Refactor de detectores APLICADO (fan-out) — con benchmark
+6 detectores (`sequenceStagnation`, `sequenceOrderErrors`, `mechanicSpecificStruggle`, `consistentTimeout`, `plateauDetected`, `masteryMilestone`): cota temporal `completedAt: {$gte: getStartDate('90d')}` + sustitución del doble `$lookup` (`game_sessions`+`game_mechanics`) por un único `$lookup` con sub-pipeline que solo proyecta `mechanicType` (denormalizado ADR-193) + proyección que deja de arrastrar el doc de sesión completo al `$group`.
+**Benchmark `explain()` en `sequenceStagnation` (3200 plays):** `totalDocsExamined` 3200→400 (−87%), `executionTimeMillis` 183→28 (−85%), 2 `$lookup`→1, IXSCAN por `{playerId,status,completedAt}`. Sin cambio de umbral/finding/mensaje. Verificado: detectores 47/47, alertDetection+analytics 337/337, eslint 0. (`highAbandonment`/`suddenScoreDrop` ya tenían cota; intactos.)
+
+### `getStudentSummary` $facet — lookup único pre-`$facet` APLICADO (con benchmark)
+El `$facet` repetía el enriquecimiento `$lookup game_sessions`→`$lookup game_contexts`/`game_mechanics` en ~6 ramas sobre el mismo set de partidas. Se movió a UNA sola vez ANTES del `$facet` + proyección que retiene lo que cualquier rama consume; las ramas solo agrupan/ordenan/proyectan. **Salida byte-idéntica verificada** (las 7 ramas). El `$unwind '$session'` (inner-join) no cambia resultados porque una partida completada nunca queda huérfana (`deleteSession` solo borra sesiones en estado `created`; no hay cascada).
+**Benchmark (500 partidas / 1 alumno / 12 sesiones):** etapas `$lookup` 26→6, tiempo 96.4ms→30.9ms (~3.1×, −68%). Verificado: analytics+alertDetection+cache 337/337, eslint 0.
+
+### Invalidación de `cache:analytics` por `endPlay` — analizada y MANTENIDA amplia (es la óptima)
+**Corrección de una premisa previa errónea:** se había documentado la invalidación con `*<id>*` (doble comodín) como "deuda evitable", recomendando anclar por prefijo. **El benchmark lo refuta:** en Redis `SCAN ... MATCH` es un **filtro posterior, NO un seek por prefijo** — cada SCAN recorre el keyspace completo sea cual sea el patrón. Anclar (≈26 patrones, uno por familia de key) = 26 barridos = **~13× peor** (4275ms) que los 2 patrones amplios (348ms). La única alternativa más rápida sería un índice inverso (SMEMBERS+DEL ≈ 6 comandos, 4.3ms), pero exige tocar 26 call-sites de `cacheGet` con riesgo de reintroducir el stale de datos de menores (ADR-183) y el keyspace real es diminuto (18 keys en `cache:analytics`, ~4 iteraciones de cursor por endPlay). **Veredicto: el patrón amplio por id es el más barato Y el más seguro** (auto-cubre toda familia de key presente/futura; los ObjectId de 24 hex no colisionan como substring). Se mantiene; hay un comentario en `GameEngine.js` para evitar "optimizaciones" regresivas.
+
+### `engagementDrop` N+1 → batch por ventana APLICADO (con benchmark)
+El detector iteraba `students` y por cada alumno hacía `Promise.all([getStudentEngagement(sid,'30d'), getStudentEngagement(sid,'90d')])` (ADR-196 paralelizaba las dos ventanas, pero persistía el bucle **entre** alumnos). `getStudentEngagement→computeStudentEngagement` ejecuta un `$facet` con doble `$lookup` (`abandonmentDetails`); la ventana 90d **nunca** está caliente en caché → N agregaciones pesadas garantizadas por corrida (cache frío). Se añade `computeStudentEngagementBatch(studentIds, timeRange)` en `engagementService.js`: **una sola agregación agrupada por `$playerId`** que acumula los crudos mínimos (conteo por status, días activos distintos vía `$addToSet`, `sessionIds` para replays, `completedDates` para el intervalo) y computa los 5 componentes ponderados en JS. El detector llama al batch **2 veces** (30d + 90d) e itera en memoria. **No reutiliza `getClassroomEngagement`** (fórmula simplificada de 3 componentes → daría scores distintos).
+
+**Score byte-idéntico garantizado por construcción:** la fórmula de los 5 componentes (`playFrequency`, `regularity`, `completionRate`, `avgTimeBetweenSessions`, `voluntaryReplays` con `ENGAGEMENT_WEIGHTS`) se extrajo a un núcleo puro `computeEngagementComponents` que usan **tanto** `computeStudentEngagement` (sin cambio de comportamiento) **como** el batch. El borde "alumno sin partidas" rinde el mismo score que el cómputo individual con `$facet` vacío (componente intervalo = 100×0.10 → **10**), por lo que la guarda `previousScore < 20` se comporta igual. El sub-pipeline caro `abandonmentDetails` se omite del batch (el detector solo consume `engagementScore`) — ahí está la mayor parte del ahorro.
+
+**Benchmark (30 alumnos × ~40 partidas, `rfid-games-test`):** ANTES (N+1, cache frío) **60 agregaciones · 189.6 ms** → DESPUÉS (batch ×2) **2 agregaciones · 12.7 ms** = **30× menos agregaciones, ~15× más rápido**. En Atlas M0 el gap real es mayor: la del 90d acarrea el doble `$lookup` de `abandonmentDetails` (~300-800 ms) en cada alumno y nunca cachea. Test de igualdad (`computeStudentEngagementBatch` == `computeStudentEngagement` por alumno/ventana, vía `toBe`) + regresión del detector en `tests/services/analytics/detectors/engagementDrop.test.js`; benchmark opt-in (`RUN_ENGAGEMENT_BENCH=1`) en `engagementDrop.bench.test.js`. Verificado: engagement+analytics+alert+detector 346/346, eslint 0.
+
+---
+
+## Frontend — Core Web Vitals MEDIDOS (Chrome DevTools, 2026-06-06)
+Medición empírica (carga en frío, sin throttling, sobre el build de producción servido por nginx):
+- **Login** (entrada pública): LCP **571 ms**, CLS **0.03**, TTFB 1 ms, sin render-blocking.
+- **Analytics/insights** (la página más pesada — charts Recharts ~420 KB lazy): LCP **606 ms**, CLS **0.00**.
+- Lighthouse (página de charts, autenticada): **Accessibility 100, Best Practices 100**.
+- Único insight: `ForcedReflow` 67 ms con **ahorro estimado = ninguno**, de Framer Motion (`measureScroll`) y Recharts (`ResponsiveContainer`) — inherente a las librerías, **no accionable**. Sin memory leak (heap estable en 20 navegaciones SPA y bajo carga sostenida de backend).
+
+## Bomba de descompresión — contrato HTTP corregido (2026-06-06)
+La prueba de carga disparó una bomba real (PNG 12000×12000, 144 Mpx, 446 KB). `limitInputPixels` neutraliza la memoria perfectamente (+1.9 MiB, sin OOM ni con 5 concurrentes), pero `sharp(...).metadata()` lanzaba un `Error` crudo → `errorHandler` respondía **500 + stack trace** (rutas del servidor en dev) en vez de 4xx. Fix en `imageProcessingService.getAndValidateMetadata`: `try/catch` que reconvierte cualquier fallo de lectura de metadatos (bomba o corrupto) en `ApiValidationError` (→400) con mensaje en español, sin filtrar el mensaje interno de sharp (OWASP A05/A09) + test de regresión. Ver ADR-199.

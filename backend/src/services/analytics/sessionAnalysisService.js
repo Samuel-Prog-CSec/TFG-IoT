@@ -135,17 +135,21 @@ async function getGameplayRounds(gameplayId) {
 async function getCardAnalysis(teacherId, { timeRange = '30d', contextId, limit = 20 } = {}) {
   const startDate = getStartDate(timeRange);
 
-  const matchStage = {
-    'session.createdBy': toObjectId(teacherId),
-    status: 'completed',
-    completedAt: { $gte: startDate }
-  };
-
-  if (contextId) {
-    matchStage['session.contextId'] = toObjectId(contextId);
-  }
+  // (B2) Prefiltro por sesiones del profesor ANTES del $lookup: el $match por
+  // sessionId usa el índice de game_plays y evita el $lookup sobre TODA la
+  // colección, especialmente caro aquí por el posterior `$unwind '$events'` que
+  // amplifica cada play. Mismo patrón A.3 que analyticsService.
+  const { getTeacherSessionIds } = require('../analyticsService');
+  const teacherSessionIds = await getTeacherSessionIds(teacherId);
 
   const pipeline = [
+    {
+      $match: {
+        sessionId: { $in: teacherSessionIds },
+        status: 'completed',
+        completedAt: { $gte: startDate }
+      }
+    },
     {
       $lookup: {
         from: 'game_sessions',
@@ -155,7 +159,8 @@ async function getCardAnalysis(teacherId, { timeRange = '30d', contextId, limit 
       }
     },
     { $unwind: '$session' },
-    { $match: matchStage },
+    // Filtro por contexto (requiere el doc de sesión, post-lookup).
+    ...(contextId ? [{ $match: { 'session.contextId': toObjectId(contextId) } }] : []),
     { $unwind: '$events' },
     {
       $match: {

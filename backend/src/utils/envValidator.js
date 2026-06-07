@@ -21,7 +21,7 @@ const REQUIRED_ENV_VARS = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'MONGO_URI'];
  *
  * @type {string[]}
  */
-const REQUIRED_IN_PRODUCTION = ['CORS_WHITELIST'];
+const REQUIRED_IN_PRODUCTION = ['CORS_WHITELIST', 'PSEUDONYMIZE_SECRET'];
 
 /**
  * Variables recomendadas (warning si faltan).
@@ -85,6 +85,11 @@ function validateEnv() {
     if (!process.env.JWT_MFA_SECRET) {
       process.env.JWT_MFA_SECRET = require('node:crypto').randomBytes(48).toString('hex');
       warnings.push('JWT_MFA_SECRET (default test)');
+    }
+    // Clave HMAC para seudonimización de identificadores de menores. Default test.
+    if (!process.env.PSEUDONYMIZE_SECRET) {
+      process.env.PSEUDONYMIZE_SECRET = require('node:crypto').randomBytes(32).toString('hex');
+      warnings.push('PSEUDONYMIZE_SECRET (default test)');
     }
     if (!process.env.MONGO_URI) {
       process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/rfid-games-test';

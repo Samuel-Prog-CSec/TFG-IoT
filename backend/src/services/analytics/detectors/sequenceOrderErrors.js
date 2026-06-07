@@ -16,7 +16,7 @@
 const { AlertDetector } = require('./_base');
 const { ALERT_TYPES } = require('../../../config/alerts');
 const gamePlayRepository = require('../../../repositories/gamePlayRepository');
-const { toObjectId } = require('../analyticsHelpers');
+const { toObjectId, getStartDate } = require('../analyticsHelpers');
 
 class SequenceOrderErrorsDetector extends AlertDetector {
   constructor() {
@@ -31,33 +31,33 @@ class SequenceOrderErrorsDetector extends AlertDetector {
     const { partialRatio } = ALERT_TYPES.sequence_order_errors.thresholds;
     const studentIds = students.map(s => toObjectId(s._id));
 
+    // Único $lookup a game_sessions con sub-pipeline que solo proyecta
+    // mechanicType (ADR-193): sustituye el doble join game_sessions →
+    // game_mechanics por mechanic.name y evita arrastrar el doc de sesión.
+    // Cota temporal 90d: el índice {playerId,status,completedAt} limita el
+    // scan a partidas recientes; un alumno inactivo >90d no genera alerta.
     const pipeline = [
       {
         $match: {
           playerId: { $in: studentIds },
           status: 'completed',
+          completedAt: { $gte: getStartDate('90d') },
           'metrics.partialReproductions': { $exists: true, $gte: 0 }
         }
       },
       {
         $lookup: {
           from: 'game_sessions',
-          localField: 'sessionId',
-          foreignField: '_id',
+          let: { sid: '$sessionId' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$sid'] } } },
+            { $project: { mechanicType: 1, _id: 0 } }
+          ],
           as: 'session'
         }
       },
       { $unwind: '$session' },
-      {
-        $lookup: {
-          from: 'game_mechanics',
-          localField: 'session.mechanicId',
-          foreignField: '_id',
-          as: 'mechanic'
-        }
-      },
-      { $unwind: '$mechanic' },
-      { $match: { 'mechanic.slug': 'sequence' } },
+      { $match: { 'session.mechanicType': 'sequence' } },
       { $sort: { completedAt: -1 } },
       {
         $group: {

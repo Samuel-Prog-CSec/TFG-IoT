@@ -50,6 +50,20 @@ const IMAGE_CONFIG = {
 };
 
 /**
+ * Opciones de entrada de sharp — defensa contra bombas de descompresión.
+ * `limitInputPixels` acota la decodificación al máximo de píxeles que la app acepta
+ * (MAX_WIDTH×MAX_HEIGHT ≈ 4,2 Mpx). El default de sharp (~268 Mpx ≈ 16384²)
+ * permitiría que un archivo pequeño y muy comprimido declarara dimensiones enormes
+ * y agotara la RAM del worker (free-tier, 1 proceso) al decodificar a RAW
+ * (16384²×4 ≈ 1 GB). `failOn: 'error'` fija el umbral de fallo de forma explícita.
+ * @constant {Object}
+ */
+const SHARP_INPUT_OPTIONS = {
+  limitInputPixels: IMAGE_CONFIG.MAX_WIDTH * IMAGE_CONFIG.MAX_HEIGHT,
+  failOn: 'error'
+};
+
+/**
  * Clase de servicio para procesamiento de imágenes.
  * Implementa validación por magic bytes, conversión a WebP y generación de thumbnails.
  */
@@ -156,7 +170,21 @@ class ImageProcessingService {
    * @throws {ValidationError} Si las dimensiones no cumplen los requisitos
    */
   async getAndValidateMetadata(buffer) {
-    const metadata = await sharp(buffer).metadata();
+    let metadata;
+    try {
+      metadata = await sharp(buffer, SHARP_INPUT_OPTIONS).metadata();
+    } catch (err) {
+      // sharp lanza un Error CRUDO si el buffer no es decodificable o si excede
+      // `limitInputPixels` (defensa anti-bomba de descompresión). Cualquier fallo
+      // al leer metadatos es entrada inválida/maliciosa del cliente, NO un error
+      // del servidor: se reconvierte a ValidationError (→400) para no responder 500
+      // ni filtrar el stack de sharp con rutas del servidor (OWASP A05/A09).
+      logger.warn('sharp no pudo leer los metadatos de la imagen', { error: err.message });
+      throw new ValidationError(
+        'La imagen no es válida o es demasiado grande para procesarla. ' +
+          `Dimensiones máximas: ${IMAGE_CONFIG.MAX_WIDTH}x${IMAGE_CONFIG.MAX_HEIGHT}px.`
+      );
+    }
 
     // Validar dimensiones mínimas
     if (metadata.width < IMAGE_CONFIG.MIN_WIDTH || metadata.height < IMAGE_CONFIG.MIN_HEIGHT) {
@@ -187,7 +215,7 @@ class ImageProcessingService {
    * @returns {Promise<Buffer>} Imagen procesada en WebP
    */
   async createMainImage(buffer, metadata) {
-    let pipeline = sharp(buffer);
+    let pipeline = sharp(buffer, SHARP_INPUT_OPTIONS);
 
     // Redimensionar si excede dimensiones máximas de salida
     if (
@@ -220,7 +248,7 @@ class ImageProcessingService {
    * @returns {Promise<Buffer>} Thumbnail en WebP
    */
   async createThumbnail(buffer) {
-    return sharp(buffer)
+    return sharp(buffer, SHARP_INPUT_OPTIONS)
       .resize(IMAGE_CONFIG.THUMBNAIL_WIDTH, IMAGE_CONFIG.THUMBNAIL_HEIGHT, {
         fit: 'cover', // Recorta para llenar el cuadrado
         position: 'centre'

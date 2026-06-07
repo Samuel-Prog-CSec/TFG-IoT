@@ -15,6 +15,7 @@ const sessionAnalysisService = require('./sessionAnalysisService');
 const alertDetectionService = require('./alertDetectionService');
 const contentEffectivenessService = require('./contentEffectivenessService');
 const { toObjectId, classifyTier, calcAccuracyRate, enrichMetric } = require('./analyticsHelpers');
+const { MIN_ANALYTICS_GROUP_SIZE } = require('../../config/dataRetention');
 const logger = require('../../utils/logger').child({ component: 'reportDataService' });
 const { Sentry } = require('../../config/sentry');
 
@@ -304,7 +305,13 @@ async function getClassroomExport(teacherId, { timeRange: _timeRange = '30d' } =
     {
       createdBy: toObjectId(teacherId),
       role: 'student',
-      status: 'active'
+      status: 'active',
+      // Art. 21 RGPD: excluir del export a alumnos sin consentimiento de analytics
+      // (o cuyo tutor ejerció oposición). Paridad con getClassroomStudents; el export
+      // (dato que SALE del sistema) es la salida de mayor riesgo y no debe ser menos
+      // estricto que la vista en pantalla, que sí aplicaba este filtro.
+      'consent.granted': true,
+      'consent.purposes': 'performance_analytics'
     },
     { select: 'name profile.classroom profile.age studentMetrics' }
   );
@@ -328,6 +335,31 @@ async function getClassroomExport(teacherId, { timeRange: _timeRange = '30d' } =
     good: 'Bueno',
     excellent: 'Excelente'
   };
+
+  // Protección k-anonimidad (Guía Anonimización AEPD 2019): por debajo del umbral,
+  // un CSV con filas individuales permitiría re-identificar a menores en aulas
+  // pequeñas una vez el archivo sale del sistema. Devolvemos solo agregados, igual
+  // que la vista getClassroomStudents.
+  if (students.length > 0 && students.length < MIN_ANALYTICS_GROUP_SIZE) {
+    const totalGames = students.reduce(
+      (sum, s) => sum + (s.studentMetrics?.totalGamesPlayed || 0),
+      0
+    );
+    const avgScore =
+      students.reduce((sum, s) => sum + (s.studentMetrics?.averageScore || 0), 0) / students.length;
+    return {
+      headers,
+      rows: [],
+      aggregatedOnly: true,
+      reason: `Protección k-anonimidad: grupo de ${students.length} estudiantes (mínimo ${MIN_ANALYTICS_GROUP_SIZE})`,
+      total: students.length,
+      aggregatedMetrics: {
+        totalGames,
+        averageScore: Math.round(avgScore * 10) / 10
+      },
+      generatedAt: new Date().toISOString()
+    };
+  }
 
   const rows = students.map(s => {
     const m = s.studentMetrics || {};

@@ -421,6 +421,7 @@ function StudentReportView({ data }) {
  *   el usuario cambia reportType/period/format en los dropdowns. Permite que
  *   el padre sincronice un sidebar de preview en tiempo real.
  */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- generador con múltiples estados (default/loading/error/resultados) × tipos de informe (aula/alumno) y dropdowns sincronizados con la preview
 function ReportGenerator({
   initialDefaults,
   onAfterGenerate,
@@ -637,10 +638,16 @@ function ReportGenerator({
 
   const canGenerate = reportType === 'classroom' || (reportType === 'student' && studentId);
 
+  // En estado por defecto (sin informe generado / cargando / error) la card
+  // "Generar" rellena su columna para alinearse con la vista previa lateral y no
+  // dejar un hueco en blanco (QA 2026-06-04). Cuando hay resultados, la columna
+  // crece con ellos y NO forzamos altura (evita romper ese layout).
+  const fillColumn = !reportData && !generating && !error;
+
   return (
-    <div className="space-y-6">
+    <div className={cn('space-y-6', fillColumn && 'lg:h-full')}>
       {/* Form controls */}
-      <GlassCard variant="default">
+      <GlassCard variant="default" className={cn(fillColumn && 'lg:flex lg:h-full lg:flex-col')}>
         <div className="flex items-center gap-3 mb-5">
           <div className="p-2 rounded-lg bg-brand-base/10">
             <FileText size={20} className="text-brand-base" aria-hidden="true" />
@@ -651,7 +658,7 @@ function ReportGenerator({
           </div>
         </div>
 
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <SelectPremium
             label="Tipo de reporte"
             options={REPORT_TYPE_OPTIONS}
@@ -689,7 +696,7 @@ function ReportGenerator({
           />
         </div>
 
-        <div className="mt-5 flex items-center gap-3">
+        <div className="mt-5 lg:mt-auto lg:pt-5 flex items-center gap-3">
           <ButtonPremium
             variant="primary"
             onClick={handleGenerate}

@@ -29,24 +29,36 @@ const REPORT_AGGREGATE_TIMEOUT_MS = 7000;
  * @param {Date} startDate
  * @returns {Array} Stages del pipeline ($lookup sessions + $unwind + $match)
  */
-const buildBaseStages = (teacherId, startDate) => [
-  {
-    $lookup: {
-      from: 'game_sessions',
-      localField: 'sessionId',
-      foreignField: '_id',
-      as: 'session'
-    }
-  },
-  { $unwind: '$session' },
-  {
-    $match: {
-      'session.createdBy': toObjectId(teacherId),
-      status: 'completed',
-      completedAt: { $gte: startDate }
-    }
-  }
-];
+const buildBaseStages = async (teacherId, startDate) => {
+  // (B1) Prefiltramos por las sesiones del profesor (helper cacheado, devuelve
+  // ObjectId) y hacemos el `$match` ANTES del `$lookup`. Antes el pipeline hacía
+  // `$lookup` sobre TODA la colección game_plays y filtraba `session.createdBy`
+  // después — coste O(total_plays). Ahora el primer stage usa el índice de
+  // game_plays.sessionId y reduce a las plays del profesor. Mismo patrón A.3 ya
+  // aplicado en analyticsService. La staleness del caché (300s) la cubre la
+  // invalidación de gameSessionService al crear/archivar/eliminar sesiones.
+  const { getTeacherSessionIds } = require('../analyticsService');
+  const teacherSessionIds = await getTeacherSessionIds(teacherId);
+
+  return [
+    {
+      $match: {
+        sessionId: { $in: teacherSessionIds },
+        status: 'completed',
+        completedAt: { $gte: startDate }
+      }
+    },
+    {
+      $lookup: {
+        from: 'game_sessions',
+        localField: 'sessionId',
+        foreignField: '_id',
+        as: 'session'
+      }
+    },
+    { $unwind: '$session' }
+  ];
+};
 
 /**
  * Bloque de agregaciones reutilizado por las tres variantes de groupBy.
@@ -90,12 +102,12 @@ const buildSharedAggregates = () => ({
  * @param {'context'|'mechanic'} groupBy
  * @returns {Array} Pipeline de agregación completo
  */
-const buildSingleDimensionPipeline = (teacherId, startDate, groupBy) => {
+const buildSingleDimensionPipeline = async (teacherId, startDate, groupBy) => {
   const lookupCollection = groupBy === 'context' ? 'game_contexts' : 'game_mechanics';
   const lookupField = groupBy === 'context' ? 'session.contextId' : 'session.mechanicId';
 
   return [
-    ...buildBaseStages(teacherId, startDate),
+    ...(await buildBaseStages(teacherId, startDate)),
     {
       $lookup: {
         from: lookupCollection,
@@ -151,8 +163,8 @@ const buildSingleDimensionPipeline = (teacherId, startDate, groupBy) => {
  * @param {Date} startDate
  * @returns {Array} Pipeline de agregación completo
  */
-const buildCrossPipeline = (teacherId, startDate) => [
-  ...buildBaseStages(teacherId, startDate),
+const buildCrossPipeline = async (teacherId, startDate) => [
+  ...(await buildBaseStages(teacherId, startDate)),
   {
     $lookup: {
       from: 'game_contexts',
@@ -267,8 +279,8 @@ async function getContentEffectiveness(
 
   const pipeline =
     groupBy === 'cross'
-      ? buildCrossPipeline(teacherId, startDate)
-      : buildSingleDimensionPipeline(teacherId, startDate, groupBy);
+      ? await buildCrossPipeline(teacherId, startDate)
+      : await buildSingleDimensionPipeline(teacherId, startDate, groupBy);
 
   const results = await gamePlayRepository.aggregate(pipeline, {
     maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS
@@ -327,17 +339,18 @@ async function getContentEffectiveness(
 async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, threshold = 40 } = {}) {
   const startDate = getStartDate(timeRange);
 
-  const matchStage = {
-    'session.createdBy': toObjectId(teacherId),
-    status: 'completed',
-    completedAt: { $gte: startDate }
-  };
-
-  if (contextId) {
-    matchStage['session.contextId'] = toObjectId(contextId);
-  }
+  // (B1) Prefiltro por sesiones del profesor ANTES del $lookup (ver buildBaseStages).
+  const { getTeacherSessionIds } = require('../analyticsService');
+  const teacherSessionIds = await getTeacherSessionIds(teacherId);
 
   const pipeline = [
+    {
+      $match: {
+        sessionId: { $in: teacherSessionIds },
+        status: 'completed',
+        completedAt: { $gte: startDate }
+      }
+    },
     {
       $lookup: {
         from: 'game_sessions',
@@ -347,7 +360,8 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
       }
     },
     { $unwind: '$session' },
-    { $match: matchStage },
+    // El filtro por contexto sigue requiriendo el doc de sesión (post-lookup).
+    ...(contextId ? [{ $match: { 'session.contextId': toObjectId(contextId) } }] : []),
     {
       $lookup: {
         from: 'game_contexts',
@@ -443,7 +457,12 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
 async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mechanicId } = {}) {
   const startDate = getStartDate(timeRange);
 
-  const sessionMatch = { 'session.createdBy': toObjectId(teacherId) };
+  // (B1) Prefiltro por sesiones del profesor ANTES del $lookup (ver buildBaseStages).
+  const { getTeacherSessionIds } = require('../analyticsService');
+  const teacherSessionIds = await getTeacherSessionIds(teacherId);
+
+  // El filtro por contexto/mecánica sigue requiriendo el doc de sesión (post-lookup).
+  const sessionMatch = {};
   if (contextId) {
     sessionMatch['session.contextId'] = toObjectId(contextId);
   }
@@ -453,6 +472,13 @@ async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mech
 
   const pipeline = [
     {
+      $match: {
+        sessionId: { $in: teacherSessionIds },
+        status: 'completed',
+        completedAt: { $gte: startDate }
+      }
+    },
+    {
       $lookup: {
         from: 'game_sessions',
         localField: 'sessionId',
@@ -461,13 +487,7 @@ async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mech
       }
     },
     { $unwind: '$session' },
-    {
-      $match: {
-        ...sessionMatch,
-        status: 'completed',
-        completedAt: { $gte: startDate }
-      }
-    },
+    ...(Object.keys(sessionMatch).length > 0 ? [{ $match: sessionMatch }] : []),
     {
       $lookup: {
         from: 'game_contexts',

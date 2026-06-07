@@ -931,6 +931,14 @@ export default function GameSession() {
   useEffect(() => {
     return () => {
       clearPendingTimeouts();
+      // Los timers de Secuencia viven en refs propios (no en el array de
+      // pendingTimeouts), así que hay que cancelarlos también al desmontar: si
+      // el usuario navega fuera de la partida con uno en vuelo (grace/hint hasta
+      // 3.5s, collect 2.4s) dispararía dispatch/setSequenceState sobre un
+      // componente ya desmontado (fuga + warning de React).
+      if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
+      if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
+      if (sequenceGraceTimerRef.current) clearTimeout(sequenceGraceTimerRef.current);
     };
   }, [clearPendingTimeouts]);
 

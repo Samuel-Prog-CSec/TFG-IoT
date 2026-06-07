@@ -40,7 +40,10 @@ const createUserSchema = z
 
     role: z
       .enum([...ROLES], {
-        errorMap: () => ({ message: 'El rol debe ser super_admin, teacher o student' })
+        // Zod 4: el mensaje custom va en `error` (string o fn). El antiguo
+        // `errorMap` se ignora silenciosamente y caía al mensaje por defecto
+        // en inglés ("Invalid option: ...").
+        error: () => 'El rol debe ser super_admin, teacher o student'
       })
       .default('student'),
 
@@ -57,14 +60,9 @@ const createUserSchema = z
           .string()
           .trim()
           .max(50, 'El nombre de la clase no puede exceder 50 caracteres')
-          .optional(),
-        birthdate: z
-          .string()
-          .datetime({ message: 'Fecha de nacimiento inválida' })
-          .or(z.date())
           .optional()
-        // Nota: birthdate solo se mantiene como opcional para profesores.
-        // Para alumnos, el modelo User.js lo rechaza en pre-save (Art. 5.1.c RGPD)
+        // `birthdate` ELIMINADO del schema y del validador (Art. 5.1.c RGPD, ADR-197):
+        // no se acepta; Zod lo descarta y Mongoose (strict) no lo persiste.
       })
       .optional(),
 
@@ -133,10 +131,10 @@ const createStudentSchema = z
     // Consentimiento parental — Art. 8 RGPD + Art. 7 LOPDGDD
     consent: z.object({
       granted: z.literal(true, {
-        errorMap: () => ({
-          message:
-            'El consentimiento parental debe ser otorgado para crear un alumno (Art. 8 RGPD + Art. 7 LOPDGDD)'
-        })
+        // Zod 4: usar `error` en lugar del antiguo `errorMap` (ignorado → mensaje
+        // por defecto en inglés). Mantiene el copy legal en español.
+        error: () =>
+          'El consentimiento parental debe ser otorgado para crear un alumno (Art. 8 RGPD + Art. 7 LOPDGDD)'
       }),
       grantedBy: sanitizedString({ min: 2, max: 100, label: 'El nombre del tutor' }),
       purposes: z.array(z.enum([...CONSENT_PURPOSES])).optional(),
@@ -177,10 +175,12 @@ const updateUserSchema = z
   .object({
     name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }).optional(),
 
-    email: emailSchema.optional(),
-
-    password: passwordSchema.optional(),
-
+    // email/password NO se actualizan por este endpoint: el controller solo
+    // aplica name/profile/status (ver updateMutableUserFields). Aceptarlos en el
+    // schema era un vector latente de mass-assignment — un futuro wiring los
+    // persistiría sin auditoría ni reentrada de currentPassword. Con `.strict()`
+    // ahora se rechazan explícitamente; el cambio de contraseña tiene su flujo
+    // dedicado (PUT /api/auth/change-password con currentPassword).
     profile: z
       .object({
         avatar: z.string().url('URL de avatar inválida').optional(),
@@ -275,9 +275,9 @@ const updateConsentSchema = z
 const hardDeleteSchema = z
   .object({
     confirmDeletion: z.literal(true, {
-      errorMap: () => ({
-        message: 'Debe confirmar la eliminación permanente con confirmDeletion: true'
-      })
+      // Zod 4: `error` reemplaza al antiguo `errorMap` (que se ignoraba → mensaje
+      // por defecto en inglés).
+      error: () => 'Debe confirmar la eliminación permanente con confirmDeletion: true'
     })
   })
   .strict();
@@ -300,9 +300,9 @@ const updateOnboardingSchema = z
       .optional(),
     currentTrack: z
       .enum(['teacher', 'super_admin'], {
-        errorMap: () => ({
-          message: 'El track del onboarding debe ser teacher o super_admin'
-        })
+        // Zod 4: `error` reemplaza al antiguo `errorMap` (ignorado → mensaje por
+        // defecto en inglés).
+        error: () => 'El track del onboarding debe ser teacher o super_admin'
       })
       .nullable()
       .optional(),

@@ -219,14 +219,14 @@ function SystemAlertsHub({
           value={severityFilter}
           onChange={setSeverityFilter}
           placeholder="Severidad"
-          className="w-44"
+          className="w-56"
         />
         <SelectPremium
           options={sourceOptions}
           value={sourceFilter}
           onChange={setSourceFilter}
           placeholder="Subsistema"
-          className="w-44"
+          className="w-56"
         />
         <SelectPremium
           options={typeOptions}

@@ -7,7 +7,7 @@ const express = require('express');
 const router = express.Router();
 const analyticsController = require('../controllers/analyticsController');
 const { authenticate, requireRole } = require('../middlewares/auth');
-const { analyticsRateLimiter } = require('../config/security');
+const { analyticsRateLimiter, reportExportRateLimiter } = require('../config/security');
 const { validateParams, validateQuery, validateBody } = require('../middlewares/validation');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const {
@@ -593,6 +593,7 @@ router.post(
  */
 router.get(
   '/reports/student/:id',
+  reportExportRateLimiter,
   validateParams(analyticsStudentParamsSchema),
   validateQuery(reportQuerySchema),
   asyncHandler(analyticsAdvancedController.getStudentReport)
@@ -605,6 +606,7 @@ router.get(
  */
 router.get(
   '/reports/classroom',
+  reportExportRateLimiter,
   validateQuery(reportQuerySchema),
   asyncHandler(analyticsAdvancedController.getClassroomReport)
 );
@@ -616,6 +618,7 @@ router.get(
  */
 router.get(
   '/reports/classroom/export',
+  reportExportRateLimiter,
   validateQuery(reportExportQuerySchema),
   asyncHandler(analyticsAdvancedController.getClassroomExport)
 );

@@ -410,6 +410,16 @@ gamePlaySchema.index({ sessionId: 1 });
 gamePlaySchema.index({ playerId: 1, completedAt: -1 });
 
 /**
+ * Índice ESR (Equality→Sort→Range) para analytics por alumno acotadas a partidas
+ * completadas: la inmensa mayoría de queries por jugador filtran `status:'completed'`
+ * y ordenan/acotan por `completedAt`. Sin él resolvían por {playerId,completedAt}
+ * (no cubre el filtro status) o {playerId,status,startedAt} (ordena por startedAt →
+ * sort en memoria al pedir completedAt). Cubre detectores SmartAlert (secuencia/
+ * timeout) y getStudentSummary/trajectory tras añadirles la cota temporal.
+ */
+gamePlaySchema.index({ playerId: 1, status: 1, completedAt: -1 });
+
+/**
  * Índice compuesto para analytics: partidas completadas ordenadas por fecha.
  * Caso de uso: agregaciones de rendimiento en classroom trends/distribution.
  */

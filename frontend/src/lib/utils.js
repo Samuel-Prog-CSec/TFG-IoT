@@ -423,13 +423,22 @@ export function exportToCSV(data, filename, columns) {
   if (!data?.length || !columns?.length) return;
 
   const separator = ',';
-  const header = columns.map(c => `"${c.label}"`).join(separator);
+  // Neutraliza inyeccion de formulas (CSV/formula injection): una celda que empieza
+  // por = + - @ TAB o CR la interpretan Excel/Sheets/LibreOffice como formula
+  // (HYPERLINK/WEBSERVICE/DDE) al abrir el CSV, permitiendo exfiltrar datos de otras
+  // celdas. Como las celdas incluyen nombres reales de menores (texto libre del
+  // profesor), prefijamos con apostrofo cualquier valor con prefijo peligroso.
+  const sanitizeCell = value => {
+    const str = String(value);
+    const safe = /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
+  const header = columns.map(c => sanitizeCell(c.label)).join(separator);
   const rows = data.map(row =>
     columns.map(c => {
       const val = row[c.key];
       if (val == null) return '""';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
+      return sanitizeCell(val);
     }).join(separator)
   );
 

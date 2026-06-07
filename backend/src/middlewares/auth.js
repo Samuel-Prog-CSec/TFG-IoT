@@ -261,13 +261,32 @@ const fetchUserForAuthWithChecks = async (decoded, req) => {
 /**
  * Constantes de seguridad para tokens.
  */
+/**
+ * Vida útil del refresh token en Redis (7 días). Es el gate REAL de validez:
+ * `verifyRefreshToken` exige `getRefreshTokenInfo`, cuya key expira con este TTL,
+ * por lo que un refresh token deja de aceptarse a los 7 días aunque el JWT
+ * declare un `exp` mayor.
+ */
+const REFRESH_TOKEN_TTL_SECONDS = 7 * 24 * 60 * 60;
+
 const TOKEN_SECURITY = {
   /** Grace period para tokens rotados (10 segundos) */
   ROTATION_GRACE_PERIOD_MS: 10000,
   /** Duración del refresh token en segundos (7 días) */
-  REFRESH_TOKEN_TTL_SECONDS: 7 * 24 * 60 * 60,
-  /** Duración del flag de seguridad en segundos (1 hora) */
-  SECURITY_FLAG_TTL_SECONDS: 3600
+  REFRESH_TOKEN_TTL_SECONDS,
+  /**
+   * Duración del flag de revocación global (`security:<userId>`).
+   *
+   * DEBE cubrir toda la vida útil del refresh token. Con el valor previo (1 h)
+   * un refresh token robado ANTES de un logout forzado (cambio de contraseña,
+   * alta/baja de MFA o robo de token detectado) volvía a ser aceptado pasada
+   * esa hora, porque `verifyRefreshToken` solo consulta este flag y, expirado,
+   * el token seguía vivo en `NAMESPACES.REFRESH` durante 7 días. Alineándolo con
+   * REFRESH_TOKEN_TTL_SECONDS, la revocación global es efectiva durante toda la
+   * ventana en que el token podría reutilizarse. La tolerancia de 1 s en
+   * `checkSecurityFlag` sigue permitiendo el re-login inmediato legítimo.
+   */
+  SECURITY_FLAG_TTL_SECONDS: REFRESH_TOKEN_TTL_SECONDS
 };
 
 const REFRESH_COOKIE_NAME = 'refreshToken';
@@ -1052,49 +1071,6 @@ const requireRole =
   };
 
 /**
- * Middleware para verificar que el usuario accede solo a sus propios recursos.
- * Útil para que un alumno solo vea sus propias partidas.
- *
- * Uso:
- * router.get('/plays/:id', authenticate, requireOwnership('playerId'), getPlay);
- *
- * @param {string} resourceIdField - Campo en req.params o req.body con el ID del recurso
- * @returns {Function} Middleware de Express
- */
-const requireOwnership =
-  (resourceIdField = 'id') =>
-  async (req, res, next) => {
-    try {
-      if (!req.user) {
-        throw new UnauthorizedError('Autenticación requerida');
-      }
-
-      // Profesores tienen acceso a todos los recursos
-      if (req.user.role === 'teacher') {
-        return next();
-      }
-
-      const resourceId = req.params[resourceIdField] || req.body[resourceIdField];
-
-      // Comparar el ID del recurso con el ID del usuario
-      // NOTA: Esta lógica puede necesitar ajustes según el recurso
-      if (resourceId && resourceId.toString() !== req.user._id.toString()) {
-        logSecurityEvent('AUTHZ_ACCESS_DENIED', {
-          ...getRequestContext(req),
-          userId: req.user._id,
-          resourceId
-        });
-
-        throw new ForbiddenError('No tienes permiso para acceder a este recurso');
-      }
-
-      return next();
-    } catch (error) {
-      return next(error);
-    }
-  };
-
-/**
  * Middleware opcional de autenticación.
  * Si hay token, lo valida y adjunta el usuario.
  * Si no hay token, continúa sin error (req.user será undefined).
@@ -1231,7 +1207,6 @@ module.exports = {
   // Middlewares
   authenticate,
   requireRole,
-  requireOwnership,
   optionalAuth,
   logout,
 

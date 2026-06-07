@@ -14,7 +14,7 @@
 import { useState, useRef, useMemo, useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { m as motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
-import { Layers, Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from 'lucide-react';
+import { Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
 import { ROUTES } from '../../constants/routes';
@@ -383,6 +383,20 @@ function DeckCardView({
             (`X tarjetas · fecha`). El overlay aparece encima sin solaparse
             con texto vivo (HF-2 QA 2026-05-09). */}
         <div className="relative p-5 pb-20 z-10">
+          {/* Galería (rediseño 2026-06-04): el contenido del mazo —sus cartas
+              reales— es el HÉROE visual de la card y va arriba como banda
+              tematizada por contexto. El nombre/contexto/menú quedan debajo.
+              Antes el contenido era una fila pequeña secundaria. */}
+          <DeckPreviewAssets
+            previewAssets={previewAssets}
+            remainingCount={remainingCount}
+            useFullAnimations={useFullAnimations}
+            isHovered={isHovered}
+            assetX={assetX}
+            assetY={assetY}
+            deck={deck}
+          />
+
           <DeckCardHeader
             deck={deck}
             selectable={selectable}
@@ -395,20 +409,15 @@ function DeckCardView({
             onRename={onRename}
           />
 
-          {deck.description && (
-            <p className="text-text-muted text-sm mb-4 line-clamp-2" title={deck.description}>
-              {deck.description}
-            </p>
-          )}
-
-          <DeckPreviewAssets
-            previewAssets={previewAssets}
-            remainingCount={remainingCount}
-            useFullAnimations={useFullAnimations}
-            isHovered={isHovered}
-            assetX={assetX}
-            assetY={assetY}
-          />
+          {/* La descripción reserva siempre 2 líneas (min-h) aunque el mazo no
+              tenga, para que todas las cards de la galería midan igual en una
+              fila (antes las sin descripción quedaban 36px más bajas). QA 2026-06-04. */}
+          <p
+            className="text-text-muted text-sm mb-4 line-clamp-2 min-h-[2.5rem]"
+            title={deck.description || undefined}
+          >
+            {deck.description}
+          </p>
 
           <DeckStats cardsCount={cardsCount} createdAt={deck.createdAt} />
 
@@ -483,19 +492,10 @@ function DeckCardHeader({
   const theme = getContextTheme(contextRef?.slug || contextRef?.name);
 
   return (
-    <div className="flex items-start justify-between mb-4">
-      <div className="flex items-center gap-3 min-w-0">
-        <div
-          className={cn(
-            'size-12 rounded-xl flex items-center justify-center bg-gradient-to-br ring-1 ring-inset flex-shrink-0',
-            theme.gradientClass,
-            theme.ringClass,
-            theme.glowClass
-          )}
-        >
-          <Layers className="text-text-primary drop-shadow-sm" size={22} strokeWidth={2.25} />
-        </div>
-        <div className="min-w-0">
+    <div className="flex items-start justify-between gap-3 mb-4">
+      {/* Galería 2026-06-04: sin icono genérico — la banda de contenido (arriba)
+          ES la identidad visual del mazo. El nombre se expande a lo ancho. */}
+      <div className="min-w-0">
           {onRename && !selectable ? (
             <InlineEditableText
               value={deck.name}
@@ -544,7 +544,6 @@ function DeckCardHeader({
             );
           })()}
         </div>
-      </div>
 
       {!selectable && (
         <div className="relative z-20" ref={menuRef}>
@@ -601,71 +600,94 @@ DeckCardHeader.propTypes = {
   onRename: PropTypes.func,
 };
 
+// Banda héroe de la galería (rediseño 2026-06-04): el contenido del mazo —sus
+// cartas reales (imágenes/emojis)— ocupa una banda protagonista arriba de la
+// card, tematizada por contexto. Antes era una fila pequeña de 40px en el medio.
+const HERO_TILE_COUNT = 4;
+
 function DeckPreviewAssets({
   previewAssets,
   remainingCount,
   useFullAnimations,
   isHovered,
   assetX,
-  assetY
+  assetY,
+  deck,
 }) {
+  const contextRef = deck?.context || deck?.contextId;
+  const theme = getContextTheme(contextRef?.slug || contextRef?.name);
+  const tiles = previewAssets.slice(0, HERO_TILE_COUNT);
+  // Cartas no mostradas como tile: las que quedan del preview + las truncadas
+  // por el backend (remainingCount). Acotado a >= 0.
+  const hidden = Math.max(0, remainingCount + Math.max(0, previewAssets.length - HERO_TILE_COUNT));
+
   return (
-    <motion.div
-      className="flex items-center gap-2 mb-4"
-      style={{
-        x: useFullAnimations && isHovered ? assetX : 0,
-        y: useFullAnimations && isHovered ? assetY : 0,
-      }}
-    >
-      {previewAssets.map((mapping, index) => {
-        const label = mapping.displayData?.display || mapping.displayData?.emoji || '?';
-        const hasImage = Boolean(mapping.displayData?.thumbnailUrl || mapping.displayData?.imageUrl);
-        // En el espacio reducido del preview (40px), el texto "España" se ve
-        // apretado → usamos iniciales (1-2 chars) como fallback cuando la
-        // imagen no carga. Si es un emoji, se mantiene tal cual.
-        const initials = (() => {
-          if (!label || label === '?') return label;
-          const isEmoji = /\p{Emoji}/u.test(label);
-          if (isEmoji) return label;
-          const words = label.trim().split(/\s+/);
-          if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
-          return label.slice(0, 2).toUpperCase();
-        })();
-        return (
-          <motion.div
-            key={mapping._id || index}
-            className="size-10 rounded-lg border border-border-default flex items-center justify-center text-lg overflow-hidden shadow-[var(--shadow-inset-card)] ring-1 ring-border-subtle"
-            initial={{ opacity: 0, scale: 0.8 }}
-            animate={{ opacity: 1, scale: 1 }}
-            transition={{ delay: index * 0.06 }}
-            title={label}
-            style={{
-              transform: `translateZ(${(index + 1) * 10}px)`,
-              // Fondo con dominantColor del asset para continuidad visual
-              backgroundColor: mapping.displayData?.dominantColor || 'var(--color-background-elevated)',
-            }}
-          >
-            <CardAssetPreview
-              asset={mapping.displayData}
-              className="w-full h-full rounded-lg"
-              showSkeleton={false}
-              fallbackLabel={initials}
-              fallbackClassName={!hasImage ? 'p-0.5 text-white/90 font-bold' : undefined}
-            />
-          </motion.div>
-        );
-      })}
-      {remainingCount > 0 && (
-        <motion.div
-          className="size-10 rounded-lg bg-background-elevated/80 border border-border-default flex items-center justify-center text-xs font-bold text-text-muted"
-          initial={{ opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ delay: 0.4 }}
-        >
-          +{remainingCount}
-        </motion.div>
+    <div
+      className={cn(
+        'relative mb-4 overflow-hidden rounded-xl p-3 bg-background-elevated/50 ring-1 ring-inset',
+        theme.ringClass
       )}
-    </motion.div>
+    >
+      {/* Glow tenue del tono del contexto: identidad sin tapar el contenido */}
+      <div
+        className={cn('pointer-events-none absolute -top-10 -right-10 size-24 rounded-full blur-2xl opacity-20', theme.glowClass)}
+        aria-hidden="true"
+      />
+      <motion.div
+        className="relative flex items-center gap-2"
+        style={{
+          x: useFullAnimations && isHovered ? assetX : 0,
+          y: useFullAnimations && isHovered ? assetY : 0,
+        }}
+      >
+        {tiles.map((mapping, index) => {
+          const label = mapping.displayData?.display || mapping.displayData?.emoji || '?';
+          const hasImage = Boolean(mapping.displayData?.thumbnailUrl || mapping.displayData?.imageUrl);
+          // Fallback a iniciales (1-2 chars) cuando no hay imagen; emoji tal cual.
+          const initials = (() => {
+            if (!label || label === '?') return label;
+            const isEmoji = /\p{Emoji}/u.test(label);
+            if (isEmoji) return label;
+            const words = label.trim().split(/\s+/);
+            if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+            return label.slice(0, 2).toUpperCase();
+          })();
+          return (
+            <motion.div
+              key={mapping._id || index}
+              className="size-12 rounded-xl border border-white/10 flex items-center justify-center text-2xl overflow-hidden shadow-[var(--shadow-inset-card)] ring-1 ring-black/5 flex-shrink-0"
+              initial={{ opacity: 0, scale: 0.85, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              transition={{ delay: index * 0.06, ease: [0.16, 1, 0.3, 1] }}
+              title={label}
+              style={{
+                transform: `translateZ(${(index + 1) * 12}px)`,
+                // Fondo con dominantColor del asset para continuidad visual
+                backgroundColor: mapping.displayData?.dominantColor || 'var(--color-background-elevated)',
+              }}
+            >
+              <CardAssetPreview
+                asset={mapping.displayData}
+                className="w-full h-full rounded-xl"
+                showSkeleton={false}
+                fallbackLabel={initials}
+                fallbackClassName={!hasImage ? 'p-0.5 text-white/90 font-bold' : undefined}
+              />
+            </motion.div>
+          );
+        })}
+        {hidden > 0 && (
+          <motion.div
+            className="size-12 rounded-xl bg-background-base/60 border border-border-default flex items-center justify-center text-sm font-bold text-text-secondary flex-shrink-0"
+            initial={{ opacity: 0, scale: 0.85 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ delay: 0.3 }}
+          >
+            +{hidden}
+          </motion.div>
+        )}
+      </motion.div>
+    </div>
   );
 }
 
@@ -676,6 +698,7 @@ DeckPreviewAssets.propTypes = {
   isHovered: PropTypes.bool.isRequired,
   assetX: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
   assetY: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
+  deck: deckShape,
 };
 
 function DeckStats({ cardsCount, createdAt }) {

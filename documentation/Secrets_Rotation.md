@@ -22,6 +22,7 @@
 | `JWT_MFA_SECRET` (T-905 B7) | Koyeb Secrets (`api-*`) | Firma de MFA tokens cortos (5min) | **6 meses** (mismo ciclo que JWT_SECRET) |
 | `MFA_ENCRYPTION_KEY` (T-905 B7) | Koyeb Secrets (`api-*`) | Cifra/descifra TOTP secrets en BD AES-256-GCM | **12 meses** o ante incidente. ⚠️ Rotar invalida `mfa.secret` cifrados — super_admins deben re-setup MFA |
 | `RFID_HMAC_SECRET` (T-905 B8) | Koyeb Secrets + PlatformIO build env | Firma HMAC del UID en firmware y validación backend | **On-firmware-update** (re-flashear sensores) |
+| `PSEUDONYMIZE_SECRET` | Koyeb Secrets (`api-*`) | Clave HMAC para seudonimizar IDs de menores en logs/DTOs/exports (RGPD Art. 4.5; evita re-identificación). Requerido en producción | **12 meses** o ante incidente. Rotar cambia los pseudoIds futuros — cosmético: el dedup de alertas es por `studentId`, no por pseudoId |
 | `TURNSTILE_SECRET` (T-905 B6) | Cloudflare + Koyeb Secrets | CAPTCHA siteverify backend | **12 meses** o ante incidente |
 | `VITE_TURNSTILE_SITEKEY` (T-905 B6) | Cloudflare + frontend build env | Render del widget Turnstile | Junto al secret (no rota independiente) |
 | `CSP_REPORT_ONLY` (T-905 B5) | Koyeb env | Feature flag para CSP gradual rollout | No es secret, control operativo |

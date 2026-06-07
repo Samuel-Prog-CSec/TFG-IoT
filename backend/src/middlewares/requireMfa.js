@@ -20,6 +20,7 @@
  */
 
 const jwt = require('jsonwebtoken');
+const crypto = require('node:crypto');
 const { ForbiddenError } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'mfa' });
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
@@ -48,12 +49,18 @@ const issueMfaToken = userId => {
   if (!process.env.JWT_MFA_SECRET) {
     throw new Error('JWT_MFA_SECRET no configurado — MFA no operativo');
   }
-  return jwt.sign({ mfa: true, sub: userId }, process.env.JWT_MFA_SECRET, {
-    algorithm: 'HS256',
-    issuer: ISSUER,
-    audience: AUDIENCE,
-    expiresIn: '5m'
-  });
+  // `jti` único: habilita auditoría por token (req.mfaTokenJti dejaba de ser
+  // undefined) y revocación/single-use futura sin cambiar el contrato del header.
+  return jwt.sign(
+    { mfa: true, sub: userId, jti: crypto.randomUUID() },
+    process.env.JWT_MFA_SECRET,
+    {
+      algorithm: 'HS256',
+      issuer: ISSUER,
+      audience: AUDIENCE,
+      expiresIn: '5m'
+    }
+  );
 };
 
 /**
@@ -135,7 +142,7 @@ const requireMfa = (req, res, next) => {
 
     req.mfaVerified = true;
     req.mfaTokenJti = decoded.jti;
-    logger.info('MFA token verificado', { userId: req.user._id });
+    logger.info('MFA token verificado', { userId: req.user._id, jti: decoded.jti });
     return next();
   } catch (error) {
     return next(error);

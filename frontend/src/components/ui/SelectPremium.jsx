@@ -32,6 +32,12 @@ export default function SelectPremium({
   disabled = false,
   className,
   searchable = 'auto',
+  // BUG-A11Y-SELECT-NAME-B (QA 2026-06-04): capturamos `aria-label` explícito.
+  // Antes caía en `{...props}` sobre el `<div>` contenedor y el combobox se
+  // quedaba con el placeholder ("Seleccionar…") como nombre — los filtros del
+  // dashboard (contexto/mecánica/rango) sonaban idénticos al lector de pantalla
+  // y no anunciaban su valor.
+  'aria-label': ariaLabelProp,
   ...props
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -50,6 +56,21 @@ export default function SelectPremium({
     (searchable === 'auto' && options.length > SEARCHABLE_AUTO_THRESHOLD);
 
   const selected = options.find(o => o.value === value);
+
+  // Nombre accesible del combobox (BUG-A11Y-SELECT-NAME-B):
+  // - Si hay `aria-label` explícito y NO label visible (caso filtros del
+  //   dashboard): combinamos propósito + valor seleccionado para que el lector
+  //   anuncie "Filtrar por contexto temático: Todos los contextos" y cada
+  //   filtro sea distinguible.
+  // - Si hay label visible: lo provee `aria-labelledby` (el valor queda
+  //   visualmente adyacente).
+  // - Fallback legacy: placeholder.
+  let comboAriaLabel;
+  if (!label && ariaLabelProp) {
+    comboAriaLabel = `${ariaLabelProp}: ${selected?.label || placeholder}`;
+  } else if (!label) {
+    comboAriaLabel = placeholder;
+  }
 
   // Filtrar opciones por la query (case-insensitive, match parcial). Si no hay
   // query, devolver el array intacto para evitar trabajar de más.
@@ -215,11 +236,10 @@ export default function SelectPremium({
         aria-haspopup="listbox"
         aria-controls={listboxId}
         aria-labelledby={label ? labelId : undefined}
-        // BUG-A11Y-SELECT-NAME-A (QA Sprint 0 post-v0.5.0): si no hay label, el
-        // combobox quedaba sin nombre accesible (axe critical button-name).
-        // Caemos al placeholder como nombre — los usos legacy lo describen
-        // ("Selecciona un profesor", "Filtrar por contexto…").
-        aria-label={!label ? placeholder : undefined}
+        // BUG-A11Y-SELECT-NAME-A/B: sin label visible, el combobox necesita
+        // nombre accesible propio. `comboAriaLabel` combina el `aria-label`
+        // explícito con el valor seleccionado (o cae al placeholder legacy).
+        aria-label={comboAriaLabel}
         aria-activedescendant={isOpen ? activeDescendantId : undefined}
         onClick={() => isOpen ? setIsOpen(false) : openDropdown()}
         onKeyDown={handleKeyDown}

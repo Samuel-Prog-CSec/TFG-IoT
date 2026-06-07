@@ -35,6 +35,7 @@ import {
 import { cn } from '../lib/utils';
 import { getId } from '../lib/entityId';
 import { buildCardMappingsPayload } from '../lib/cardMapping';
+import { validateAssignmentCardinality } from '../lib/deckCardinality';
 import WizardStepper from '../components/ui/WizardStepper';
 import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
 import AssetSelector from '../components/ui/AssetSelector';
@@ -171,14 +172,14 @@ export default function DeckCreationWizard() {
   );
   
   // Hook de persistencia de borrador
-  const { 
-    draft, 
-    hasDraft, 
-    saveDraft, 
-    restoreDraft, 
-    discardDraft, 
+  const {
+    draft,
+    hadDraftOnMount,
+    saveDraft,
+    restoreDraft,
+    discardDraft,
     clearDraft,
-    draftTimestamp 
+    draftTimestamp
   } = useDeckWizardDraft();
 
   useRefetchOnFocus({
@@ -188,13 +189,16 @@ export default function DeckCreationWizard() {
     hasError: Boolean(contextsError)
   });
 
-  // Mostrar modal si hay borrador guardado, solo si el usuario aún no ha
-  // tomado decisión sobre él en esta sesión del wizard.
+  // Mostrar el modal "Borrador encontrado" SOLO si al montar el wizard ya
+  // existía un borrador previo (`hadDraftOnMount`), no cuando el autosave de la
+  // sesión actual crea uno nuevo. Antes se usaba `hasDraft`, que `saveDraft`
+  // vuelve a poner true al guardar la 1ª carta de un mazo nuevo → el modal
+  // rebrotaba sobre el borrador que el usuario está creando (QA 2026-06-04).
   useEffect(() => {
-    if (hasDraft && !showDraftModal && !draftDecisionTakenRef.current) {
+    if (hadDraftOnMount && !showDraftModal && !draftDecisionTakenRef.current) {
       setShowDraftModal(true);
     }
-  }, [hasDraft, showDraftModal]);
+  }, [hadDraftOnMount, showDraftModal]);
 
   // Guardar borrador automáticamente
   useEffect(() => {
@@ -345,9 +349,17 @@ export default function DeckCreationWizard() {
   // Crear mazo
   const handleCreateDeck = async () => {
     if (!canProceed()) return;
-    
+
+    // Validar cardinalidad de recursos antes de llamar al backend para dar un
+    // mensaje claro en vez del 400 técnico (QA 2026-06-04). Ver lib/deckCardinality.
+    const cardinality = validateAssignmentCardinality(selectedCards, cardAssignments);
+    if (!cardinality.valid) {
+      toast.error('Recursos repetidos sin formar parejas', { description: cardinality.reason });
+      return;
+    }
+
     setIsSubmitting(true);
-    
+
     try {
       const deckData = {
         name: deckName.trim(),
@@ -371,7 +383,7 @@ export default function DeckCreationWizard() {
       });
       saveBadge.trigger();
 
-      toast.success('¡Mazo creado!', {
+      toast.success('Mazo creado', {
         description: `"${deckName}" está listo para usar`
       });
 
@@ -968,7 +980,7 @@ function StepAssign({
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <GlassCard className="p-3 flex items-center justify-between">
+          <GlassCard className="p-3" contentClassName="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-text-secondary">
               <Wand2 size={16} className="text-accent-indigo" />
               <span>

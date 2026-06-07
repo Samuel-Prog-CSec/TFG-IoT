@@ -19,6 +19,19 @@ class BoardReadyCommand extends BaseSocketCommand {
         return;
       }
 
+      // Solo los roles con socket autenticado (docente/super_admin) y dueños de
+      // la sesión pueden arrancar el temporizador del tablero. Sin esta
+      // comprobación, cualquier socket autenticado podía disparar
+      // `confirmBoardReady` sobre la partida de OTRO docente (sabotaje del timer).
+      if (!helpers.requireSocketRole(socket, ['teacher', 'super_admin'], 'board_ready')) {
+        return;
+      }
+
+      const ownership = await helpers.requirePlayOwnership(socket, playId, 'board_ready');
+      if (!ownership) {
+        return;
+      }
+
       await gameEngine.confirmBoardReady(playId);
 
       logger.info('Tablero de memoria confirmado como visible', {

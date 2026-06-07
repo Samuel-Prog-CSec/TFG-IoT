@@ -126,6 +126,16 @@ services:
       mongo:
         condition: service_healthy
     command: ["node", "worker.js"]
+    healthcheck:
+      # El worker NO expone servidor HTTP (solo procesa colas BullMQ). Sin este
+      # override heredaba el HEALTHCHECK del Dockerfile del backend (GET :5000/health)
+      # -> connection refused -> falso "unhealthy". Su dependencia crítica es Redis:
+      # comprobamos conectividad con un PING (fail-fast, sin reintentos).
+      test: ["CMD", "node", "-e", "const Redis=require('ioredis'); const r=new Redis(process.env.REDIS_URL,{maxRetriesPerRequest:1,connectTimeout:3000,retryStrategy:()=>null}); r.ping().then(()=>{r.disconnect();process.exit(0)}).catch(()=>process.exit(1)); setTimeout(()=>process.exit(1),8000);"]
+      interval: 30s
+      timeout: 10s
+      start_period: 15s
+      retries: 3
     networks:
       - rfid-games-network
     labels:

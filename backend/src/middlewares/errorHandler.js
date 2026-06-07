@@ -75,6 +75,18 @@ const errorHandler = (err, req, res, _next) => {
     code = 'TOKEN_EXPIRED';
   }
 
+  // 6. Multer (subida de archivos): son errores del CLIENTE, no del servidor.
+  // Sin esta rama caían al 500 por defecto (con stack en dev). LIMIT_FILE_SIZE → 413;
+  // el resto de límites/archivo inesperado → 400. Mensaje genérico sin internals.
+  else if (err.name === 'MulterError') {
+    statusCode = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    code = err.code;
+    message =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? 'El archivo supera el tamaño máximo permitido'
+        : 'Archivo no válido en la subida';
+  }
+
   // --- Logging estructurado con Pino ---
   if (statusCode >= 500) {
     logger.error('Error interno del servidor', {

@@ -83,6 +83,25 @@ export default function RFIDScannerPanel({
   const prefersReducedMotion = useReducedMotion();
   const { fireFromElement } = useConfetti();
 
+  // Timers transitorios (reset de estados efímeros tras 1.5–3 s). Se registran
+  // para cancelarlos al desmontar y evitar setState sobre componente desmontado
+  // si el usuario sale del paso de escaneo dentro de esa ventana.
+  const transientTimersRef = useRef(new Set());
+  const scheduleTransient = useCallback((fn, ms) => {
+    const id = setTimeout(() => {
+      transientTimersRef.current.delete(id);
+      fn();
+    }, ms);
+    transientTimersRef.current.add(id);
+  }, []);
+  useEffect(() => {
+    const timers = transientTimersRef.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, []);
+
   // Contador animado
   const countSpring = useSpring(scannedCards.length, { stiffness: 300, damping: 30 });
   const displayCount = useTransform(countSpring, Math.round);
@@ -105,7 +124,7 @@ export default function RFIDScannerPanel({
     const handleCardRemoved = (payload) => {
       if (payload?.uid) {
         setCardRemovedUid(payload.uid);
-        setTimeout(() => setCardRemovedUid(null), 2000);
+        scheduleTransient(() => setCardRemovedUid(null), 2000);
       }
     };
 
@@ -118,7 +137,7 @@ export default function RFIDScannerPanel({
       webSerialService.off('device_state_change', handleDeviceStateChange);
       webSerialService.off('card_removed', handleCardRemoved);
     };
-  }, []);
+  }, [scheduleTransient]);
 
   const handleCardAdded = useCallback((newCard) => {
     setLastScanned(newCard);
@@ -133,8 +152,8 @@ export default function RFIDScannerPanel({
       });
     }
 
-    setTimeout(() => setLastScanned(null), 1500);
-  }, [onCardScanned, fireFromElement]);
+    scheduleTransient(() => setLastScanned(null), 1500);
+  }, [onCardScanned, fireFromElement, scheduleTransient]);
 
   const handleRealScan = useCallback((payload) => {
     if (!payload?.uid) {
@@ -143,13 +162,13 @@ export default function RFIDScannerPanel({
 
     if (scannedCards.length >= maxCards) {
       setError(`Máximo de ${maxCards} tarjetas alcanzado`);
-      setTimeout(() => setError(null), 3000);
+      scheduleTransient(() => setError(null), 3000);
       return;
     }
 
     if (!allowDuplicates && scannedCards.some(c => c.uid === payload.uid)) {
       setError('Esta tarjeta ya ha sido escaneada');
-      setTimeout(() => setError(null), 3000);
+      scheduleTransient(() => setError(null), 3000);
       return;
     }
 
@@ -159,7 +178,7 @@ export default function RFIDScannerPanel({
 
     if (availableCards?.length && !matchedCard) {
       setError('Tarjeta no registrada en el sistema');
-      setTimeout(() => setError(null), 3000);
+      scheduleTransient(() => setError(null), 3000);
       return;
     }
 
@@ -174,13 +193,13 @@ export default function RFIDScannerPanel({
       ...newCard,
       scannedAt: new Date()
     });
-  }, [allowDuplicates, availableCards, handleCardAdded, maxCards, scannedCards]);
+  }, [allowDuplicates, availableCards, handleCardAdded, maxCards, scannedCards, scheduleTransient]);
 
   // Simular escaneo (mock para desarrollo)
   const handleMockScan = useCallback(() => {
     if (scannedCards.length >= maxCards) {
       setError(`Máximo de ${maxCards} tarjetas alcanzado`);
-      setTimeout(() => setError(null), 3000);
+      scheduleTransient(() => setError(null), 3000);
       return;
     }
 
@@ -216,7 +235,7 @@ export default function RFIDScannerPanel({
       // Verificar duplicados
       if (!allowDuplicates && scannedCards.some(c => c.uid === uid)) {
         setError('Esta tarjeta ya ha sido escaneada');
-        setTimeout(() => setError(null), 3000);
+        scheduleTransient(() => setError(null), 3000);
         return;
       }
 
@@ -229,7 +248,7 @@ export default function RFIDScannerPanel({
     }
 
     handleCardAdded(newCard);
-  }, [scannedCards, maxCards, allowDuplicates, availableCards, handleCardAdded]);
+  }, [scannedCards, maxCards, allowDuplicates, availableCards, handleCardAdded, scheduleTransient]);
 
   // Eliminar tarjeta
   const handleRemoveCard = (uid) => {

@@ -12,6 +12,8 @@
  * que ya está expuesto y devuelve headers en cualquier resultado.
  */
 
+const request = require('supertest');
+const { app } = require('../../src/server');
 const { buildHelmetOptions } = require('../../src/config/security');
 
 describe('buildHelmetOptions (B5)', () => {
@@ -108,5 +110,18 @@ describe('buildHelmetOptions (B5)', () => {
       const opts = buildHelmetOptions('production');
       expect(opts.contentSecurityPolicy.directives.scriptSrcAttr).toEqual(["'none'"]);
     });
+  });
+});
+
+describe('Security headers en la respuesta HTTP real', () => {
+  it('NO expone X-Powered-By (info disclosure del stack — app.disable en server.js, ADR-196)', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.headers['x-powered-by']).toBeUndefined();
+  });
+
+  it('aplica X-Content-Type-Options=nosniff y X-Frame-Options', async () => {
+    const res = await request(app).get('/api/health');
+    expect(res.headers['x-content-type-options']).toBe('nosniff');
+    expect(res.headers['x-frame-options']).toBeDefined();
   });
 });

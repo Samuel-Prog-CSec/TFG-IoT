@@ -487,7 +487,9 @@ async function validateUserDeletion(userId) {
  *
  * Cascada de eliminación:
  * 1. Todos los GamePlays del estudiante
- * 2. Documento User de MongoDB
+ * 2. GeneratedReport y SmartAlert que lo referencian (copias de PII/identificadores)
+ * 3. Documento User de MongoDB
+ * 4. Materialización Redis (Hash + leaderboards)
  *
  * @param {string} studentId - ID del estudiante a eliminar
  * @param {Object} requestingUser - Usuario que solicita la eliminación
@@ -512,6 +514,19 @@ async function hardDeleteStudent(studentId, requestingUser) {
 
   // 1. Eliminar todos los GamePlays del estudiante
   const deletedPlays = await gamePlayRepository.deleteMany({ playerId: studentId });
+
+  // 1b. Cascada Art. 17: purgar copias de identificadores/PII del alumno que viven
+  // FUERA de User+GamePlay y que, sin esto, quedaban huérfanas y re-identificables
+  // tras el borrado. GeneratedReport persiste nombre/aula/edad en su payload (TTL
+  // 30d) y SmartAlert referencia al alumno (studentId + pseudoId). Notification NO
+  // se incluye: su `userId` es el docente destinatario (el alumno no recibe
+  // notificaciones) y cualquier referencia al alumno iría en `metadata` sin índice.
+  const GeneratedReport = require('../models/GeneratedReport');
+  const SmartAlert = require('../models/SmartAlert');
+  const [deletedReports, deletedAlerts] = await Promise.all([
+    GeneratedReport.deleteMany({ studentId }),
+    SmartAlert.deleteMany({ studentId })
+  ]);
 
   // 2. Eliminar el documento User
   await userRepository.deleteById(studentId);
@@ -538,12 +553,16 @@ async function hardDeleteStudent(studentId, requestingUser) {
     deletedStudentId: studentId,
     deletedBy: requestingUser._id,
     deletedByRole: requestingUser.role,
-    gamePlaysDeleted: deletedPlays?.deletedCount || 0
+    gamePlaysDeleted: deletedPlays?.deletedCount || 0,
+    reportsDeleted: deletedReports?.deletedCount || 0,
+    smartAlertsDeleted: deletedAlerts?.deletedCount || 0
   });
 
   return {
     userId: studentId,
-    gamePlaysDeleted: deletedPlays?.deletedCount || 0
+    gamePlaysDeleted: deletedPlays?.deletedCount || 0,
+    reportsDeleted: deletedReports?.deletedCount || 0,
+    smartAlertsDeleted: deletedAlerts?.deletedCount || 0
   };
 }
 

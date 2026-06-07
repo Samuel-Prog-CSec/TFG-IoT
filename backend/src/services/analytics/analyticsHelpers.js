@@ -135,30 +135,6 @@ const getStartOfToday = () => {
 const toObjectId = id => new mongoose.Types.ObjectId(id);
 
 /**
- * Pipeline stages comunes para filtrar GamePlays por sesiones de un profesor.
- * Hace $lookup a game_sessions y filtra por createdBy.
- *
- * @param {string} teacherId - ID del profesor
- * @returns {Array} Stages de pipeline ($lookup + $unwind + $match)
- */
-const teacherSessionStages = teacherId => [
-  {
-    $lookup: {
-      from: 'game_sessions',
-      localField: 'sessionId',
-      foreignField: '_id',
-      as: 'session'
-    }
-  },
-  { $unwind: '$session' },
-  {
-    $match: {
-      'session.createdBy': toObjectId(teacherId)
-    }
-  }
-];
-
-/**
  * Calcula la pendiente (slope) de una regresión lineal simple.
  * Útil para determinar tendencias en series temporales.
  *
@@ -642,7 +618,6 @@ module.exports = {
   getPeriodDates,
   getStartOfToday,
   toObjectId,
-  teacherSessionStages,
   linearRegression,
   classifyTrend,
   generateAlertId,

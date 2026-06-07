@@ -39,8 +39,13 @@ class MechanicSpecificStruggleDetector extends AlertDetector {
     const since = getStartDate('30d', referenceDate);
     const studentIds = students.map(s => toObjectId(s._id));
 
-    // Agrupar por (alumno, mecánica). Necesitamos game_sessions para sacar mechanicId,
-    // y mechanics para sacar el slug (memory/association/sequence).
+    // Agrupar por (alumno, mecánica). El mechanicType denormalizado (ADR-193)
+    // sustituye el doble join game_sessions → game_mechanics: un único $lookup
+    // con sub-pipeline trae solo mechanicType y agrupamos por él. Los valores
+    // ('memory'|'association'|'sequence') coinciden con las claves de
+    // MECHANIC_LABELS, por lo que el contrato de findings se conserva.
+    // La cota temporal `since` (30d) ya filtra por completedAt y aprovecha el
+    // índice {playerId,status,completedAt}.
     const pipeline = [
       {
         $match: {
@@ -52,24 +57,18 @@ class MechanicSpecificStruggleDetector extends AlertDetector {
       {
         $lookup: {
           from: 'game_sessions',
-          localField: 'sessionId',
-          foreignField: '_id',
+          let: { sid: '$sessionId' },
+          pipeline: [
+            { $match: { $expr: { $eq: ['$_id', '$$sid'] } } },
+            { $project: { mechanicType: 1, _id: 0 } }
+          ],
           as: 'session'
         }
       },
       { $unwind: '$session' },
       {
-        $lookup: {
-          from: 'game_mechanics',
-          localField: 'session.mechanicId',
-          foreignField: '_id',
-          as: 'mechanic'
-        }
-      },
-      { $unwind: '$mechanic' },
-      {
         $group: {
-          _id: { playerId: '$playerId', mechanicSlug: '$mechanic.slug' },
+          _id: { playerId: '$playerId', mechanicName: '$session.mechanicType' },
           avgScore: { $avg: '$score' },
           plays: { $sum: 1 },
           lastCompletedAt: { $max: '$completedAt' }
@@ -88,7 +87,7 @@ class MechanicSpecificStruggleDetector extends AlertDetector {
         byStudent.set(sid, []);
       }
       byStudent.get(sid).push({
-        mechanic: r._id.mechanicSlug,
+        mechanic: r._id.mechanicName,
         avgScore: r.avgScore,
         plays: r.plays,
         lastCompletedAt: r.lastCompletedAt

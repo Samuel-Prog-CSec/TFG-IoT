@@ -78,6 +78,12 @@ const {
 // Crear aplicación Express
 const app = express();
 app.set('etag', false);
+// Eliminar X-Powered-By a nivel Express (info disclosure del stack — OWASP A05).
+// Express la añade por defecto ANTES de helmet; `app.disable` garantiza que no se
+// emita con independencia de la config de helmet. En helmet v7+ la opción
+// `xPoweredBy: false` DESACTIVABA el borrado (semántica invertida), dejando la
+// cabecera expuesta — detectado en QA en vivo (ADR-196).
+app.disable('x-powered-by');
 
 // Trust proxy en producción (Koyeb antepone un reverse proxy a cada servicio).
 // Sin esto, Express ve la IP del proxy en `req.ip` y los rate limiters basados
@@ -321,11 +327,15 @@ app.use('/api/metrics', metricsRoutes);
 app.use('/api/notifications', notificationRoutes);
 
 // OpenAPI 3.1 (ADR-146)
-// - /api/openapi.json: spec descargable (siempre publico — útil para clientes generados)
-// - /api/docs: UI interactiva (publica en staging, auth super_admin en produccion)
-app.get('/api/openapi.json', (_req, res) => res.json(swaggerSpec));
-
+// - /api/openapi.json: spec descargable
+// - /api/docs: UI interactiva
+// Ambos se protegen con auth super_admin en producción. Exponer la spec JSON cruda
+// de forma pública anulaba la protección de la UI: un escáner enumera toda la
+// superficie de la API (endpoints, parámetros, schemas) para reconocimiento.
 if (requiresAuthForDocs()) {
+  app.get('/api/openapi.json', authenticate, requireRole('super_admin'), (_req, res) =>
+    res.json(swaggerSpec)
+  );
   app.use(
     '/api/docs',
     authenticate,
@@ -334,6 +344,7 @@ if (requiresAuthForDocs()) {
     swaggerUi.setup(swaggerSpec, { customSiteTitle: 'EduPlay API — Docs' })
   );
 } else {
+  app.get('/api/openapi.json', (_req, res) => res.json(swaggerSpec));
   app.use(
     '/api/docs',
     swaggerUi.serve,
@@ -470,6 +481,27 @@ const startServer = async () => {
       } catch (subErr) {
         logger.warn('cacheInvalidateSubscriber: no se pudo iniciar', {
           error: subErr.message
+        });
+      }
+
+      // Hardening pub/sub: re-suscribir ambos subscribers tras una reconexión de
+      // Redis. Sus clientes se anulan en el evento 'end' (cierre permanente) y no
+      // se recrean solos; sin esto, tras un blip que cierre el cliente subscriber,
+      // los canales rfid:mode:changes y cache:invalidate quedan sin oyente hasta
+      // reiniciar el proceso (afecta solo a despliegues multi-instancia/HA; en
+      // single-instance es inocuo). start*Subscriber es idempotente (no-op si sigue
+      // activo) y se reactiva cuando el cliente fue anulado por 'end'.
+      try {
+        const { onReconnect } = require('./config/redis');
+        const { startRfidModeSubscriber } = require('./realtime/rfidModeSubscriber');
+        const { startCacheInvalidateSubscriber } = require('./realtime/cacheInvalidateSubscriber');
+        onReconnect(async () => {
+          await startRfidModeSubscriber();
+          await startCacheInvalidateSubscriber();
+        });
+      } catch (reErr) {
+        logger.warn('No se pudo registrar re-suscripción pub/sub en onReconnect', {
+          error: reErr.message
         });
       }
 

@@ -41,7 +41,13 @@ import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useVirtualizedList } from '../../hooks/useVirtualizedList';
-import { cn, staggerContainer, staggerItem } from '../../lib/utils';
+import { cn } from '../../lib/utils';
+
+// Plantilla de columnas compartida por la cabecera y cada fila de la tabla de
+// alumnos: Alumno (flexible) · Profesor (flexible) · Estado · Consentimiento ·
+// Acciones. Las dos primeras usan minmax(0,fr) para truncar en vez de desbordar.
+const STUDENT_ROW_GRID =
+  'grid grid-cols-[minmax(0,2.4fr)_minmax(0,1.3fr)_7rem_8.5rem_2.5rem] items-center gap-3';
 
 /**
  * Modal para crear un nuevo alumno
@@ -560,115 +566,64 @@ export default function StudentManagement() {
     }
   };
 
-  // JSX del card de un alumno reutilizable entre la grid normal y la
-  // lista virtualizada. Captura handlers + state via closure — no hace
-  // falta pasarlos como props.
-  const renderStudentCard = (student) => (
-    <GlassCard className="p-5 hover:border-brand-base/40 group transition-[border-color,transform,box-shadow] duration-300 hover:-translate-y-1 hover:shadow-[var(--shadow-lg)] relative overflow-hidden h-full flex flex-col">
-      {/* Acciones */}
-      <div className="absolute top-3 right-3 z-10">
-        <div className="relative">
-          <Tooltip content="Acciones">
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                setActiveMenuId(activeMenuId === getId(student) ? null : getId(student));
-              }}
-              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors"
-              aria-label="Acciones"
-            >
-              <MoreVertical size={16} />
-            </button>
-          </Tooltip>
-
-          <AnimatePresence>
-            {activeMenuId === getId(student) && (
-              <>
-                <button
-                  type="button"
-                  aria-label="Cerrar menú"
-                  className="fixed inset-0 z-10 cursor-default border-0 bg-transparent p-0"
-                  onClick={() => setActiveMenuId(null)}
-                  onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setActiveMenuId(null); }}
-                />
-                <motion.div
-                  initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                  animate={{ opacity: 1, scale: 1, y: 0 }}
-                  exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                  className="absolute right-0 mt-2 w-48 bg-background-elevated border border-border-subtle rounded-xl shadow-xl z-20 py-1 overflow-hidden"
-                >
-                  <button
-                    onClick={() => handleEditClick(student)}
-                    className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
-                  >
-                    <Edit size={14} /> Editar
-                  </button>
-                  <button
-                    onClick={() => handleConsentClick(student)}
-                    className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
-                  >
-                    <ShieldCheck size={14} /> Consentimiento
-                  </button>
-                  <button
-                    onClick={() => handleExportClick(student)}
-                    className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
-                  >
-                    <Download size={14} /> Exportar datos
-                  </button>
-                  <hr className="my-1 border-border-subtle" />
-                  <button
-                    onClick={() => handleHardDeleteClick(student)}
-                    className="w-full px-4 py-2 text-left text-sm text-error-base hover:bg-error-base/10 flex items-center gap-2 transition-colors"
-                  >
-                    <Trash2 size={14} /> Eliminar datos
-                  </button>
-                </motion.div>
-              </>
+  // Fila de la tabla de alumnos. El super_admin gestiona muchos alumnos: una
+  // tabla escaneable es la afordancia profesional (y coherente con "Mis Alumnos"
+  // del docente) frente a un grid de cards idénticas. role="row"/"cell" da
+  // semántica de tabla al layout en grid. Captura handlers + state via closure.
+  const renderStudentRow = (student) => {
+    const id = getId(student);
+    const teacherName =
+      (typeof student.createdBy === 'object' && student.createdBy?.name) || 'Sistema';
+    const classroom = student.profile?.classroom || 'Sin clase';
+    return (
+      <div
+        key={id}
+        role="row"
+        className={cn(
+          STUDENT_ROW_GRID,
+          'group relative px-3 py-2.5 rounded-xl transition-colors hover:bg-background-elevated/50'
+        )}
+      >
+        {/* Alumno: avatar + nombre + aula */}
+        <div role="cell" className="flex items-center gap-3 min-w-0">
+          <div className="size-10 rounded-full bg-background-base border border-border-subtle flex items-center justify-center text-base font-semibold text-text-secondary shadow-inner shrink-0 overflow-hidden">
+            {student.profile?.avatar ? (
+              <img
+                src={student.profile.avatar}
+                alt=""
+                width={40}
+                height={40}
+                loading="lazy"
+                decoding="async"
+                className="w-full h-full rounded-full object-cover"
+              />
+            ) : (
+              student.name.charAt(0).toUpperCase()
             )}
-          </AnimatePresence>
-        </div>
-      </div>
-
-      <div className="flex items-center gap-4 mb-4">
-        <div className="size-12 rounded-full bg-background-base border border-border-subtle flex items-center justify-center text-xl shadow-inner">
-          {student.profile?.avatar ? (
-            <img
-              src={student.profile.avatar}
-              alt=""
-              width={56}
-              height={56}
-              loading="lazy"
-              decoding="async"
-              className="w-full h-full rounded-full object-cover"
-            />
-          ) : (
-            student.name.charAt(0).toUpperCase()
-          )}
-        </div>
-        <div className="min-w-0 flex-1">
-          <h2 className="font-semibold text-text-primary truncate">{student.name}</h2>
-          <div className="flex items-center gap-1.5 text-text-muted text-xs">
-            <School size={12} />
-            <span className="truncate">{student.profile?.classroom || 'Sin clase'}</span>
+          </div>
+          <div className="min-w-0">
+            <p className="font-semibold text-text-primary truncate">{student.name}</p>
+            <p className="flex items-center gap-1 text-text-muted text-xs">
+              <School size={12} className="shrink-0" />
+              <span className="truncate">{classroom}</span>
+            </p>
           </div>
         </div>
-      </div>
 
-      <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Profesor</span>
-          <span className="text-xs text-text-primary font-medium truncate max-w-[160px]">
-            {(typeof student.createdBy === 'object' && student.createdBy?.name) || 'Sistema'}
-          </span>
+        {/* Profesor */}
+        <div role="cell" className="min-w-0 text-sm text-text-secondary truncate" title={teacherName}>
+          {teacherName}
         </div>
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Estado</span>
+
+        {/* Estado */}
+        <div role="cell">
           <StatusBadge status={student.status === 'active' ? 'success' : 'inactive'} size="sm">
             {student.status === 'active' ? 'Activo' : 'Inactivo'}
           </StatusBadge>
         </div>
-        <div className="flex items-center justify-between gap-3">
-          <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Consentimiento</span>
+
+        {/* Consentimiento */}
+        <div role="cell">
           <StatusBadge
             status={student.consent?.granted ? 'active' : 'error'}
             size="sm"
@@ -677,8 +632,89 @@ export default function StudentManagement() {
             {student.consent?.granted ? 'Activo' : 'Revocado'}
           </StatusBadge>
         </div>
+
+        {/* Acciones */}
+        <div role="cell" className="relative flex justify-end">
+          <Tooltip content="Acciones">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveMenuId(activeMenuId === id ? null : id);
+              }}
+              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
+              aria-label={`Acciones para ${student.name}`}
+              aria-haspopup="menu"
+              aria-expanded={activeMenuId === id}
+            >
+              <MoreVertical size={16} />
+            </button>
+          </Tooltip>
+
+          <AnimatePresence>
+            {activeMenuId === id && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Cerrar menú"
+                    className="fixed inset-0 z-20 cursor-default border-0 bg-transparent p-0"
+                    onClick={() => setActiveMenuId(null)}
+                    onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setActiveMenuId(null); }}
+                  />
+                  <motion.div
+                    role="menu"
+                    initial={{ opacity: 0, scale: 0.96, y: -6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.96, y: -6 }}
+                    transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                    className="absolute right-0 top-full mt-1 w-48 bg-background-elevated border border-border-subtle rounded-xl shadow-xl z-30 py-1"
+                  >
+                    <button
+                      role="menuitem"
+                      onClick={() => handleEditClick(student)}
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
+                    >
+                      <Edit size={14} /> Editar
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => handleConsentClick(student)}
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
+                    >
+                      <ShieldCheck size={14} /> Consentimiento
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => handleExportClick(student)}
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
+                    >
+                      <Download size={14} /> Exportar datos
+                    </button>
+                    <hr className="my-1 border-border-subtle" />
+                    <button
+                      role="menuitem"
+                      onClick={() => handleHardDeleteClick(student)}
+                      className="w-full px-4 py-2 text-left text-sm text-error-base hover:bg-error-base/10 flex items-center gap-2 transition-colors"
+                    >
+                      <Trash2 size={14} /> Eliminar datos
+                    </button>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+        </div>
       </div>
-    </GlassCard>
+    );
+  };
+
+  // Cabecera de la tabla (mismo grid que las filas).
+  const studentTableHeader = (
+    <div role="row" className={cn(STUDENT_ROW_GRID, 'px-3 pb-2.5 mb-1 border-b border-border-subtle')}>
+      <span role="columnheader" className="text-xs uppercase tracking-wider text-text-muted font-bold">Alumno</span>
+      <span role="columnheader" className="text-xs uppercase tracking-wider text-text-muted font-bold">Profesor</span>
+      <span role="columnheader" className="text-xs uppercase tracking-wider text-text-muted font-bold">Estado</span>
+      <span role="columnheader" className="text-xs uppercase tracking-wider text-text-muted font-bold">Consentimiento</span>
+      <span role="columnheader" className="sr-only">Acciones</span>
+    </div>
   );
 
   return (
@@ -698,21 +734,22 @@ export default function StudentManagement() {
       }
     >
 
-      {/* Grid md:4 (antes md:3): el input search ocupa col-span-2 + selector
-          col-span-1 + KPI col-span-1 = 4 cols, no 3. Con md:3 había
-          desbordamiento visual del selector en breakpoints intermedios. */}
-      <section className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-[var(--space-fluid-gutter)] mb-8 items-stretch">
-        <GlassCard className="p-4 flex items-center gap-4">
-          <div className="size-12 rounded-xl bg-brand-base/10 text-brand-base flex items-center justify-center">
-            <Users size={24} />
+      {/* Barra de herramientas: total (pill compacto) · buscador (principal) ·
+          alumnos por página. Antes era un grid 4-col que mezclaba una card ALTA
+          de KPI (2 líneas) con inputs sin label y un select CON label encima →
+          alturas y baselines distintos que parecían colocados al azar. Ahora un
+          flex alineado a la misma altura (QA 2026-06-04). */}
+      <section className="flex flex-col sm:flex-row gap-3 mb-8">
+        <div className="flex items-center gap-2.5 px-4 py-3 sm:py-0 rounded-xl bg-background-elevated/40 border border-border-subtle shrink-0">
+          <div className="size-8 rounded-lg bg-brand-base/10 text-brand-base flex items-center justify-center shrink-0">
+            <Users size={16} />
           </div>
-          <div>
-            <p className="text-2xl font-bold text-text-primary font-display">{pagination.total}</p>
-            <p className="text-xs text-text-muted uppercase tracking-wider font-bold">Total Alumnos</p>
-          </div>
-        </GlassCard>
+          <p className="text-sm text-text-secondary whitespace-nowrap">
+            <span className="font-bold text-text-primary tabular-nums">{pagination.total}</span> alumnos
+          </p>
+        </div>
 
-        <div className="md:col-span-2">
+        <div className="flex-1 min-w-0">
           <InputPremium
             placeholder="Buscar por nombre o clase…"
             value={searchQuery}
@@ -723,39 +760,34 @@ export default function StudentManagement() {
           />
         </div>
 
-        {/* Selector "items por página": para centros con muchos alumnos
-            (1000+), elegir 50/100 activa la vista compacta virtualizada
-            (T-952 Fase B, useVirtualizedList con threshold 50). 12 sigue
-            siendo el default conservador para la mayoría de aulas. */}
-        <div className="md:col-span-1">
-          <SelectPremium
-            label="Por página"
-            value={String(pagination.limit)}
-            onChange={(value) => setPagination(prev => ({ ...prev, limit: Number(value), page: 1 }))}
-            options={[
-              { value: '12', label: '12 alumnos' },
-              { value: '50', label: '50 alumnos' },
-              { value: '100', label: '100 alumnos' },
-              { value: '200', label: '200 alumnos' },
-            ]}
-            className="h-full"
-          />
-        </div>
+        {/* Alumnos por página. Sin label visible (el valor "12 por página" ya es
+            autoexplicativo) → alinea con el buscador. 50/100/200 activan la vista
+            compacta virtualizada (T-952 Fase B, threshold 50). */}
+        <SelectPremium
+          aria-label="Alumnos por página"
+          value={String(pagination.limit)}
+          onChange={(value) => setPagination(prev => ({ ...prev, limit: Number(value), page: 1 }))}
+          options={[
+            { value: '12', label: '12 por página' },
+            { value: '50', label: '50 por página' },
+            { value: '100', label: '100 por página' },
+            { value: '200', label: '200 por página' },
+          ]}
+          className="h-full shrink-0 sm:w-48"
+        />
       </section>
 
       <AnimatePresence mode="wait">
         {(() => {
           if (loading) return (
-            <motion.div
-              key="loading"
-              variants={staggerContainer}
-              initial="hidden"
-              animate="show"
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)]"
-            >
-              {Array.from({ length: 6 }, (_, i) => `student-skeleton-${i}`).map(id => (
-                <SkeletonCard key={id} className="h-48" />
-              ))}
+            <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <GlassCard padding="none" className="overflow-hidden">
+                <div className="p-2 space-y-1.5">
+                  {Array.from({ length: 8 }, (_, i) => `student-skeleton-${i}`).map(id => (
+                    <SkeletonCard key={id} className="h-14" />
+                  ))}
+                </div>
+              </GlassCard>
             </motion.div>
           );
           if (students.length === 0) return (
@@ -786,6 +818,9 @@ export default function StudentManagement() {
                 <p className="px-4 py-2 text-xs text-text-muted border-b border-border-subtle">
                   Vista compacta activa: {students.length} alumnos cargados. Desplázate para verlos todos.
                 </p>
+                <div className="px-4 pt-2" role="table" aria-label="Tabla de alumnos del centro">
+                  {studentTableHeader}
+                </div>
                 <div
                   ref={virtual.scrollElementRef}
                   className="overflow-y-auto custom-scrollbar"
@@ -809,7 +844,7 @@ export default function StudentManagement() {
                             padding: '6px 16px',
                           }}
                         >
-                          {renderStudentCard(student)}
+                          {renderStudentRow(student)}
                         </div>
                       );
                     })}
@@ -821,16 +856,19 @@ export default function StudentManagement() {
           return (
             <motion.div
               key="list"
-              variants={staggerContainer}
-              initial="hidden"
-              animate="show"
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)]"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             >
-              {students.map((student) => (
-                <motion.div key={getId(student)} variants={staggerItem}>
-                  {renderStudentCard(student)}
-                </motion.div>
-              ))}
+              <GlassCard padding="none" className="overflow-visible">
+                <div className="p-2" role="table" aria-label="Tabla de alumnos del centro">
+                  {studentTableHeader}
+                  <div role="rowgroup">
+                    {students.map((student) => renderStudentRow(student))}
+                  </div>
+                </div>
+              </GlassCard>
             </motion.div>
           );
         })()}

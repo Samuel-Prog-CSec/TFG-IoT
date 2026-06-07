@@ -108,7 +108,13 @@ const NAMESPACES = {
   AUTH_LOCKED: 'auth:lock',
 
   /** Anti-replay TOTP: marca step ya usado por un super_admin (TTL: 90s) */
-  MFA_TOTP_USED: 'mfa:totp:used'
+  MFA_TOTP_USED: 'mfa:totp:used',
+
+  /** Contador sliding de challenges MFA fallidos por userId (TTL: window) */
+  MFA_CHALLENGE_FAILED: 'mfa:fail',
+
+  /** Bloqueo temporal del challenge MFA por fuerza bruta (TTL: lockout duration) */
+  MFA_CHALLENGE_LOCKED: 'mfa:lock'
 };
 
 /**
@@ -749,10 +755,16 @@ const incr = async (namespace, id, ttlSecondsIfNew = null) => {
     const key = buildKey(namespace, id);
     const newValue = await redis.incr(key);
 
-    // Establecer TTL solo en la primera escritura (sliding window).
+    // TTL con `EXPIRE ... NX` (Redis 7+): fija el TTL solo si la key aún no tiene
+    // uno. Antes el EXPIRE se ejecutaba únicamente cuando newValue===1, de modo que
+    // un crash entre INCR y EXPIRE en la primera escritura dejaba la key SIN TTL
+    // para siempre (leak en Redis con `noeviction` + ventana de lockout que nunca
+    // expiraba). Reintentarlo con NX en cada incremento es idempotente (NX no
+    // reescribe un TTL ya fijado → la ventana sigue siendo fija desde el primer
+    // fallo) y auto-cura ese caso límite.
     let extraCommands = 0;
-    if (newValue === 1 && Number.isInteger(ttlSecondsIfNew) && ttlSecondsIfNew > 0) {
-      await redis.expire(key, ttlSecondsIfNew);
+    if (Number.isInteger(ttlSecondsIfNew) && ttlSecondsIfNew > 0) {
+      await redis.expire(key, ttlSecondsIfNew, 'NX');
       extraCommands = 1;
     }
 

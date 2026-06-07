@@ -28,8 +28,27 @@ const rfidService = require('../src/services/rfidService');
 const { disconnectRedis } = require('../src/config/redis');
 
 beforeAll(async () => {
-  // Use a distinct database for testing to avoid data loss
-  const TEST_MONGO_URI = process.env.TEST_MONGO_URI || 'mongodb://localhost:27017/rfid-games-test';
+  // Use a distinct database for testing to avoid data loss.
+  //
+  // AISLAMIENTO POR PROCESO (causa raíz de los tests "flaky"): el `afterAll` hace
+  // `dropDatabase()` sobre esta BD. Con el nombre fijo `rfid-games-test`, dos
+  // procesos de test concurrentes (dos `npm test`, o un benchmark que siembre la
+  // misma BD) se pisan: el `dropDatabase` de uno borra los datos del otro a mitad
+  // de test → fallos intermitentes (404/500/conteos). Sufijar la BD con worker+pid
+  // la hace única por proceso, elimina la colisión y permite correr suites en
+  // paralelo de forma segura. En ejecución normal (un solo `npm test`) el
+  // comportamiento es idéntico salvo el nombre de la BD efímera.
+  const baseUri = process.env.TEST_MONGO_URI || 'mongodb://localhost:27017/rfid-games-test';
+  const worker = process.env.JEST_WORKER_ID || '1';
+  let TEST_MONGO_URI;
+  try {
+    const parsed = new URL(baseUri);
+    parsed.pathname = `${parsed.pathname.replace(/\/$/, '')}-w${worker}-p${process.pid}`;
+    TEST_MONGO_URI = parsed.toString();
+  } catch {
+    // Fallback defensivo si la URI no es parseable por `URL` (p. ej. multi-host).
+    TEST_MONGO_URI = `${baseUri}-w${worker}-p${process.pid}`;
+  }
 
   if (mongoose.connection.readyState !== 0) {
     await mongoose.disconnect();

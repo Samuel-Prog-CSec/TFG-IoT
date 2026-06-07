@@ -398,7 +398,7 @@ function AlertsHub({
           value={severityFilter}
           onChange={setSeverityFilter}
           placeholder="Severidad"
-          className="w-44"
+          className="w-56"
         />
         <SelectPremium
           options={typeOptions}

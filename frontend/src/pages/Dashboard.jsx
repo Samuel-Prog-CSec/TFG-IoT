@@ -19,6 +19,7 @@ import { ROUTES } from '../constants/routes';
 // El onboarding se monta a nivel de AppLayout para cubrir teacher y
 // super_admin desde cualquier ruta autenticada (T-951 Fase 4).
 import StatCard from '../components/dashboard/StatCard';
+import HeroStatCard from '../components/dashboard/HeroStatCard';
 import AlertsPanel from '../components/dashboard/AlertsPanel';
 import StudentsList from '../components/dashboard/StudentsList';
 import SkeletonShimmer, { SkeletonCard, SkeletonStatCard, SkeletonChart } from '../components/ui/SkeletonShimmer';
@@ -57,7 +58,7 @@ function cohortToTimeRange(cohortMode) {
   return cohortMode;
 }
 
-// eslint-disable-next-line sonarjs/cyclomatic-complexity -- dashboard principal con multiples widgets, filtros y estados de carga
+// eslint-disable-next-line sonarjs/cyclomatic-complexity, sonarjs/cognitive-complexity -- dashboard principal con multiples widgets, filtros y estados de carga
 export default function Dashboard() {
   const { isSuperAdmin } = useAuth();
   const navigate = useNavigate();
@@ -345,6 +346,7 @@ export default function Dashboard() {
             setSelectedMechanicId={setSelectedMechanicId}
             contextOptions={contextOptions}
             mechanicOptions={mechanicOptions}
+            studentsInRisk={summary?.studentsInRisk ?? null}
             reducedMotion={shouldReduceMotion}
           />
 
@@ -371,18 +373,30 @@ export default function Dashboard() {
               aria-labelledby="stats-heading"
             >
               <h2 id="stats-heading" className="sr-only">KPIs Principales</h2>
-              {/* KPIs primarios — metricas clave */}
+              {/* Bento de KPIs (elevación 2026-06-04): una métrica protagonista
+                  —la acción del docente— rompe la rejilla uniforme y da un foco
+                  visual claro; las métricas de volumen la acompañan al lado y las
+                  de calidad van en un strip inferior. */}
               <ul
-                className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)]"
+                className="list-none p-0 m-0 grid grid-cols-1 lg:grid-cols-4 lg:grid-rows-2 lg:auto-rows-fr gap-[var(--space-fluid-gutter)] items-stretch"
               >
-                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <StatCard
+                <motion.li
+                  variants={shouldReduceMotion ? {} : listItemVariants}
+                  className="lg:col-span-2 lg:row-span-2"
+                >
+                  <HeroStatCard
+                    eyebrow={(summary?.studentsInRisk || 0) > 0 ? 'Requiere atención' : 'Todo al día'}
                     title="Alumnos en Riesgo"
                     value={summary?.studentsInRisk || 0}
+                    total={totalStudents}
+                    context={(summary?.studentsInRisk || 0) > 0
+                      ? 'Conviene reforzar a estos alumnos esta semana'
+                      : 'Ningún alumno necesita apoyo ahora mismo'}
                     trend={getTrend('studentsInRisk')}
                     periodLabel={periodLabel}
-                    icon={<AlertTriangle className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
-                    color="bg-gradient-to-br from-error-base to-error-dark"
+                    icon={<AlertTriangle className="text-white drop-shadow-sm" size={26} aria-hidden="true" />}
+                    tone={(summary?.studentsInRisk || 0) > 0 ? 'warning' : 'success'}
+                    ctaLabel="Ver alumnos"
                     higherIsBetter={false}
                     onClick={() => navigate('/analytics/students')}
                   />
@@ -396,6 +410,7 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Trophy className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-success-base to-success-dark"
+                    compact
                     onClick={() => navigate('/analytics/students')}
                   />
                 </motion.li>
@@ -408,6 +423,7 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Gamepad2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-brand-base to-accent-indigo"
+                    compact
                     onClick={() => navigate('/sessions')}
                   />
                 </motion.li>
@@ -420,18 +436,28 @@ export default function Dashboard() {
                     periodLabel={periodLabel}
                     icon={<Users className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
                     color="bg-gradient-to-br from-info-base to-accent-cyan"
+                    compact
                     onClick={() => navigate('/sessions')}
+                  />
+                </motion.li>
+
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
+                  <StatCard
+                    title="Alumnos Activos"
+                    value={`${activeStudentsCount}/${totalStudents}`}
+                    trend=""
+                    periodLabel="últimos 7 días"
+                    icon={<UserCheck className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    color="bg-gradient-to-br from-brand-base to-accent-pink"
+                    compact
+                    onClick={() => navigate('/analytics/students')}
                   />
                 </motion.li>
               </ul>
 
-              {/* KPIs secundarios — metricas complementarias. Sin opacity:
-                  los cards siguen siendo interactivos y la atenuación previa
-                  no tenía función real (UI-B audit). La jerarquía respecto
-                  a los KPIs primarios la da el tamaño compacto (prop
-                  `compact`) y la altura menor, no la opacidad. */}
+              {/* Métricas de calidad — strip inferior de ancho completo */}
               <ul
-                className="list-none p-0 m-0 grid grid-cols-2 md:grid-cols-4 gap-3 lg:gap-4 mt-3"
+                className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4 mt-3"
               >
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
@@ -449,7 +475,7 @@ export default function Dashboard() {
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Tiempo Medio"
-                    value={`${(getKPIValue('averageResponseTime') ?? summary?.averageResponseTime ?? 0) / 1000}s`}
+                    value={`${Math.round((getKPIValue('averageResponseTime') ?? summary?.averageResponseTime ?? 0) / 100) / 10}s`}
                     trend={getTrend('averageResponseTime')}
                     periodLabel={periodLabel}
                     icon={<Clock className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
@@ -462,21 +488,11 @@ export default function Dashboard() {
 
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
-                    title="Alumnos Activos"
-                    value={`${activeStudentsCount}/${totalStudents}`}
-                    trend=""
-                    periodLabel="últimos 7 días"
-                    icon={<UserCheck className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
-                    color="bg-gradient-to-br from-brand-base to-accent-pink"
-                    compact
-                    onClick={() => navigate('/analytics/students')}
-                  />
-                </motion.li>
-
-                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <StatCard
                     title="Tasa Completado"
-                    value={`${100 - (summary?.abandonmentRate || 0)}%`}
+                    // Con 0 partidas el `100 - abandonmentRate` daba 100% vacuo
+                    // y engañoso (QA 2026-06-04). Mostramos "—" como el resto de
+                    // KPIs sin baseline.
+                    value={summary?.totalGames ? `${100 - (summary?.abandonmentRate || 0)}%` : '—'}
                     trend=""
                     periodLabel="partidas completadas"
                     icon={<CheckCircle2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
@@ -515,6 +531,16 @@ export default function Dashboard() {
               </h2>
               <div className="space-y-[var(--space-fluid-gutter)]">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                  {/* Las alertas son la bandeja global del docente (las 5 más
+                      recientes), no se acotan al filtro de contenido. Lo
+                      etiquetamos cuando hay filtro activo para que no parezca
+                      contradictorio con "Actividad Reciente" (que sí filtra) al
+                      seleccionar una combinación sin partidas (QA 2026-06-04). */}
+                  {(selectedContextId || selectedMechanicId) && (
+                    <p className="text-xs text-text-muted mb-2 px-1">
+                      Bandeja global · no se ajusta al filtro de contenido
+                    </p>
+                  )}
                   <AlertsPanel alerts={backendAlerts} />
                 </motion.div>
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
@@ -615,6 +641,7 @@ function Header({
   selectedContextId, setSelectedContextId,
   selectedMechanicId, setSelectedMechanicId,
   contextOptions, mechanicOptions,
+  studentsInRisk = null,
   reducedMotion = false,
 }) {
   const navigate = useNavigate();
@@ -627,6 +654,18 @@ function Header({
   const todayRaw = formatDate(new Date(), 'long');
   // Spanish dates should only capitalize the first letter (e.g. "Jueves, 19 de marzo de 2026")
   const today = todayRaw.charAt(0).toUpperCase() + todayRaw.slice(1).toLowerCase();
+
+  // Subtítulo contextual (momento de firma, 2026-06-04): liga el saludo al dato
+  // protagonista del bento. Si no hay datos cargados aún, cae al texto genérico.
+  let subtitle = 'Resumen de actividad y análisis de rendimiento';
+  if (typeof studentsInRisk === 'number') {
+    if (studentsInRisk > 0) {
+      const noun = studentsInRisk === 1 ? 'alumno necesita' : 'alumnos necesitan';
+      subtitle = `Hoy, ${studentsInRisk} ${noun} tu atención`;
+    } else {
+      subtitle = 'Hoy el aula va al día. Buen momento para crear una sesión';
+    }
+  }
 
   return (
     <motion.header
@@ -649,7 +688,7 @@ function Header({
               {firstName ? (
                 <>
                   ,{' '}
-                  <span className="bg-gradient-to-r from-brand-light via-accent-pink to-accent-orange bg-clip-text text-transparent">
+                  <span className="text-brand-base">
                     {firstName}
                   </span>
                 </>
@@ -672,7 +711,7 @@ function Header({
             transition={{ delay: reducedMotion ? 0 : 0.16 }}
             className="text-sm sm:text-base text-text-muted font-medium"
           >
-            Resumen de actividad y análisis de rendimiento
+            {subtitle}
           </motion.p>
         </div>
 

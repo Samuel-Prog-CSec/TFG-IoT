@@ -48,8 +48,12 @@ const applyTeacherScopeToPlayFilter = async ({ user, sessionId, filter }) => {
     return;
   }
 
-  const sessions = await gameSessionRepository.find({ createdBy: user._id }, { select: '_id' });
-  filter.sessionId = { $in: sessions.map(s => s._id) };
+  // Reutilizamos el helper cacheado (TTL 300s, invalidado por gameSessionService
+  // al crear/archivar/eliminar sesiones del profesor) en lugar de re-consultar
+  // game_sessions en CADA GET /api/plays. Devuelve ObjectId, válidos para el $in.
+  // Lazy require: evita acoplar el controller a analyticsService al cargar módulo.
+  const { getTeacherSessionIds } = require('../services/analyticsService');
+  filter.sessionId = { $in: await getTeacherSessionIds(user._id.toString()) };
 };
 
 const buildSortOptions = (sortBy, order) => ({
@@ -139,8 +143,11 @@ const getPlayById = async (req, res) => {
         // (mechanicId, contextId, config, difficulty) — el populate original
         // traía todos los campos de GameSession (cardMappings, audit, etc.)
         // que el DTO descarta. Reduce ~30% bytes en este endpoint.
+        // Incluimos también `createdBy` (no se expone en el DTO) para resolver
+        // la ownership con el documento ya poblado y evitar una 2ª query a
+        // game_sessions por cada GET /api/plays/:id.
         path: 'sessionId',
-        select: 'mechanicId contextId config difficulty',
+        select: 'mechanicId contextId config difficulty createdBy',
         populate: [
           { path: 'mechanicId', select: 'name displayName icon' },
           { path: 'contextId', select: 'contextId name assets' }
@@ -154,13 +161,10 @@ const getPlayById = async (req, res) => {
     throw new NotFoundError('Partida');
   }
 
-  // El select de sessionId arriba no incluye `createdBy` porque el DTO no lo
-  // expone. La comprobación de ownership necesita ese campo, así que hacemos
-  // una lectura aparte y muy ligera (1 campo) en lugar de inflar el populate.
-  const session = await gameSessionRepository.findById(play.sessionId._id, {
-    select: 'createdBy'
-  });
-  ensureResourceOwnershipOrAdmin(session, req.user, 'partida');
+  // Ownership directo sobre la sesión ya poblada (incluye createdBy): sin
+  // round-trip adicional. Si la sesión fue eliminada (partida huérfana),
+  // play.sessionId es null y el helper rechaza con el error apropiado.
+  ensureResourceOwnershipOrAdmin(play.sessionId, req.user, 'partida');
 
   sendSuccess(res, toGamePlayDetailDTOV1(play));
 };
@@ -254,7 +258,13 @@ const pausePlay = async (req, res) => {
 const resumePlay = async (req, res) => {
   const { id } = req.params;
 
-  const play = await gamePlayRepository.findById(id, { populate: 'sessionId' });
+  // Populate acotado: el handler solo necesita `createdBy` (ownership) y
+  // `config` (re-armado del timer en el GameEngine). El populate sin select
+  // traía la sesión completa (cardMappings[], boardLayout[], sequencePlan[]…),
+  // inflando ~10-30× los bytes Mongo→Node en cada reanudación.
+  const play = await gamePlayRepository.findById(id, {
+    populate: { path: 'sessionId', select: 'createdBy config' }
+  });
   if (!play) {
     throw new NotFoundError('Partida');
   }

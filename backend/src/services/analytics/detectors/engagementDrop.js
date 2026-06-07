@@ -1,10 +1,17 @@
 /**
  * @fileoverview Detector NUEVO (T-941): caída de engagement.
  *
- * Compara el `engagementScore` actual (últimos 30 días) con el periodo anterior
- * (60-30 días). Si la caída supera el 25 % genera alerta warning. Reusa el
- * cache de `engagementService` (TTL 600 s), por lo que el coste por alumno
- * es marginal tras la primera ejecución del día.
+ * Compara el `engagementScore` actual (ventana 30d) con el del periodo más
+ * amplio (90d). Si la caída supera el 25 % genera alerta warning.
+ *
+ * Perf (refactor): antes iteraba alumno a alumno haciendo `getStudentEngagement`
+ * para 30d y 90d → N×2 agregaciones con `$facet` + doble `$lookup`. La ventana de
+ * 90d nunca estaba caliente en caché, así que cada corrida garantizaba N
+ * agregaciones pesadas. Ahora se resuelve con `computeStudentEngagementBatch`:
+ * 2 agregaciones agrupadas por jugador (una por ventana), y el resto del trabajo
+ * es en memoria. El `engagementScore` por alumno es byte-idéntico al del cómputo
+ * individual (mismo núcleo `computeEngagementComponents`), por lo que los
+ * findings no cambian respecto al comportamiento previo.
  *
  * @module services/analytics/detectors/engagementDrop
  */
@@ -12,6 +19,7 @@
 const { AlertDetector } = require('./_base');
 const { ALERT_TYPES } = require('../../../config/alerts');
 const engagementService = require('../engagementService');
+const logger = require('../../../utils/logger').child({ component: 'engagementDropDetector' });
 
 class EngagementDropDetector extends AlertDetector {
   constructor() {
@@ -25,23 +33,28 @@ class EngagementDropDetector extends AlertDetector {
 
     const threshold = ALERT_TYPES.engagement_drop.thresholds.warning;
     const findings = [];
+    const ids = students.map(s => s._id.toString());
 
-    // engagementService no soporta paralelización masiva en cache miss; vamos
-    // estudiante a estudiante. Si no hay engagement previo (poca data), skip.
+    // Dos agregaciones batch (30d + 90d) en vez de N×2. La de 90d nunca está
+    // caliente en caché, así que el batch es donde está el ahorro real.
+    let currentScores;
+    let previousScores;
+    try {
+      [currentScores, previousScores] = await Promise.all([
+        engagementService.computeStudentEngagementBatch(ids, '30d'),
+        engagementService.computeStudentEngagementBatch(ids, '90d')
+      ]);
+    } catch (error) {
+      // Mismo contrato que antes: si la fuente falla, no abortamos la corrida
+      // del resto de detectores; devolvemos [] y dejamos rastro.
+      logger.warn({ err: error }, 'engagement_drop: fallo al calcular batch de engagement');
+      return [];
+    }
+
     // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
-    for (const student of students) {
-      const sid = student._id.toString();
-      let current = null;
-      let previous = null;
-      try {
-        current = await engagementService.getStudentEngagement(sid, '30d');
-        previous = await engagementService.getStudentEngagement(sid, '90d');
-      } catch {
-        continue;
-      }
-
-      const currentScore = Number(current?.engagementScore ?? current?.score ?? 0);
-      const previousScore = Number(previous?.engagementScore ?? previous?.score ?? 0);
+    for (const sid of ids) {
+      const currentScore = Number(currentScores.get(sid) ?? 0);
+      const previousScore = Number(previousScores.get(sid) ?? 0);
 
       if (previousScore < 20) {
         continue;

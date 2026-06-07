@@ -50,6 +50,7 @@ import { scoreToRAGWithNull } from '../../constants/analyticsThresholds';
 import { formatMechanicName } from '../../lib/mechanicNames';
 import { ROUTES } from '../../constants/routes';
 import StatCard from '../../components/dashboard/StatCard';
+import HeroStatCard from '../../components/dashboard/HeroStatCard';
 import GlassCard from '../../components/ui/GlassCard';
 import SelectPremium from '../../components/ui/SelectPremium';
 import ErrorState from '../../components/ui/ErrorState';
@@ -618,11 +619,30 @@ export default function AdminDashboard() {
             animate="visible"
             className="space-y-6"
           >
-            {/* Fila 1 — Magnitud del centro */}
+            {/* Bento del centro (elevación 2026-06-04): la acción del director
+                —solicitudes pendientes— como foco protagonista; la magnitud del
+                centro la acompaña al lado y la salud educativa va en el strip
+                inferior. Rompe la doble rejilla uniforme manteniendo la firma
+                DIRECCIÓN (tono warning). */}
             <motion.div
               variants={shouldReduceMotion ? {} : listItemVariants}
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+              className="grid grid-cols-1 lg:grid-cols-4 lg:grid-rows-2 lg:auto-rows-fr gap-4 items-stretch"
             >
+              <div className="lg:col-span-2 lg:row-span-2">
+                <HeroStatCard
+                  eyebrow={(data.alerts?.totalCriticalActive ?? 0) > 0 ? 'Requiere atención' : 'Todo en orden'}
+                  title="Alertas críticas"
+                  value={data.alerts?.totalCriticalActive ?? 0}
+                  context={(data.alerts?.totalCriticalActive ?? 0) > 0
+                    ? 'Incidencias activas en el centro que conviene revisar cuanto antes'
+                    : 'Sin incidencias activas. El centro funciona con normalidad'}
+                  icon={<AlertTriangle className="text-white drop-shadow-sm" size={26} aria-hidden="true" />}
+                  tone={(data.alerts?.totalCriticalActive ?? 0) > 0 ? 'error' : 'success'}
+                  ctaLabel="Ver alertas"
+                  higherIsBetter={false}
+                  onClick={() => navigate(ROUTES.INSIGHTS)}
+                />
+              </div>
               <StatCard
                 title="Alumnos del centro"
                 value={data.users?.totalStudents ?? 0}
@@ -630,6 +650,7 @@ export default function AdminDashboard() {
                 periodLabel="matriculados"
                 icon={<Users size={22} aria-hidden="true" />}
                 color="bg-brand-base/15 text-brand-on-alpha"
+                compact
               />
               <StatCard
                 title="Profesores activos"
@@ -638,6 +659,7 @@ export default function AdminDashboard() {
                 periodLabel={`de ${data.users?.totalTeachers ?? 0} aprobados`}
                 icon={<UserCheck size={22} aria-hidden="true" />}
                 color="bg-accent-cyan/15 text-accent-cyan"
+                compact
               />
               <StatCard
                 title="Partidas del periodo"
@@ -646,6 +668,7 @@ export default function AdminDashboard() {
                 periodLabel={`hoy: ${data.activity?.playsToday ?? 0}`}
                 icon={<Gamepad2 size={22} aria-hidden="true" />}
                 color="bg-accent-indigo/15 text-accent-indigo"
+                compact
               />
               <StatCard
                 title="Mazos publicados"
@@ -654,13 +677,14 @@ export default function AdminDashboard() {
                 periodLabel="en el centro"
                 icon={<Layers size={22} aria-hidden="true" />}
                 color="bg-accent-pink/15 text-accent-pink"
+                compact
               />
             </motion.div>
 
-            {/* Fila 2 — Salud educativa */}
+            {/* Salud educativa — strip inferior de ancho completo */}
             <motion.div
               variants={shouldReduceMotion ? {} : listItemVariants}
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4"
+              className="grid grid-cols-1 sm:grid-cols-3 gap-4"
             >
               <StatCard
                 title="Puntuación media"
@@ -673,6 +697,7 @@ export default function AdminDashboard() {
                 periodLabel="media del centro"
                 icon={<TrendingUp size={22} aria-hidden="true" />}
                 color="bg-success-base/15 text-success-on-alpha"
+                compact
               />
               <StatCard
                 title="Solicitudes pendientes"
@@ -682,21 +707,8 @@ export default function AdminDashboard() {
                 icon={<UserPlus size={22} aria-hidden="true" />}
                 color="bg-warning-base/15 text-warning-on-alpha"
                 higherIsBetter={false}
+                compact
                 onClick={() => navigate(ROUTES.ADMIN_APPROVALS)}
-              />
-              <StatCard
-                title="Alertas críticas"
-                value={data.alerts?.totalCriticalActive ?? 0}
-                trend=""
-                periodLabel="activas"
-                icon={<AlertTriangle size={22} aria-hidden="true" />}
-                color={
-                  (data.alerts?.totalCriticalActive ?? 0) > 0
-                    ? 'bg-error-base/15 text-error-on-alpha'
-                    : 'bg-success-base/15 text-success-on-alpha'
-                }
-                higherIsBetter={false}
-                onClick={() => navigate(ROUTES.INSIGHTS)}
               />
               <StatCard
                 title="Sesiones activas"
@@ -705,6 +717,7 @@ export default function AdminDashboard() {
                 periodLabel={`de ${data.content?.totalSessions ?? 0} totales`}
                 icon={<CalendarClock size={22} aria-hidden="true" />}
                 color="bg-brand-base/15 text-brand-on-alpha"
+                compact
               />
             </motion.div>
 

@@ -6,6 +6,7 @@
  */
 
 const request = require('supertest');
+const jwt = require('jsonwebtoken');
 const totp = require('../../src/utils/totp');
 const { app } = require('../../src/server');
 const User = require('../../src/models/User');
@@ -29,6 +30,8 @@ const loginAndGetToken = async (email = SUPER_ADMIN.email, password = SUPER_ADMI
 const cleanRedis = async () => {
   await redisService.flushNamespace('mfa:setup');
   await redisService.flushNamespace(redisService.NAMESPACES.MFA_TOTP_USED);
+  await redisService.flushNamespace(redisService.NAMESPACES.MFA_CHALLENGE_FAILED);
+  await redisService.flushNamespace(redisService.NAMESPACES.MFA_CHALLENGE_LOCKED);
   await redisService.flushNamespace(redisService.NAMESPACES.AUTH_FAILED);
   await redisService.flushNamespace(redisService.NAMESPACES.AUTH_LOCKED);
   await redisService.flushNamespace(redisService.NAMESPACES.BLACKLIST);
@@ -175,6 +178,9 @@ describe('MFA TOTP controller (B7)', () => {
       expect(res.statusCode).toBe(200);
       expect(res.body.data.mfaToken).toMatch(/^eyJ/); // JWT
       expect(res.body.data.expiresIn).toBe(300);
+      // El MFA token debe incluir un `jti` (auditoría / single-use futura).
+      const decoded = jwt.decode(res.body.data.mfaToken);
+      expect(decoded.jti).toBeTruthy();
     });
 
     it('rechaza con código TOTP inválido', async () => {
@@ -183,6 +189,25 @@ describe('MFA TOTP controller (B7)', () => {
         .set('Authorization', `Bearer ${accessToken}`)
         .send({ code: '999999' });
       expect(res.statusCode).toBe(401);
+    });
+
+    it('bloquea el challenge tras 5 intentos fallidos (lockout per-user)', async () => {
+      // 5 códigos inválidos consecutivos disparan el lockout per-user (userId).
+      for (let i = 0; i < 5; i++) {
+        const fail = await request(app)
+          .post('/api/auth/mfa/challenge')
+          .set('Authorization', `Bearer ${accessToken}`)
+          .send({ code: '000000' });
+        expect(fail.statusCode).toBe(401);
+      }
+      // El 6º intento se rechaza con 429 ANTES de verificar el código, aunque
+      // ahora enviemos uno válido — la cuenta está bloqueada temporalmente.
+      const locked = await request(app)
+        .post('/api/auth/mfa/challenge')
+        .set('Authorization', `Bearer ${accessToken}`)
+        .send({ code: generateNextStepCode(secret) });
+      expect(locked.statusCode).toBe(429);
+      expect(locked.body.success).toBe(false);
     });
   });
 

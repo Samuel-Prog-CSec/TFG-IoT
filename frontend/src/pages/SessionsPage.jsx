@@ -241,7 +241,10 @@ const SessionCard = memo(function SessionCard({
   return (
     <HoverLiftCard glowTint={glowTint} className="group h-full">
       <GlassCard className={cn(
-        'relative overflow-hidden p-6 flex flex-col gap-5 h-full hover:border-border-strong transition-[border-color] border-l-4',
+        // `@container`: la card es contenedor de consulta para que los botones
+        // de acción se adapten al ANCHO DE LA CARD (no del viewport) y no se
+        // corten en rejillas estrechas (3 columnas) — QA 2026-06-04.
+        '@container relative overflow-hidden p-6 flex flex-col gap-5 h-full hover:border-border-strong transition-[border-color] border-l-4',
         // PROP-5: pseudo-elemento derecho coloreado por dificultad (1px de ancho).
         'after:absolute after:top-0 after:right-0 after:bottom-0 after:w-[3px] after:rounded-r',
         borderClass,
@@ -335,11 +338,15 @@ const SessionCard = memo(function SessionCard({
         <SessionPlayStats playStats={session.playStats} />
 
         <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
-          <div className="flex gap-3">
+          {/* Los botones se apilan (1 col) cuando la card es estrecha y van en
+              fila (2 cols) cuando hay sitio. `@[24rem]` consulta el ancho de la
+              CARD (container query), no el viewport, así que se adaptan bien en
+              cualquier nº de columnas/resolución (QA 2026-06-04). */}
+          <div className="grid grid-cols-1 @[24rem]:grid-cols-2 gap-3">
             <ButtonPremium
               variant="secondary"
               onClick={() => onNavigate(ROUTES.SESSION_DETAIL(sessionId))}
-              className="flex-1"
+              className="w-full"
             >
               <Eye size={16} />
               Ver detalle
@@ -348,21 +355,20 @@ const SessionCard = memo(function SessionCard({
               <ButtonPremium
                 variant="primary"
                 onClick={() => onNavigate(getPlayRouteForSession(session))}
-                className="flex-1"
+                className="w-full"
               >
                 <Play size={16} />
-                <span>{primary.label}</span>
+                <span className="truncate">{primary.label}</span>
               </ButtonPremium>
             ) : (
               <ButtonPremium
                 variant="primary"
                 onClick={() => onClone(session)}
                 disabled={cloneLoading}
-                className="flex-1"
+                className="w-full"
               >
                 <RefreshCw size={16} />
-                <span className="sm:hidden">Clonar</span>
-                <span className="hidden sm:inline">{primary.label}</span>
+                <span className="truncate">{primary.label}</span>
               </ButtonPremium>
             )}
           </div>

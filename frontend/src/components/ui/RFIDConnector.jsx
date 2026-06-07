@@ -76,7 +76,10 @@ const readPortInfo = (port) => {
 export default function RFIDConnector({
   className,
   onScan,
-  showSensorId = true
+  // El SensorId (UUID) y los IDs USB son jerga técnica para el docente; ocultos
+  // por defecto. Solo se muestran si un consumidor de depuración pide `true`
+  // explícitamente (QA 2026-06-04; GameSession ya lo ocultaba).
+  showSensorId = false
 }) {
   const [status, setStatus] = useState(webSerialService.status);
   const [deviceState, setDeviceState] = useState(webSerialService.deviceState || 'unknown');

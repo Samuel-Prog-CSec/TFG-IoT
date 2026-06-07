@@ -376,7 +376,7 @@ Cada evento tiene `level`, `message`, opcionalmente `sentry: { threshold, window
 Resumen — detalle legal completo en [`Proteccion_Datos_Menores.md`](Proteccion_Datos_Menores.md).
 
 - **Consentimiento parental obligatorio** (Art. 8 RGPD + LOPDGDD Art. 7): User.consent.granted=true mandatorio para crear estudiantes.
-- **Minimización (Art. 5.1.c):** birthdate ELIMINADO del modelo Student. Solo se almacena `profile.age` (entero, sin DOB).
+- **Minimización (Art. 5.1.c):** `profile.birthdate` ELIMINADO del schema User por completo (campo + guard pre-save + validador; ADR-197 2º round). Solo se almacena `profile.age` (entero, sin DOB); Mongoose (strict) descarta cualquier asignación de birthdate y los seeders no lo insertan (verificado: DB con 0 alumnos con birthdate).
 - **Retención + anonimización (Art. 5.1.e):** `dataRetention.js` ejecuta política via BullMQ job mensual. Gameplay > 12 meses → playerId+cardUid anulados. Estudiantes inactivos > 24 meses → hard delete.
 - **k-anonimidad ≥5:** analytics no devuelven datos por grupo < 5 alumnos.
 - **Derecho al olvido (Art. 17):** endpoint `DELETE /api/users/:id/data` con `requireMfa` (B7) + `hardDeleteSchema` exigiendo `confirmDeletion: true`.
@@ -856,4 +856,43 @@ La dirección publica avisos visibles como banner top en `AppLayout` para `role:
 
 ---
 
-**Última actualización:** T-942 cierre (2026-05-18).
+## Auditoría de mantenimiento pre-v1.0.0 (2026-06-05) — ver ADR-196
+
+Endurecimientos aplicados (detalle y verificación en ADR-196):
+- **Revocación global de tokens efectiva 7 días** (antes 1 h): el flag `security:<userId>` ahora cubre toda la vida del refresh token, cerrando la ventana en que un refresh token robado **antes** de un logout forzado (cambio de contraseña, alta/baja de MFA, robo detectado) volvía a aceptarse pasada esa hora.
+- **MFA super_admin**: `jti` en el MFA token (auditoría) + **lockout per-user** anti fuerza bruta del TOTP (`mfaLockoutService`: 5 fallos/15 min, fail-open), que complementa el rate-limit por IP frente a rotación de IPs. Taxonomía de eventos MFA dedicada (`MFA_*`) en lugar de `AUTH_LOGIN_*`.
+- **WebSocket**: la revocación individual de un token es efectiva al instante (purga del `authRevalidationCache` por `jti`; antes había hasta 30 s de ventana).
+- **`board_ready`**: añadidos rol + ownership (antes cualquier socket autenticado podía arrancar el temporizador del tablero de la partida de otro docente).
+- **Mass-assignment**: `PUT /api/users/:id` rechaza `email`/`password` (antes el schema los aceptaba y el controller los descartaba — vector latente).
+- **Cabecera `X-Powered-By` eliminada** (hallazgo de QA en vivo): estaba expuesta porque `xPoweredBy: false` en helmet v7+ **desactiva** el borrado (semántica invertida). Fix definitivo `app.disable('x-powered-by')` en server.js + test de regresión. Info disclosure del stack cerrada (OWASP A05).
+
+### Riesgos aceptados / pendientes
+
+- **axios HIGH (frontend) — PENDIENTE.** axios 1.15.2 acumula advisories HIGH (MitM vía prototype pollution en `config.proxy`, fuga de Proxy-Authorization en redirects, ReDoS). El fix (axios 1.17.0) está **bloqueado por la política `min-release-age`** (control supply-chain que rechaza releases npm más recientes que un cutoff). **Acción**: aplicar `npm audit fix --force` cuando 1.17.0 envejezca tras el cutoff, o vetar 1.17.0 y override la política puntualmente. **react-router (HIGH) y ws (moderada) ya resueltas** en-rango; **backend 0 vulnerabilidades** de producción.
+- **`pseudonymize` SHA-256 sin sal**: reversible con esfuerzo moderado sobre el espacio de ObjectId; aceptable porque es seudonimización **interna de logs/auditoría**, no la anonimización primaria (Art. 25). Mejora futura: HMAC con secret dedicado + migración.
+
+---
+
+## Segundo pase de auditoría pre-v1.0.0 (2026-06-06) — ver ADR-197
+
+Pase complementario al de ADR-196 (8 agentes por dominio + verificación dinámica navegada con sesión real). Hallazgos y mitigaciones (detalle y verificación en ADR-197):
+
+- **IDOR cerrado en `GET /api/analytics/gameplay/:id/rounds`** — era el único endpoint de analytics sin check de propiedad/consentimiento; cualquier docente leía el desglose ronda-a-ronda (cardUid físico, tiempos, fatiga) de alumnos de **otro** docente, saltándose el Art. 21. Verificado explotable en vivo y luego cerrado (ownership de sesión poblada + `requireConsent`) con test de regresión. La matriz RBAC completa confirmó que era el **único** agujero de authz.
+- **Inyección de fórmulas CSV con nombres de menores (CRÍTICO)** — `exportToCSV` no neutralizaba celdas que empiezan por `= + - @ TAB CR`; un alumno con nombre-fórmula exfiltraba datos de otras filas (otros menores) a un tercero al abrir el docente el CSV. Fix: prefijo `'` + test de regresión.
+- **Paridad de privacidad en el export CSV de aula** — `getClassroomExport` no aplicaba el filtro de consentimiento (Art. 21) ni la k-anonimidad que sí aplica la vista en pantalla equivalente; corregido (el export es la salida de mayor riesgo: el dato sale del sistema).
+- **Cascada de supresión (Art. 17)** extendida a `GeneratedReport` y `SmartAlert` (antes quedaban huérfanos con PII/identificadores del menor tras el borrado).
+- **`/health` deja de filtrar el runtime en producción** (nodeVersion/pid/memoria/cpu → info disclosure A05); **`/api/openapi.json`** gated a super_admin en prod (la UI ya lo estaba).
+- **Bomba de descompresión** en `sharp` mitigada (`limitInputPixels` al máximo declarado + `failOn:'error'`).
+- **CORS**: rechazo limpio de orígenes no permitidos (antes 500) + normalización de whitelist. **Multer**: errores de tamaño → 413 (antes 500). **Redis `incr`**: TTL atómico con `EXPIRE…NX` (evita keys de lockout sin expiración). **Rate limiter dedicado** para informes/exports (`/reports/*`). Código muerto `requireOwnership` eliminado.
+- **Verificado correcto en vivo (sin cambio):** NoSQLi invulnerable (4 capas, probado incl. ofuscación `email[$ne]`); **ACL de borrado Supabase correcto E2E** (un docente no borra el asset de otro → 403; ni los del sistema); **conversión WebP no se puede saltar** (SVG/HTML/fake-PNG con MIME de imagen → 400 por magic bytes); headers/JWT/MFA sólidos; exports sin PII excesiva (sin email/_id/IP/token).
+
+### Riesgos aceptados / pendientes (actualización 2026-06-06)
+
+- **Seudonimización**: el keying HMAC-SHA256 (`PSEUDONYMIZE_SECRET`) ya está en producción (ADR-196 #9) → cierra la re-identificación por diccionario. Residual despreciable: truncado a 32 bits (colisiones ~77k ids) y clave global (blast-radius). *(Reemplaza la nota previa que lo listaba como «SHA-256 sin sal, mejora futura HMAC».)*
+- **Hardening NoSQLi `sanitizeFilter`/`strictQuery`: descartado** — `sanitizeFilter` envolvería en `$eq` los operadores legítimos (`$in/$ne/$gte`) del código; el área no es explotable (4 capas ya lo cubren), no compensa el riesgo de regresión.
+- **`updateContext`/`createContext` (super_admin): inyección de URLs externas vía `assets` — CERRADO** (confirmado explotable en vivo: `PUT` con `imageUrl` de host arbitrario → 200, y corregido en esta sesión). `assets` eliminado de los schemas de create/update; los assets solo se gestionan por los endpoints dedicados (magic-bytes + WebP + ownership por `uploadedBy`).
+- **axios HIGH (frontend) — RESUELTO** (override puntual autorizado de la política `min-release-age`): bump a **axios 1.17.0** → `npm audit --omit=dev` **0 vulnerabilidades** en frontend, build OK + suite FE 609/609. (La mayoría de los 8 advisories eran del adapter Node/proxy, no explotables en navegador, pero el bump cierra también ReDoS y prototype-pollution.)
+
+---
+
+**Última actualización:** Segundo pase de auditoría ADR-197 (2026-06-06).

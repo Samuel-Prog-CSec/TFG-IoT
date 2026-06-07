@@ -149,7 +149,7 @@ const buildValidator = (allowedMimes, kind) =>
           size: req.file.size
         });
         throw new ValidationError(
-          `No se ha podido determinar el formato del ${kind}. Comprueba que es un archivo válido.`
+          `No se ha podido determinar el formato del archivo (${kind}). Comprueba que sea un archivo válido.`
         );
       }
 

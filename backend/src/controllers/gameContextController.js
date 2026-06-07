@@ -174,14 +174,15 @@ const getContextById = async (req, res) => {
  *
  * POST /api/contexts
  * Headers: Authorization: Bearer <token>
- * Body: { contextId, name, assets }
+ * Body: { contextId, name } — el contexto se crea vacío; los assets se añaden
+ * después por los endpoints dedicados de upload (ADR-197)
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
  * @param {import('express').NextFunction} next
  */
 const createContext = async (req, res) => {
-  const { contextId, name, assets } = req.body;
+  const { contextId, name } = req.body;
 
   // Verificar si el contextId ya existe
   const existingContext = await gameContextRepository.findOne({
@@ -196,7 +197,7 @@ const createContext = async (req, res) => {
   const context = await gameContextRepository.create({
     contextId: contextId.toLowerCase(),
     name,
-    assets: assets || []
+    assets: []
   });
 
   // Invalidar las listas cacheadas para que el nuevo contexto aparezca inmediatamente.
@@ -258,7 +259,7 @@ async function notifyTeachersContextShared(context) {
  *
  * PUT /api/contexts/:id
  * Headers: Authorization: Bearer <token>
- * Body: { contextId?, name?, assets? }
+ * Body: { contextId?, name? } — los assets se gestionan por endpoints dedicados (ADR-197)
  *
  * @param {import('express').Request} req
  * @param {import('express').Response} res
@@ -266,7 +267,7 @@ async function notifyTeachersContextShared(context) {
  */
 const updateContext = async (req, res) => {
   const { id } = req.params;
-  const { contextId, name, assets } = req.body;
+  const { contextId, name } = req.body;
 
   const context = await gameContextRepository.findById(id);
 
@@ -291,9 +292,8 @@ const updateContext = async (req, res) => {
   if (name) {
     context.name = name;
   }
-  if (assets) {
-    context.assets = assets;
-  }
+  // `assets` se gestiona solo por los endpoints dedicados (upload/delete con WebP +
+  // ownership por uploadedBy); ya no se acepta su reemplazo masivo aquí (ADR-197).
 
   await context.save();
 

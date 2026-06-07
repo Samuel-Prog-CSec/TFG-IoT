@@ -35,10 +35,16 @@ const userRepository = require('../repositories/userRepository');
 const redisService = require('../services/redisService');
 const { encryptField, decryptField } = require('../utils/cryptoUtils');
 const { issueMfaToken } = require('../middlewares/requireMfa');
-const { ValidationError, UnauthorizedError, ForbiddenError } = require('../utils/errors');
+const {
+  ValidationError,
+  UnauthorizedError,
+  ForbiddenError,
+  TooManyRequestsError
+} = require('../utils/errors');
 const { sendSuccess } = require('../utils/responseHelper');
 const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger');
 const { revokeAllUserTokens, invalidateUserCache } = require('../middlewares/auth');
+const mfaLockout = require('../services/mfaLockoutService');
 const logger = require('../utils/logger').child({ component: 'mfaController' });
 
 const SETUP_NAMESPACE = 'mfa:setup';
@@ -112,10 +118,9 @@ const setupInit = async (req, res) => {
   const accountName = encodeURIComponent(req.user.email);
   const otpauthUrl = `otpauth://totp/${encodeURIComponent(issuer)}:${accountName}?secret=${secret}&issuer=${encodeURIComponent(issuer)}&algorithm=SHA1&digits=6&period=30`;
 
-  logSecurityEvent('AUTH_LOGIN_SUCCESS', {
+  logSecurityEvent('MFA_SETUP_INIT', {
     ...getRequestContext(req),
-    userId,
-    note: 'mfa_setup_init'
+    userId
   });
 
   sendSuccess(
@@ -212,6 +217,21 @@ const challenge = async (req, res) => {
   const userId = String(req.user._id);
   const { code } = req.body;
 
+  // Lockout per-user anti fuerza bruta del código TOTP. Complementa al rate
+  // limiter por IP: frena a un atacante (con access token de super_admin robado)
+  // que rote IPs para sortear el límite por IP.
+  if (await mfaLockout.isLocked(userId)) {
+    logSecurityEvent('MFA_CHALLENGE_FAILED', {
+      ...getRequestContext(req),
+      userId,
+      reason: 'MFA_CHALLENGE_LOCKED'
+    });
+    throw new TooManyRequestsError(
+      'Demasiados intentos MFA fallidos. Espera unos minutos antes de volver a intentarlo.',
+      'MFA_LOCKED'
+    );
+  }
+
   // Cargar secret cifrado (select:false → fetch explícito).
   const userDoc = await userRepository.findById(userId, { select: '+mfa.secret +mfa.enabled' });
   if (!userDoc?.mfa?.enabled) {
@@ -221,7 +241,8 @@ const challenge = async (req, res) => {
 
   const verification = totp.verifyWithStep({ token: code, secret, window: 1 });
   if (!verification.valid) {
-    logSecurityEvent('AUTH_LOGIN_FAILED', {
+    await mfaLockout.recordFailedAttempt(userId, getRequestContext(req));
+    logSecurityEvent('MFA_CHALLENGE_FAILED', {
       ...getRequestContext(req),
       userId,
       reason: 'MFA_CHALLENGE_INVALID'
@@ -230,9 +251,10 @@ const challenge = async (req, res) => {
   }
 
   // Anti-replay: rechazamos códigos ya consumidos dentro de la ventana de 90 s.
+  // El código ERA válido (no es fuerza bruta), así que no cuenta para el lockout.
   const fresh = await acquireTotpReplayGuard(userId, verification.step);
   if (!fresh) {
-    logSecurityEvent('AUTH_LOGIN_FAILED', {
+    logSecurityEvent('MFA_CHALLENGE_FAILED', {
       ...getRequestContext(req),
       userId,
       reason: 'MFA_CODE_REUSED'
@@ -243,6 +265,8 @@ const challenge = async (req, res) => {
     );
   }
 
+  // Verificación correcta → resetea el contador/lockout del usuario.
+  await mfaLockout.clearAttempts(userId);
   await userRepository.updateById(userId, { 'mfa.lastUsedAt': new Date() });
 
   const mfaToken = issueMfaToken(userId);
@@ -258,6 +282,20 @@ const verifyBackupCode = async (req, res) => {
   assertSuperAdmin(req);
   const userId = String(req.user._id);
   const { backupCode } = req.body;
+
+  // Mismo lockout per-user que el challenge TOTP: los backup codes son otro
+  // factor verificable por fuerza bruta y comparten el contador de fallos.
+  if (await mfaLockout.isLocked(userId)) {
+    logSecurityEvent('MFA_CHALLENGE_FAILED', {
+      ...getRequestContext(req),
+      userId,
+      reason: 'MFA_CHALLENGE_LOCKED'
+    });
+    throw new TooManyRequestsError(
+      'Demasiados intentos MFA fallidos. Espera unos minutos antes de volver a intentarlo.',
+      'MFA_LOCKED'
+    );
+  }
 
   const userDoc = await userRepository.findById(userId, {
     select: '+mfa.backupCodes +mfa.enabled'
@@ -288,7 +326,8 @@ const verifyBackupCode = async (req, res) => {
   }
 
   if (matchedIndex === -1) {
-    logSecurityEvent('AUTH_LOGIN_FAILED', {
+    await mfaLockout.recordFailedAttempt(userId, getRequestContext(req));
+    logSecurityEvent('MFA_CHALLENGE_FAILED', {
       ...getRequestContext(req),
       userId,
       reason: reuseAttempt ? 'MFA_BACKUP_CODE_REUSE_ATTEMPT' : 'MFA_BACKUP_CODE_INVALID'
@@ -307,10 +346,11 @@ const verifyBackupCode = async (req, res) => {
     'mfa.lastUsedAt': new Date()
   });
 
-  logSecurityEvent('AUTH_LOGIN_SUCCESS', {
+  // Verificación correcta → resetea el contador/lockout del usuario.
+  await mfaLockout.clearAttempts(userId);
+  logSecurityEvent('MFA_BACKUP_CODE_USED', {
     ...getRequestContext(req),
-    userId,
-    note: 'mfa_backup_code_used'
+    userId
   });
 
   const mfaToken = issueMfaToken(userId);
@@ -336,10 +376,9 @@ const regenerateBackupCodes = async (req, res) => {
 
   await userRepository.updateById(userId, { 'mfa.backupCodes': hashedCodes });
 
-  logSecurityEvent('AUTH_LOGIN_SUCCESS', {
+  logSecurityEvent('MFA_BACKUP_CODES_REGENERATED', {
     ...getRequestContext(req),
-    userId,
-    note: 'mfa_backup_codes_regenerated'
+    userId
   });
 
   sendSuccess(

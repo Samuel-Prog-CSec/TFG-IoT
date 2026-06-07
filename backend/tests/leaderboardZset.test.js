@@ -81,6 +81,36 @@ describe('materializedAnalyticsService — Leaderboards ZSET (B.10)', () => {
       expect(entry.score).toBe(85);
     });
 
+    it('fija TTL en el Hash student:metrics y en los ZSET de leaderboard (C1 — anti fuga de memoria)', async () => {
+      const teacherId = new mongoose.Types.ObjectId();
+      const contextId = new mongoose.Types.ObjectId();
+      const mechanicId = new mongoose.Types.ObjectId();
+      const studentId = new mongoose.Types.ObjectId();
+
+      await materializedAnalytics.recordPlayCompletion({
+        teacherId,
+        contextId,
+        mechanicId,
+        studentId,
+        score: 70,
+        correctAttempts: 7,
+        errorAttempts: 3,
+        averageResponseTime: 1500,
+        mechanicName: 'memory'
+      });
+
+      // C1: el Hash student:metrics debe expirar (no vivir indefinidamente en
+      // Upstash free-tier). Antes del fix no se fijaba EXPIRE → fuga lenta.
+      const { getRedis } = require('../src/config/redis');
+      const client = getRedis();
+      const studentTtl = await client.ttl(`student:metrics:${studentId.toString()}`);
+      expect(studentTtl).toBeGreaterThan(0);
+
+      // Los ZSET de leaderboard también expiran (TTL 8d), no crecen sin cota.
+      const lbTtl = await client.ttl(`leaderboard:context:score:${teacherId.toString()}:24h`);
+      expect(lbTtl).toBeGreaterThan(0);
+    });
+
     it('acumula plays y score tras múltiples partidas', async () => {
       const teacherId = new mongoose.Types.ObjectId();
       const contextId = new mongoose.Types.ObjectId();

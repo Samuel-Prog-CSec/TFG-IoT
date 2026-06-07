@@ -14,7 +14,7 @@
 const { AlertDetector } = require('./_base');
 const { ALERT_TYPES } = require('../../../config/alerts');
 const gamePlayRepository = require('../../../repositories/gamePlayRepository');
-const { toObjectId } = require('../analyticsHelpers');
+const { toObjectId, getStartDate } = require('../analyticsHelpers');
 
 class PlateauDetectedDetector extends AlertDetector {
   constructor() {
@@ -29,8 +29,17 @@ class PlateauDetectedDetector extends AlertDetector {
     const { info: stdDevThreshold, minGames } = ALERT_TYPES.plateau_detected.thresholds;
     const studentIds = students.map(s => toObjectId(s._id));
 
+    // Cota temporal 90d: aprovecha el índice {playerId,status,completedAt} para
+    // acotar el scan a partidas recientes. La meseta se evalúa sobre las últimas
+    // `minGames` partidas; un alumno inactivo >90d no debe generar alerta.
     const pipeline = [
-      { $match: { playerId: { $in: studentIds }, status: 'completed' } },
+      {
+        $match: {
+          playerId: { $in: studentIds },
+          status: 'completed',
+          completedAt: { $gte: getStartDate('90d') }
+        }
+      },
       { $sort: { completedAt: -1 } },
       {
         $group: {

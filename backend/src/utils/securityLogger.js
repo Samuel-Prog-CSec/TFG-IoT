@@ -94,6 +94,31 @@ const SECURITY_EVENTS = {
     message: 'Acceso denegado por autorización',
     sentry: { threshold: 20, windowMs: 60 * 1000, level: 'warning' }
   },
+  // MFA TOTP (super_admin) — eventos dedicados para no contaminar la taxonomía
+  // de login. Antes setup-init/backup-code/regenerate se logueaban como
+  // AUTH_LOGIN_SUCCESS, falseando los conteos de "logins" en SIEM/alertas.
+  MFA_SETUP_INIT: {
+    level: 'info',
+    message: 'Inicio de configuración MFA'
+  },
+  MFA_BACKUP_CODE_USED: {
+    level: 'info',
+    message: 'Backup code MFA utilizado'
+  },
+  MFA_BACKUP_CODES_REGENERATED: {
+    level: 'info',
+    message: 'Backup codes MFA regenerados'
+  },
+  MFA_CHALLENGE_FAILED: {
+    level: 'warn',
+    message: 'Verificación MFA fallida',
+    sentry: { threshold: 10, windowMs: 60 * 1000, level: 'warning' }
+  },
+  MFA_CHALLENGE_LOCKED: {
+    level: 'error',
+    message: 'Challenge MFA bloqueado por intentos fallidos',
+    sentry: { threshold: 1, windowMs: 60 * 1000, level: 'warning' }
+  },
   STUDENT_TRANSFER: {
     level: 'info',
     message: 'Transferencia de alumno registrada'
