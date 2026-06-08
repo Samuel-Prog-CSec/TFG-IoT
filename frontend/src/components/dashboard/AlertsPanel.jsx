@@ -81,7 +81,7 @@ export default function AlertsPanel({ alerts }) {
                   'p-4 rounded-xl border flex items-start gap-3 group transition-colors',
                   severity.bg,
                   severity.border,
-                  alert.pinned && 'ring-1 ring-amber-400/40 shadow-[0_0_10px_rgba(251,191,36,0.18)]',
+                  alert.pinned && 'ring-1 ring-[var(--color-podium-gold-glow)] shadow-[0_0_10px_var(--color-podium-gold-glow)]',
                   alert.studentId &&
                     'cursor-pointer hover:border-opacity-40 focus:outline-none focus:ring-1 focus:ring-brand-base/40 focus:bg-background-surface/20'
                 )}
@@ -118,7 +118,7 @@ export default function AlertsPanel({ alerts }) {
                       {alert.studentName || alert.title || 'Alumno'}
                     </h4>
                     {alert.pinned && (
-                      <PIN_ICON size={11} className="text-amber-400" aria-label="Fijada" />
+                      <PIN_ICON size={11} className="text-[var(--color-podium-gold)]" aria-label="Fijada" />
                     )}
                     {alert.status === 'snoozed' && (
                       <Pause size={11} className="text-info-base" aria-label="En pausa" />

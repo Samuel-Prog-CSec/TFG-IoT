@@ -114,6 +114,27 @@ function GameOverScreen({
     ? `bg-[color-mix(in_oklab,var(${mechanicAccentVar})_22%,transparent)]`
     : null;
 
+  // Tinte de la card hero "Correctas/Parejas/Cartas" por mecánica. Antes
+  // forzaba success-base para las 3 mecánicas, rompiendo la firma cromática
+  // (Memoria=indigo, Asociación=cyan, Secuencia=ámbar). Mantenemos success
+  // como fallback SOLO cuando `summary.mode` es null (partidas antiguas o
+  // sin payload de mecánica).
+  const heroCardTheme = useMemo(() => {
+    if (!summary?.mode) {
+      return {
+        bg: 'bg-success-base/10',
+        border: 'border-success-base/20',
+        value: 'text-success-base'
+      };
+    }
+    const theme = getMechanicTheme(summary.mode);
+    return {
+      bg: theme.accentBgSoftClass,
+      border: theme.accentBorderClass,
+      value: theme.accentClass
+    };
+  }, [summary?.mode]);
+
   const tierConfig = useMemo(() => {
     const { title, subtitle } = getGameOverCopy(stars, summary?.mode);
     switch (stars) {
@@ -124,19 +145,19 @@ function GameOverScreen({
         glowB: mechanicGlowB || 'bg-brand-base/25',
       };
       case 2: return {
-        Icon: PartyPopper, iconClass: 'text-success-base drop-shadow-[0_0_14px_rgba(34,197,94,0.55)]',
+        Icon: PartyPopper, iconClass: 'text-success-base drop-shadow-[0_0_14px_var(--color-success-glow)]',
         text: title, sub: subtitle,
         glowA: 'bg-success-base/20',
         glowB: mechanicGlowB || 'bg-accent-cyan/20',
       };
       case 1: return {
-        Icon: Flame, iconClass: 'text-brand-base drop-shadow-[0_0_14px_rgba(139,92,246,0.5)]',
+        Icon: Flame, iconClass: 'text-brand-base drop-shadow-[0_0_14px_var(--color-brand-glow)]',
         text: title, sub: subtitle,
         glowA: 'bg-brand-base/20',
         glowB: mechanicGlowB || 'bg-accent-cyan/15',
       };
       default: return {
-        Icon: SparklesIcon, iconClass: 'text-accent-cyan drop-shadow-[0_0_12px_rgba(34,211,238,0.45)]',
+        Icon: SparklesIcon, iconClass: 'text-accent-cyan drop-shadow-[0_0_12px_var(--color-accent-cyan-glow)]',
         text: title, sub: subtitle,
         glowA: 'bg-brand-base/15',
         glowB: mechanicGlowB || 'bg-accent-cyan/10',
@@ -231,10 +252,16 @@ function GameOverScreen({
         initial={shouldReduceMotion ? false : { scale: 0.8, y: 50 }}
         animate={{ scale: 1, y: 0 }}
         transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 25 }}
-        className="relative w-full max-w-[min(720px,92vw)] max-h-[92dvh] overflow-y-auto custom-scrollbar"
+        className="relative w-full max-w-[min(720px,92vw)]"
       >
         {/* Main card */}
-        <div className="glass-card-gradient p-8 text-center">
+        {/* El scroll (max-h + overflow) vive en la PROPIA card, no en el
+            <article> que la envuelve. Si el overflow está en un padre con
+            border-radius 0, recorta la drop-shadow de la card en esquinas
+            rectas → "picos" cuadrados (más visibles en light, donde la sombra
+            negra contrasta con el fondo claro). Una caja no recorta su propia
+            sombra, así que con el overflow aquí la sombra sigue redondeada. */}
+        <div className="glass-card-gradient p-8 text-center max-h-[92dvh] overflow-y-auto custom-scrollbar">
           {/* Icono hero del tier (Lucide en vez de emoji para consistencia) */}
           <motion.div
             animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
@@ -382,7 +409,7 @@ function GameOverScreen({
               partida — el detalle por tipo de evento se muestra abajo en
               GameOverStatsSequence. */}
           <dl className="grid grid-cols-2 gap-4 mb-6">
-            <div className="bg-success-base/10 rounded-xl p-4 border border-success-base/20">
+            <div className={cn('rounded-xl p-4 border', heroCardTheme.bg, heroCardTheme.border)}>
               <dt className="text-xs text-text-muted order-2">
                 {(() => {
                   if (summary?.mode === 'memory') return 'Parejas';
@@ -390,7 +417,7 @@ function GameOverScreen({
                   return 'Correctas';
                 })()}
               </dt>
-              <dd className="text-2xl font-bold font-display text-success-base">{correctAnswers}</dd>
+              <dd className={cn('text-2xl font-bold font-display', heroCardTheme.value)}>{correctAnswers}</dd>
             </div>
             <div className="bg-background-surface/30 rounded-xl p-4 border border-border-subtle">
               <dt className="text-xs text-text-muted order-2">Total</dt>

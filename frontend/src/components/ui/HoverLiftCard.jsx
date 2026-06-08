@@ -81,9 +81,16 @@ export default function HoverLiftCard({
       whileTap={shouldReduceMotion || !onClick ? undefined : { scale: 0.99 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       className={cn(
-        'relative transition-shadow duration-300 will-change-transform',
+        // `rounded-2xl` SIEMPRE (no solo con onClick): el glow de hover es un
+        // `box-shadow` que sigue el border-radius del elemento. Si el radio es 0
+        // (cuando la card no recibe onClick — Sesiones/Mazos/Contextos delegan el
+        // click en botones internos), el box-shadow dibuja esquinas cuadradas que
+        // asoman como "picos" por las esquinas redondeadas del GlassCard interno
+        // (rounded-2xl = 24px). Igualar el radio del wrapper al del contenido
+        // hace que el aura siga la silueta redondeada.
+        'relative rounded-2xl transition-shadow duration-300 will-change-transform',
         onClick &&
-          'rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
         glowCls,
         className
       )}

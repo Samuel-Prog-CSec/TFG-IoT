@@ -207,9 +207,11 @@ describe('GameHistoryTable', () => {
     expect(screen.getByText('Historial de Partidas')).toBeTruthy();
   });
 
-  it('muestra el contador de partidas', () => {
+  it('muestra el contador de partidas recientes', () => {
     render(<GameHistoryTable games={sampleGames} />);
-    expect(screen.getByText('2 partidas')).toBeTruthy();
+    // El historial muestra las partidas RECIENTES (capadas a 10 por backend),
+    // rotuladas "Últimas N" para no confundirlas con el total del alumno.
+    expect(screen.getByText('Últimas 2')).toBeTruthy();
   });
 
   it('renderiza los nombres de contexto y mecanica', () => {

@@ -56,8 +56,11 @@ function GameHistoryTable({ games, initialCount = 10 }) {
     <GlassCard variant="default" padding="none" className="p-5">
       <div className="flex items-center justify-between mb-4">
         <h2 className="text-base font-semibold text-text-primary font-display">Historial de Partidas</h2>
+        {/* `games` es la lista de partidas RECIENTES (el backend la capa a 10),
+            no el total del alumno. Rotular "{N} partidas" se leía como el total;
+            "Últimas N" es fiel. El total real vive en el KPI "Total Partidas". */}
         <span className="text-xs text-text-muted bg-background-surface/50 px-2 py-1 rounded-lg">
-          {games.length} partidas
+          Últimas {games.length}
         </span>
       </div>
 

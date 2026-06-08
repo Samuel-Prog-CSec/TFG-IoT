@@ -216,10 +216,26 @@ export default function StudentProfile() {
     );
   }
 
-  const accuracyRate = metrics.totalCorrectAnswers != null && (metrics.totalCorrectAnswers + metrics.totalErrors) > 0
+  // KPIs reactivas al rango temporal: el backend devuelve `overallStats`
+  // (avgScore/avgAccuracy/avgResponseTime/totalGames DEL RANGO). Antes las 6 KPIs
+  // leían `studentMetrics` (lifetime) y no cambiaban al mover el selector mientras
+  // los gráficos sí (disonancia). Caen a lifetime si no hay `overallStats`.
+  const ranged = summary?.overallStats || {};
+  const rangedScore = Number.isFinite(ranged.avgScore) ? ranged.avgScore : (metrics.averageScore || 0);
+  const rangedResponseTime = Number.isFinite(ranged.avgResponseTime)
+    ? ranged.avgResponseTime
+    : (metrics.averageResponseTime || 0);
+  const rangedTotalGames = Number.isFinite(ranged.totalGames)
+    ? ranged.totalGames
+    : (metrics.totalGamesPlayed || 0);
+
+  const lifetimeAccuracy = metrics.totalCorrectAnswers != null && (metrics.totalCorrectAnswers + metrics.totalErrors) > 0
     ? Math.round((metrics.totalCorrectAnswers / (metrics.totalCorrectAnswers + metrics.totalErrors)) * 100)
     : 0;
+  const accuracyRate = Number.isFinite(ranged.avgAccuracy) ? ranged.avgAccuracy : lifetimeAccuracy;
 
+  // Completado: tasa lifetime del alumno (el resumen no expone completado por
+  // rango). Se mantiene como histórico; las abandonadas se muestran en la pastilla.
   const completionRate = metrics.totalGamesPlayed > 0
     ? Math.round(((metrics.totalGamesPlayed - (metrics.totalAbandonedGames || 0)) / metrics.totalGamesPlayed) * 100)
     : 0;
@@ -284,11 +300,11 @@ export default function StudentProfile() {
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Puntuación Media"
-              value={Math.round(metrics.averageScore || 0)}
+              value={Math.round(rangedScore)}
               suffix="%"
-              ragStatus={scoreToRAG(metrics.averageScore || 0)}
+              ragStatus={scoreToRAG(rangedScore)}
               comparison={classComparison.averageScore != null ? `vs clase: ${Math.round(classComparison.averageScore)}%` : null}
-              comparisonPositive={metrics.averageScore > (classComparison.averageScore || 0)}
+              comparisonPositive={rangedScore > (classComparison.averageScore || 0)}
             />
           </motion.div>
 
@@ -306,21 +322,21 @@ export default function StudentProfile() {
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Tiempo Respuesta"
-              value={((metrics.averageResponseTime || 0) / 1000).toFixed(1)}
+              value={(rangedResponseTime / 1000).toFixed(1)}
               suffix="s"
               ragStatus={(() => {
-                if (metrics.averageResponseTime <= 4000) return 'green';
-                if (metrics.averageResponseTime <= 8000) return 'amber';
+                if (rangedResponseTime <= 4000) return 'green';
+                if (rangedResponseTime <= 8000) return 'amber';
                 return 'red';
               })()}
               comparison={classComparison.responseTime != null ? `vs clase: ${(classComparison.responseTime / 1000).toFixed(1)}s` : null}
-              comparisonPositive={metrics.averageResponseTime < (classComparison.responseTime || Infinity)}
+              comparisonPositive={rangedResponseTime < (classComparison.responseTime || Infinity)}
             />
           </motion.div>
 
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
-              label="Engagement"
+              label="Implicación"
               value={engagement?.engagementScore != null ? Math.round(engagement.engagementScore) : '—'}
               // suffix "/100" desambigua la escala: el engagement es un score
               // 0-100, pero sin sufijo "61" parecía un conteo (auditoría
@@ -338,7 +354,7 @@ export default function StudentProfile() {
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Total Partidas"
-              value={metrics.totalGamesPlayed || 0}
+              value={rangedTotalGames}
               ragStatus="gray"
               comparison={`Mejor: ${metrics.bestScore || 0} pts`}
             />
@@ -369,7 +385,7 @@ export default function StudentProfile() {
         <div className="lg:col-span-3 h-full">
           <TrajectoryChart
             trajectoryData={trajectory}
-            classComparison={summary?.classProgressComparison}
+            classComparison={trajectory?.classDataPoints}
           />
         </div>
         <div className="lg:col-span-2 h-full">
@@ -412,15 +428,11 @@ export default function StudentProfile() {
         <ScrollRevealSection delay={0.12}>
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
             <div className="lg:col-span-2">
+              {/* Serie temporal real por partida (backend `bySequence.progression`).
+                  Antes se filtraba `lastGames` (últimas 10, sin el dato por partida)
+                  → la evolución salía vacía o como línea plana. */}
               <SequenceProgressChart
-                data={(summary.lastGames || []).flatMap(g => {
-                  if ((g.mechanic || '').toLowerCase() !== 'secuencia') return [];
-                  return [{
-                    completedAt: g.completedAt,
-                    maxLength: g.maxLength || summary.bySequence.maxSequenceLengthAchieved,
-                    sequencesCompleted: g.sequencesCompleted
-                  }];
-                })}
+                data={summary.bySequence.progression || []}
               />
             </div>
             <SequenceHighlightCard summary={summary.bySequence} />

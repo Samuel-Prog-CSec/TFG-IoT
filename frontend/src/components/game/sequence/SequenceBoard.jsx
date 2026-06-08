@@ -13,7 +13,7 @@
  *  - `cardStatuses`: mapa `uid → 'correct'|'blocked'|'timedOut'` actualizado
  *    a medida que llegan eventos `sequence_card_result`.
  *  - `displaySeconds`: para mostrar el indicador "Memoriza X segundos".
- *  - `roundNumber` / `totalRounds`: cabecera.
+ *  - `roundNumber`: identificador de la ronda en curso (claves de animación).
  *  - `lastHint`: el último hint recibido desde el backend (toast).
  *  - `onCardTap`: callback usado por FallbackTouchPanelSequence.
  *  - `reduceMotion`: respeta `prefers-reduced-motion`.
@@ -102,7 +102,6 @@ function SequenceBoard({
   highlightIndex = null,
   displaySeconds = 3,
   roundNumber = 1,
-  totalRounds = 1,
   reduceMotion: reduceMotionProp,
   onCardTap,
   isCollecting = false,
@@ -163,9 +162,8 @@ function SequenceBoard({
   return (
     <div className="relative w-full max-w-5xl mx-auto flex flex-col items-center gap-4">
       <header className="flex flex-col items-center gap-1">
-        <p className="text-xs uppercase tracking-widest text-text-muted">
-          Ronda {roundNumber} de {totalRounds}
-        </p>
+        {/* La línea "Ronda X de N" se omite aquí: el HUD global de
+            GameSession ya la muestra (evitamos duplicar el contador). */}
         <p
           className={cn(
             'text-base font-medium',
@@ -307,7 +305,6 @@ SequenceBoard.propTypes = {
   highlightIndex: PropTypes.number,
   displaySeconds: PropTypes.number,
   roundNumber: PropTypes.number,
-  totalRounds: PropTypes.number,
   reduceMotion: PropTypes.bool,
   onCardTap: PropTypes.func,
   isCollecting: PropTypes.bool,

@@ -469,12 +469,20 @@ userSchema.methods.updateStudentMetrics = function (playResults) {
   // Incrementar contador de partidas
   this.studentMetrics.totalGamesPlayed += 1;
 
-  // Actualizar puntuación total
+  // Actualizar puntuación total (puntos crudos — alimenta bestScore/histórico)
   this.studentMetrics.totalScore += playResults.score;
 
-  // Recalcular puntuación media
+  // Recalcular puntuación media como PORCENTAJE real (`score / maxScore × 100`),
+  // no puntos crudos. El score crudo no es comparable entre mecánicas con
+  // distinto techo (Asociación 50-90, Secuencia 210-420): promediarlo y mostrarlo
+  // como "%" infravaloraba/inflaba a los alumnos según su mezcla de mecánicas.
+  // Media móvil incremental sin campo extra: avg_n = (avg_{n-1}·(n-1) + pct_n) / n.
+  // (Las cuentas históricas se recalculan con la migración `migrate:score-percent`.)
+  const playsCount = this.studentMetrics.totalGamesPlayed;
+  const maxScore = Number(playResults.maxScore) || 0;
+  const scorePercent = maxScore > 0 ? (Number(playResults.score) / maxScore) * 100 : 0;
   this.studentMetrics.averageScore =
-    this.studentMetrics.totalScore / this.studentMetrics.totalGamesPlayed;
+    (this.studentMetrics.averageScore * (playsCount - 1) + scorePercent) / playsCount;
 
   // Actualizar mejor puntuación si aplica
   if (playResults.score > this.studentMetrics.bestScore) {

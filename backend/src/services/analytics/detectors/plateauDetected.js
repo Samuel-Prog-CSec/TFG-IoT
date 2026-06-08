@@ -14,7 +14,7 @@
 const { AlertDetector } = require('./_base');
 const { ALERT_TYPES } = require('../../../config/alerts');
 const gamePlayRepository = require('../../../repositories/gamePlayRepository');
-const { toObjectId, getStartDate } = require('../analyticsHelpers');
+const { toObjectId, getStartDate, SCORE_PERCENT_EXPR } = require('../analyticsHelpers');
 
 class PlateauDetectedDetector extends AlertDetector {
   constructor() {
@@ -44,7 +44,10 @@ class PlateauDetectedDetector extends AlertDetector {
       {
         $group: {
           _id: '$playerId',
-          recentScores: { $push: '$score' },
+          // % normalizado (ADR-201): la stdDev y el umbral de ±5 operan en puntos
+          // porcentuales homogéneos entre mecánicas (antes ±5 puntos crudos era ruido
+          // en Secuencia [techo 210-420] y significativo en Asociación [techo 50]).
+          recentScores: { $push: SCORE_PERCENT_EXPR },
           lastCompletedAt: { $max: '$completedAt' }
         }
       },

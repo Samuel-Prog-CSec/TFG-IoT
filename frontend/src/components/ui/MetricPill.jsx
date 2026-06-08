@@ -27,12 +27,12 @@ import { cn } from '../../lib/utils';
 // claro: gris oscuro) garantizando contraste WCAG en ambos.
 const TONE_CLASSES = Object.freeze({
   neutral: 'bg-background-elevated/60 border-border-subtle text-text-primary',
-  success: 'bg-success-base/10 border-success-base/20 text-success-base',
-  error: 'bg-error-base/10 border-error-base/20 text-error-base',
-  amber: 'bg-accent-amber/10 border-accent-amber/20 text-accent-amber',
-  brand: 'bg-brand-base/10 border-brand-base/20 text-brand-base',
-  indigo: 'bg-accent-indigo/10 border-accent-indigo/20 text-accent-indigo',
-  cyan: 'bg-accent-cyan/10 border-accent-cyan/20 text-accent-cyan'
+  success: 'bg-success-base/10 border-success-base/20 text-success-on-alpha',
+  error: 'bg-error-base/10 border-error-base/20 text-error-on-alpha',
+  amber: 'bg-accent-amber/10 border-accent-amber/20 text-accent-amber-on-alpha',
+  brand: 'bg-brand-base/10 border-brand-base/20 text-brand-on-alpha',
+  indigo: 'bg-accent-indigo/10 border-accent-indigo/20 text-accent-indigo-on-alpha',
+  cyan: 'bg-accent-cyan/10 border-accent-cyan/20 text-accent-cyan-on-alpha'
 });
 
 function MetricPill({

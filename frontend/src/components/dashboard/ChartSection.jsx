@@ -4,18 +4,26 @@ import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 
-function ChartSection({ title, children, className, period = '7d', onPeriodChange, periodOptions = null }) {
+function ChartSection({ title, children, className, period = '7d', onPeriodChange, periodOptions = null, animateSelf = true }) {
   const titleId = useId();
   const resolvedPeriodOptions = periodOptions?.length ? periodOptions : [
     { value: '7d', label: 'Últimos 7 días' },
     { value: '30d', label: 'Últimos 30 días' },
   ];
 
+  // `animateSelf` controla la animación de entrada propia. Por defecto (true)
+  // el panel se anima solo — correcto para consumidores standalone
+  // (StudentProfile → PerformanceByDimension, ClassroomOverview). Cuando el
+  // padre ya orquesta el stagger (Dashboard envuelve cada chart en su propio
+  // motion.div con variants), se pasa `animateSelf={false}` para evitar la
+  // doble animación de entrada.
+  const selfAnim = animateSelf
+    ? { initial: { opacity: 0, y: 20 }, animate: { opacity: 1, y: 0 }, transition: { delay: 0.2 } }
+    : {};
+
   return (
-    <motion.div 
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.2 }}
+    <motion.div
+      {...selfAnim}
       className="h-full"
     >
       <GlassCard 
@@ -25,7 +33,7 @@ function ChartSection({ title, children, className, period = '7d', onPeriodChang
       >
         {/* Header */}
         <header className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-4 mb-6 relative z-10">
-          <h3 id={titleId} className="text-xl font-semibold text-text-primary font-display">{title}</h3>
+          <h3 id={titleId} className="text-lg font-semibold text-text-primary font-display">{title}</h3>
           
           {onPeriodChange && (
             <>
@@ -66,6 +74,7 @@ ChartSection.propTypes = {
     value: PropTypes.string.isRequired,
     label: PropTypes.string.isRequired,
   })),
+  animateSelf: PropTypes.bool,
 };
 
 export default memo(ChartSection);

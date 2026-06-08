@@ -233,6 +233,7 @@ async function completePlay(playId) {
   if (player.hasConsentFor('performance_analytics')) {
     await player.updateStudentMetrics({
       score: play.score,
+      maxScore: play.maxScore,
       correctAttempts: play.metrics.correctAttempts,
       errorAttempts: play.metrics.errorAttempts,
       timeoutAttempts: play.metrics.timeoutAttempts,

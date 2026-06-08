@@ -147,7 +147,7 @@ export default function CardDeckDetailPage() {
 
   if (loading && !deck) {
     return (
-      <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
+      <div className="page-container py-[var(--space-fluid-section)] space-y-6">
         <SkeletonCard className="h-28" />
         <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
           <SkeletonCard className="lg:col-span-2 h-64" />
@@ -159,7 +159,7 @@ export default function CardDeckDetailPage() {
 
   if (!deck) {
     return (
-      <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+      <div className="page-container py-[var(--space-fluid-section)]">
         <EmptyState
           title="Mazo no encontrado"
           description="El mazo solicitado no existe o no está disponible."
@@ -181,7 +181,7 @@ export default function CardDeckDetailPage() {
       // página: cuando DeckCard pulsa, su layoutId hace que Framer
       // anime el rectángulo de la card hasta el contenedor del detalle.
       layoutId={heroLayoutId}
-      className="p-6 lg:p-8 max-w-6xl mx-auto"
+      className="page-container py-[var(--space-fluid-section)]"
       variants={pageVariants}
       initial="initial"
       animate="animate"

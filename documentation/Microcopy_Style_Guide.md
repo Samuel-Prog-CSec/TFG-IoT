@@ -42,6 +42,10 @@ EduPlay maneja datos pedagógicos, no infraestructura. Las palabras "endpoint", 
 
 **Caso especial — "asset" vs "recurso":** el término inglés "asset" pertenece al vocabulario interno (multimedia, design ops, nombres de componentes). En la superficie visible al docente usamos siempre **"recurso"** porque encaja con el campo semántico del aula (RAE: cosa de la que se sirve uno para conseguir un fin). La distinción aplica solo a strings que el usuario lee — el código mantiene `AssetSelector`, `assets`/`assetUsageCounts` como nombres de prop, etc., para no fragmentar la búsqueda en codebase.
 
+**Caso especial — "engagement" → "implicación" (ADR-200):** misma regla que "asset". El anglicismo "engagement" es jerga; de cara al docente usamos **"Implicación"** (término pedagógico estándar; el sufijo `/100` desambigua que es un score). El código puede conservar `EngagementRadar`/`engagement` como nombres internos.
+
+**Consistencia de términos — un dato, una palabra:** el mismo valor no puede llamarse de dos formas en la misma vista. Casos cerrados en ADR-200: la dificultad `medium` es **"Normal"** en todas partes (antes el filtro de Sesiones decía "Media" mientras cards y detalle decían "Normal"); los valores internos del toggle de barra lateral (`compact`/`expanded`/`auto`) se traducen a "Compacta"/"Amplia"/"Automático" y nunca se exponen crudos. Regla general: derivar las etiquetas visibles de un único mapa fuente (p. ej. `DIFFICULTY_LABELS_ES`) para que no puedan divergir.
+
 ### 4. Errores accionables
 
 Cada error apunta al siguiente paso. "Inténtalo de nuevo" sin contexto no ayuda — explica QUÉ ha fallado y CÓMO arreglarlo.

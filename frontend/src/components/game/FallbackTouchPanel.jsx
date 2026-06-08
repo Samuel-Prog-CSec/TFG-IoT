@@ -125,8 +125,11 @@ export default function FallbackTouchPanel({
                 type="button"
                 onClick={() => handleTap(card)}
                 disabled={tappedUid !== null}
-                // TOKEN-EXCEPTION: Framer Motion whileTap requires direct color value for interpolation
-                whileTap={{ scale: 0.94, backgroundColor: 'rgba(99, 102, 241, 0.25)' }}
+                // El pulso de fondo al tocar se delega a la clase
+                // `active:bg-accent-indigo/20` (resuelve el token del tema y
+                // se homogeneiza con Secuencia al alpha /20); whileTap queda
+                // sólo con el scale para no hardcodear un rgba fijo.
+                whileTap={{ scale: 0.94 }}
                 whileHover={tappedUid === null ? { y: -2 } : undefined}
                 animate={isError ? { x: [-3, 3, -2, 2, 0], transition: { duration: 0.35 } } : undefined}
                 transition={{ type: 'spring', stiffness: 500, damping: 28 }}
@@ -138,7 +141,7 @@ export default function FallbackTouchPanel({
                 // `opacity-60` (antes 40) suaviza el bloqueo: las otras cards
                 // siguen siendo legibles aunque deshabilitadas; el contraste
                 // anterior parecía un error de la app, no un estado de espera.
-                className={`relative aspect-square min-h-[72px] md:min-h-[110px] rounded-xl border-2 ${borderClass} ${glowClass} bg-background-base/60 p-2 text-center transition-[background-color,border-color,box-shadow,opacity] hover:border-accent-indigo/50 hover:shadow-[0_4px_16px_rgba(99,102,241,0.2)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base disabled:cursor-not-allowed ${tappedUid !== null && !isTapped ? 'opacity-60' : ''}`}
+                className={`relative aspect-square min-h-[72px] md:min-h-[110px] rounded-xl border-2 ${borderClass} ${glowClass} bg-background-base/60 p-2 text-center transition-[background-color,border-color,box-shadow,opacity] hover:border-accent-indigo/50 hover:shadow-[0_4px_16px_rgba(99,102,241,0.2)] active:bg-accent-indigo/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base disabled:cursor-not-allowed ${tappedUid !== null && !isTapped ? 'opacity-60' : ''}`}
               >
                 <CardAssetPreview
                   asset={card.displayData || { display: card.assignedValue || card.uid }}

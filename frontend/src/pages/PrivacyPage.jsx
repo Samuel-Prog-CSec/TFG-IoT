@@ -336,7 +336,7 @@ export default function PrivacyPage() {
                 ? { duration: 0 }
                 : { type: 'spring', stiffness: 200, damping: 18, delay: 0.1 }
             }
-            className="inline-flex items-center justify-center size-20 rounded-full bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink mb-6 shadow-lg shadow-brand-glow"
+            className="inline-flex items-center justify-center size-20 rounded-full bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink mb-6 shadow-[0_0_32px_var(--color-brand-glow)]"
           >
             <Shield className="size-10 text-white" />
           </motion.div>
@@ -398,8 +398,11 @@ export default function PrivacyPage() {
                   ))}
                 </ul>
 
-                {/* Caja de datos NO recogidos — borde amber */}
-                <div className="rounded-xl border-l-4 border-warning-base bg-warning-base/5 p-4">
+                {/* Caja de datos NO recogidos — borde amber completo (coherente
+                    con el resto de avisos del sistema: MfaSetup, ConsentDetailPanel,
+                    EmptyState usan `border border-warning-base/20..30` + bg tenue,
+                    no un side-stripe). */}
+                <div className="rounded-xl border border-warning-base/30 bg-warning-base/5 p-4">
                   <p className="text-sm text-text-secondary leading-relaxed">
                     {/* BUG-A11Y-CONTRAST-PRIVACY-WARN (QA Sprint 0):
                         text-warning-base sobre warning-tint daba 3.72 light.

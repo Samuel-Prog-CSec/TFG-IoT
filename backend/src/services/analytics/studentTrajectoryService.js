@@ -17,6 +17,13 @@ const {
   enrichMetric
 } = require('./analyticsHelpers');
 
+// Puntuación normalizada a % (score/maxScore×100) para que la trayectoria y la
+// evolución por contexto/mecánica sean comparables entre mecánicas con distinto
+// techo de puntos (ver analyticsService.SCORE_PERCENT_EXPR).
+const SCORE_PERCENT_EXPR = {
+  $cond: [{ $gt: ['$maxScore', 0] }, { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] }, 0]
+};
+
 // Margen de 1 s sobre `reportDataService.REPORT_TIMEOUT_MS=8000` para que
 // MongoDB aborte por `maxTimeMS` antes de que el Promise.race rechace la
 // promesa, evitando queries zombie en el pool. Aplica a los aggregates de
@@ -81,7 +88,7 @@ async function getStudentTrajectory(studentId, { timeRange = '30d', granularity 
     {
       $group: {
         _id: { $dateToString: { format: dateFormat(gran), date: '$completedAt' } },
-        avgScore: { $avg: '$score' },
+        avgScore: { $avg: SCORE_PERCENT_EXPR },
         accuracy: {
           $avg: {
             $cond: [
@@ -115,6 +122,54 @@ async function getStudentTrajectory(studentId, { timeRange = '30d', granularity 
     avgResponseTime: Math.round(r.avgResponseTime || 0)
   }));
 
+  // Serie de PROMEDIO DE CLASE alineada con los MISMOS buckets de fecha, para el
+  // overlay "Promedio clase" del TrajectoryChart. Antes el front pasaba
+  // `summary.classProgressComparison`, un campo que el backend nunca emitía → el
+  // overlay (línea + leyenda) jamás se dibujaba. Ahora se calcula aquí, sobre las
+  // partidas completadas de los alumnos del MISMO profesor (excluyendo a los sin
+  // consentimiento, Art. 21 RGPD), con el mismo formato de fecha que la trayectoria.
+  let classDataPoints = [];
+  if (dataPoints.length > 0) {
+    const userRepository = require('../../repositories/userRepository');
+    // Lazy require: analyticsService ya depende de este módulo (evita ciclo).
+    const { getTeacherSessionIds, getAnalyticsExcludedPlayerIds } = require('../analyticsService');
+    const studentDoc = await userRepository.findById(studentId, { select: 'createdBy' });
+    if (studentDoc?.createdBy) {
+      const teacherId = studentDoc.createdBy.toString();
+      const [teacherSessionIds, excludedIds] = await Promise.all([
+        getTeacherSessionIds(teacherId),
+        getAnalyticsExcludedPlayerIds(teacherId)
+      ]);
+      const classResults = await gamePlayRepository.aggregate(
+        [
+          {
+            $match: {
+              sessionId: { $in: teacherSessionIds },
+              status: 'completed',
+              completedAt: { $gte: startDate },
+              ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
+            }
+          },
+          {
+            $group: {
+              _id: { $dateToString: { format: dateFormat(gran), date: '$completedAt' } },
+              avgScore: { $avg: SCORE_PERCENT_EXPR }
+            }
+          }
+        ],
+        { maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS }
+      );
+      const classByPeriod = new Map(
+        classResults.map(r => [r._id, Math.round(r.avgScore * 10) / 10])
+      );
+      // Alineado por índice con `dataPoints` (mismo bucket de fecha).
+      classDataPoints = dataPoints.map(dp => ({
+        period: dp.period,
+        avgScore: classByPeriod.has(dp.period) ? classByPeriod.get(dp.period) : null
+      }));
+    }
+  }
+
   // Calcular tendencia con regresión lineal
   const points = dataPoints.map((dp, i) => ({ x: i, y: dp.avgScore }));
   const { slope } = linearRegression(points);
@@ -128,6 +183,7 @@ async function getStudentTrajectory(studentId, { timeRange = '30d', granularity 
 
   return {
     dataPoints,
+    classDataPoints,
     trend: {
       direction,
       slope: slopeRounded,
@@ -168,7 +224,7 @@ async function getStudentVelocity(studentId, { timeRange = '30d', windowDays = 7
     {
       $group: {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } },
-        avgScore: { $avg: '$score' }
+        avgScore: { $avg: SCORE_PERCENT_EXPR }
       }
     },
     { $sort: { _id: 1 } }
@@ -252,7 +308,7 @@ async function getStudentPlateaus(studentId, { timeRange = '30d', minDays = 7 } 
     {
       $group: {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } },
-        avgScore: { $avg: '$score' },
+        avgScore: { $avg: SCORE_PERCENT_EXPR },
         gamesPlayed: { $sum: 1 }
       }
     },
@@ -363,7 +419,7 @@ async function getStudentEvolution(studentId, { timeRange = '30d', groupBy = 'co
           entityName: '$groupEntity.name',
           week: { $dateToString: { format: '%G-W%V', date: '$completedAt' } }
         },
-        avgScore: { $avg: '$score' },
+        avgScore: { $avg: SCORE_PERCENT_EXPR },
         gamesPlayed: { $sum: 1 }
       }
     },

@@ -5,7 +5,7 @@
  * @module pages/SessionDetail
  */
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { m as motion, AnimatePresence } from 'framer-motion';
 import {
@@ -55,6 +55,7 @@ import { cn, pageVariants, formatDate } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useSharedLayoutTransition } from '../hooks/useSharedLayoutTransition';
+import useModalA11y from '../hooks/useModalA11y';
 import SessionDetailMemoryPanel from '../components/session/detail/SessionDetailMemoryPanel';
 import SessionDetailAssociationPanel from '../components/session/detail/SessionDetailAssociationPanel';
 import SessionDetailSequencePanel from '../components/session/detail/SessionDetailSequencePanel';
@@ -171,6 +172,19 @@ export default function SessionDetail() {
   const [availableStudents, setAvailableStudents] = useState([]);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [loadingStudents, setLoadingStudents] = useState(false);
+
+  // A11y del modal de selección de alumno (foco inicial al botón cerrar,
+  // focus-trap por Tab, Escape, lock de scroll y restauración de foco)
+  // centralizada en el hook compartido.
+  const playerModalRef = useRef(null);
+  const playerModalCloseBtnRef = useRef(null);
+  const closePlayerModal = useCallback(() => setPlayerModalOpen(false), []);
+  useModalA11y({
+    isOpen: playerModalOpen,
+    onClose: closePlayerModal,
+    panelRef: playerModalRef,
+    initialFocusRef: playerModalCloseBtnRef,
+  });
 
   const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
@@ -682,7 +696,7 @@ export default function SessionDetail() {
                         'group rounded-2xl border border-accent-indigo/15 p-4 bg-glass-bg',
                         'flex flex-col items-center justify-center gap-2 text-center'
                       )}
-                      whileHover={{ scale: 1.04, y: -2 }}
+                      whileHover={{ scale: 1.02, y: -2 }}
                       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
                     >
                       <div className="relative">
@@ -740,13 +754,17 @@ export default function SessionDetail() {
       <AnimatePresence>
         {playerModalOpen && (
           <motion.div
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 backdrop-blur-sm"
+            className="fixed inset-0 z-50 flex items-center justify-center bg-backdrop backdrop-blur-sm"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             onClick={() => setPlayerModalOpen(false)}
           >
             <motion.div
+              ref={playerModalRef}
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="player-modal-title"
               className="bg-background-elevated border border-border-default rounded-2xl shadow-xl w-full max-w-md mx-4 p-6"
               initial={{ scale: 0.95, opacity: 0, y: 10 }}
               animate={{ scale: 1, opacity: 1, y: 0 }}
@@ -760,7 +778,7 @@ export default function SessionDetail() {
                     <Users size={20} className="text-accent-indigo" />
                   </div>
                   <div>
-                    <h3 className="text-lg font-semibold text-text-primary font-display">
+                    <h3 id="player-modal-title" className="text-lg font-semibold text-text-primary font-display">
                       Seleccionar alumno
                     </h3>
                     <p className="text-sm text-text-muted">
@@ -769,11 +787,13 @@ export default function SessionDetail() {
                   </div>
                 </div>
                 <button
+                  ref={playerModalCloseBtnRef}
                   type="button"
                   onClick={() => setPlayerModalOpen(false)}
-                  className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-glass-bg transition-colors"
+                  className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-glass-bg transition-[colors,transform] active:scale-95 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-elevated"
+                  aria-label="Cerrar selección de alumno"
                 >
-                  <X size={18} />
+                  <X size={18} aria-hidden="true" />
                 </button>
               </div>
 

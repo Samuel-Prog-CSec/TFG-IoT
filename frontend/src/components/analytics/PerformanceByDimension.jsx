@@ -121,7 +121,7 @@ function PerformanceByDimension({ title, data, dimension = 'context' }) {
               tick={{ fill: 'var(--color-text-secondary)', fontSize: 12 }}
               interval={0}
             />
-            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+            <Tooltip content={<CustomTooltip />} cursor={{ fill: 'var(--color-text-primary)', fillOpacity: 0.04 }} />
             {/* BUG-A11Y-RECHARTS-PATH-LABEL (QA Sprint 0): Recharts forwarda
                 aria-label a <path> internos, lo cual viola aria-prohibited-attr.
                 El nombre accesible del chart se proporciona ya por

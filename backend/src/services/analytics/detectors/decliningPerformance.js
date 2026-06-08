@@ -15,7 +15,7 @@
 const { AlertDetector } = require('./_base');
 const { ALERT_TYPES } = require('../../../config/alerts');
 const gamePlayRepository = require('../../../repositories/gamePlayRepository');
-const { toObjectId, getPeriodDates } = require('../analyticsHelpers');
+const { toObjectId, getPeriodDates, SCORE_PERCENT_EXPR } = require('../analyticsHelpers');
 
 class DecliningPerformanceDetector extends AlertDetector {
   constructor() {
@@ -51,7 +51,9 @@ class DecliningPerformanceDetector extends AlertDetector {
       {
         $group: {
           _id: { playerId: '$playerId', period: '$period' },
-          avgScore: { $avg: '$score' },
+          // % normalizado (ADR-201): caída period-a-period justa entre mecánicas
+          // (antes un cambio de mix Secuencia→Asociación fabricaba una "caída" falsa).
+          avgScore: { $avg: SCORE_PERCENT_EXPR },
           count: { $sum: 1 },
           lastCompletedAt: { $max: '$completedAt' }
         }

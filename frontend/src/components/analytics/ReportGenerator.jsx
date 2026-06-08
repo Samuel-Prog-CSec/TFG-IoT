@@ -305,9 +305,32 @@ function StudentReportView({ data }) {
 
   // `data.details` (formato detailed) agrupa strengths/weaknesses; `data.performance` era el legacy.
   const perfSource = data.performance || data.performanceSummary || data.details || {};
+  // Score de un item de rendimiento sea cual sea su forma. El informe detallado
+  // alimenta `performanceByContext` con la serie de `getStudentEvolution()`, cuyos
+  // items NO tienen `average`/`value` sino la puntuación anidada en
+  // `dataPoints[].avgScore`. Antes el filtro leía `p.average ?? p.value ?? 0` →
+  // siempre 0 → "Fortalezas" vacío y "Áreas de Mejora" listaba TODOS los contextos.
+  const itemScore = p => {
+    if (Number.isFinite(p?.average)) return p.average;
+    if (Number.isFinite(p?.value)) return p.value;
+    if (Number.isFinite(p?.avgScore)) return p.avgScore;
+    if (Array.isArray(p?.dataPoints) && p.dataPoints.length) {
+      const vals = p.dataPoints.map(d => d.avgScore).filter(Number.isFinite);
+      if (vals.length) return vals.reduce((a, b) => a + b, 0) / vals.length;
+    }
+    return 0;
+  };
+  const withScore = p => ({ ...p, average: Math.round(itemScore(p)) });
   const performance = {
-    strengths: perfSource.strengths || perfSource.performanceByContext?.filter(p => (p.average ?? p.value ?? 0) >= 70) || [],
-    weaknesses: perfSource.weaknesses || perfSource.struggles || perfSource.performanceByContext?.filter(p => (p.average ?? p.value ?? 0) < 50) || [],
+    strengths:
+      perfSource.strengths ||
+      perfSource.performanceByContext?.filter(p => itemScore(p) >= 70).map(withScore) ||
+      [],
+    weaknesses:
+      perfSource.weaknesses ||
+      perfSource.struggles ||
+      perfSource.performanceByContext?.filter(p => itemScore(p) < 50).map(withScore) ||
+      [],
   };
 
   const recommendations = data.recommendations || [];

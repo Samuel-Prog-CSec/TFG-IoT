@@ -34,6 +34,7 @@ import StatusBadge from '../../components/ui/StatusBadge';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
 import EmptyAlertsIllustration from '../../components/ui/illustrations/EmptyAlertsIllustration';
+import AdminPageShell from '../../components/admin/AdminPageHero';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { cn, formatDate } from '../../lib/utils';
@@ -490,52 +491,13 @@ export default function ApprovalPanel() {
   const isSearchPending = searchQuery !== deferredSearchQuery;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      {/* Fondo decorativo — antes hex rgba hardcoded (invisible en dark, sin
-          identidad en light). Ahora consume el token de atmósfera con dos
-          orbes radiales suaves: uno warning (dirección) arriba a la derecha
-          y otro brand más sutil abajo a la izquierda. Mantiene firma propia
-          sin gritar. */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0" aria-hidden="true">
-        <div
-          className="absolute -top-32 -right-32 size-[640px] rounded-full blur-3xl"
-          style={{
-            background: 'radial-gradient(circle, color-mix(in oklab, var(--color-warning-base) 18%, transparent) 0%, transparent 65%)',
-          }}
-        />
-        <div
-          className="absolute -bottom-40 -left-40 size-[520px] rounded-full blur-3xl opacity-60"
-          style={{
-            background: 'radial-gradient(circle, color-mix(in oklab, var(--color-atmosphere-aurora-3) 14%, transparent) 0%, transparent 70%)',
-          }}
-        />
-      </div>
-
-      <div className="max-w-5xl mx-auto relative z-10">
-        {/* Header — eyebrow "DIRECCIÓN" da el sello visual del rol antes
-            del título (firma signature consistente con el resto de páginas
-            admin). El icono Shield mantiene el tono warning. */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
-          <div className="flex items-center gap-4 mb-2">
-            <div className="size-12 rounded-xl bg-gradient-to-br from-warning-base to-warning-dark flex items-center justify-center shadow-lg shadow-warning-base/20">
-              <Shield className="size-6 text-text-primary" aria-hidden="true" />
-            </div>
-            <div>
-              <p className="text-micro uppercase tracking-[0.18em] text-warning-on-alpha font-bold mb-0.5">Dirección</p>
-              <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary leading-tight">
-                Solicitudes de docentes
-              </h1>
-              <p className="text-text-muted">
-                Revisa el alta de nuevos profesores y dale paso a las cuentas verificadas.
-              </p>
-            </div>
-          </div>
-        </motion.div>
-
+    <AdminPageShell
+      icon={Shield}
+      title="Solicitudes de docentes"
+      description="Revisa el alta de nuevos profesores y dale paso a las cuentas verificadas."
+      ariaLabel="Solicitudes de docentes"
+      maxWidth="max-w-5xl"
+    >
         {/* Stats */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -681,7 +643,6 @@ export default function ApprovalPanel() {
             </ButtonPremium>
           </motion.div>
         )}
-      </div>
 
       {/* Modal de confirmación */}
       <ConfirmationModal
@@ -692,6 +653,6 @@ export default function ApprovalPanel() {
         user={modalState.user}
         isLoading={modalState.isLoading}
       />
-    </div>
+    </AdminPageShell>
   );
 }

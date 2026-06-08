@@ -32,7 +32,7 @@ export default function PageHeader({
           {icon && (
             <div
               className={cn(
-                'size-12 rounded-2xl flex items-center justify-center shrink-0 ring-1 ring-inset ring-white/5',
+                'size-12 rounded-2xl flex items-center justify-center shrink-0 ring-1 ring-inset ring-border-subtle',
                 iconClassName || 'bg-accent-indigo/20 text-accent-indigo'
               )}
             >

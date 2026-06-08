@@ -104,11 +104,13 @@ const STATUS_OPTIONS = [
   { value: 'completed', label: 'Completada' }
 ];
 
+// Derivado de DIFFICULTY_LABELS_ES para mantener una única fuente de verdad:
+// las cards y el detalle muestran 'Normal' para `medium`, así el filtro coincide.
 const DIFFICULTY_OPTIONS = [
   { value: '', label: 'Todas' },
-  { value: 'easy', label: 'Fácil' },
-  { value: 'medium', label: 'Media' },
-  { value: 'hard', label: 'Difícil' }
+  { value: 'easy', label: DIFFICULTY_LABELS_ES.easy },
+  { value: 'medium', label: DIFFICULTY_LABELS_ES.medium },
+  { value: 'hard', label: DIFFICULTY_LABELS_ES.hard }
 ];
 
 const statusToBadge = (status) => {

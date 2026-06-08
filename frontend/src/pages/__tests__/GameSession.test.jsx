@@ -50,6 +50,7 @@ vi.mock('../../components/game/GameOverScreen', () => ({
   default: ({ score, summary }) => (
     <div data-testid="game-over">
       <span>{score}</span>
+      <span data-testid="go-mode">{summary?.mode || 'none'}</span>
       {summary && (
         <>
           <span>Errores</span>
@@ -458,6 +459,30 @@ describe('GameSession realtime gameplay', () => {
     });
 
     expect(await screen.findByTestId('game-over')).toBeInTheDocument();
+  });
+
+  it('conserva la mecánica en el summary al interrumpirse la partida (no cae a Asociación por defecto)', async () => {
+    currentSessionData = {
+      ...currentSessionData,
+      mechanic: { name: 'memory' }
+    };
+
+    renderGameSession();
+    await screen.findByRole('button', { name: /empezar/i });
+
+    act(() => {
+      socketService.__emit(SOCKET_EVENTS.PLAY_INTERRUPTED, {
+        reason: 'server_restart',
+        message: 'La partida fue interrumpida por reinicio.',
+        finalScore: 12
+      });
+    });
+
+    expect(await screen.findByTestId('game-over')).toBeInTheDocument();
+    // El GameOver de una partida interrumpida debe reflejar la mecánica real
+    // (Memoria), no el fallback por defecto a Asociación que aparecía cuando
+    // `playSummary` quedaba null (GameOverStats default = Asociación).
+    expect(screen.getByTestId('go-mode')).toHaveTextContent('memory');
   });
 
   it('updates RFID connection indicator from web serial runtime events', async () => {

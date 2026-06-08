@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
-import { cn } from '../../lib/utils';
+import { cn, tooltipEdgeAlignX } from '../../lib/utils';
 import ChartSection from './ChartSection';
 import EmptyState from '../ui/EmptyState';
 import { formatMechanicName } from '../../lib/mechanicNames';
@@ -88,7 +88,7 @@ export default function DifficultyHeatmap({ data }) {
 
   if (!grid || !hasAnyData) {
     return (
-      <ChartSection title="Mapa de Calor de Dificultad">
+      <ChartSection title="Mapa de Calor de Dificultad" animateSelf={false}>
         <EmptyState
           title="Sin datos de errores"
           description="No hay partidas con datos de errores suficientes para generar el mapa de calor."
@@ -99,16 +99,16 @@ export default function DifficultyHeatmap({ data }) {
   }
 
   return (
-    <ChartSection title="Mapa de Calor de Dificultad">
+    <ChartSection title="Mapa de Calor de Dificultad" animateSelf={false}>
       <div className="flex items-center justify-end gap-3 text-nano text-text-muted mb-3 flex-wrap">
         <span className="flex items-center gap-1.5">
           <span className="size-3 rounded-sm bg-success-base/55" aria-hidden="true" />Poca
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded-sm bg-warning-base/35" aria-hidden="true" />Media
+          <span className="size-3 rounded-sm bg-warning-base/70" aria-hidden="true" />Media
         </span>
         <span className="flex items-center gap-1.5">
-          <span className="size-3 rounded-sm bg-warning-base/65" aria-hidden="true" />Alta
+          <span className="size-3 rounded-sm bg-warning-base/90" aria-hidden="true" />Alta
         </span>
         <span className="flex items-center gap-1.5">
           <span className="size-3 rounded-sm bg-error-base/55" aria-hidden="true" />Muy alta
@@ -175,6 +175,17 @@ export default function DifficultyHeatmap({ data }) {
                   const isHovered = hoveredCell?.cIdx === cIdx && hoveredCell?.mIdx === mIdx;
                   const isInRowOrCol = hoveredCell && (hoveredCell.cIdx === cIdx || hoveredCell.mIdx === mIdx);
                   const isDimmed = hoveredCell && !isHovered && !isInRowOrCol;
+                  // La fila superior coloca el tooltip DEBAJO de la celda: el
+                  // wrapper de scroll (`overflow-x-auto` → overflow-y auto) recorta
+                  // lo que sobresale por arriba, así que un tooltip `bottom-full`
+                  // en cIdx 0 quedaba cortado. Volteándolo hacia abajo se mantiene
+                  // dentro del contenedor visible.
+                  const tooltipBelow = cIdx === 0;
+                  // Anclaje horizontal: la columna del extremo derecho centraría
+                  // el tooltip fuera del contenedor (mismo clip por `overflow-x`),
+                  // así que se ancla a la derecha (crece hacia la izquierda); la
+                  // del extremo izquierdo se ancla a la izquierda. El resto, centrado.
+                  const tipX = tooltipEdgeAlignX(mIdx, mechanics.length - 1);
                   const valueLabel = hasData
                     ? `${errorRate}% de error, ${cell.totalAttempts} intentos`
                     : 'sin datos';
@@ -200,14 +211,14 @@ export default function DifficultyHeatmap({ data }) {
                           previo se confundía con valor cero (QA 2026-05-07). */}
                       {hasData ? `${errorRate}%` : ''}
                       {isHovered && hasData && (
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-background-elevated/95 backdrop-blur-md border border-border-default rounded-lg shadow-xl px-3 py-2 text-xs whitespace-nowrap z-20 pointer-events-none">
+                        <div className={cn('absolute bg-background-elevated/95 backdrop-blur-md border border-border-default rounded-lg shadow-xl px-3 py-2 text-xs whitespace-nowrap z-20 pointer-events-none', tooltipBelow ? 'top-full mt-2' : 'bottom-full mb-2', tipX)}>
                           <p className="font-semibold text-text-primary mb-0.5">{ctx} + {formatMechanicName(m)}</p>
                           <p className="text-error-base">Tasa de error: {errorRate}%</p>
                           <p className="text-text-muted text-nano mt-0.5">Intentos totales: {cell.totalAttempts}</p>
                         </div>
                       )}
                       {isHovered && !hasData && (
-                        <div className="absolute bottom-full left-1/2 -translate-x-1/2 mb-2 bg-background-elevated/95 backdrop-blur-md border border-border-default rounded-lg shadow-xl px-3 py-2 text-xs whitespace-nowrap z-20 pointer-events-none">
+                        <div className={cn('absolute bg-background-elevated/95 backdrop-blur-md border border-border-default rounded-lg shadow-xl px-3 py-2 text-xs whitespace-nowrap z-20 pointer-events-none', tooltipBelow ? 'top-full mt-2' : 'bottom-full mb-2', tipX)}>
                           <p className="font-semibold text-text-primary mb-0.5">{ctx} + {formatMechanicName(m)}</p>
                           <p className="text-text-muted">Sin partidas registradas para esta combinación.</p>
                         </div>

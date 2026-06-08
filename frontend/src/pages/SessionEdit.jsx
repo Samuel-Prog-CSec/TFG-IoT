@@ -8,7 +8,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { m as motion } from 'framer-motion';
-import { Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
+import { Save, Map as MapIcon, AlertTriangle, ArrowLeft, FileQuestion } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
@@ -20,6 +20,8 @@ import SelectPremium from '../components/ui/SelectPremium';
 import StatusBadge from '../components/ui/StatusBadge';
 import Breadcrumb from '../components/ui/Breadcrumb';
 import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import EmptyState from '../components/ui/EmptyState';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -322,13 +324,28 @@ export default function SessionEdit() {
 
   if (loading && !session) {
     return (
-      <div className="p-8 text-text-secondary">Cargando sesión…</div>
+      <div className="p-6 lg:p-8 max-w-5xl mx-auto space-y-6">
+        <SkeletonCard className="h-28" />
+        <SkeletonCard className="h-96" />
+      </div>
     );
   }
 
   if (!session) {
     return (
-      <div className="p-8 text-text-secondary">Sesión no encontrada.</div>
+      <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+        <EmptyState
+          title="Sesión no encontrada"
+          description="La sesión solicitada no existe o no está disponible."
+          icon={<FileQuestion size={28} />}
+          action={(
+            <ButtonPremium variant="secondary" onClick={() => navigate(ROUTES.SESSIONS)}>
+              <ArrowLeft size={16} />
+              Volver a sesiones
+            </ButtonPremium>
+          )}
+        />
+      </div>
     );
   }
 

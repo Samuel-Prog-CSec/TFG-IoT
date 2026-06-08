@@ -489,10 +489,12 @@ export default function Dashboard() {
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Tasa Completado"
-                    // Con 0 partidas el `100 - abandonmentRate` daba 100% vacuo
-                    // y engañoso (QA 2026-06-04). Mostramos "—" como el resto de
-                    // KPIs sin baseline.
-                    value={summary?.totalGames ? `${100 - (summary?.abandonmentRate || 0)}%` : '—'}
+                    // `completionRate` = completadas / (completadas + abandonadas)
+                    // del rango, calculado por el backend. Antes la tarjeta usaba
+                    // `100 - abandonmentRate`, pero el endpoint nunca devolvía
+                    // `abandonmentRate` → mostraba 100% fijo aunque hubiera
+                    // abandonadas. "—" cuando no hay partidas terminadas (sin baseline).
+                    value={Number.isFinite(summary?.completionRate) ? `${summary.completionRate}%` : '—'}
                     trend=""
                     periodLabel="partidas completadas"
                     icon={<CheckCircle2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
@@ -822,7 +824,7 @@ function QuickLinks({ navigate }) {
           <button
             key={route}
             onClick={() => navigate(route)}
-            className="flex items-center gap-3 w-full p-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-background-surface/40 transition-[color,background-color,transform] duration-200 group hover:translate-x-0.5"
+            className="flex items-center gap-3 w-full p-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-background-surface/40 active:scale-[0.98] active:bg-background-surface/60 transition-[color,background-color,transform] duration-200 group hover:translate-x-0.5"
           >
             <span className={`inline-flex items-center justify-center size-9 rounded-lg ${tintBgClass} transition-colors`} aria-hidden="true">
               <Icon size={18} className={`${tintClass} transition-colors`} aria-hidden="true" />
@@ -860,7 +862,10 @@ function RecentActivity({ students }) {
     return (
       <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 h-full flex flex-col">
         <h3 className="text-lg font-semibold text-text-primary font-display mb-4">Actividad Reciente</h3>
-        <div className="flex-1 flex items-center justify-center text-center py-6">
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+          <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-background-elevated/80 border border-border-default mb-4 text-text-muted">
+            <Gamepad2 size={28} aria-hidden="true" />
+          </div>
           <p className="text-sm text-text-muted max-w-[20rem]">
             Aún no hay partidas. Cuando tus alumnos jueguen, aparecerán aquí sus últimas sesiones.
           </p>
@@ -905,7 +910,8 @@ function RecentActivity({ students }) {
               <p className="text-sm font-medium text-text-primary truncate">{student.name}</p>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-text-muted font-bold tabular-nums">
-                  {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)} pts
+                  {/* averageScore es % real (score/maxScore×100) tras ADR-201, no puntos. */}
+                  {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}%
                 </span>
                 {/* BUG-A11Y-CONTRAST-A: text-text-disabled (oklch 0.6 sobre
                     bg-background-surface/40) no llega a 4.5:1. Subir a

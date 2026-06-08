@@ -507,12 +507,14 @@ export default function CardDecksPage() {
               <span className="text-text-muted text-xs">/ {MAX_DECKS} mazos</span>
             </div>
             <div className="mt-1.5 h-1 rounded-full bg-background-surface/70 overflow-hidden">
+              {/* Llenado animado por scaleX (compositor) + transición de color
+                  acotada a background-color; antes era transition-all sobre width. */}
               <div
                 className={cn(
-                  'h-full rounded-full transition-all',
+                  'h-full w-full origin-left rounded-full transition-[background-color,transform] duration-300',
                   deckCount.active >= MAX_DECKS ? 'bg-warning-base' : 'bg-gradient-to-r from-accent-indigo to-brand-base'
                 )}
-                style={{ width: `${Math.min(100, (deckCount.active / MAX_DECKS) * 100)}%` }}
+                style={{ transform: `scaleX(${Math.min(1, deckCount.active / MAX_DECKS)})` }}
               />
             </div>
           </motion.div>
@@ -534,42 +536,42 @@ export default function CardDecksPage() {
         initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: shouldReduceMotion ? 0 : 0.08 }}
-        className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5"
+        className="grid grid-cols-2 sm:grid-cols-3 gap-[var(--space-fluid-gutter)] mb-8"
       >
         {/* El flex va en un div interno, NO en el className de GlassCard:
             GlassCard envuelve sus children en un div propio, así que las clases
             de layout pasadas por className no alinean los hijos (icono+texto
             quedaban apilados y el glyph se veía desplazado). QA 2026-06-04. */}
-        <GlassCard className="p-3">
-          <div className="flex items-center gap-3">
-            <div className="size-9 rounded-lg bg-accent-indigo/15 flex items-center justify-center shrink-0">
-              <Layers size={16} className="text-accent-indigo" />
+        <GlassCard className="p-4">
+          <div className="flex items-center gap-4">
+            <div className="size-12 rounded-xl bg-accent-indigo/15 flex items-center justify-center shrink-0">
+              <Layers size={22} className="text-accent-indigo" />
             </div>
             <div className="min-w-0">
-              <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.active}</p>
-              <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Activos</p>
+              <p className="text-2xl font-semibold text-text-primary font-display tabular-nums">{deckCount.active}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Activos</p>
             </div>
           </div>
         </GlassCard>
-        <GlassCard className="p-3">
-          <div className="flex items-center gap-3">
-            <div className="size-9 rounded-lg bg-background-surface/60 flex items-center justify-center shrink-0">
-              <Archive size={16} className="text-text-muted" />
+        <GlassCard className="p-4">
+          <div className="flex items-center gap-4">
+            <div className="size-12 rounded-xl bg-background-surface/60 flex items-center justify-center shrink-0">
+              <Archive size={22} className="text-text-muted" />
             </div>
             <div className="min-w-0">
-              <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.archived}</p>
-              <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Archivados</p>
+              <p className="text-2xl font-semibold text-text-primary font-display tabular-nums">{deckCount.archived}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Archivados</p>
             </div>
           </div>
         </GlassCard>
-        <GlassCard className="p-3">
-          <div className="flex items-center gap-3">
-            <div className="size-9 rounded-lg bg-brand-base/15 flex items-center justify-center shrink-0">
-              <CreditCard size={16} className="text-brand-light" />
+        <GlassCard className="p-4">
+          <div className="flex items-center gap-4">
+            <div className="size-12 rounded-xl bg-brand-base/15 flex items-center justify-center shrink-0">
+              <CreditCard size={22} className="text-brand-light" />
             </div>
             <div className="min-w-0">
-              <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.total}</p>
-              <p className="text-xs text-text-secondary font-medium uppercase tracking-wider">Total</p>
+              <p className="text-2xl font-semibold text-text-primary font-display tabular-nums">{deckCount.total}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Total</p>
             </div>
           </div>
         </GlassCard>

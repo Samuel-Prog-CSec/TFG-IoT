@@ -8,7 +8,7 @@
  * Tint ámbar (acento de la mecánica Secuencia) para coherencia visual con
  * `MECHANIC_LABELS.sequence`.
  */
-import { memo } from 'react';
+import { memo, useState } from 'react';
 import PropTypes from 'prop-types';
 import {
   LineChart,
@@ -21,6 +21,7 @@ import {
   Legend
 } from 'recharts';
 import { ListOrdered } from 'lucide-react';
+import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import {
   ChartsThemeDefs,
@@ -70,15 +71,29 @@ CustomTooltip.propTypes = {
 
 const EMPTY_DATA = [];
 
+// Opciones del selector de ventana temporal. Solo se ofrece cuando el alumno
+// acumula bastantes partidas de Secuencia; permite enfocar las últimas N para
+// leer mejor la tendencia reciente (el backend ya limita la serie a 50).
+const WINDOW_OPTIONS = [
+  { key: 'all', label: 'Todas' },
+  { key: 25, label: '25' },
+  { key: 10, label: '10' }
+];
+const WINDOW_SELECTOR_THRESHOLD = 12;
+
 function SequenceProgressChart({ data = EMPTY_DATA, height = 240, showLegend = true, title = 'Evolución en Secuencia' }) {
   const motion = useChartMotion();
-  const points = (Array.isArray(data) ? data : []).map(item => ({
+  const [windowSize, setWindowSize] = useState('all');
+  const allPoints = (Array.isArray(data) ? data : []).map(item => ({
     date: formatShortDate(item.date || item.completedAt),
     maxLength: Number(item.maxLength || item.maxSequenceLengthAchieved || 0),
     sequencesCompleted: Number(item.sequencesCompleted || 0)
   }));
+  // Vista del chart: todas las partidas o solo las últimas N.
+  const points = windowSize === 'all' ? allPoints : allPoints.slice(-windowSize);
+  const showWindowSelector = allPoints.length > WINDOW_SELECTOR_THRESHOLD;
 
-  if (points.length === 0) {
+  if (allPoints.length === 0) {
     return (
       <GlassCard className="p-6 text-center" contentClassName="flex flex-col items-center justify-center" style={{ minHeight: height }}>
         <div className="size-14 rounded-full bg-accent-amber/15 flex items-center justify-center mb-3" aria-hidden="true">
@@ -93,15 +108,16 @@ function SequenceProgressChart({ data = EMPTY_DATA, height = 240, showLegend = t
     );
   }
 
-  // Resumen accesible: máximo histórico + última partida + nº de partidas.
-  const maxLengths = points.flatMap((p) => p.maxLength > 0 ? [p.maxLength] : []);
+  // Resumen accesible: describe TODAS las partidas registradas (no la ventana
+  // visual), para que el lector de pantalla tenga el dato completo.
+  const maxLengths = allPoints.flatMap((p) => p.maxLength > 0 ? [p.maxLength] : []);
   const bestEver = maxLengths.length ? Math.max(...maxLengths) : 0;
-  const lastLength = points[points.length - 1]?.maxLength ?? 0;
+  const lastLength = allPoints[allPoints.length - 1]?.maxLength ?? 0;
   const accessibleSummary =
-    points.length > 0
-      ? `Mejor longitud histórica: ${bestEver} cartas. Última partida: ${lastLength} cartas en ${points.length} partidas registradas.`
+    allPoints.length > 0
+      ? `Mejor longitud histórica: ${bestEver} cartas. Última partida: ${lastLength} cartas en ${allPoints.length} partidas registradas.`
       : 'Sin partidas de Secuencia registradas.';
-  const accessibleDataTable = points.map((p) => ({
+  const accessibleDataTable = allPoints.map((p) => ({
     label: p.date,
     value: `${p.maxLength} cartas`,
   }));
@@ -114,7 +130,34 @@ function SequenceProgressChart({ data = EMPTY_DATA, height = 240, showLegend = t
         dataTable={accessibleDataTable}
         dataTableCaption="Longitud máxima por partida de Secuencia"
         headerExtra={
-          <ListOrdered size={16} className="text-accent-amber" aria-hidden="true" />
+          <div className="flex items-center gap-2">
+            {showWindowSelector && (
+              <div
+                className="flex items-center gap-0.5 rounded-lg bg-background-surface/50 p-0.5"
+                role="group"
+                aria-label="Rango de partidas mostradas"
+              >
+                {WINDOW_OPTIONS.map(opt => (
+                  <button
+                    key={opt.key}
+                    type="button"
+                    onClick={() => setWindowSize(opt.key)}
+                    aria-pressed={windowSize === opt.key}
+                    className={cn(
+                      'px-2 py-0.5 text-nano font-medium rounded-md transition-colors',
+                      'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber/50',
+                      windowSize === opt.key
+                        ? 'bg-accent-amber/20 text-accent-amber'
+                        : 'text-text-muted hover:text-text-secondary'
+                    )}
+                  >
+                    {opt.label}
+                  </button>
+                ))}
+              </div>
+            )}
+            <ListOrdered size={16} className="text-accent-amber" aria-hidden="true" />
+          </div>
         }
       >
       <div style={{ width: '100%', height }}>

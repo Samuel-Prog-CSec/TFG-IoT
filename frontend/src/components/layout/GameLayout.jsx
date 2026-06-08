@@ -74,7 +74,7 @@ export default function GameLayout() {
         onClick={handleExit}
         aria-label="Salir de la partida"
         title="Salir (Esc)"
-        className="absolute top-4 right-4 z-50 size-10 inline-flex items-center justify-center rounded-xl bg-background-elevated/80 backdrop-blur-xl border border-border-default text-text-primary hover:bg-background-surface/80 transition-colors"
+        className="absolute top-4 right-4 z-50 size-10 inline-flex items-center justify-center rounded-xl bg-background-elevated/80 backdrop-blur-xl border border-border-default text-text-primary hover:bg-background-surface/80 active:scale-95 transition-[colors,transform] duration-200"
       >
         <X size={20} />
       </button>

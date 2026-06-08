@@ -176,6 +176,7 @@ async function recordPlayCompletion(payload) {
     mechanicId,
     studentId,
     score = 0,
+    maxScore = 0,
     correctAttempts = 0,
     errorAttempts = 0,
     timeoutAttempts = 0,
@@ -238,7 +239,17 @@ async function recordPlayCompletion(payload) {
       // sumScores / responseTime usan números enteros (multiplicados ×100)
       // para evitar `HINCRBYFLOAT` (más lento, mantiene precisión decimal
       // si lo necesitásemos más adelante).
-      p.hincrby(studentHashKey, 'sumScoresHundredths', Math.round(score * 100));
+      // Acumulamos el PORCENTAJE de la partida (score/maxScore×100), no el score
+      // crudo: así `averageScore = sumScoresHundredths/games/100` coincide en
+      // escala (%) con `studentMetrics.averageScore` y con el reconciliador
+      // nocturno, que reconstruye desde el % de Mongo (ADR-201). Antes el live
+      // acumulaba crudo y el reconciliador %, dando unidades divergentes según
+      // el momento del caché.
+      p.hincrby(
+        studentHashKey,
+        'sumScoresHundredths',
+        Math.round((maxScore > 0 ? (score / maxScore) * 100 : 0) * 100)
+      );
       p.hincrby(
         studentHashKey,
         'sumResponseTimeMs',

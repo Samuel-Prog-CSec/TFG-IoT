@@ -57,9 +57,14 @@ class SuddenScoreDropDetector extends AlertDetector {
         continue;
       }
 
+      // `studentMetrics.averageScore` ya es % (ADR-201); normalizamos también la
+      // última partida a % (`score/maxScore×100`) para restar en la MISMA escala.
+      // Antes se restaba `avg(%) - lastGame.score(crudo)`: en Secuencia (techo
+      // 210-420) nunca disparaba, y en Asociación una partida perfecta (50/50)
+      // disparaba una falsa "caída". El umbral 30 ahora son 30 puntos porcentuales.
       const avg = student.studentMetrics.averageScore;
-      const last = r.lastGame.score || 0;
-      const drop = avg - last;
+      const lastPct = r.lastGame.maxScore > 0 ? (r.lastGame.score / r.lastGame.maxScore) * 100 : 0;
+      const drop = avg - lastPct;
       if (drop <= threshold) {
         continue;
       }
@@ -68,12 +73,12 @@ class SuddenScoreDropDetector extends AlertDetector {
         studentId: sid,
         type: this.type,
         severity: 'warning',
-        description: `Obtuvo ${last} puntos en su última partida (media: ${Math.round(avg)})`,
+        description: `Obtuvo ${Math.round(lastPct)}% en su última partida (media: ${Math.round(avg)}%)`,
         recommendation: 'Revisar si hubo alguna dificultad específica en la última sesión',
         detectedAt: new Date(r.lastGame.completedAt),
         gamePlayId: r.lastGame._id?.toString() || null,
         data: {
-          lastScore: last,
+          lastScorePercent: Math.round(lastPct),
           averageScore: Math.round(avg),
           dropPoints: Math.round(drop)
         }

@@ -37,15 +37,23 @@ const buildBaseStages = async (teacherId, startDate) => {
   // game_plays.sessionId y reduce a las plays del profesor. Mismo patrón A.3 ya
   // aplicado en analyticsService. La staleness del caché (300s) la cubre la
   // invalidación de gameSessionService al crear/archivar/eliminar sesiones.
-  const { getTeacherSessionIds } = require('../analyticsService');
-  const teacherSessionIds = await getTeacherSessionIds(teacherId);
+  const { getTeacherSessionIds, getAnalyticsExcludedPlayerIds } = require('../analyticsService');
+  // Exclusión por oposición al tratamiento (Art. 21 RGPD): las partidas de
+  // alumnos sin consentimiento de `performance_analytics` NO deben contar en las
+  // métricas de efectividad/cross-matrix (igual que en classroom summary/trends).
+  // Antes faltaba aquí → la matriz inflaba avgScore/uniqueStudents con no-consentidos.
+  const [teacherSessionIds, excludedIds] = await Promise.all([
+    getTeacherSessionIds(teacherId),
+    getAnalyticsExcludedPlayerIds(teacherId)
+  ]);
 
   return [
     {
       $match: {
         sessionId: { $in: teacherSessionIds },
         status: 'completed',
-        completedAt: { $gte: startDate }
+        completedAt: { $gte: startDate },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
       }
     },
     {
@@ -68,8 +76,15 @@ const buildBaseStages = async (teacherId, startDate) => {
  * @private
  * @returns {Object} Sub-objeto de campos para el `$group` stage
  */
+// Puntuación normalizada a % (score/maxScore×100). Unifica el rendimiento entre
+// mecánicas con distinto techo de puntos; antes el `$avg('$score')` crudo se
+// clampaba a 100 (ver más abajo) porque podía superarlo. Ver analyticsService.
+const SCORE_PERCENT_EXPR = {
+  $cond: [{ $gt: ['$maxScore', 0] }, { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] }, 0]
+};
+
 const buildSharedAggregates = () => ({
-  avgScore: { $avg: '$score' },
+  avgScore: { $avg: SCORE_PERCENT_EXPR },
   avgAccuracy: {
     $avg: {
       $cond: [

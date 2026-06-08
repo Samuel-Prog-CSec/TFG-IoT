@@ -1,11 +1,10 @@
 import { memo, useMemo, useState } from 'react';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
-import { LineChart, Eye, EyeOff } from 'lucide-react';
+import { LineChart } from 'lucide-react';
 import ChartSection from './ChartSection';
 import EmptyState from '../ui/EmptyState';
-import ButtonPremium from '../ui/ButtonPremium';
 import SelectPremium from '../ui/SelectPremium';
-import { formatDate, cn } from '../../lib/utils';
+import { formatDate } from '../../lib/utils';
 import { useChartMotion } from '../analytics/ChartsTheme';
 import ThemedChartContainer, {
   buildTrendSummary,
@@ -54,7 +53,6 @@ function StudentProgressChart({
   period = '7d',
   onPeriodChange,
   omitPeriodSelector = false,
-  showClassroomMean: initialShowMean = true,
   viewMode: initialViewMode = 'byStudent',
 }) {
   // Cuando el rango ya esta controlado por un toolbar global (Dashboard),
@@ -63,10 +61,9 @@ function StudentProgressChart({
   const sectionPeriodChange = omitPeriodSelector ? undefined : onPeriodChange;
   const motion = useChartMotion();
 
-  // T-942 Fase E.2/E.3: estado local de los toggles. Por defecto media
-  // visible y vista "Por alumno" — coincide con la UX previa cuando los
-  // toggles no existían.
-  const [showMean, setShowMean] = useState(initialShowMean);
+  // Vista (Por alumno / Por mecánica). La media del aula ya es la única línea
+  // del chart (ver render); el toggle "Media del aula" se retiró al eliminar la
+  // serie duplicada (ADR-201 B7).
   const [viewMode, setViewMode] = useState(initialViewMode);
 
   // PROP-83: el backend devuelve N días aunque solo los últimos tengan partidas.
@@ -91,7 +88,7 @@ function StudentProgressChart({
 
   if (trimmedData.length === 0) {
     return (
-      <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS}>
+      <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS} animateSelf={false}>
         <EmptyState
           title="Sin datos disponibles"
           description="No hay datos de rendimiento para el período seleccionado."
@@ -112,7 +109,7 @@ function StudentProgressChart({
   });
 
   return (
-    <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS}>
+    <ChartSection title="Rendimiento de Clase (Tendencia)" period={period} onPeriodChange={sectionPeriodChange} periodOptions={PERIOD_OPTIONS} animateSelf={false}>
       <ThemedChartContainer
         title={null}
         summary={accessibleSummary}
@@ -133,17 +130,6 @@ function StudentProgressChart({
             aria-label="Tipo de vista de la tendencia"
           />
         </div>
-        <ButtonPremium
-          variant="ghost"
-          size="sm"
-          onClick={() => setShowMean(prev => !prev)}
-          aria-pressed={showMean}
-          aria-label={showMean ? 'Ocultar media del aula' : 'Mostrar media del aula'}
-          className={cn('gap-1.5', !showMean && 'opacity-70')}
-        >
-          {showMean ? <Eye size={14} aria-hidden="true" /> : <EyeOff size={14} aria-hidden="true" />}
-          <span>Media del aula</span>
-        </ButtonPremium>
       </div>
 
       {viewMode === 'byMechanic' ? (
@@ -180,10 +166,6 @@ function StudentProgressChart({
                     <stop offset="55%" stopColor="var(--color-brand-base)" stopOpacity={0.18} />
                     <stop offset="100%" stopColor="var(--color-brand-base)" stopOpacity={0} />
                   </linearGradient>
-                  <linearGradient id="colorClass" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="var(--color-text-muted)" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="var(--color-text-muted)" stopOpacity={0} />
-                  </linearGradient>
                 </defs>
                 <CartesianGrid strokeDasharray="3 3" stroke="var(--color-border-subtle)" vertical={false} />
                 <XAxis
@@ -208,7 +190,7 @@ function StudentProgressChart({
                     backgroundColor: 'var(--color-background-elevated)',
                     border: '1px solid var(--color-border-default)',
                     borderRadius: '12px',
-                    boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+                    boxShadow: 'var(--shadow-lg)',
                     backdropFilter: 'blur(16px)'
                   }}
                   wrapperStyle={{ maxWidth: '90vw' }}
@@ -222,25 +204,15 @@ function StudentProgressChart({
                   }}
                   labelFormatter={(label) => formatDate(label, 'weekday')}
                 />
-                {showMean && (
-                  <Area
-                    type="monotone"
-                    dataKey="classAverage"
-                    name="Media del aula"
-                    stroke="var(--color-text-muted)"
-                    strokeWidth={1.5}
-                    strokeDasharray="4 4"
-                    fill="url(#colorClass)"
-                    activeDot={false}
-                    dot={false}
-                    connectNulls={false}
-                    {...motion(0)}
-                  />
-                )}
+                {/* Una sola serie: la media del aula por fecha. El backend
+                    proyectaba además `classAverage` con el MISMO valor que `score`
+                    (ambos `$avg(score)` del aula), así que la línea "Media del aula"
+                    duplicaba exactamente la principal. Eliminado el duplicado; la
+                    línea principal ES la media del aula (ADR-201 B7). */}
                 <Area
                   type="monotone"
                   dataKey="score"
-                  name="Puntuación"
+                  name="Media del aula"
                   stroke="var(--color-brand-base)"
                   strokeWidth={2.5}
                   fill="url(#colorScore)"
@@ -253,8 +225,7 @@ function StudentProgressChart({
             </ResponsiveContainer>
           </div>
           <p className="text-xs text-text-muted mt-6 text-center font-medium">
-            Promedio diario de puntuación basado en las últimas sesiones jugadas.
-            {showMean ? ' Línea discontinua: media del aula.' : ''}
+            Promedio diario de puntuación del aula basado en las últimas sesiones jugadas.
           </p>
         </>
       )}

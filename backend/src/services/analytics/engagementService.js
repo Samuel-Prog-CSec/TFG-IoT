@@ -575,7 +575,16 @@ async function getStudentPlayPatterns(studentId, { timeRange = '30d' } = {}) {
             $group: {
               _id: { $dateToString: { format: '%Y-%m-%d', date: '$startedAt' } },
               gamesPlayed: { $sum: 1 },
-              avgScore: { $avg: '$score' }
+              // Puntuación normalizada a % (score/maxScore×100), comparable entre mecánicas.
+              avgScore: {
+                $avg: {
+                  $cond: [
+                    { $gt: ['$maxScore', 0] },
+                    { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
+                    0
+                  ]
+                }
+              }
             }
           },
           { $sort: { _id: 1 } }

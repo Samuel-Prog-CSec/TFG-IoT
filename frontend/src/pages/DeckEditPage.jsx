@@ -20,7 +20,9 @@ import {
   Trash2,
   Plus,
   X,
-  RefreshCw
+  RefreshCw,
+  Wand2,
+  Check
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getId } from '../lib/entityId';
@@ -464,7 +466,7 @@ export default function DeckEditPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-full bg-background-deep p-4 lg:p-8">
+      <div className="page-container py-[var(--space-fluid-section)]">
         <div className="max-w-5xl mx-auto">
           <div className="h-8 w-32 bg-background-elevated rounded animate-pulse mb-6" />
           <div className="h-12 w-64 bg-background-elevated rounded animate-pulse mb-8" />
@@ -477,7 +479,7 @@ export default function DeckEditPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-full bg-background-deep p-4 lg:p-8 flex items-center justify-center">
+      <div className="page-container py-[var(--space-fluid-section)] flex items-center justify-center">
         <GlassCard className="p-8 max-w-md text-center">
           <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
@@ -510,7 +512,7 @@ export default function DeckEditPage() {
   const currentDeckId = getId(deck) || deckId;
 
   return (
-    <div className="min-h-full bg-background-deep p-4 lg:p-8">
+    <div className="page-container py-[var(--space-fluid-section)]">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -737,7 +739,7 @@ export default function DeckEditPage() {
                         key={ctxKey}
                         onClick={() => handleContextChange(context)}
                         className={cn(
-                          'relative p-4 rounded-xl border-2 transition-[border-color,background-color] text-left',
+                          'relative p-4 rounded-xl border-2 transition-[border-color,background-color] duration-200 text-left focus-ring',
                           isSelected
                             ? 'border-accent-indigo bg-accent-indigo/10'
                             : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
@@ -747,12 +749,13 @@ export default function DeckEditPage() {
                       >
                         <div className="flex flex-wrap gap-1.5 mb-3 h-10 overflow-hidden">
                           {context.assets?.slice(0, 6).map((asset) => (
-                            <span
+                            <CardAssetPreview
                               key={asset?.key || asset?.value || asset?.id || asset?.display || `${ctxKey}-asset`}
-                              className="text-2xl"
-                            >
-                              {asset.display || '📦'}
-                            </span>
+                              asset={asset}
+                              className="size-8 rounded-lg flex-shrink-0"
+                              showSkeleton={false}
+                              fallbackLabel={asset.display}
+                            />
                           ))}
                         </div>
                         <h3 className="font-medium text-text-primary mb-1">{context.name}</h3>
@@ -888,31 +891,36 @@ export default function DeckEditPage() {
                 <label htmlFor="edit-manual-uid" className="block text-sm font-medium text-text-secondary mb-2">
                   Entrada manual de UID
                 </label>
-                <div className="flex flex-col sm:flex-row gap-2">
-                  <input
-                    id="edit-manual-uid"
-                    type="text"
-                    value={manualUid}
-                    onChange={(e) => setManualUid(e.target.value)}
-                    onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddManualCard(); } }}
-                    placeholder="Ej: 0000000A"
-                    className="flex-1 px-3 py-2 rounded-lg bg-background-base/60 border border-border-default text-text-primary placeholder:text-text-muted text-sm focus-ring"
-                  />
-                  <button
-                    type="button"
+                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start">
+                  {/* Paridad con StepCards del wizard: InputPremium + ButtonPremium
+                      (ghost "Generar UID" con Wand2, primary "Agregar" con Check).
+                      El input usa id="edit-manual-uid" para conservar el htmlFor del
+                      <label> superior; no se pasa `label` a InputPremium para no
+                      duplicar la etiqueta visible. */}
+                  <div className="flex-1">
+                    <InputPremium
+                      id="edit-manual-uid"
+                      value={manualUid}
+                      onChange={(e) => setManualUid(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddManualCard(); } }}
+                      placeholder="Ej: 0000000A"
+                    />
+                  </div>
+                  <ButtonPremium
+                    variant="ghost"
                     onClick={handleGenerateUid}
-                    className="px-3 py-2 rounded-lg text-sm font-medium border border-border-default text-text-secondary hover:text-text-primary hover:bg-background-surface/60 transition-colors duration-200"
+                    icon={<Wand2 size={16} />}
+                    title="Generar UID secuencial"
                   >
                     Generar UID
-                  </button>
-                  <button
-                    type="button"
+                  </ButtonPremium>
+                  <ButtonPremium
                     onClick={handleAddManualCard}
                     disabled={!manualUid.trim()}
-                    className="px-4 py-2 rounded-lg text-sm font-semibold text-white bg-brand-base hover:bg-brand-dark disabled:opacity-50 disabled:pointer-events-none transition-colors duration-200"
+                    icon={<Check size={16} />}
                   >
                     Agregar
-                  </button>
+                  </ButtonPremium>
                 </div>
                 <p className="mt-1.5 text-xs text-text-muted">¿Sin lector a mano? Escribe el identificador de la tarjeta o genera uno.</p>
               </div>

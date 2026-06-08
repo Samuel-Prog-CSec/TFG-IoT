@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useId } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { m as motion, AnimatePresence } from 'framer-motion';
 import {
@@ -24,13 +24,16 @@ import AudioMiniPlayer from '../components/ui/AudioMiniPlayer';
 import AudioUploadModal from '../components/ui/AudioUploadModal';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import StatusBadge from '../components/ui/StatusBadge';
 import { cn } from '../lib/utils';
 import { getId } from '../lib/entityId';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useSharedLayoutTransition } from '../hooks/useSharedLayoutTransition';
+import useModalA11y from '../hooks/useModalA11y';
 import Breadcrumb from '../components/ui/Breadcrumb';
 
 const TAB_BUTTON_VARIANTS = {
@@ -155,11 +158,11 @@ export default function ContextDetailPage() {
 
   if (loading) {
     return (
-      <div className="min-h-full bg-background-deep p-4 lg:p-8">
-        <div className="max-w-5xl mx-auto">
+      <div className="page-container py-[var(--space-fluid-section)]">
+        <div>
           <div className="h-8 w-32 bg-background-elevated rounded animate-pulse mb-6" />
           <div className="h-24 bg-background-elevated rounded-2xl animate-pulse mb-8" />
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
+          <div className="grid grid-cols-2 md:grid-cols-3 gap-[var(--space-fluid-gutter)]">
             {Array.from({ length: 6 }, (_, i) => `ctx-detail-skeleton-${i}`).map(id => <SkeletonCard key={id} />)}
           </div>
         </div>
@@ -169,7 +172,7 @@ export default function ContextDetailPage() {
 
   if (error || !context) {
     return (
-      <div className="min-h-full bg-background-deep p-4 lg:p-8 flex items-center justify-center">
+      <div className="page-container py-[var(--space-fluid-section)] flex items-center justify-center">
         <GlassCard className="p-8 text-center max-w-md">
           <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
@@ -185,13 +188,13 @@ export default function ContextDetailPage() {
   const assets = context.assets || [];
 
   return (
-    <div className="min-h-full bg-background-deep p-4 lg:p-8">
+    <div className="page-container py-[var(--space-fluid-section)]">
       {/* Header — recibe el hero transition desde ContextCard. */}
       <motion.div
         layoutId={heroLayoutId}
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-5xl mx-auto mb-8"
+        className="mb-8"
       >
         <Breadcrumb items={[
           { label: 'Contextos', to: ROUTES.CONTEXTS },
@@ -210,6 +213,15 @@ export default function ContextDetailPage() {
                   <span className="text-sm font-mono text-text-muted bg-background-elevated/50 px-2.5 py-1 rounded-md">
                     {context.contextId}
                   </span>
+                  {/* Estado activo/inactivo del contexto, coherente con el
+                      detalle de mazo (CardDeckDetailPage). */}
+                  <StatusBadge
+                    status={context.isActive ? 'active' : 'inactive'}
+                    size="sm"
+                    pulse={Boolean(context.isActive)}
+                  >
+                    {context.isActive ? 'Activo' : 'Inactivo'}
+                  </StatusBadge>
                   <span className="text-sm text-text-muted">
                     {assets.length} recursos en total
                   </span>
@@ -233,7 +245,7 @@ export default function ContextDetailPage() {
       </motion.div>
 
       {/* Grid de Assets */}
-      <div className="max-w-5xl mx-auto">
+      <div>
         <h2 className="text-xl font-semibold text-text-primary mb-6">Contenido del Contexto</h2>
         
         {assets.length === 0 ? (
@@ -414,13 +426,16 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
   const { canManage, ownershipLabel, ownershipTooltip } = computeAssetOwnership(asset, currentUserId);
   const deleteTooltip = canManage ? 'Eliminar recurso completo' : ownershipTooltip;
   const audioActionsTooltip = canManage ? null : ownershipTooltip;
+  const { shouldReduceMotion } = useReducedMotion();
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
+      // Stagger acotado (Math.min(index, 8)) para que grids grandes no acumulen
+      // un retardo perceptible; sin animación de entrada si reduced-motion.
+      initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ delay: index * 0.05 }}
-      whileHover={{ y: -4 }}
+      transition={{ delay: shouldReduceMotion ? 0 : Math.min(index, 8) * 0.04 }}
+      whileHover={shouldReduceMotion ? undefined : { y: -4 }}
       className="group"
     >
       <GlassCard
@@ -516,13 +531,19 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const fileInputRef = useRef(null);
-  
+
+  // A11y del modal (paridad con ConfirmationModal): role/aria, Escape, focus-trap
+  // por Tab, foco inicial al dropzone, restauración de foco y bloqueo de scroll.
+  const titleId = useId();
+  const panelRef = useRef(null);
+  const dropzoneRef = useRef(null);
+
   const [formData, setFormData] = useState({
     key: '',
     value: '',
     display: ''
   });
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadConfig, setUploadConfig] = useState({
     image: { maxInputSizeMB: 8, allowedFormats: ['PNG', 'JPG', 'JPEG', 'GIF', 'WebP'] }
@@ -549,6 +570,11 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
       isMounted = false;
     };
   }, []);
+
+  // Scaffolding accesible del modal (foco inicial al dropzone, focus-trap por
+  // Tab, Escape, lock de scroll y restauración de foco) centralizado en el
+  // hook compartido. El modal solo se monta cuando está abierto → isOpen true.
+  useModalA11y({ isOpen: true, onClose, panelRef, initialFocusRef: dropzoneRef, escapeDisabled: isSubmitting });
 
   const handleFileChange = (e) => {
     const selected = e.target.files[0];
@@ -621,6 +647,10 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm">
       <motion.div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
@@ -631,7 +661,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
             <div className="size-10 rounded-xl bg-accent-indigo/20 flex items-center justify-center">
               <Upload size={20} className="text-accent-indigo" />
             </div>
-            <h3 className="text-lg font-semibold text-text-primary">Subir imagen</h3>
+            <h3 id={titleId} className="text-lg font-semibold text-text-primary">Subir imagen</h3>
           </div>
           <button
             onClick={onClose}
@@ -645,6 +675,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
           <form onSubmit={handleSubmit} noValidate className="space-y-5">
             {/* File Dropzone */}
             <div
+              ref={dropzoneRef}
               role="button"
               tabIndex={0}
               onClick={() => fileInputRef.current?.click()}

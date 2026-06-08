@@ -325,7 +325,9 @@ export default function DeckCreationWizard() {
       case 2: // Assign
         return Object.keys(cardAssignments).length === selectedCards.length;
       case 3: // Confirm
-        return deckName.trim().length >= 3;
+        // Mínimo 2 caracteres, alineado con el backend (antes 3, rechazaba
+        // nombres válidos de 2 letras).
+        return deckName.trim().length >= 2;
       default:
         return false;
     }
@@ -461,7 +463,7 @@ export default function DeckCreationWizard() {
   };
 
   return (
-    <div className="min-h-full bg-background-deep p-4 lg:p-8">
+    <div className="page-container py-[var(--space-fluid-section)]">
       {/* Header */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
@@ -868,7 +870,7 @@ function StepContext({
             key={contextKey}
             onClick={() => onSelectContext(context)}
             className={cn(
-              'relative p-4 rounded-xl border-2 transition-[border-color,background-color] text-left',
+              'relative p-4 rounded-xl border-2 transition-[border-color,background-color] duration-200 text-left focus-ring',
               'hover:border-accent-indigo/50 hover:bg-accent-indigo/5',
               isSelected
                 ? 'border-accent-indigo bg-accent-indigo/10'
@@ -888,12 +890,17 @@ function StepContext({
               </motion.div>
             )}
 
-            {/* Preview de assets */}
+            {/* Preview de assets — imágenes reales (no solo el emoji): el
+                contenido ES la identidad del contexto (paridad con StepAssign). */}
             <div className="flex flex-wrap gap-1.5 mb-3 h-10 overflow-hidden">
               {context.assets?.slice(0, 6).map((asset, i) => (
-                <span key={asset.key || `${asset.display || 'asset'}-${i}`} className="text-2xl">
-                  {asset.display || '📦'}
-                </span>
+                <CardAssetPreview
+                  key={asset.key || `${asset.display || 'asset'}-${i}`}
+                  asset={asset}
+                  className="size-8 rounded-lg flex-shrink-0"
+                  showSkeleton={false}
+                  fallbackLabel={asset.display}
+                />
               ))}
               {context.assets?.length > 6 && (
                 <span className="text-text-muted text-xs self-end">
@@ -930,6 +937,7 @@ function StepAssign({
   cardAssignments,
   onAssignAsset
 }) {
+  const { shouldReduceMotion } = useReducedMotion();
   const [activeCardId, setActiveCardId] = useState(selectedCards[0]?.uid || null);
   const assetUsageCounts = useMemo(() => {
     return Object.values(cardAssignments).reduce((acc, asset) => {
@@ -1005,11 +1013,13 @@ function StepAssign({
           <div className="mb-4">
             <h3 className="font-medium text-text-primary mb-1">Cartas del mazo</h3>
             <div className="h-1.5 bg-background-elevated rounded-full overflow-hidden">
+              {/* Animamos scaleX (compositor) en vez de width (layout) para no
+                  disparar reflow en cada asignación. Requiere w-full + origin-left. */}
               <motion.div
-                className="h-full bg-gradient-to-r from-accent-indigo to-brand-base"
-                initial={{ width: 0 }}
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.5 }}
+                className="h-full w-full origin-left bg-gradient-to-r from-accent-indigo to-brand-base"
+                initial={shouldReduceMotion ? false : { scaleX: 0 }}
+                animate={{ scaleX: progress / 100 }}
+                transition={{ duration: shouldReduceMotion ? 0 : 0.5 }}
               />
             </div>
             <p className="text-xs text-text-muted mt-1">
@@ -1061,7 +1071,7 @@ function StepAssign({
                         ? <>
                             {cardAssignments[card.uid]?.value}
                             {(assetUsageCounts.get(cardAssignments[card.uid]?.key) || 0) >= 2 && (
-                              <span className="ml-1 text-success-base font-medium">
+                              <span className="ml-1 text-success-on-alpha font-medium">
                                 {`(×${assetUsageCounts.get(cardAssignments[card.uid]?.key)})`}
                               </span>
                             )}
@@ -1167,16 +1177,30 @@ function StepConfirm({
   selectedContext,
   cardAssignments
 }) {
+  // Error inline cuando el nombre es demasiado corto (mismo patrón que
+  // DeckEditPage): sólo se muestra tras tocar el campo, para no marcar error
+  // antes de que el docente empiece a escribir. Mínimo 2 caracteres (backend).
+  const [nameTouched, setNameTouched] = useState(false);
+  const nameError =
+    nameTouched && deckName.trim().length < 2
+      ? 'El nombre debe tener al menos 2 caracteres'
+      : '';
+
   return (
     <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--space-fluid-gutter)]">
       {/* Nombre del mazo */}
       <GlassCard className="p-6">
         <h2 className="text-lg font-semibold text-text-primary mb-4">Nombre del mazo</h2>
-        
+
         <InputPremium
           label="Nombre"
           value={deckName}
-          onChange={(e) => setDeckName(e.target.value)}
+          onChange={(e) => {
+            setDeckName(e.target.value);
+            if (!nameTouched) setNameTouched(true);
+          }}
+          onBlur={() => setNameTouched(true)}
+          error={nameError}
           placeholder="Ej: Capitales de Europa"
           maxLength={50}
           helperText={`${deckName.length}/50 caracteres`}

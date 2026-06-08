@@ -35,7 +35,7 @@ const GRID_STYLES = {
 function getMemorySlotClasses(isMatched, isOpen) {
   if (isMatched) {
     // Emparejada: no se atenua, se celebra — borde success intenso + glow sutil
-    return 'border-success-base bg-success-base/15 shadow-[0_0_18px_rgba(34,197,94,0.25)]';
+    return 'border-success-base bg-success-base/15 shadow-[0_0_18px_var(--color-success-glow)]';
   }
 
   if (isOpen) {
@@ -190,7 +190,10 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                 // sutil (scale 1→1.02) + wobble de 0.6° con jitter por
                 // slotIndex (ADR-D, sesión 04/05/2026). Cada carta tiene
                 // duración ligeramente distinta (2.6–4.4s) para que el
-                // tablero no respire al unísono.
+                // tablero no respire al unísono. El peeking se acota a 3
+                // ciclos y para (antes `repeat: Infinity` mantenía hasta 12
+                // cartas animándose indefinidamente, gasto de GPU constante);
+                // tras celebrar la pareja, la carta reposa en su estado final.
                 if (slot.isMatched) {
                   const idx = Number(slot.slotIndex || 0);
                   const period = 2.6 + (idx % 5) * 0.45;
@@ -201,7 +204,7 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                     transition: {
                       duration: period,
                       delay: phase,
-                      repeat: Infinity,
+                      repeat: 3,
                       ease: 'easeInOut'
                     }
                   };

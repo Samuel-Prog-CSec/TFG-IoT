@@ -113,7 +113,7 @@ export default function KeyboardShortcutsOverlay({ isOpen, onClose, sections }) 
           onClick={onClose}
         >
           <motion.div
-            className="relative w-full max-w-2xl max-h-[85vh] overflow-y-auto custom-scrollbar"
+            className="relative w-full max-w-2xl"
             variants={pVariants}
             initial="hidden"
             animate="visible"
@@ -123,7 +123,12 @@ export default function KeyboardShortcutsOverlay({ isOpen, onClose, sections }) 
             aria-modal="true"
             aria-label="Atajos de teclado"
           >
-            <GlassCard variant="solid" padding="lg" className="relative">
+            {/* El scroll vive en la propia GlassCard, no en este wrapper. Si el
+                overflow está en un padre de radio 0, recorta la --shadow-lg de la
+                card en esquinas rectas → "picos" cuadrados (ver GameOverScreen).
+                Una caja no recorta su propia sombra, así que con el overflow aquí
+                la drop-shadow del modal sigue redondeada. */}
+            <GlassCard variant="solid" padding="lg" className="relative max-h-[85vh] overflow-y-auto custom-scrollbar">
               <button
                 type="button"
                 onClick={onClose}

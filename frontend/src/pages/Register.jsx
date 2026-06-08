@@ -77,7 +77,7 @@ function PasswordStrengthMeter({ password }) {
     if (strength === 0) return 'bg-background-surface';
     if (strength === 1) return 'bg-error-base';
     if (strength === 2) return 'bg-warning-base';
-    if (strength === 3) return 'bg-warning-base';
+    if (strength === 3) return 'bg-accent-amber';
     return 'bg-success-base';
   };
 
@@ -106,7 +106,12 @@ function PasswordStrengthMeter({ password }) {
       </div>
       <p className={cn(
         'text-xs transition-colors',
-        strength <= 2 ? 'text-text-disabled' : 'text-success-base'
+        // La etiqueta sigue la misma rampa que las barras: 'Muy débil'/'Débil'
+        // en gris tenue, 'Media' en ámbar (no verde de éxito) y reservando el
+        // verde 'text-success-base' solo para 'Fuerte' (strength === 4).
+        strength <= 2 && 'text-text-disabled',
+        strength === 3 && 'text-warning-on-alpha',
+        strength === 4 && 'text-success-base'
       )}>
         {getLabel()}
       </p>

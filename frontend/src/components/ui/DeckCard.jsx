@@ -323,6 +323,10 @@ function DeckCardView({
       initial={{ opacity: 0, y: 20 }}
       animate={{ opacity: 1, y: 0 }}
       whileHover={{ z: 20 }}
+      // Feedback táctil sutil al pulsar la card. Gateado con useFullAnimations
+      // para respetar reduced-motion (sistema o prop). Coexiste sin problema
+      // con whileHover/layoutId (gesto transitorio sobre scale).
+      whileTap={useFullAnimations ? { scale: 0.99 } : undefined}
       transition={{ duration: 0.3 }}
       role={selectable ? 'button' : 'article'}
       aria-label={selectable ? `Seleccionar mazo ${deck.name}` : `Mazo ${deck.name}`}

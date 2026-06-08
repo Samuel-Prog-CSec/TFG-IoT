@@ -97,8 +97,8 @@ function HeroStatCard({
 
   return (
     <motion.article
-      whileHover={{ y: -4 }}
-      whileTap={{ scale: 0.995 }}
+      whileHover={{ y: -4, scale: 1.008 }}
+      whileTap={{ scale: 0.99 }}
       transition={motionConfig.spring}
       onClick={onClick}
       aria-label={`${title}: ${value}${totalSuffix}`}
@@ -172,10 +172,14 @@ function HeroStatCard({
                 <span>{Math.round(ratio * 100)}%</span>
               </div>
               <div className="h-2 w-full overflow-hidden rounded-full bg-background-surface ring-1 ring-inset ring-border-subtle">
+                {/* Barra de proporción animada con scaleX (no width) para que la
+                    animación corra en GPU (compositor) sin reflow del layout. El
+                    track exterior (rounded-full + overflow-hidden) recorta el cap,
+                    manteniendo el extremo redondeado. */}
                 <motion.div
-                  className={cn('h-full rounded-full bg-gradient-to-r', t.bar)}
-                  initial={{ width: 0 }}
-                  animate={{ width: `${ratio * 100}%` }}
+                  className={cn('h-full w-full origin-left rounded-full bg-gradient-to-r', t.bar)}
+                  initial={{ scaleX: 0 }}
+                  animate={{ scaleX: ratio }}
                   transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1], delay: 0.15 }}
                 />
               </div>

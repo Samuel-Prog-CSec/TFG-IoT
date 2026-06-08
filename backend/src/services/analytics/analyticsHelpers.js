@@ -606,12 +606,25 @@ const enrichMetric = (kpiKey, value, context = {}) => {
   };
 };
 
+/**
+ * Expresión de agregación: puntuación de una partida normalizada a PORCENTAJE
+ * real (`score / maxScore × 100`, 0 si maxScore=0). El `score` persistido son
+ * puntos crudos clampados a `maxScore`, que varía por mecánica (Asociación 50-90,
+ * Memoria 90, Secuencia 210-420); promediar/comparar el score crudo entre
+ * mecánicas y mostrarlo como "%" es engañoso. Aplíquese en cada `$avg`/`$push` de
+ * puntuación que la UI muestre como % o que se compare cross-mecánica (ADR-201).
+ */
+const SCORE_PERCENT_EXPR = {
+  $cond: [{ $gt: ['$maxScore', 0] }, { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] }, 0]
+};
+
 module.exports = {
   PERFORMANCE_TIERS,
   ALERT_TYPES,
   ALERT_SEVERITIES,
   KPI_DEFINITIONS,
   RAG,
+  SCORE_PERCENT_EXPR,
   classifyTier,
   calcAccuracyRate,
   getStartDate,

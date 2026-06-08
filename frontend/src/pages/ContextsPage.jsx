@@ -1,4 +1,4 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useRef, useId } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { m as motion, AnimatePresence } from 'framer-motion';
@@ -33,6 +33,7 @@ import Tooltip from '../components/ui/Tooltip';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
 import useInlineSuccess from '../hooks/useInlineSuccess';
+import useModalA11y from '../hooks/useModalA11y';
 import { useContexts } from '../hooks/useContexts';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
@@ -171,12 +172,12 @@ export default function ContextsPage() {
   );
 
   return (
-    <div className="min-h-full bg-background-deep p-4 lg:p-8">
+    <div className="page-container py-[var(--space-fluid-section)]">
       {/* Header y Stats */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="page-container mb-8"
+        className="mb-8"
       >
         <PageHeader
           icon={<Palette size={28} />}
@@ -265,10 +266,10 @@ export default function ContextsPage() {
       </motion.div>
 
       {/* Contenido */}
-      <div className="page-container">
+      <div>
         {(() => {
           if (loading) return (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[var(--space-fluid-gutter)]">
               {Array.from({ length: 6 }, (_, i) => `ctx-skeleton-${i}`).map(id => (
                 <SkeletonCard key={id} className="h-64" />
               ))}
@@ -305,7 +306,7 @@ export default function ContextsPage() {
             const cardVariants = buildContextCardVariants(shouldReduceMotion);
             return (
               <motion.div
-                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[var(--space-fluid-gutter)]"
                 variants={shouldReduceMotion ? {} : listContainerVariants(0.06)}
                 initial={shouldReduceMotion ? false : "hidden"}
                 animate="visible"
@@ -500,6 +501,14 @@ function CreateContextModal({ onClose, onSuccess }) {
   // que el badge sea perceptible antes de cerrar y refrescar el grid.
   const saveBadge = useInlineSuccess({ duration: 1500 });
 
+  // A11y del modal (foco inicial al primer campo, focus-trap por Tab, Escape
+  // para cerrar, lock de scroll y restauración de foco) centralizada en el
+  // hook compartido. El modal solo se monta cuando está abierto → isOpen true.
+  const titleId = useId();
+  const panelRef = useRef(null);
+  const firstFieldRef = useRef(null);
+  useModalA11y({ isOpen: true, onClose, panelRef, initialFocusRef: firstFieldRef, escapeDisabled: isSubmitting });
+
   const handleNameChange = e => {
     const newName = e.target.value;
     setName(newName);
@@ -555,6 +564,10 @@ function CreateContextModal({ onClose, onSuccess }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm">
       <motion.div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
@@ -567,7 +580,7 @@ function CreateContextModal({ onClose, onSuccess }) {
               <ShieldCheck size={20} className="text-accent-indigo" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-text-primary">Nuevo Contexto</h3>
+              <h3 id={titleId} className="text-lg font-semibold text-text-primary">Nuevo Contexto</h3>
               <p className="text-xs text-text-muted">Los assets se añaden después</p>
             </div>
           </div>
@@ -583,6 +596,7 @@ function CreateContextModal({ onClose, onSuccess }) {
         {/* Formulario */}
         <form onSubmit={handleSubmit} noValidate className="p-6 space-y-5">
           <InputPremium
+            ref={firstFieldRef}
             label="Nombre del contexto"
             placeholder="ej: Animales del Bosque"
             value={name}

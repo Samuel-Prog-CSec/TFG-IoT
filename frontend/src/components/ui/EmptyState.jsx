@@ -102,7 +102,7 @@ export default function EmptyState({
           initial={shouldReduceMotion ? false : { opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: DURATION.stateChange, ease: EASING.outQuart }}
-          className="inline-flex items-center gap-1.5 rounded-full border border-warning-base/30 bg-warning-base/10 px-3 py-1 text-xs font-medium text-warning-base mb-4"
+          className="inline-flex items-center gap-1.5 rounded-full border border-warning-base/30 bg-warning-base/10 px-3 py-1 text-xs font-medium text-warning-on-alpha mb-4"
         >
           Sin resultados para tu búsqueda
         </motion.span>

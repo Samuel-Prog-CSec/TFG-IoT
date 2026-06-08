@@ -568,7 +568,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
                           <div className="flex items-start gap-2 p-2.5 rounded-lg bg-warning-base/5
                                           border border-warning-base/20 mt-1">
                             <ShieldX size={16} className="text-warning-base mt-0.5 shrink-0" />
-                            <p className="text-xs text-warning-base leading-relaxed">
+                            <p className="text-xs text-warning-on-alpha leading-relaxed">
                               Las métricas de rendimiento no se actualizarán con nuevas partidas.
                               El alumno seguirá pudiendo jugar con normalidad.
                             </p>

@@ -16,7 +16,7 @@
 const { AlertDetector } = require('./_base');
 const { ALERT_TYPES } = require('../../../config/alerts');
 const gamePlayRepository = require('../../../repositories/gamePlayRepository');
-const { toObjectId, getStartDate } = require('../analyticsHelpers');
+const { toObjectId, getStartDate, SCORE_PERCENT_EXPR } = require('../analyticsHelpers');
 
 const MECHANIC_LABELS = {
   memory: 'Memoria',
@@ -69,7 +69,11 @@ class MechanicSpecificStruggleDetector extends AlertDetector {
       {
         $group: {
           _id: { playerId: '$playerId', mechanicName: '$session.mechanicType' },
-          avgScore: { $avg: '$score' },
+          // Normalizado a % (score/maxScore×100) para comparar mecánicas con techos
+          // de puntos distintos de forma justa (ADR-201). Antes el avg crudo hacía
+          // que Secuencia (techo 210-420) saliera siempre "fuerte" y Asociación
+          // (techo 50) siempre "débil", invirtiendo el dominio real.
+          avgScore: { $avg: SCORE_PERCENT_EXPR },
           plays: { $sum: 1 },
           lastCompletedAt: { $max: '$completedAt' }
         }
@@ -133,7 +137,7 @@ class MechanicSpecificStruggleDetector extends AlertDetector {
         studentId: sid,
         type: this.type,
         severity: 'warning',
-        description: `Domina ${strongLabel} (${Math.round(strong.avgScore)}) pero le cuesta ${weakLabel} (${Math.round(weak.avgScore)})`,
+        description: `Domina ${strongLabel} (${Math.round(strong.avgScore)}%) pero le cuesta ${weakLabel} (${Math.round(weak.avgScore)}%)`,
         recommendation: `Diseñar refuerzo específico para ${weakLabel.toLowerCase()}: ejercicios cortos, baja dificultad, repetición espaciada.`,
         detectedAt: new Date(
           Math.max(

@@ -1,6 +1,6 @@
 import { memo, useState, useMemo } from 'react';
 import PropTypes from 'prop-types';
-import { cn } from '../../lib/utils';
+import { cn, tooltipEdgeAlignX } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import ThemedChartContainer from './ThemedChartContainer';
 
@@ -85,7 +85,7 @@ function ActivityHeatmap({ data }) {
   if (!grid || maxValue === 0) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
-        <h2 className="text-base font-semibold text-text-primary font-display mb-4">Actividad Semanal</h2>
+        <h3 className="text-base font-semibold text-text-primary font-display mb-4">Actividad Semanal</h3>
         <div className="py-6 text-center">
           <p className="text-sm text-text-muted">No hay datos de actividad disponibles.</p>
         </div>
@@ -122,6 +122,7 @@ function ActivityHeatmap({ data }) {
     <GlassCard variant="default" padding="none" className="p-5">
       <ThemedChartContainer
         title="Actividad Semanal"
+        as="h3"
         summary={accessibleSummary}
         focusable={false}
         headerExtra={
@@ -167,11 +168,18 @@ function ActivityHeatmap({ data }) {
                   {day}
                 </span>
                 <div className="flex gap-0.5 flex-1">
-                  {HOURS.map(hour => {
+                  {HOURS.map((hour, hourIdx) => {
                     const value = grid[dayIndex]?.[hour] || 0;
                     const isHovered = hoveredCell?.dayIndex === dayIndex && hoveredCell?.hour === hour;
                     const isInRowOrCol = hoveredCell && (hoveredCell.dayIndex === dayIndex || hoveredCell.hour === hour);
                     const isDimmed = hoveredCell && !isHovered && !isInRowOrCol;
+                    // La fila superior (Lun) coloca el tooltip DEBAJO: el wrapper
+                    // `overflow-x-auto` (→ overflow-y auto) recorta lo que sobresale
+                    // por arriba; volteándolo hacia abajo se mantiene visible.
+                    const tooltipBelow = dayIndex === 0;
+                    // Anclaje horizontal en columnas extremas (8h / 18h) para que
+                    // el tooltip no se corte por los lados (mismo clip `overflow-x`).
+                    const tipX = tooltipEdgeAlignX(hourIdx, HOURS.length - 1);
                     const activate = () => setHoveredCell({ dayIndex, hour });
                     const deactivate = () => setHoveredCell(null);
                     return (
@@ -192,7 +200,7 @@ function ActivityHeatmap({ data }) {
                         aria-label={`${day} a las ${hour}:00 horas, ${value} partidas`}
                       >
                         {isHovered && (
-                          <span className="absolute bottom-full left-1/2 -translate-x-1/2 mb-1 bg-background-elevated/90 backdrop-blur-sm border border-border-default rounded-lg shadow-lg p-2 text-xs text-text-primary whitespace-nowrap z-20 pointer-events-none">
+                          <span className={cn('absolute bg-background-elevated/90 backdrop-blur-sm border border-border-default rounded-lg shadow-lg p-2 text-xs text-text-primary whitespace-nowrap z-20 pointer-events-none', tooltipBelow ? 'top-full mt-1' : 'bottom-full mb-1', tipX)}>
                             <span className="font-semibold">{day} {hour}:00</span>
                             <span className="text-text-muted ml-1.5">{value} partidas</span>
                           </span>

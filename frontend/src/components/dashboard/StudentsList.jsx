@@ -1,7 +1,7 @@
 import { memo } from 'react';
 import { m as motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, Medal, Trophy, Award } from 'lucide-react';
+import { ChevronRight, Medal, Trophy, Award, Users } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { staggerItem, staggerContainer, cn } from '../../lib/utils';
 
@@ -87,9 +87,6 @@ function StudentsList({ students }) {
 
   return (
     <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.3 }}
       aria-labelledby="students-list-title"
       className={cn(
         "relative overflow-hidden",
@@ -100,10 +97,10 @@ function StudentsList({ students }) {
       )}
     >
       {/* Top highlight */}
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" aria-hidden="true" />
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-border-strong/40 to-transparent" aria-hidden="true" />
 
       <header className="flex items-center justify-between mb-6">
-        <h3 id="students-list-title" className="text-xl font-semibold text-text-primary font-display">Mejores Estudiantes</h3>
+        <h3 id="students-list-title" className="text-lg font-semibold text-text-primary font-display">Mejores Estudiantes</h3>
         <span className="text-xs text-text-muted bg-background-surface/50 px-2 py-1 rounded-lg" aria-label={`Mostrando top ${topStudents.length}`}>
           Top {topStudents.length}
         </span>
@@ -130,9 +127,9 @@ function StudentsList({ students }) {
               <motion.div
                 key={student.studentId || student._id || index}
                 variants={staggerItem}
-                whileHover={{ x: 4, backgroundColor: 'rgba(255,255,255,0.05)' }}
+                whileHover={{ x: 4 }}
                 onClick={() => navigate(`/students/${student.studentId || student._id}`)}
-                className="flex items-center justify-between p-3 rounded-xl transition-colors duration-200 group cursor-pointer focus:outline-none focus:ring-1 focus:ring-brand-base/40 focus:bg-background-surface/20"
+                className="flex items-center justify-between p-3 rounded-xl transition-colors duration-200 group cursor-pointer hover:bg-background-surface/40 focus:outline-none focus:ring-1 focus:ring-brand-base/40 focus:bg-background-surface/20"
                 role="listitem"
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/students/${student.studentId || student._id}`); }}
@@ -202,9 +199,9 @@ function StudentsList({ students }) {
                     <div
                       className={cn("font-bold tabular-nums", getTierColor(student.tier))}
                     >
-                      {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}
+                      {/* averageScore es % real tras ADR-201 (antes puntos crudos). */}
+                      {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}%
                     </div>
-                    <div className="text-nano text-text-muted">pts</div>
                   </div>
                   <ChevronRight size={14} className="text-text-muted/30 group-hover:text-text-muted transition-colors" aria-hidden="true" />
                 </div>
@@ -214,7 +211,10 @@ function StudentsList({ students }) {
         </motion.div>
       ) : (
         <div className="flex flex-col items-center justify-center py-8 text-center">
-          <p className="text-text-muted text-sm">Aún no hay datos de estudiantes.</p>
+          <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-background-elevated/80 border border-border-default mb-4 text-text-muted">
+            <Users size={28} aria-hidden="true" />
+          </div>
+          <p className="text-text-primary text-sm font-semibold">Aún no hay datos de estudiantes.</p>
           <p className="text-text-muted text-xs mt-1">Los datos aparecerán cuando los alumnos jueguen partidas.</p>
         </div>
       )}

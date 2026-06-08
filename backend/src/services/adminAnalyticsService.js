@@ -20,7 +20,12 @@ const gameMechanicRepository = require('../repositories/gameMechanicRepository')
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const smartAlertRepository = require('../repositories/smartAlertRepository');
 
-const { getStartDate, getStartOfToday, enrichMetric } = require('./analytics/analyticsHelpers');
+const {
+  getStartDate,
+  getStartOfToday,
+  enrichMetric,
+  SCORE_PERCENT_EXPR
+} = require('./analytics/analyticsHelpers');
 
 // Tope de elementos en los rankings ("top N").
 const TOP_N = 5;
@@ -118,7 +123,7 @@ const getActivityAggregate = async startDate => {
       $group: {
         _id: null,
         totalPlaysInRange: { $sum: 1 },
-        avgScoreInRange: { $avg: '$score' }
+        avgScoreInRange: { $avg: SCORE_PERCENT_EXPR }
       }
     }
   ]);
@@ -161,7 +166,7 @@ const getActivityAggregate = async startDate => {
           mechanicName: { $ifNull: ['$mechanic.displayName', '$mechanic.name'] }
         },
         totalPlays: { $sum: 1 },
-        avgScore: { $avg: '$score' }
+        avgScore: { $avg: SCORE_PERCENT_EXPR }
       }
     },
     { $sort: { totalPlays: -1 } }
@@ -329,7 +334,7 @@ const getTopTeachers = async startDate => {
       $group: {
         _id: '$session.createdBy',
         totalPlays: { $sum: 1 },
-        avgScore: { $avg: '$score' },
+        avgScore: { $avg: SCORE_PERCENT_EXPR },
         uniqueStudents: { $addToSet: '$playerId' }
       }
     },
@@ -405,7 +410,7 @@ const getTopMechanics = async startDate => {
           mechanicName: { $ifNull: ['$mechanic.displayName', '$mechanic.name'] }
         },
         totalPlays: { $sum: 1 },
-        avgScore: { $avg: '$score' }
+        avgScore: { $avg: SCORE_PERCENT_EXPR }
       }
     },
     { $sort: { totalPlays: -1 } },
@@ -460,7 +465,7 @@ const getTopContexts = async startDate => {
           contextName: '$context.name'
         },
         totalPlays: { $sum: 1 },
-        avgScore: { $avg: '$score' }
+        avgScore: { $avg: SCORE_PERCENT_EXPR }
       }
     },
     { $sort: { totalPlays: -1 } },

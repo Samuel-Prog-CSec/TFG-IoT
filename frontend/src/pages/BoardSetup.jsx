@@ -19,6 +19,7 @@ import CardAssetPreview from '../components/ui/CardAssetPreview';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import Tooltip from '../components/ui/Tooltip';
+import SkeletonShimmer from '../components/ui/SkeletonShimmer';
 
 /** Fisher-Yates shuffle — returns a new shuffled copy of the array */
 function shuffleArray(array) {
@@ -293,7 +294,48 @@ export default function BoardSetup() {
     }
   };
 
-  if (loading) return <div className="text-text-primary p-8">Cargando tablero…</div>;
+  // Skeleton que refleja la estructura real (header + librería + tablero) para
+  // evitar el Layout Shift cuando llegan los datos. Reemplaza el texto plano
+  // "Cargando tablero…" por placeholders animados con la misma geometría.
+  if (loading) {
+    return (
+      <div
+        className="h-screen flex flex-col p-6 bg-background-base overflow-hidden"
+        role="status"
+        aria-label="Cargando tablero…"
+      >
+        <header className="flex flex-wrap justify-between items-center gap-y-3 mb-6 shrink-0">
+          <div className="space-y-2">
+            <SkeletonShimmer className="h-8 w-72" />
+            <SkeletonShimmer className="h-4 w-96" />
+          </div>
+          <div className="flex flex-wrap gap-3 items-center">
+            <SkeletonShimmer className="h-10 w-64" />
+            <SkeletonShimmer className="h-10 w-32" />
+            <SkeletonShimmer variant="circle" className="size-10" />
+            <SkeletonShimmer className="h-10 w-40" />
+          </div>
+        </header>
+        <div className="flex gap-8 h-full overflow-hidden">
+          {/* Librería */}
+          <div className="w-80 bg-background-elevated/40 rounded-2xl border border-border-subtle p-4 flex flex-col gap-3 shrink-0">
+            <SkeletonShimmer className="h-6 w-40 mb-2" />
+            {['lib-1', 'lib-2', 'lib-3', 'lib-4'].map((key) => (
+              <SkeletonShimmer key={key} className="h-16 w-full" />
+            ))}
+          </div>
+          {/* Tablero */}
+          <div className="flex-1 bg-background-elevated/20 rounded-3xl border-2 border-dashed border-border-subtle p-8 flex items-center justify-center">
+            <div className="grid grid-cols-3 gap-6">
+              {['slot-1', 'slot-2', 'slot-3', 'slot-4', 'slot-5', 'slot-6'].map((key) => (
+                <SkeletonShimmer key={key} className="size-32" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -351,14 +393,13 @@ export default function BoardSetup() {
                     />
 
                     <Tooltip content="Distribuir aleatoriamente">
-                        <button
-                            type="button"
+                        <ButtonPremium
+                            variant="secondary"
                             onClick={handleRandomize}
-                            className="flex items-center gap-2 rounded-lg border border-accent-indigo/30 bg-accent-indigo/10 px-4 py-2 text-sm font-medium text-accent-indigo hover:bg-accent-indigo/20 transition-colors"
                         >
                             <Shuffle size={16} />
                             Aleatorio
-                        </button>
+                        </ButtonPremium>
                     </Tooltip>
                     <Tooltip content="Resetear Tablero">
                         <ButtonPremium

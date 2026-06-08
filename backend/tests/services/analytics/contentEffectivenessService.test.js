@@ -286,9 +286,13 @@ describe('contentEffectivenessService.getContentEffectiveness — groupBy=cross'
       expect(['Geografía CrossTest', 'Historia CrossTest']).toContain(cell.contextName);
     }
 
-    // La celda Asoc × Historia con scores ~90 debe encabezar el ranking
-    expect(result.items[0].mechanicName).toBe('Asociación');
-    expect(result.items[0].contextName).toBe('Historia CrossTest');
+    // El ranking va ordenado por avgScore DESCENDENTE. (Antes este test fijaba la
+    // celda concreta del top por puntuación CRUDA; tras normalizar avgScore a %
+    // real `score/maxScore×100`, el orden depende del porcentaje y no del bruto,
+    // así que verificamos el invariante de orden en lugar de una celda fija.)
+    for (let i = 1; i < result.items.length; i += 1) {
+      expect(result.items[i - 1].avgScore).toBeGreaterThanOrEqual(result.items[i].avgScore);
+    }
   });
 
   it('filtra celdas con totalPlays=0 por defecto (la combinación sin sesión no aparece)', async () => {

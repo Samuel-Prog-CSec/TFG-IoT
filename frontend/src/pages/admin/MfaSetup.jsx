@@ -255,8 +255,8 @@ const MfaManagementPanel = ({ status, onChange }) => {
         </div>
 
         {(lowBackup || exhaustedBackup) && (
-          <div className="relative mt-4 flex items-start gap-2 p-3 rounded-lg bg-warning-base/10 border border-warning-base/30 text-warning-base text-sm">
-            <AlertTriangle className="size-4 flex-shrink-0 mt-0.5" aria-hidden />
+          <div className="relative mt-4 flex items-start gap-2 p-3 rounded-lg bg-warning-base/10 border border-warning-base/30 text-warning-on-alpha text-sm">
+            <AlertTriangle className="size-4 flex-shrink-0 mt-0.5 text-warning-base" aria-hidden />
             <span>
               {exhaustedBackup
                 ? 'Has consumido todos los códigos de respaldo. Sin ellos, si pierdes el dispositivo MFA no podrás acceder. Genera nuevos cuanto antes.'
@@ -666,7 +666,7 @@ const MfaSetupPage = () => {
             <button
               type="button"
               onClick={refetch}
-              className="mt-1 text-sm underline hover:text-error-strong"
+              className="mt-1 text-sm underline hover:text-error-on-alpha"
             >
               Reintentar
             </button>

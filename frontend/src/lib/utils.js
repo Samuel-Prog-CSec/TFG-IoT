@@ -328,8 +328,25 @@ export function calculateStars(correctPercentage) {
 }
 
 /**
+ * Clase de alineación horizontal para un tooltip in-situ según la posición de
+ * la celda en su fila. Las celdas de los extremos anclan el tooltip a su borde
+ * (`right-0` / `left-0`) para que no se salga de un contenedor con overflow
+ * (heatmaps con scroll horizontal → `overflow-x:auto` recorta los lados); el
+ * resto lo centra. Evita el recorte lateral del tooltip.
+ *
+ * @param {number} index - Índice de la celda en la fila
+ * @param {number} lastIndex - Índice de la última celda (columna derecha)
+ * @returns {string} Clases Tailwind de posicionamiento horizontal
+ */
+export function tooltipEdgeAlignX(index, lastIndex) {
+  if (index === lastIndex) return 'right-0';
+  if (index === 0) return 'left-0';
+  return 'left-1/2 -translate-x-1/2';
+}
+
+/**
  * Delay helper para async/await
- * @param {number} ms 
+ * @param {number} ms
  * @returns {Promise<void>}
  */
 export function delay(ms) {

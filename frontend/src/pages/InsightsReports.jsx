@@ -756,6 +756,11 @@ function AlertsTabContent({ initialAlerts, loading: initialLoading, error, onRet
   const [alerts, setAlerts] = useState(initialAlerts || []);
   const [statusCounts, setStatusCounts] = useState({});
   const [loading, setLoading] = useState(initialLoading);
+  // Paginación: el backend capa a 100 por página y devuelve `nextCursor`. Antes
+  // no se consumía → con >100 alertas en un estado el resto quedaba INACCESIBLE
+  // sin aviso. Ahora se guarda el cursor y se ofrece "Cargar más".
+  const [nextCursor, setNextCursor] = useState(null);
+  const [loadingMore, setLoadingMore] = useState(false);
 
   const fetchForStatus = useCallback(async (status) => {
     setLoading(true);
@@ -766,6 +771,7 @@ function AlertsTabContent({ initialAlerts, loading: initialLoading, error, onRet
       ]);
       const list = data?.items || data?.alerts || data || [];
       setAlerts(Array.isArray(list) ? list : []);
+      setNextCursor(data?.nextCursor || null);
       setStatusCounts(summary?.byStatus || {});
     } catch {
       // ErrorState arriba ya maneja error inicial
@@ -773,6 +779,25 @@ function AlertsTabContent({ initialAlerts, loading: initialLoading, error, onRet
       setLoading(false);
     }
   }, []);
+
+  const loadMore = useCallback(async () => {
+    if (!nextCursor) return;
+    setLoadingMore(true);
+    try {
+      const data = await analyticsService.getAlerts({
+        status: statusFilter,
+        limit: 100,
+        cursor: nextCursor
+      });
+      const more = data?.items || data?.alerts || [];
+      setAlerts(prev => [...prev, ...(Array.isArray(more) ? more : [])]);
+      setNextCursor(data?.nextCursor || null);
+    } catch {
+      // silencioso: la primera página ya está visible
+    } finally {
+      setLoadingMore(false);
+    }
+  }, [nextCursor, statusFilter]);
 
   useEffect(() => {
     // Cuando el statusFilter cambia (o se monta con un status distinto del default), refetch
@@ -793,6 +818,18 @@ function AlertsTabContent({ initialAlerts, loading: initialLoading, error, onRet
         statusCounts={statusCounts}
         onRefetch={() => fetchForStatus(statusFilter)}
       />
+      {nextCursor && (
+        <div className="flex justify-center">
+          <button
+            type="button"
+            onClick={loadMore}
+            disabled={loadingMore}
+            className="px-4 py-2 text-sm font-medium rounded-xl border border-border-default bg-background-elevated/60 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base"
+          >
+            {loadingMore ? 'Cargando…' : 'Cargar más alertas'}
+          </button>
+        </div>
+      )}
       <AlertsEffectivenessPanel days={30} />
     </div>
   );

@@ -113,7 +113,7 @@ function AlertCard({
         'focus-within:ring-1 focus-within:ring-brand-base/40',
         isInactive && 'opacity-60',
         alert.pinned &&
-          'ring-1 ring-amber-400/40 shadow-[0_0_10px_rgba(251,191,36,0.18)]',
+          'ring-1 ring-[var(--color-accent-amber)]/40 shadow-[0_0_10px_var(--color-accent-amber-glow)]',
         isCritical &&
           !isInactive &&
           'animate-pulse-glow shadow-[0_0_18px_var(--color-error-glow)]'

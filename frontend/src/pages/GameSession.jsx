@@ -1,7 +1,7 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { m as motion, AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search, Gamepad2 } from 'lucide-react';
+import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search, Gamepad2, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
 import { cn, calculateStars, EASING } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
@@ -486,6 +486,21 @@ export default function GameSession() {
     setMemoryFeedbackActive(false);
 
     const finalScore = Number.isFinite(payload?.finalScore) ? payload.finalScore : score;
+    // Construir un resumen mínimo preservando la mecánica real ANTES de
+    // FINISH. Sin esto `playSummary` quedaba null y el GameOver caía a su
+    // fallback (hero verde + GameOverStats por defecto = Asociación),
+    // mostrando una mecánica equivocada para partidas de Memoria/Secuencia
+    // interrumpidas. Misma resolución de `mode` que handleGameOver.
+    setPlaySummary(
+      normalizeFinalSummary(
+        payload?.metrics,
+        finalScore,
+        correctAnswers,
+        payload?.mode || socketSessionRef.current?.mechanic?.name || 'association',
+        gameStartTimeRef.current,
+        payload?.maxScore
+      )
+    );
     dispatch({ type: 'FINISH', score: finalScore });
 
     const interruptionMessage =
@@ -494,7 +509,7 @@ export default function GameSession() {
 
     setSrAnnouncement('La partida fue interrumpida.');
     toast.warning(interruptionMessage);
-  }, [clearPendingTimeouts, clearFeedback, score, dispatch]);
+  }, [clearPendingTimeouts, clearFeedback, score, correctAnswers, dispatch]);
 
   const handleSrAnnouncement = useCallback((msg) => {
     setSrAnnouncement(msg);
@@ -1199,19 +1214,25 @@ export default function GameSession() {
                   const isCurrent = dot.position === current;
                   return (
                     <motion.span
-                      key={dot.id}
+                      // La clave del dot actual incluye `current` para que
+                      // remonte y reproduzca un único latido al avanzar de
+                      // ronda; antes latía en bucle (`repeat: Infinity`)
+                      // compitiendo con el pulso del chip "Jugando", que
+                      // queda ahora como único elemento vivo permanente.
+                      key={isCurrent ? `${dot.id}-r${current}` : dot.id}
                       className={cn(
                         'block h-2.5 rounded-full transition-[background-color,width]',
                         isCurrent && 'w-6 bg-gradient-to-r from-brand-base to-accent-indigo shadow-[0_0_8px_var(--color-brand-glow)]',
                         isCompleted && 'w-2.5 bg-success-base/80',
                         !isCurrent && !isCompleted && 'w-2.5 bg-background-surface/60'
                       )}
+                      initial={isCurrent && !shouldReduceMotion ? { scale: 1 } : false}
                       animate={
                         isCurrent && !shouldReduceMotion
-                          ? { opacity: [1, 0.6, 1], scale: [1, 1.12, 1] }
+                          ? { scale: [1, 1.18, 1] }
                           : { opacity: 1, scale: 1 }
                       }
-                      transition={{ duration: 1.4, repeat: isCurrent ? Infinity : 0, ease: 'easeInOut' }}
+                      transition={{ duration: 0.45, ease: 'easeOut' }}
                       aria-hidden="true"
                     />
                   );
@@ -1327,10 +1348,22 @@ export default function GameSession() {
                 }
                 return (
                   <>
-                    {realtimeStatus === 'connected' && '✅ '}
-                    {realtimeStatus === 'reconnecting' && '⏳ '}
-                    {realtimeStatus === 'disconnected' && '❌ '}
-                    {realtimeStatus === 'connecting' && '⏳ '}
+                    {/* Iconos Lucide tintados en vez de emojis Unicode
+                        (✅⏳❌ dependían de la fuente del SO y mezclaban
+                        estilos). El color lo fija explícitamente cada icono
+                        para mantener la señal cromática del estado. */}
+                    {realtimeStatus === 'connected' && (
+                      <CheckCircle2 size={14} className="shrink-0 text-success-base" aria-hidden="true" />
+                    )}
+                    {realtimeStatus === 'reconnecting' && (
+                      <RefreshCw size={14} className="shrink-0 text-warning-base animate-spin" aria-hidden="true" />
+                    )}
+                    {realtimeStatus === 'disconnected' && (
+                      <WifiOff size={14} className="shrink-0 text-error-base" aria-hidden="true" />
+                    )}
+                    {realtimeStatus === 'connecting' && (
+                      <Loader2 size={14} className="shrink-0 text-warning-base animate-spin" aria-hidden="true" />
+                    )}
                     {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando…'}
                   </>
                 );

@@ -46,6 +46,8 @@ describe('materializedAnalyticsService — studentMetrics Hash (B.11)', () => {
         mechanicId,
         studentId,
         score: 75,
+        // maxScore=100 → el % normalizado (ADR-201) coincide con el score sembrado.
+        maxScore: 100,
         correctAttempts: 7,
         errorAttempts: 2,
         timeoutAttempts: 1,
@@ -80,6 +82,7 @@ describe('materializedAnalyticsService — studentMetrics Hash (B.11)', () => {
           mechanicId: mech,
           studentId,
           score,
+          maxScore: 100,
           correctAttempts: 1,
           errorAttempts: 0,
           timeoutAttempts: 0,

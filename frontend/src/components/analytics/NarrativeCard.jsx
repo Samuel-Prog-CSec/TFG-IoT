@@ -28,7 +28,7 @@ const SECTIONS = [
     key: 'nowWhat',
     label: 'Qué hacer',
     icon: Target,
-    color: 'text-brand-light',
+    color: 'text-brand-on-alpha',
     bg: 'bg-brand-base/10',
   },
 ];
@@ -53,8 +53,8 @@ function NarrativeCard({ interpretation, title = 'Resumen del Alumno' }) {
   return (
     <GlassCard variant="default" padding="none" className="p-5 h-full">
       <div className="flex items-center gap-2 mb-4">
-        <MessageSquare size={18} className="text-brand-light" aria-hidden="true" />
-        <h2 className="text-base font-semibold text-text-primary font-display">{title}</h2>
+        <MessageSquare size={18} className="text-brand-on-alpha" aria-hidden="true" />
+        <h2 className="text-base font-bold text-text-primary font-display">{title}</h2>
       </div>
 
       {hasData ? (

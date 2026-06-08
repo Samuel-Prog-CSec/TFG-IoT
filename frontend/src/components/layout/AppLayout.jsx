@@ -42,6 +42,14 @@ import { useRegisterShortcutSource, useShortcutRegistry } from '../../context/Sh
 import TeacherAnnouncementBanner from './TeacherAnnouncementBanner';
 import { useActiveAnnouncements } from '../../hooks/useActiveAnnouncements';
 
+// Traducción de la preferencia de tamaño de la barra lateral para mostrarla
+// en el `title` del control (la preferencia cruda viene en inglés desde el hook).
+const SIDEBAR_PREFERENCE_LABELS = {
+  auto: 'Automático',
+  compact: 'Compacta',
+  expanded: 'Amplia',
+};
+
 /**
  * Slot que carga y renderiza los avisos del super_admin. Aislado en su
  * propio componente para que el hook `useActiveAnnouncements` solo se
@@ -132,7 +140,7 @@ export default function AppLayout() {
             {
               title: 'Vista',
               shortcuts: [
-                { key: '[', description: 'Alternar tamaño de la sidebar', handler: () => sidebarToggle() },
+                { key: '[', description: 'Cambiar tamaño de la barra lateral', handler: () => sidebarToggle() },
               ],
             },
           ]
@@ -165,7 +173,7 @@ export default function AppLayout() {
             {
               title: 'Vista',
               shortcuts: [
-                { key: '[', description: 'Alternar tamaño de la sidebar', handler: () => sidebarToggle() },
+                { key: '[', description: 'Cambiar tamaño de la barra lateral', handler: () => sidebarToggle() },
               ],
             },
           ],
@@ -290,10 +298,10 @@ export default function AppLayout() {
       {/* Mobile Menu Button */}
       <button
         onClick={() => setDrawerOpen(true)}
-        className="lg:hidden fixed top-4 left-4 z-50 p-3 rounded-xl bg-background-elevated/80 backdrop-blur-xl border border-border-default text-text-primary hover:bg-background-surface/80 transition-colors duration-200"
+        className="lg:hidden fixed top-4 left-4 z-50 size-10 inline-flex items-center justify-center rounded-xl bg-background-elevated/80 backdrop-blur-xl border border-border-default text-text-primary hover:bg-background-surface/80 active:scale-95 transition-[colors,transform] duration-200"
         aria-label="Abrir menú"
       >
-        <Menu size={24} />
+        <Menu size={20} />
       </button>
 
       {/* Mobile Overlay */}
@@ -329,7 +337,7 @@ export default function AppLayout() {
         {/* Mobile Close Button */}
         <button
           onClick={() => setDrawerOpen(false)}
-          className="lg:hidden absolute top-4 right-4 p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors"
+          className="lg:hidden absolute top-4 right-4 size-10 inline-flex items-center justify-center rounded-xl bg-background-elevated/80 backdrop-blur-xl border border-border-default text-text-primary hover:bg-background-surface/80 active:scale-95 transition-[colors,transform] duration-200"
           aria-label="Cerrar menú"
         >
           <X size={20} />
@@ -345,7 +353,7 @@ export default function AppLayout() {
                 '0 4px 20px var(--color-brand-glow)',
                 '0 4px 16px var(--color-brand-glow)',
               ] }}
-              transition={shouldReduceMotion ? { duration: 0 } : { duration: 4, repeat: Infinity, ease: 'easeInOut' }}
+              transition={shouldReduceMotion ? { duration: 0 } : { duration: 1.2, ease: 'easeInOut' }}
             >
               <EduPlayIcon size={20} className="text-white" />
             </motion.div>
@@ -374,10 +382,10 @@ export default function AppLayout() {
         <button
           type="button"
           onClick={sidebar.toggle}
-          title={`Sidebar: ${sidebar.preference} (clic o tecla [ para alternar)`}
-          aria-label="Alternar tamaño de sidebar"
+          title={`Barra lateral: ${SIDEBAR_PREFERENCE_LABELS[sidebar.preference] ?? sidebar.preference} (clic o tecla [ para cambiar)`}
+          aria-label="Cambiar tamaño de la barra lateral"
           className={cn(
-            'hidden lg:flex items-center justify-center text-text-muted hover:text-text-primary transition-colors',
+            'hidden lg:flex items-center justify-center text-text-muted hover:text-text-primary active:scale-95 transition-[colors,transform]',
             isCompact
               ? 'mx-3 mt-2 mb-1 p-2 rounded-lg hover:bg-background-surface/50'
               : cn(
@@ -536,7 +544,7 @@ export default function AppLayout() {
               // items del footer (Tutorial, Atajos, Privacidad, Cerrar
               // sesión). Sin esto, en modo rail el toggle queda más bajo y
               // su icono se ve "minúsculo" al lado del resto (QA 2026-05-16).
-              'flex items-center w-full px-4 py-3 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors duration-200',
+              'flex items-center w-full px-4 py-3 rounded-xl text-text-muted hover:text-text-primary hover:bg-white/5 active:scale-[0.98] transition-[colors,transform] duration-200',
               isCompact ? 'justify-center' : 'justify-between'
             )}
           >
@@ -586,12 +594,18 @@ export default function AppLayout() {
               onClick={onboarding.resetOnboarding}
               title="Vuelve a ver el tutorial desde el principio"
               className={cn(
-                'flex items-center w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200',
+                'flex items-center w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl active:scale-[0.98] transition-[colors,transform] duration-200',
                 isCompact ? 'justify-center' : 'gap-3'
               )}
             >
-              <GraduationCap size={20} className="shrink-0" />
-              {!isCompact && <span className="font-medium text-sm">Ver tutorial</span>}
+              <motion.span
+                className={cn('flex items-center w-full', isCompact ? 'justify-center' : 'gap-3')}
+                whileHover={shouldReduceMotion || isCompact ? undefined : { x: 4 }}
+                transition={motionConfig.spring}
+              >
+                <GraduationCap size={20} className="shrink-0" />
+                {!isCompact && <span className="font-medium text-sm">Ver tutorial</span>}
+              </motion.span>
             </button>
           )}
 
@@ -607,34 +621,46 @@ export default function AppLayout() {
             title="Ver lista de atajos de teclado (Shift + ?)"
             aria-haspopup="dialog"
             className={cn(
-              'flex items-center w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200',
+              'flex items-center w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl active:scale-[0.98] transition-[colors,transform] duration-200',
               isCompact ? 'justify-center' : 'gap-3'
             )}
           >
-            <Keyboard size={20} className="shrink-0" />
-            {!isCompact && (
-              <span className="flex items-center justify-between flex-1">
-                <span className="font-medium text-sm">Atajos de teclado</span>
-                <kbd
-                  className="ml-2 hidden md:inline-flex items-center px-1.5 py-0.5 rounded-md border border-border-default bg-background-elevated/60 font-mono text-nano text-text-muted"
-                  aria-hidden="true"
-                >
-                  ⇧?
-                </kbd>
-              </span>
-            )}
+            <motion.span
+              className={cn('flex items-center w-full', isCompact ? 'justify-center' : 'gap-3')}
+              whileHover={shouldReduceMotion || isCompact ? undefined : { x: 4 }}
+              transition={motionConfig.spring}
+            >
+              <Keyboard size={20} className="shrink-0" />
+              {!isCompact && (
+                <span className="flex items-center justify-between flex-1">
+                  <span className="font-medium text-sm">Atajos de teclado</span>
+                  <kbd
+                    className="ml-2 hidden md:inline-flex items-center px-1.5 py-0.5 rounded-md border border-border-default bg-background-elevated/60 font-mono text-nano text-text-muted"
+                    aria-hidden="true"
+                  >
+                    ⇧?
+                  </kbd>
+                </span>
+              )}
+            </motion.span>
           </button>
 
           <NavLink
             to="/privacy"
             title="Privacidad"
             className={cn(
-              'flex items-center w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl transition-colors duration-200',
+              'flex items-center w-full px-4 py-3 text-text-muted hover:text-text-primary hover:bg-white/5 rounded-xl active:scale-[0.98] transition-[colors,transform] duration-200',
               isCompact ? 'justify-center' : 'gap-3'
             )}
           >
-            <Shield size={20} className="shrink-0" />
-            {!isCompact && <span className="font-medium text-sm">Privacidad</span>}
+            <motion.span
+              className={cn('flex items-center w-full', isCompact ? 'justify-center' : 'gap-3')}
+              whileHover={shouldReduceMotion || isCompact ? undefined : { x: 4 }}
+              transition={motionConfig.spring}
+            >
+              <Shield size={20} className="shrink-0" />
+              {!isCompact && <span className="font-medium text-sm">Privacidad</span>}
+            </motion.span>
           </NavLink>
           <button
             onClick={handleLogoutClick}
@@ -642,17 +668,23 @@ export default function AppLayout() {
             aria-busy={isLoggingOut}
             title={isLoggingOut ? 'Cerrando sesión…' : 'Cerrar sesión'}
             className={cn(
-              'flex items-center w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl transition-colors duration-200',
+              'flex items-center w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl active:scale-[0.98] transition-[colors,transform] duration-200',
               isCompact ? 'justify-center' : 'gap-3',
               isLoggingOut && 'opacity-60 cursor-not-allowed pointer-events-none'
             )}
           >
-            <LogOut size={20} className="shrink-0" />
-            {!isCompact && (
-              <span className="font-medium text-sm">
-                {isLoggingOut ? 'Cerrando sesión…' : 'Cerrar Sesión'}
-              </span>
-            )}
+            <motion.span
+              className={cn('flex items-center w-full', isCompact ? 'justify-center' : 'gap-3')}
+              whileHover={shouldReduceMotion || isCompact ? undefined : { x: 4 }}
+              transition={motionConfig.spring}
+            >
+              <LogOut size={20} className="shrink-0" />
+              {!isCompact && (
+                <span className="font-medium text-sm">
+                  {isLoggingOut ? 'Cerrando sesión…' : 'Cerrar Sesión'}
+                </span>
+              )}
+            </motion.span>
           </button>
         </div>
       </motion.aside>
@@ -722,6 +754,7 @@ export default function AppLayout() {
 function NavItem({ to, icon, label, dataTour, compact = false }) {
   // Rutas "hijas" que deben activar el mismo item del sidebar.
   const location = useLocation();
+  const { shouldReduceMotion } = useReducedMotion();
   const isParentOf = to === '/analytics/students' && location.pathname.startsWith('/students/');
   const exactMatch = to === '/admin/students';
 
@@ -748,6 +781,7 @@ function NavItem({ to, icon, label, dataTour, compact = false }) {
           <motion.div
             className={cn('flex items-center w-full', compact ? 'justify-center' : 'gap-3')}
             whileHover={!active && !compact ? { x: 4 } : {}}
+            whileTap={shouldReduceMotion ? undefined : { scale: 0.98 }}
             transition={motionConfig.spring}
           >
             {active && (

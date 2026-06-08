@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import { getMechanicTheme, MECHANIC_KEYS } from "../lib/mechanicTheme";
 import {
+  cn,
   listContainerVariants,
   listItemVariants,
   crossfadeVariants,
@@ -556,7 +557,14 @@ export default function StudentsAnalytics() {
 
             {/* ─── Refreshing indicator ───────────────────────────── */}
             {loading && students ? (
-              <div className="bg-background-elevated/50 border border-border-default text-text-muted px-4 py-2 rounded-xl text-sm font-medium animate-pulse">
+              <div
+                role="status"
+                aria-live="polite"
+                className={cn(
+                  'bg-background-elevated/50 border border-border-default text-text-muted px-4 py-2 rounded-xl text-sm font-medium',
+                  !shouldReduceMotion && 'animate-pulse'
+                )}
+              >
                 Actualizando datos…
               </div>
             ) : null}

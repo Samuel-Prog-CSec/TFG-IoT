@@ -33,7 +33,7 @@ function DistributionChart({ data }) {
             backgroundColor: 'var(--color-background-elevated)', 
             border: '1px solid var(--color-border-default)', 
             borderRadius: '12px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            boxShadow: 'var(--shadow-lg)',
             backdropFilter: 'blur(16px)'
           }}
           itemStyle={{ color: 'var(--color-text-primary)', fontWeight: 600 }}

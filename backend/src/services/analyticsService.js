@@ -20,6 +20,20 @@ const gameSessionRepository = require('../repositories/gameSessionRepository');
 const REPORT_AGGREGATE_TIMEOUT_MS = 7000;
 
 /**
+ * Expresión de agregación que normaliza la puntuación de una partida a un
+ * PORCENTAJE real `score / maxScore × 100` (0 si maxScore es 0). Unifica la
+ * representación de "rendimiento" entre mecánicas con techos de puntos muy
+ * distintos (Asociación 50-90, Memoria 90, Secuencia 210-420): promediar el
+ * `score` crudo entre mecánicas y mostrarlo como "%" era engañoso (un 60/60 de
+ * Asociación = 100% aportaba 60, un 75/300 de Secuencia = 25% aportaba 75). El
+ * `score` ya viene clampado a `maxScore`, así que el porcentaje queda en [0,100].
+ * Se usa en TODOS los promedios de puntuación que la UI muestra como "%".
+ */
+const SCORE_PERCENT_EXPR = {
+  $cond: [{ $gt: ['$maxScore', 0] }, { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] }, 0]
+};
+
+/**
  * Obtiene la evolución del rendimiento de un estudiante a lo largo del tiempo.
  * Agrupa las partidas por fecha (día o semana) y calcula promedios.
  *
@@ -48,7 +62,7 @@ async function getStudentProgress(studentId, timeRange = '30d') {
     {
       $group: {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } },
-        score: { $avg: '$score' },
+        score: { $avg: SCORE_PERCENT_EXPR },
         accuracy: {
           $avg: {
             $cond: [
@@ -215,21 +229,53 @@ async function _getClassroomSummaryImpl(teacherId, { contextId, mechanicId, time
     },
     {
       $facet: {
-        // Promedio global y tendencia
+        // Promedio global y total — SOLO partidas completadas (igual que el resto
+        // de endpoints: trends/comparison/difficulties). Antes faltaba el filtro
+        // `status:'completed'`, así que la media y el contador incluían
+        // abandonadas/in-progress, arrastrando la media a la baja y descuadrando
+        // con la tendencia (que sí filtra completadas).
         globalStats: [
-          ...(startDate ? [{ $match: { completedAt: { $gte: startDate } } }] : []),
+          {
+            $match: {
+              status: 'completed',
+              ...(startDate && { completedAt: { $gte: startDate } })
+            }
+          },
           {
             $group: {
               _id: null,
-              avgScore: { $avg: '$score' },
+              avgScore: { $avg: SCORE_PERCENT_EXPR },
               totalGames: { $sum: 1 }
             }
           }
         ],
-        // Actividad de hoy
+        // Tasa de completado real: completadas / (completadas + abandonadas) del
+        // rango. `completedAt` está seteado tanto en completadas como en
+        // abandonadas (recovery), así que el denominador son las partidas
+        // TERMINADAS (excluye in-progress/paused). Antes la tarjeta usaba
+        // `abandonmentRate` que el endpoint nunca devolvía → 100% fijo.
+        completionStats: [
+          {
+            $match: {
+              status: { $in: ['completed', 'abandoned'] },
+              ...(startDate && { completedAt: { $gte: startDate } })
+            }
+          },
+          {
+            $group: {
+              _id: null,
+              total: { $sum: 1 },
+              completed: {
+                $sum: { $cond: [{ $eq: ['$status', 'completed'] }, 1, 0] }
+              }
+            }
+          }
+        ],
+        // Actividad de hoy — partidas COMPLETADAS hoy.
         todayActivity: [
           {
             $match: {
+              status: 'completed',
               completedAt: {
                 $gte: new Date(new Date().setHours(0, 0, 0, 0)),
                 $lt: new Date(new Date().setHours(23, 59, 59, 999))
@@ -270,12 +316,21 @@ async function _getClassroomSummaryImpl(teacherId, { contextId, mechanicId, time
   ]);
 
   const data = results[0];
+  const completion = data.completionStats[0];
+  // Tasa de completado real (null si no hay partidas terminadas → la tarjeta
+  // muestra "—" en lugar de un 100% vacuo).
+  const completionRate =
+    completion && completion.total > 0
+      ? Math.round((completion.completed / completion.total) * 100)
+      : null;
 
   return {
     studentsInRisk,
     averageScore: data.globalStats[0] ? Math.round(data.globalStats[0].avgScore) : 0,
     totalGames: data.globalStats[0] ? data.globalStats[0].totalGames : 0,
-    gamesToday: data.todayActivity[0] ? data.todayActivity[0].count : 0
+    gamesToday: data.todayActivity[0] ? data.todayActivity[0].count : 0,
+    completionRate,
+    finishedGames: completion ? completion.total : 0
   };
 }
 
@@ -306,7 +361,7 @@ async function _countStudentsInRiskFromPlays(sessionIds, excludedIds) {
     {
       $group: {
         _id: '$playerId',
-        avgScore: { $avg: '$score' }
+        avgScore: { $avg: SCORE_PERCENT_EXPR }
       }
     },
     { $match: { avgScore: { $gte: 0, $lt: 50 } } },
@@ -365,8 +420,8 @@ async function getClassroomComparison(teacherId, timeRange = '7d', { contextId, 
     {
       $group: {
         _id: { $dateToString: { format: '%Y-%m-%d', date: '$completedAt' } },
-        classAverage: { $avg: '$score' },
-        score: { $avg: '$score' },
+        classAverage: { $avg: SCORE_PERCENT_EXPR },
+        score: { $avg: SCORE_PERCENT_EXPR },
         playCount: { $sum: 1 }
       }
     },
@@ -721,6 +776,23 @@ const PERFORMANCE_TIERS = [
 ];
 
 /**
+ * Devuelve el tier de rendimiento de un score con clasificación CONTIGUA (sin
+ * huecos): el primer tier —de mayor a menor— cuyo `min` no supera el score.
+ * Antes `score>=min && score<=max` dejaba huecos en los bordes fraccionarios
+ * (49.5, 69.5, 89.5 no casaban ningún tier) → caían al fallback 'risk', de modo
+ * que un alumno con 89.5% salía "En Riesgo" y desaparecía del histograma.
+ * @private
+ */
+const tierForScore = score => {
+  for (let i = PERFORMANCE_TIERS.length - 1; i >= 0; i -= 1) {
+    if (score >= PERFORMANCE_TIERS[i].min) {
+      return PERFORMANCE_TIERS[i];
+    }
+  }
+  return PERFORMANCE_TIERS[0];
+};
+
+/**
  * Clasifica un score en un tier de rendimiento.
  * @private
  */
@@ -728,8 +800,7 @@ const classifyTier = score => {
   if (score === null || score === undefined || score < 0) {
     return 'risk';
   }
-  const found = PERFORMANCE_TIERS.find(t => score >= t.min && score <= t.max);
-  return found ? found.tier : 'risk';
+  return tierForScore(score).tier;
 };
 
 /**
@@ -1018,7 +1089,7 @@ async function getClassroomDistribution(teacherId, { contextId, mechanicId, time
   const distribution = PERFORMANCE_TIERS.map(({ tier, label, min, max }) => {
     const count = students.filter(s => {
       const score = s.studentMetrics?.averageScore ?? 0;
-      return score >= min && score <= max;
+      return tierForScore(score).tier === tier;
     }).length;
 
     return {
@@ -1073,7 +1144,7 @@ async function _getClassroomDistributionFromPlays(
     {
       $group: {
         _id: '$playerId',
-        avgScore: { $avg: '$score' }
+        avgScore: { $avg: SCORE_PERCENT_EXPR }
       }
     }
   ];
@@ -1086,7 +1157,7 @@ async function _getClassroomDistributionFromPlays(
   const distribution = PERFORMANCE_TIERS.map(({ tier, label, min, max }) => {
     const count = perStudent.filter(s => {
       const score = s.avgScore ?? 0;
-      return score >= min && score <= max;
+      return tierForScore(score).tier === tier;
     }).length;
 
     return {
@@ -1161,7 +1232,7 @@ async function getClassroomTrends(teacherId, timeRange = '7d', { contextId, mech
           {
             $group: {
               _id: null,
-              avgScore: { $avg: '$score' },
+              avgScore: { $avg: SCORE_PERCENT_EXPR },
               totalGames: { $sum: 1 },
               uniquePlayers: { $addToSet: '$playerId' },
               avgResponseTime: { $avg: '$metrics.averageResponseTime' },
@@ -1175,7 +1246,7 @@ async function getClassroomTrends(teacherId, timeRange = '7d', { contextId, mech
           {
             $group: {
               _id: null,
-              avgScore: { $avg: '$score' },
+              avgScore: { $avg: SCORE_PERCENT_EXPR },
               totalGames: { $sum: 1 },
               uniquePlayers: { $addToSet: '$playerId' },
               avgResponseTime: { $avg: '$metrics.averageResponseTime' },
@@ -1375,11 +1446,16 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
     },
     { $unwind: { path: '$mechanic', preserveNullAndEmptyArrays: true } },
     // Proyección de enriquecimiento: retiene TODOS los campos que cualquier
-    // rama del $facet necesita (score, completedAt, metrics completo, y los
-    // subdocs context/mechanic reducidos a lo consumido). Descarta el resto.
+    // rama del $facet necesita (score, maxScore, completedAt, metrics completo, y
+    // los subdocs context/mechanic reducidos a lo consumido). Descarta el resto.
+    // `maxScore` es IMPRESCINDIBLE desde ADR-201: los facets normalizan a %
+    // (score/maxScore×100); sin él SCORE_PERCENT_EXPR devuelve 0 y overallStats/
+    // byContext/byMechanic salían a 0 (bug destapado al consumir overallStats en
+    // las KPIs del perfil).
     {
       $project: {
         score: 1,
+        maxScore: 1,
         completedAt: 1,
         metrics: 1,
         'context._id': 1,
@@ -1421,7 +1497,7 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
           {
             $group: {
               _id: { id: '$context._id', name: '$context.name' },
-              avgScore: { $avg: '$score' },
+              avgScore: { $avg: SCORE_PERCENT_EXPR },
               totalGames: { $sum: 1 },
               totalErrors: { $sum: '$metrics.errorAttempts' },
               totalAttempts: { $sum: '$metrics.totalAttempts' }
@@ -1453,7 +1529,7 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
           {
             $group: {
               _id: { id: '$mechanic._id', name: '$mechanic.displayName' },
-              avgScore: { $avg: '$score' },
+              avgScore: { $avg: SCORE_PERCENT_EXPR },
               totalGames: { $sum: 1 }
             }
           },
@@ -1471,9 +1547,26 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
           {
             $group: {
               _id: null,
-              avgScore: { $avg: '$score' },
+              avgScore: { $avg: SCORE_PERCENT_EXPR },
               totalGames: { $sum: 1 },
-              avgResponseTime: { $avg: '$metrics.averageResponseTime' }
+              avgResponseTime: { $avg: '$metrics.averageResponseTime' },
+              // Acierto del RANGO (correctas/intentos), para que la KPI "Tasa de
+              // Acierto" del perfil reaccione al selector temporal igual que los
+              // gráficos, en lugar de mostrar siempre el acierto lifetime.
+              avgAccuracy: {
+                $avg: {
+                  $cond: [
+                    { $gt: ['$metrics.totalAttempts', 0] },
+                    {
+                      $multiply: [
+                        { $divide: ['$metrics.correctAttempts', '$metrics.totalAttempts'] },
+                        100
+                      ]
+                    },
+                    null
+                  ]
+                }
+              }
             }
           }
         ],
@@ -1568,6 +1661,26 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
               hintsUsed: 1
             }
           }
+        ],
+        // Serie temporal de partidas de Secuencia (cronológica) para el
+        // gráfico de evolución. `lastGames` no sirve aquí: está limitado a las
+        // 10 últimas partidas (de cualquier mecánica) y no proyecta
+        // `maxSequenceLengthAchieved` por partida, por lo que la evolución
+        // salía vacía (sin Secuencia en las últimas 10) o como línea plana
+        // (todos los puntos caían al máximo global por el fallback del front).
+        sequenceProgression: [
+          { $match: { 'mechanic.name': 'sequence' } },
+          { $sort: { completedAt: -1 } },
+          { $limit: 50 },
+          { $sort: { completedAt: 1 } },
+          {
+            $project: {
+              _id: 0,
+              completedAt: 1,
+              maxLength: { $ifNull: ['$metrics.maxSequenceLengthAchieved', 0] },
+              sequencesCompleted: { $ifNull: ['$metrics.sequencesCompleted', 0] }
+            }
+          }
         ]
       }
     }
@@ -1584,8 +1697,12 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
     select: 'name profile studentMetrics createdBy'
   });
 
-  // Comparativa con la clase
-  let classAvgScore = 0;
+  // Comparativa con la clase: media de puntuación (%), acierto (%) y tiempo de
+  // respuesta (ms) sobre los alumnos activos del profesor. Antes solo se calculaba
+  // la puntuación y se devolvía como `classAvgScore`, pero el front leía
+  // `classComparison.averageScore/accuracy/responseTime` → las 3 pastillas
+  // "vs clase" salían siempre vacías.
+  let classAvg = { averageScore: 0, accuracy: null, responseTime: null };
   if (student?.createdBy) {
     const [classStats] = await userRepository.aggregate([
       {
@@ -1599,11 +1716,50 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
       {
         $group: {
           _id: null,
-          classAvgScore: { $avg: '$studentMetrics.averageScore' }
+          classAvgScore: { $avg: '$studentMetrics.averageScore' },
+          classAvgResponseTime: { $avg: '$studentMetrics.averageResponseTime' },
+          classAvgAccuracy: {
+            $avg: {
+              $let: {
+                vars: {
+                  tot: {
+                    $add: [
+                      { $ifNull: ['$studentMetrics.totalCorrectAnswers', 0] },
+                      { $ifNull: ['$studentMetrics.totalErrors', 0] }
+                    ]
+                  }
+                },
+                in: {
+                  $cond: [
+                    { $gt: ['$$tot', 0] },
+                    {
+                      $multiply: [
+                        {
+                          $divide: [
+                            { $ifNull: ['$studentMetrics.totalCorrectAnswers', 0] },
+                            '$$tot'
+                          ]
+                        },
+                        100
+                      ]
+                    },
+                    null
+                  ]
+                }
+              }
+            }
+          }
         }
       }
     ]);
-    classAvgScore = classStats?.classAvgScore || 0;
+    if (classStats) {
+      classAvg = {
+        averageScore: classStats.classAvgScore || 0,
+        accuracy: classStats.classAvgAccuracy !== null ? classStats.classAvgAccuracy : null,
+        responseTime:
+          classStats.classAvgResponseTime !== null ? classStats.classAvgResponseTime : null
+      };
+    }
   }
 
   return {
@@ -1623,13 +1779,23 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
     overallStats: {
       avgScore: Math.round((overall.avgScore || 0) * 10) / 10,
       totalGames: overall.totalGames || 0,
-      avgResponseTime: Math.round(overall.avgResponseTime || 0)
+      avgResponseTime: Math.round(overall.avgResponseTime || 0),
+      avgAccuracy:
+        overall.avgAccuracy !== null && overall.avgAccuracy !== undefined
+          ? Math.round(overall.avgAccuracy)
+          : null
     },
+    // Medias de clase con las CLAVES que consume el front (averageScore/accuracy/
+    // responseTime). Se conserva `studentAvgScore`/`classAvgScore`/`difference`
+    // por compatibilidad con consumidores existentes (tests/informes).
     classComparison: {
+      averageScore: Math.round(classAvg.averageScore * 10) / 10,
+      accuracy: classAvg.accuracy !== null ? Math.round(classAvg.accuracy * 10) / 10 : null,
+      responseTime: classAvg.responseTime !== null ? Math.round(classAvg.responseTime) : null,
       studentAvgScore: student?.studentMetrics?.averageScore || 0,
-      classAvgScore: Math.round(classAvgScore * 10) / 10,
+      classAvgScore: Math.round(classAvg.averageScore * 10) / 10,
       difference:
-        Math.round(((student?.studentMetrics?.averageScore || 0) - classAvgScore) * 10) / 10
+        Math.round(((student?.studentMetrics?.averageScore || 0) - classAvg.averageScore) * 10) / 10
     },
     // Resumen de la mecánica Memoria (ADR-A/B, sesión 04/05/2026). null
     // si el alumno no ha jugado Memoria en el rango temporal — el frontend
@@ -1665,7 +1831,10 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
           partialReproductions: sequenceSummary.partialReproductions || 0,
           averageReproductionTimeMs: sequenceSummary.averageReproductionTimeMs || 0,
           blockedCardsTotal: sequenceSummary.blockedCardsTotal || 0,
-          hintsUsed: sequenceSummary.hintsUsed || 0
+          hintsUsed: sequenceSummary.hintsUsed || 0,
+          // Serie temporal por partida para el gráfico de evolución
+          // (SequenceProgressChart). Cronológica, máx. 50 partidas.
+          progression: result.sequenceProgression || []
         }
       : null,
     timeRange
@@ -1782,7 +1951,7 @@ async function getTopContextsAndMechanics(teacherId, timeRange = '30d', limitPar
       $group: {
         _id: { id: '$context._id', name: '$context.name' },
         totalPlays: { $sum: 1 },
-        avgScore: { $avg: '$score' },
+        avgScore: { $avg: SCORE_PERCENT_EXPR },
         uniquePlayers: { $addToSet: '$playerId' }
       }
     },
@@ -1815,7 +1984,7 @@ async function getTopContextsAndMechanics(teacherId, timeRange = '30d', limitPar
       $group: {
         _id: { id: '$mechanic._id', name: '$mechanic.displayName' },
         totalPlays: { $sum: 1 },
-        avgScore: { $avg: '$score' },
+        avgScore: { $avg: SCORE_PERCENT_EXPR },
         uniquePlayers: { $addToSet: '$playerId' }
       }
     },
@@ -1935,5 +2104,8 @@ module.exports = {
   // Expuesto para que otros módulos (gamePlayController, contentEffectivenessService)
   // reutilicen la MISMA lista cacheada y el prefiltro `$match` early en lugar de
   // re-consultar game_sessions en cada request.
-  getTeacherSessionIds
+  getTeacherSessionIds,
+  // Lista de playerIds excluidos por oposición al tratamiento (Art. 21 RGPD).
+  // Expuesto para que contentEffectivenessService aplique la misma exclusión.
+  getAnalyticsExcludedPlayerIds
 };

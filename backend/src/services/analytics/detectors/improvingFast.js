@@ -10,7 +10,7 @@
 const { AlertDetector } = require('./_base');
 const { ALERT_TYPES } = require('../../../config/alerts');
 const gamePlayRepository = require('../../../repositories/gamePlayRepository');
-const { toObjectId, getPeriodDates } = require('../analyticsHelpers');
+const { toObjectId, getPeriodDates, SCORE_PERCENT_EXPR } = require('../analyticsHelpers');
 
 class ImprovingFastDetector extends AlertDetector {
   constructor() {
@@ -44,7 +44,10 @@ class ImprovingFastDetector extends AlertDetector {
       {
         $group: {
           _id: { playerId: '$playerId', period: '$period' },
-          avgScore: { $avg: '$score' },
+          // % normalizado (ADR-201): la mejora period-a-period es justa entre
+          // mecánicas con techos distintos (antes un cambio de mix Asociación→Secuencia
+          // inflaba una "mejora" falsa por el mayor techo de puntos).
+          avgScore: { $avg: SCORE_PERCENT_EXPR },
           count: { $sum: 1 },
           lastCompletedAt: { $max: '$completedAt' }
         }

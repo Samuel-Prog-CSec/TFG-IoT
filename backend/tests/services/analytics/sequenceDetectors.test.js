@@ -29,13 +29,23 @@ const {
 const DAY = 24 * 60 * 60 * 1000;
 
 // Crea N partidas completadas (escalonadas en días) para un alumno/sesión.
-const seedPlays = async ({ session, playerId, count, score = 50, metrics = {} }) => {
+const seedPlays = async ({
+  session,
+  playerId,
+  count,
+  score = 50,
+  maxScore = 100,
+  metrics = {}
+}) => {
   const base = new Date('2026-05-10T10:00:00Z').getTime();
   const docs = Array.from({ length: count }, (_, i) => ({
     sessionId: session._id,
     playerId,
     status: 'completed',
     score,
+    // maxScore=100 por defecto: los scores del test son 0-100, así el % normalizado
+    // (score/maxScore×100, ADR-201) coincide con el número sembrado.
+    maxScore,
     startedAt: new Date(base + i * DAY),
     completedAt: new Date(base + i * DAY + 60000),
     metrics: { totalAttempts: 5, ...metrics }

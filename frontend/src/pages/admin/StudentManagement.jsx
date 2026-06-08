@@ -5,7 +5,7 @@
  * @module pages/admin/StudentManagement
  */
 
-import { useState, useEffect, useCallback, useDeferredValue } from 'react';
+import { useState, useEffect, useCallback, useDeferredValue, useRef } from 'react';
 import {
   Users,
   UserPlus,
@@ -41,6 +41,7 @@ import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { useVirtualizedList } from '../../hooks/useVirtualizedList';
+import useModalA11y from '../../hooks/useModalA11y';
 import { cn } from '../../lib/utils';
 
 // Plantilla de columnas compartida por la cabecera y cada fila de la tabla de
@@ -62,6 +63,11 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
     age: '',
     classroom: ''
   });
+  // Andamiaje accesible inline (datos de menores): foco inicial al primer
+  // campo, focus-trap por Tab, cierre con Escape, restauracion de foco y
+  // bloqueo de scroll del body mientras el modal esta abierto.
+  const panelRef = useRef(null);
+  const firstFieldRef = useRef(null);
 
   useEffect(() => {
     if (isOpen && student) {
@@ -72,6 +78,9 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
       });
     }
   }, [isOpen, student]);
+
+  // Foco inicial, focus-trap, Escape, bloqueo de scroll y restauracion de foco.
+  useModalA11y({ isOpen, onClose, panelRef, initialFocusRef: firstFieldRef, escapeDisabled: loading });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -120,23 +129,28 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
         onClick={onClose}
       >
         <motion.div
+          ref={panelRef}
           initial={{ scale: 0.95, opacity: 0, y: 20 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 20 }}
           className="w-full max-w-lg"
           onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-student-title"
         >
           <GlassCard className="p-8" variant="solid">
             <header className="mb-6">
               <div className="size-12 rounded-xl bg-brand-base/20 flex items-center justify-center text-brand-base mb-4">
                 <Edit size={24} />
               </div>
-              <h2 className="text-2xl font-bold text-text-primary">Editar Alumno</h2>
+              <h2 id="edit-student-title" className="text-2xl font-bold text-text-primary">Editar Alumno</h2>
               <p className="text-text-muted">Modifica los datos del alumno.</p>
             </header>
 
             <form onSubmit={handleSubmit} noValidate className="space-y-6">
               <InputPremium
+                ref={firstFieldRef}
                 label="Nombre completo"
                 placeholder="Ej: Juan Pérez"
                 value={formData.name}
@@ -206,6 +220,11 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
     consentGranted: false,
     consentGrantedBy: ''
   });
+  // Andamiaje accesible inline (datos de menores): foco inicial al primer
+  // campo, focus-trap por Tab, cierre con Escape, restauracion de foco y
+  // bloqueo de scroll del body mientras el modal esta abierto.
+  const panelRef = useRef(null);
+  const firstFieldRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -219,6 +238,9 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
       });
     }
   }, [isOpen]);
+
+  // Foco inicial, focus-trap, Escape, bloqueo de scroll y restauracion de foco.
+  useModalA11y({ isOpen, onClose, panelRef, initialFocusRef: firstFieldRef, escapeDisabled: loading });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -278,23 +300,28 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
         onClick={onClose}
       >
         <motion.div
+          ref={panelRef}
           initial={{ scale: 0.95, opacity: 0, y: 20 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 20 }}
           className="w-full max-w-lg"
           onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-student-title"
         >
           <GlassCard className="p-8" variant="solid">
             <header className="mb-6">
               <div className="size-12 rounded-xl bg-brand-base/20 flex items-center justify-center text-brand-base mb-4">
                 <UserPlus size={24} />
               </div>
-              <h2 className="text-2xl font-bold text-text-primary">Crear Nuevo Alumno</h2>
+              <h2 id="create-student-title" className="text-2xl font-bold text-text-primary">Crear Nuevo Alumno</h2>
               <p className="text-text-muted">Asigna un nuevo alumno a un profesor y clase.</p>
             </header>
 
             <form onSubmit={handleSubmit} noValidate className="space-y-6">
               <InputPremium
+                ref={firstFieldRef}
                 label="Nombre completo"
                 placeholder="Ej: Juan Pérez"
                 value={formData.name}
@@ -359,7 +386,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                         consentGranted: e.target.checked
                       }))
                     }
-                    className="mt-1 size-4 rounded border-border-primary text-brand-base
+                    className="mt-1 size-4 rounded border-border-strong text-brand-base
                       focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2"
                   />
                   <span className="text-sm text-text-primary leading-relaxed">
@@ -641,7 +668,7 @@ export default function StudentManagement() {
                 e.stopPropagation();
                 setActiveMenuId(activeMenuId === id ? null : id);
               }}
-              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
+              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-background-surface transition-colors opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
               aria-label={`Acciones para ${student.name}`}
               aria-haspopup="menu"
               aria-expanded={activeMenuId === id}
@@ -671,21 +698,21 @@ export default function StudentManagement() {
                     <button
                       role="menuitem"
                       onClick={() => handleEditClick(student)}
-                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-background-surface flex items-center gap-2 transition-colors"
                     >
                       <Edit size={14} /> Editar
                     </button>
                     <button
                       role="menuitem"
                       onClick={() => handleConsentClick(student)}
-                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-background-surface flex items-center gap-2 transition-colors"
                     >
                       <ShieldCheck size={14} /> Consentimiento
                     </button>
                     <button
                       role="menuitem"
                       onClick={() => handleExportClick(student)}
-                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-background-surface flex items-center gap-2 transition-colors"
                     >
                       <Download size={14} /> Exportar datos
                     </button>

@@ -158,8 +158,8 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
               required
             />
             {isEdit && hasStorageAssets && (
-              <p className="mt-1 flex items-start gap-1.5 text-xs text-warning-base">
-                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <p className="mt-1 flex items-start gap-1.5 text-xs text-warning-on-alpha">
+                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-warning-base" aria-hidden="true" />
                 <span>
                   No se puede cambiar el identificador porque ya hay archivos en el almacenamiento
                   bajo <code className="rounded bg-background-base/60 px-1">ctx-{initialContext?.contextId}</code>.
@@ -222,7 +222,7 @@ function AdminContextCard({ context, onEdit, onDelete }) {
               <code className="rounded bg-background-base/60 px-1.5 py-0.5 text-micro text-text-muted">
                 {context.contextId}
               </code>
-              <StatusBadge variant={context.isActive ? 'success' : 'neutral'}>
+              <StatusBadge status={context.isActive ? 'success' : 'inactive'}>
                 {context.isActive ? 'Activo' : 'Inactivo'}
               </StatusBadge>
             </div>

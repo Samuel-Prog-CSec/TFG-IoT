@@ -78,10 +78,13 @@ function FallbackTouchPanelSequence({ cards, onSelectCard, cursor = 0, sequenceL
               key={`fallback-seq-card-${card.uid}`}
               type="button"
               onClick={() => handleTap(card)}
-              whileTap={{ scale: 0.94, backgroundColor: 'rgba(245, 158, 11, 0.2)' }}
+              // El pulso de fondo al tocar se delega a `active:bg-accent-amber/20`
+              // (resuelve el token del tema, alpha /20 homogéneo con Asociación);
+              // whileTap queda sólo con el scale para no hardcodear un rgba fijo.
+              whileTap={{ scale: 0.94 }}
               whileHover={{ y: -2 }}
               transition={{ type: 'spring', stiffness: 500, damping: 28 }}
-              className="relative aspect-square min-h-[72px] md:min-h-[110px] rounded-xl border-2 border-border-default bg-background-base/60 p-2 text-center hover:border-accent-amber/50 hover:shadow-[0_4px_16px_rgba(245,158,11,0.18)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber focus-visible:ring-offset-2 focus-visible:ring-offset-background-base transition-[background-color,border-color,box-shadow]"
+              className="relative aspect-square min-h-[72px] md:min-h-[110px] rounded-xl border-2 border-border-default bg-background-base/60 p-2 text-center hover:border-accent-amber/50 hover:shadow-[0_4px_16px_rgba(245,158,11,0.18)] active:bg-accent-amber/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber focus-visible:ring-offset-2 focus-visible:ring-offset-background-base transition-[background-color,border-color,box-shadow]"
               aria-label={`Tocar carta: ${card.assignedValue || card.uid}`}
             >
               <CardAssetPreview
