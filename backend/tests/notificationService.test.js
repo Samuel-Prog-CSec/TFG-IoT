@@ -64,6 +64,23 @@ describe('notificationService (integración)', () => {
       expect(inDb.userId.toString()).toBe(userId);
     });
 
+    it('acepta el tipo system_alert_critical (enum sincronizado — C1, antes lo rechazaba)', async () => {
+      const userId = genId();
+      const dto = await notificationService.createNotification({
+        userId,
+        type: 'system_alert_critical',
+        title: 'Alerta crítica del sistema',
+        body: 'Memoria al límite',
+        link: '/admin/system-alerts',
+        metadata: { alertId: genId() }
+      });
+
+      expect(dto).toMatchObject({ type: 'system_alert_critical', read: false });
+      const inDb = await Notification.findById(dto.id);
+      expect(inDb).toBeTruthy();
+      expect(inDb.type).toBe('system_alert_critical');
+    });
+
     it('genera dedup keys estables (mismo input → misma key)', async () => {
       const userId = genId();
       const k1 = notificationService._internals.buildDedupKey(userId, 'play_completed', {

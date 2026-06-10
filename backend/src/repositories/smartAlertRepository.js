@@ -115,7 +115,7 @@ const paginateForTeacher = async (teacherId, options = {}) => {
  */
 const summaryForTeacher = async teacherId => {
   const results = await SmartAlert.aggregate([
-    { $match: { teacherId: SmartAlert.castObjectId?.(teacherId) ?? toObjectIdSafe(teacherId) } },
+    { $match: { teacherId: toObjectIdSafe(teacherId) } },
     {
       $group: {
         _id: { status: '$status', severity: '$severity', type: '$type' },
@@ -170,19 +170,43 @@ const buildActiveAlertsMap = async teacherId => {
 };
 
 /**
+ * Mapa de alertas SNOOZED del teacher, indexado por `studentId:type`. Lo usa
+ * la reconciliación para NO crear un duplicado `active` cuando el detector vuelve
+ * a emitir un `(studentId, type)` que el docente silenció: el índice único parcial
+ * de dedup solo cubre `status:'active'`, así que sin esta comprobación una alerta
+ * snoozed re-detectada generaba un segundo documento active y rompía el snooze.
+ *
+ * @param {string} teacherId
+ * @returns {Promise<Map<string, object>>}
+ */
+const buildSnoozedAlertsMap = async teacherId => {
+  const snoozed = await SmartAlert.find({ teacherId, status: 'snoozed' });
+  const map = new Map();
+  for (const doc of snoozed) {
+    map.set(`${doc.studentId}:${doc.type}`, doc);
+  }
+  return map;
+};
+
+/**
  * Reactiva las alertas snoozed cuya snoozedUntil ya pasó.
  *
  * @param {Date} [now=new Date()]
  * @returns {Promise<number>} Número de alertas reactivadas.
  */
-const reactivateExpiredSnoozes = async (now = new Date()) => {
-  const result = await SmartAlert.updateMany(
-    { status: 'snoozed', snoozedUntil: { $lte: now } },
-    {
-      $set: { status: 'active', lastSeenAt: now },
-      $unset: { snoozedUntil: '', snoozedAt: '', snoozedBy: '' }
-    }
-  );
+const reactivateExpiredSnoozes = async (now = new Date(), teacherId = null) => {
+  // Scope por teacher cuando se invoca dentro de runForTeacher: evita que cada
+  // corrida del bucle (N teachers) ejecute el MISMO updateMany global (la 1ª las
+  // reactiva todas, las N-1 restantes son writes vacíos contra Mongo/Atlas). Sin
+  // teacherId mantiene el comportamiento global (compat).
+  const filter = { status: 'snoozed', snoozedUntil: { $lte: now } };
+  if (teacherId) {
+    filter.teacherId = teacherId;
+  }
+  const result = await SmartAlert.updateMany(filter, {
+    $set: { status: 'active', lastSeenAt: now },
+    $unset: { snoozedUntil: '', snoozedAt: '', snoozedBy: '' }
+  });
   return result.modifiedCount || 0;
 };
 
@@ -212,6 +236,7 @@ module.exports = {
   paginateForTeacher,
   summaryForTeacher,
   buildActiveAlertsMap,
+  buildSnoozedAlertsMap,
   reactivateExpiredSnoozes,
   countPinned
 };

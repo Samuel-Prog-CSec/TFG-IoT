@@ -90,18 +90,33 @@ function buildDedupKey(userId, type, metadata = {}) {
  * @param {object} dto - DTO V1 serializado a enviar al cliente.
  */
 function emitNotificationCreated(userId, dto) {
-  if (!socketServerRef || !userId || !dto) {
+  if (!userId || !dto) {
     return;
   }
+  if (socketServerRef) {
+    // Proceso HTTP: emisión directa (el redis-adapter la propaga cross-instancia).
+    try {
+      socketServerRef.to(`user_${userId}`).emit('notification:created', dto);
+    } catch (error) {
+      // Persistencia ya OK — log y continuar; el cliente recibirá la notif
+      // al refrescar (GET /api/notifications).
+      logger.warn('No se pudo emitir notification:created', {
+        userId,
+        error: error.message
+      });
+    }
+    return;
+  }
+
+  // Proceso SIN io (worker BullMQ: cron de alertas/system-alerts): publicar al
+  // puente Redis para que el proceso HTTP re-emita por socket. Sin esto las
+  // notificaciones de alerta se persistían pero NO llegaban en tiempo real.
+  // Lazy require para evitar ciclo y para no acoplar el módulo cuando no hay Redis.
   try {
-    socketServerRef.to(`user_${userId}`).emit('notification:created', dto);
-  } catch (error) {
-    // Persistencia ya OK — log y continuar; el cliente recibirá la notif
-    // al refrescar (GET /api/notifications).
-    logger.warn('No se pudo emitir notification:created', {
-      userId,
-      error: error.message
-    });
+    const { publishNotificationEmit } = require('../realtime/notificationEmitSubscriber');
+    publishNotificationEmit(userId, dto).catch(() => {});
+  } catch {
+    // Bridge no disponible — la notificación ya se persistió; se verá al refrescar.
   }
 }
 
@@ -156,15 +171,26 @@ async function createNotification({
     return null;
   }
 
-  const doc = await Notification.create({
-    userId,
-    type,
-    title,
-    body,
-    link,
-    metadata,
-    priority
-  });
+  let doc;
+  try {
+    doc = await Notification.create({
+      userId,
+      type,
+      title,
+      body,
+      link,
+      metadata,
+      priority
+    });
+  } catch (err) {
+    // La dedup key se adquirió ANTES de persistir (para cortar duplicados en
+    // carrera). Si la persistencia falla, liberarla para no bloquear un reintento
+    // legítimo del mismo evento durante 60s (sin esto, un fallo transitorio de
+    // Mongo «envenenaba» la ventana). Best-effort: si Redis no responde, el TTL
+    // la purga igualmente.
+    await redisService.del(NOTIF_DEDUP_NAMESPACE, dedupKey).catch(() => {});
+    throw err;
+  }
 
   const dto = toNotificationDTOV1(doc);
   emitNotificationCreated(userId, dto);

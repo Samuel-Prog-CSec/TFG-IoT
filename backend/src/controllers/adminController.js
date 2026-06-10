@@ -20,6 +20,7 @@ const { disconnectUserSockets } = require('../utils/socketUtils');
 const { getRequestContext } = require('../utils/securityLogger');
 const accountLockoutService = require('../services/accountLockoutService');
 const securityCounters = require('../services/security/securityCountersService');
+const notificationService = require('../services/notificationService');
 
 const pendingTeacherFilterMappings = {
   search: { type: 'search', fields: ['name', 'email'] }
@@ -111,6 +112,26 @@ const approveTeacher = async (req, res) => {
     approvedEmail: target.email,
     approvedBy: req.user?._id
   });
+
+  // Notificar al docente que su cuenta fue aprobada. Fire-and-forget como los
+  // demás triggers de notificación en rutas HTTP (registration_pending en
+  // authController, context_shared en gameContextController): la respuesta de
+  // aprobación —ya committeada atómicamente— NO debe acoplarse a la latencia del
+  // subsistema de notificaciones, que es best-effort por diseño (`notify` ya nunca
+  // lanza). El docente está offline (no podía loguearse pendiente) → la notif se
+  // persiste y la verá en su primer acceso; el emit realtime es no-op hasta entonces.
+  // Sin `metadata`: el destinatario no necesita el id del admin que le aprobó (la
+  // traza ya queda en el logger.info de arriba) y el DTO reenvía metadata al cliente.
+  notificationService
+    .notify({
+      userId: String(target._id),
+      type: 'account_approved',
+      title: 'Tu cuenta ha sido aprobada',
+      body: 'Ya tienes acceso completo a EduPlay. ¡Bienvenido/a! Empieza creando tu primera sesión.',
+      link: '/dashboard',
+      priority: 'info'
+    })
+    .catch(() => {});
 
   sendSuccess(res, { user: toUserDTOV1(target) }, 'Profesor aprobado exitosamente');
 };

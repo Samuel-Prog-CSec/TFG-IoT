@@ -120,6 +120,10 @@ async function getStudentDifficulties(studentId) {
       }
     },
     { $unwind: '$session' },
+    // Proyección post-lookup (paridad con getClassroomDifficulties): descarta
+    // cardMappings[]/boardLayout[]/sequencePlan[]/config{} de la sesión antes de
+    // los siguientes $lookup. Solo se usan session.contextId/mechanicId + metrics.
+    SESSION_LOOKUP_PROJECTION,
     {
       $lookup: {
         from: 'game_contexts',
@@ -665,6 +669,31 @@ const CONTEXT_LOOKUP_PROJECTION_FIELDS = {
   'context._id': 1,
   'context.name': 1,
   'context.displayName': 1
+};
+
+/**
+ * Proyección del shape de una partida en el historial del alumno (consumido por
+ * `GameHistoryTable`): score crudo, fecha, accuracy 0-100 y los nombres de
+ * contexto/mecánica. Compartido por la rama `lastGames` de `getStudentSummary`
+ * (resumen, primeras N) y por `getStudentGames` (historial paginado completo)
+ * para garantizar que ambos rinden EXACTAMENTE el mismo objeto.
+ * @readonly
+ */
+const GAME_HISTORY_ITEM_PROJECTION = {
+  $project: {
+    score: 1,
+    completedAt: 1,
+    accuracy: {
+      $cond: [
+        { $gt: ['$metrics.totalAttempts', 0] },
+        { $multiply: [{ $divide: ['$metrics.correctAttempts', '$metrics.totalAttempts'] }, 100] },
+        0
+      ]
+    },
+    context: '$context.name',
+    mechanic: '$mechanic.displayName',
+    _id: 0
+  }
 };
 
 /**
@@ -1468,31 +1497,7 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
     {
       $facet: {
         // Cada rama opera sobre los docs YA enriquecidos (sin más $lookup).
-        lastGames: [
-          { $sort: { completedAt: -1 } },
-          { $limit: 10 },
-          {
-            $project: {
-              score: 1,
-              completedAt: 1,
-              accuracy: {
-                $cond: [
-                  { $gt: ['$metrics.totalAttempts', 0] },
-                  {
-                    $multiply: [
-                      { $divide: ['$metrics.correctAttempts', '$metrics.totalAttempts'] },
-                      100
-                    ]
-                  },
-                  0
-                ]
-              },
-              context: '$context.name',
-              mechanic: '$mechanic.displayName',
-              _id: 0
-            }
-          }
-        ],
+        lastGames: [{ $sort: { completedAt: -1 } }, { $limit: 10 }, GAME_HISTORY_ITEM_PROJECTION],
         byContext: [
           {
             $group: {
@@ -1842,6 +1847,88 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
 }
 
 /**
+ * Historial COMPLETO de partidas de un alumno, paginado.
+ *
+ * Complementa `getStudentSummary.lastGames` (que solo devuelve las 10 más
+ * recientes del rango): aquí se pagina sobre TODAS las partidas completadas del
+ * alumno, sin filtro temporal, para que el docente pueda consultar la trayectoria
+ * entera desde `GameHistoryTable` («Cargar más»). Rinde el mismo shape que
+ * `lastGames` (`GAME_HISTORY_ITEM_PROJECTION`).
+ *
+ * El enriquecimiento sesión→contexto/mecánica se hace DENTRO de la rama `items`
+ * del `$facet`, DESPUÉS de `$skip`/`$limit`, de modo que el `$lookup` solo toca
+ * los documentos de la página solicitada (no la colección entera). La rama
+ * `totalCount` cuenta el total con un índice (`{playerId, status, completedAt}`).
+ *
+ * @param {string} studentId - ID del alumno
+ * @param {Object} [options]
+ * @param {number} [options.page=1] - Página (1-indexada)
+ * @param {number} [options.limit=20] - Items por página
+ * @returns {Promise<{games: Array<Object>, pagination: {page: number, limit: number, total: number, totalPages: number}}>}
+ */
+async function getStudentGames(studentId, { page = 1, limit = 20 } = {}) {
+  const studentOid = new mongoose.Types.ObjectId(studentId);
+  const skip = (page - 1) * limit;
+
+  const pipeline = [
+    { $match: { playerId: studentOid, status: 'completed' } },
+    {
+      $facet: {
+        items: [
+          { $sort: { completedAt: -1 } },
+          { $skip: skip },
+          { $limit: limit },
+          // Enriquecer solo la página (no la colección entera): lookups tras skip/limit.
+          {
+            $lookup: {
+              from: 'game_sessions',
+              localField: 'sessionId',
+              foreignField: '_id',
+              as: 'session'
+            }
+          },
+          { $unwind: { path: '$session', preserveNullAndEmptyArrays: true } },
+          {
+            $lookup: {
+              from: 'game_contexts',
+              localField: 'session.contextId',
+              foreignField: '_id',
+              as: 'context'
+            }
+          },
+          { $unwind: { path: '$context', preserveNullAndEmptyArrays: true } },
+          {
+            $lookup: {
+              from: 'game_mechanics',
+              localField: 'session.mechanicId',
+              foreignField: '_id',
+              as: 'mechanic'
+            }
+          },
+          { $unwind: { path: '$mechanic', preserveNullAndEmptyArrays: true } },
+          GAME_HISTORY_ITEM_PROJECTION
+        ],
+        totalCount: [{ $count: 'count' }]
+      }
+    }
+  ];
+
+  const [result] = await gamePlayRepository.aggregate(pipeline);
+  const games = result?.items || [];
+  const total = result?.totalCount?.[0]?.count || 0;
+
+  return {
+    games,
+    pagination: {
+      page,
+      limit,
+      total,
+      totalPages: Math.max(1, Math.ceil(total / limit))
+    }
+  };
+}
+
+/**
  * Mapa de calor de actividad (partidas por día de la semana y hora).
  *
  * @param {string} teacherId - ID del profesor
@@ -2098,6 +2185,7 @@ module.exports = {
   getClassroomDistribution,
   getClassroomTrends,
   getStudentSummary,
+  getStudentGames,
   getClassroomHeatmap,
   getTopContextsAndMechanics,
   // Helper de scope por profesor (cacheado 300s, invalidado por gameSessionService).

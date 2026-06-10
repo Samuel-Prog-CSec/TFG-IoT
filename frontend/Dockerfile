@@ -45,6 +45,12 @@ COPY --from=builder /app/dist /usr/share/nginx/html
 # Archivo nginx.conf personalizado (server block + locations)
 COPY nginx.conf /etc/nginx/conf.d/default.conf
 
+# Snippet DRY de cabeceras de seguridad. Va en `snippets/` (NO en `conf.d/`,
+# que el image base auto-incluye en el bloque http) porque contiene directivas
+# `add_header` válidas solo en contexto server/location; se incluye explícitamente
+# desde nginx.conf en el server y en la location de assets.
+COPY security-headers.conf /etc/nginx/snippets/security-headers.conf
+
 # T-905 B4: zones globales (limit_req_zone) que requieren contexto http.
 # Se copia con prefijo `00-` para garantizar carga ANTES de default.conf.
 COPY nginx-zones.conf /etc/nginx/conf.d/00-zones.conf

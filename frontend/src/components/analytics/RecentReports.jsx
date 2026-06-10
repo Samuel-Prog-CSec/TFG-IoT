@@ -149,8 +149,14 @@ ReportRow.propTypes = {
 /**
  * Lista de informes recientes.
  */
-function RecentReports({ reports, loading, onOpen, onDelete, error }) {
+function RecentReports({ reports, loading, onOpen, onDelete, error, hasMore, loadingMore, onLoadMore, total }) {
   const count = reports?.length || 0;
+  // `total` (del backend) puede superar a los cargados cuando hay paginación;
+  // mostramos «N de M» para que el docente sepa que existen más informes que los
+  // visibles, en vez de creer que `count` es el total (eran ≤20 por el cap previo).
+  const totalLabel = typeof total === 'number' && total > count ? `${count} de ${total}` : `${count}`;
+  const totalForNoun = typeof total === 'number' ? total : count;
+  const noun = totalForNoun === 1 ? 'informe' : 'informes';
 
   return (
     <GlassCard variant="default">
@@ -165,7 +171,7 @@ function RecentReports({ reports, loading, onOpen, onDelete, error }) {
         </div>
         {!loading && count > 0 && (
           <span className="text-xs text-text-muted tabular-nums">
-            {count} {count === 1 ? 'informe' : 'informes'}
+            {totalLabel} {noun}
           </span>
         )}
       </div>
@@ -218,6 +224,19 @@ function RecentReports({ reports, loading, onOpen, onDelete, error }) {
           </AnimatePresence>
         </ul>
       )}
+
+      {!loading && hasMore && (
+        <div className="mt-4 flex justify-center">
+          <button
+            type="button"
+            onClick={onLoadMore}
+            disabled={loadingMore}
+            className="px-4 py-2 text-sm font-medium rounded-xl border border-border-default bg-background-elevated/60 text-text-secondary hover:text-text-primary hover:border-border-strong transition-colors disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base"
+          >
+            {loadingMore ? 'Cargando…' : 'Cargar más informes'}
+          </button>
+        </div>
+      )}
     </GlassCard>
   );
 }
@@ -227,7 +246,11 @@ RecentReports.propTypes = {
   loading: PropTypes.bool,
   onOpen: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
-  error: PropTypes.string
+  error: PropTypes.string,
+  hasMore: PropTypes.bool,
+  loadingMore: PropTypes.bool,
+  onLoadMore: PropTypes.func,
+  total: PropTypes.number
 };
 
 export default memo(RecentReports);

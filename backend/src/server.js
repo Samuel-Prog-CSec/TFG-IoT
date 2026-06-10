@@ -484,6 +484,20 @@ const startServer = async () => {
         });
       }
 
+      // Puente de notificaciones en tiempo real: el proceso HTTP (este, con io)
+      // se suscribe para re-emitir por socket las notificaciones que el worker
+      // (sin io) publica — alertas inteligentes y system-alerts del cron.
+      try {
+        const {
+          startNotificationEmitSubscriber
+        } = require('./realtime/notificationEmitSubscriber');
+        await startNotificationEmitSubscriber();
+      } catch (subErr) {
+        logger.warn('notificationEmitSubscriber: no se pudo iniciar', {
+          error: subErr.message
+        });
+      }
+
       // Hardening pub/sub: re-suscribir ambos subscribers tras una reconexión de
       // Redis. Sus clientes se anulan en el evento 'end' (cierre permanente) y no
       // se recrean solos; sin esto, tras un blip que cierre el cliente subscriber,
@@ -495,9 +509,13 @@ const startServer = async () => {
         const { onReconnect } = require('./config/redis');
         const { startRfidModeSubscriber } = require('./realtime/rfidModeSubscriber');
         const { startCacheInvalidateSubscriber } = require('./realtime/cacheInvalidateSubscriber');
+        const {
+          startNotificationEmitSubscriber
+        } = require('./realtime/notificationEmitSubscriber');
         onReconnect(async () => {
           await startRfidModeSubscriber();
           await startCacheInvalidateSubscriber();
+          await startNotificationEmitSubscriber();
         });
       } catch (reErr) {
         logger.warn('No se pudo registrar re-suscripción pub/sub en onReconnect', {
@@ -665,6 +683,14 @@ const gracefulShutdown = async signal => {
       await stopCacheInvalidateSubscriber();
     } catch (subErr) {
       logger.warn('cacheInvalidateSubscriber: error al cerrar', { error: subErr.message });
+    }
+
+    // 6a-ter. Cerrar el subscriber del puente de notificaciones en tiempo real.
+    try {
+      const { stopNotificationEmitSubscriber } = require('./realtime/notificationEmitSubscriber');
+      await stopNotificationEmitSubscriber();
+    } catch (subErr) {
+      logger.warn('notificationEmitSubscriber: error al cerrar', { error: subErr.message });
     }
 
     // 6b. Cerrar el server de Socket.IO. Espera a que los sockets cuelguen.

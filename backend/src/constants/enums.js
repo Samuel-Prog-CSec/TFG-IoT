@@ -107,13 +107,24 @@ const SEQUENCE_CARD_STATUS = Object.freeze(['correct', 'blocked', 'timedOut']);
  * - `student_at_risk`: alertService detecta drop de rendimiento → notif al docente del alumno.
  * - `context_shared`: super_admin publica un contexto/asset compartido → notif a docentes.
  * - `system_announcement`: anuncio del sistema (mantenimiento, despliegue). Service-only en v1.
+ * - `account_approved`: el super_admin aprueba la cuenta de un docente → notif al docente
+ *   (la ve en su primer acceso, ya que estando pendiente no podía iniciar sesión).
+ * - `system_alert_critical`: alerta crítica del sistema escalada → notif al super_admin.
  */
 const NOTIFICATION_TYPES = Object.freeze([
   'play_completed',
   'registration_pending',
   'student_at_risk',
   'context_shared',
-  'system_announcement'
+  'system_announcement',
+  // Cuenta de docente aprobada por el super_admin → notif al docente. Se persiste
+  // estando offline (no podía loguearse pendiente) y la ve al entrar por primera vez.
+  'account_approved',
+  // Alerta crítica del sistema escalada → notif al super_admin (emitida por
+  // systemAlertDetectionService.emitCriticalSystemNotification). Sin este valor,
+  // `Notification.create` lanzaba ValidationError, `notify()` lo tragaba, y NINGÚN
+  // super_admin recibía aviso de alertas críticas del sistema (fuga silenciosa).
+  'system_alert_critical'
 ]);
 
 /** Prioridad visual y de orden de la notificación. */

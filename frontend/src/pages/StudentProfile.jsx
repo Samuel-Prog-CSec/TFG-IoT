@@ -54,6 +54,9 @@ const getActivityColor = (dateStr) => {
 
 const STUDENT_PROFILE_STAT_KEYS = ['stat-a', 'stat-b', 'stat-c', 'stat-d', 'stat-e', 'stat-f'];
 
+// Tamaño de página del historial completo de partidas (endpoint paginado).
+const GAMES_PAGE_SIZE = 20;
+
 const getInitials = (name) => {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);
@@ -81,6 +84,13 @@ export default function StudentProfile() {
   const [error, setError] = useState(null);
   const [analyticsDisabled, setAnalyticsDisabled] = useState(false);
   const abortRef = useRef(null);
+
+  // Historial COMPLETO de partidas, paginado e independiente del timeRange
+  // (a diferencia de summary.lastGames, cap 10 y filtrado por rango).
+  const [games, setGames] = useState([]);
+  const [gamesPagination, setGamesPagination] = useState({ page: 1, total: 0, totalPages: 1 });
+  const [gamesLoadingMore, setGamesLoadingMore] = useState(false);
+  const gamesAbortRef = useRef(null);
 
   const fetchData = useCallback(() => {
     abortRef.current?.abort();
@@ -136,6 +146,52 @@ export default function StudentProfile() {
   }, [fetchData]);
 
   useRefetchOnFocus({ refetch: fetchData, isLoading: loading, hasData: Boolean(summary), hasError: Boolean(error) });
+
+  // Primera página del historial completo. Atada a `studentId` (no a `timeRange`):
+  // el historial no se filtra por rango, así que cambiar el selector no lo reinicia.
+  useEffect(() => {
+    if (!studentId) return undefined;
+    gamesAbortRef.current?.abort();
+    const controller = new AbortController();
+    gamesAbortRef.current = controller;
+    (async () => {
+      try {
+        const data = await analyticsService.getStudentGames(
+          studentId, { page: 1, limit: GAMES_PAGE_SIZE }, { signal: controller.signal }
+        );
+        if (controller.signal.aborted) return;
+        setGames(Array.isArray(data?.games) ? data.games : []);
+        setGamesPagination(data?.pagination || { page: 1, total: 0, totalPages: 1 });
+      } catch (err) {
+        if (isAbortError(err)) return;
+        // Silencioso: el historial es secundario; summary.lastGames sirve de fallback.
+      }
+    })();
+    return () => controller.abort();
+  }, [studentId]);
+
+  const loadMoreGames = useCallback(async () => {
+    if (gamesLoadingMore || gamesPagination.page >= gamesPagination.totalPages) return;
+    const nextPage = gamesPagination.page + 1;
+    setGamesLoadingMore(true);
+    try {
+      const data = await analyticsService.getStudentGames(studentId, {
+        page: nextPage,
+        limit: GAMES_PAGE_SIZE
+      });
+      const more = Array.isArray(data?.games) ? data.games : [];
+      // Dedupe defensivo por gameplayId/_id (un borrado entre páginas podría solapar).
+      setGames((prev) => {
+        const seen = new Set(prev.map((g) => g.gameplayId || g._id || `${g.completedAt}-${g.score}`));
+        return [...prev, ...more.filter((g) => !seen.has(g.gameplayId || g._id || `${g.completedAt}-${g.score}`))];
+      });
+      setGamesPagination(data?.pagination || { ...gamesPagination, page: nextPage });
+    } catch (err) {
+      captureException(err);
+    } finally {
+      setGamesLoadingMore(false);
+    }
+  }, [studentId, gamesLoadingMore, gamesPagination]);
 
   const student = summary?.student;
   const metrics = student?.studentMetrics || {};
@@ -462,7 +518,13 @@ export default function StudentProfile() {
 
       {/* ═══════ Historial de Partidas ═══════ */}
       <ScrollRevealSection delay={0.15}>
-        <GameHistoryTable games={summary?.lastGames} />
+        <GameHistoryTable
+          games={games.length > 0 ? games : summary?.lastGames}
+          onLoadMore={loadMoreGames}
+          hasMore={gamesPagination.page < gamesPagination.totalPages}
+          loadingMore={gamesLoadingMore}
+          total={gamesPagination.total}
+        />
       </ScrollRevealSection>
       </ChartErrorBoundary>
     </motion.section>

@@ -487,7 +487,7 @@ export default function StudentManagement() {
     setLoading(true);
     setError(null);
     try {
-      const [studentsRes, teachersRes] = await Promise.all([
+      const [studentsRes, allTeachers] = await Promise.all([
         usersAPI.getUsers(
           {
             role: 'student',
@@ -497,14 +497,34 @@ export default function StudentManagement() {
           },
           { signal }
         ),
-        usersAPI.getUsers({ role: 'teacher', status: 'active', limit: 100 }, { signal })
+        // Cargar TODOS los profesores activos paginando hasta agotar (el backend
+        // capa a 100/página). Antes se pedía UNA sola página de 100 → con >100
+        // profesores activos el resto no aparecía en el selector y no se les
+        // podía asignar alumnos. SelectPremium ya filtra client-side, así que
+        // basta con tener la lista completa para que la búsqueda los encuentre.
+        (async () => {
+          const TEACHERS_PAGE_SIZE = 100;
+          const collected = [];
+          let tPage = 1;
+          let tTotalPages = 1;
+          do {
+            const res = await usersAPI.getUsers(
+              { role: 'teacher', status: 'active', page: tPage, limit: TEACHERS_PAGE_SIZE },
+              { signal }
+            );
+            const body = res.data;
+            if (Array.isArray(body.data)) collected.push(...body.data);
+            tTotalPages = body.pagination?.totalPages || 1;
+            tPage += 1;
+          } while (tPage <= tTotalPages);
+          return collected;
+        })()
       ]);
 
       const studentsData = studentsRes.data;
-      const teachersData = teachersRes.data;
 
       setStudents(Array.isArray(studentsData.data) ? studentsData.data : []);
-      setTeachers(Array.isArray(teachersData.data) ? teachersData.data : []);
+      setTeachers(allTeachers);
       
       setPagination(prev => ({
         ...prev,

@@ -164,9 +164,11 @@ function buildChecklist(reportType, format) {
 }
 
 function buildPeriodCopy(period) {
-  if (period === '7d') return 'la última semana';
-  if (period === '90d') return 'los últimos 3 meses';
-  return 'el último mes';
+  // Incluye la preposición para resolver la contracción «a + el» = «al» en el
+  // caso de 30 días («Adaptado a el último mes» era incorrecto → «al último mes»).
+  if (period === '7d') return 'a la última semana';
+  if (period === '90d') return 'a los últimos 3 meses';
+  return 'al último mes';
 }
 
 // ─────────────────────────────────────────────────────────────
@@ -218,7 +220,7 @@ function ReportPreviewSidebar({ reportType, period, format }) {
       </div>
 
       <p className="mt-3 text-micro text-text-muted italic">
-        Adaptado a {periodCopy}.
+        Adaptado {periodCopy}.
       </p>
     </GlassCard>
   );

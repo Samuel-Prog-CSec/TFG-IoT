@@ -69,11 +69,19 @@ class RecoveryAfterDropDetector extends AlertDetector {
         continue;
       }
 
+      // Copy coherente con `data.daysSinceRecovery` (sin el +1 previo, que además
+      // producía "hace 1 días" sin pluralizar). 0 días = mismo día → "hoy".
+      const dayWord = daysSinceRecovery === 1 ? 'día' : 'días';
+      const recoveryCopy =
+        daysSinceRecovery === 0
+          ? 'Se ha recuperado del bache hoy'
+          : `Se ha recuperado del bache hace ${daysSinceRecovery} ${dayWord}`;
+
       findings.push({
         studentId: sid,
         type: this.type,
         severity: 'info',
-        description: `Se ha recuperado del bache de hace ${daysSinceRecovery + 1} días`,
+        description: recoveryCopy,
         recommendation: 'Reforzar positivamente — el alumno ha vuelto a su línea base',
         detectedAt: new Date(resolvedAlert.resolvedAt),
         data: {

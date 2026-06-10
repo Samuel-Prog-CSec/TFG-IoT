@@ -128,6 +128,93 @@ describe('alertDetectionService — runForTeacher lifecycle', () => {
     expect(alerts[0].severityHistory[0].reason).toBe('initial');
   });
 
+  it('RGPD Art.21: NO genera alertas para un alumno sin consentimiento de performance_analytics', async () => {
+    // Alumno con consentimiento SOLO para educational_tracking (sin analytics) y
+    // sin withdrawnAt: el filtro débil previo (solo withdrawnAt) lo dejaba pasar.
+    const noAnalyticsId = new mongoose.Types.ObjectId();
+    await User.create({
+      _id: noAnalyticsId,
+      name: 'Alumno Sin Analytics',
+      role: 'student',
+      status: 'active',
+      createdBy: teacherId,
+      consent: {
+        granted: true,
+        grantedAt: new Date(),
+        grantedBy: 'Tutor test',
+        purposes: ['educational_tracking'], // SIN performance_analytics
+        withdrawnAt: null
+      },
+      studentMetrics: { lastPlayedAt: NOW, averageScore: 40, totalGamesPlayed: 5 }
+    });
+
+    mockDetectors([
+      {
+        studentId: noAnalyticsId.toString(),
+        type: 'declining_performance',
+        severity: 'warning',
+        description: 'Caída de rendimiento',
+        detectedAt: NOW,
+        data: {}
+      }
+    ]);
+
+    const result = await alertDetectionService.runForTeacher(teacherId.toString(), {
+      referenceDate: NOW
+    });
+
+    expect(result.created).toBe(0);
+    const alerts = await SmartAlert.find({ teacherId, studentId: noAnalyticsId });
+    expect(alerts).toHaveLength(0);
+  });
+
+  it('H1: una alerta snoozed re-detectada NO crea un duplicado active (respeta el snooze)', async () => {
+    // Corrida 1 — crea la alerta active.
+    mockDetectors([
+      {
+        studentId: studentAId.toString(),
+        type: 'declining_performance',
+        severity: 'warning',
+        description: 'Caída de rendimiento',
+        detectedAt: NOW,
+        data: {}
+      }
+    ]);
+    await alertDetectionService.runForTeacher(teacherId.toString(), { referenceDate: NOW });
+    restoreDetectors();
+
+    // El docente la silencia (snooze 7 días).
+    await SmartAlert.updateOne(
+      { teacherId, studentId: studentAId, type: 'declining_performance' },
+      { $set: { status: 'snoozed', snoozedUntil: new Date(NOW.getTime() + 7 * 86400000) } }
+    );
+
+    // Corrida 2 — el detector vuelve a emitir el mismo (student, type).
+    mockDetectors([
+      {
+        studentId: studentAId.toString(),
+        type: 'declining_performance',
+        severity: 'warning',
+        description: 'Sigue cayendo',
+        detectedAt: NOW,
+        data: {}
+      }
+    ]);
+    const result = await alertDetectionService.runForTeacher(teacherId.toString(), {
+      referenceDate: new Date(NOW.getTime() + 86400000)
+    });
+
+    expect(result.created).toBe(0); // NO se crea un duplicado active
+    const all = await SmartAlert.find({
+      teacherId,
+      studentId: studentAId,
+      type: 'declining_performance'
+    });
+    expect(all).toHaveLength(1); // sigue habiendo UNA sola alerta
+    expect(all[0].status).toBe('snoozed'); // el snooze se respeta
+    expect(all[0].occurrencesCount).toBeGreaterThanOrEqual(2); // pero se refrescó el conteo
+  });
+
   it('actualiza lastSeenAt+occurrencesCount cuando el mismo finding se re-detecta (dedup)', async () => {
     // Corrida 1 — crea la alerta
     mockDetectors([

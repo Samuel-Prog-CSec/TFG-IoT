@@ -52,30 +52,39 @@ function ActivityHeatmap({ data }) {
   const { grid, maxValue } = useMemo(() => {
     if (!data) return { grid: null, maxValue: 0 };
 
-    let gridData = [];
-    let max = 0;
+    let gridData = Array.from({ length: 7 }, () => Array(24).fill(0));
 
     // Soportar ambos formatos de respuesta del backend
     if (Array.isArray(data.heatmap) && Array.isArray(data.heatmap[0])) {
-      // Formato matriz: heatmap[day][hour] = count
+      // Formato matriz: heatmap[day][hour] = count (día ya en orden Lunes-first)
       gridData = data.heatmap;
-      for (const row of gridData) {
-        for (const val of row) {
-          if (val > max) max = val;
-        }
-      }
     } else if (Array.isArray(data.heatmap) || Array.isArray(data.data || data)) {
       // Formato flat: [{day, hour, count}] o [{dayOfWeek, hour, count}]
       const flat = Array.isArray(data.heatmap) ? data.heatmap : (data.data || data);
-      gridData = Array.from({ length: 7 }, () => Array(24).fill(0));
       for (const item of flat) {
-        const d = item.day ?? item.dayOfWeek;
+        const rawD = item.day ?? item.dayOfWeek;
         const h = item.hour;
         const c = item.count ?? item.games ?? 0;
-        if (d != null && h != null) {
-          gridData[d][h] = c;
-          if (c > max) max = c;
+        if (rawD != null && h != null) {
+          // El backend emite 0=Domingo … 6=Sábado ($dayOfWeek-1). DAYS es
+          // Lunes-first, así que reindexamos a 0=Lunes … 6=Domingo con
+          // (rawD + 6) % 7 para que cada columna de actividad caiga bajo su
+          // día real (antes se desplazaba un día: domingo aparecía como lunes).
+          const d = (rawD + 6) % 7;
+          if (gridData[d]) gridData[d][h] = c;
         }
+      }
+    }
+
+    // Máximo sobre las horas REALMENTE visibles (HOURS, 8-18h) para que la escala
+    // de color y el pico anunciado sean coherentes con lo que se pinta. Antes el
+    // máximo salía de las 24h: un pico fuera de 8-18h (no dibujado) aplanaba todas
+    // las celdas visibles y el resumen accesible podía anunciar una hora invisible.
+    let max = 0;
+    for (let d = 0; d < gridData.length; d++) {
+      for (const h of HOURS) {
+        const v = gridData[d]?.[h] || 0;
+        if (v > max) max = v;
       }
     }
 
@@ -101,9 +110,11 @@ function ActivityHeatmap({ data }) {
     let peakDay = -1;
     let peakHour = -1;
     let total = 0;
+    // Solo horas visibles (HOURS): el total y el pico anunciados al lector de
+    // pantalla deben corresponder a celdas realmente pintadas.
     for (let d = 0; d < grid.length; d++) {
-      for (let h = 0; h < (grid[d] || []).length; h++) {
-        const v = grid[d][h] || 0;
+      for (const h of HOURS) {
+        const v = grid[d]?.[h] || 0;
         total += v;
         if (v === maxValue) {
           peakDay = d;

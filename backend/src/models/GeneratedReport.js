@@ -107,6 +107,11 @@ GeneratedReportSchema.index({ generatedAt: 1 }, { expireAfterSeconds: 60 * 60 * 
 // Índice para el listado paginado del docente (ordenado por generatedAt desc).
 GeneratedReportSchema.index({ teacherId: 1, generatedAt: -1 });
 
+// Índice para el borrado en cascada RGPD (Art. 17): `userService.hardDeleteStudent`
+// ejecuta `GeneratedReport.deleteMany({ studentId })`. Sin él, era un collection scan
+// (acotado por TTL 30d + cap 100/teacher, pero evitable con un índice trivial).
+GeneratedReportSchema.index({ studentId: 1 });
+
 /**
  * Tope de informes persistidos por docente. Más allá de esto se sacrifica
  * el más antiguo en el siguiente guardado (drop-oldest).

@@ -19,6 +19,7 @@ const {
   classroomTrendsQuerySchema,
   classroomComparisonQuerySchema,
   studentSummaryQuerySchema,
+  studentGamesQuerySchema,
   classroomHeatmapQuerySchema,
   classroomRankingsQuerySchema,
   // Schemas avanzados (Analytics Expansion)
@@ -280,6 +281,18 @@ router.get(
   validateParams(analyticsStudentParamsSchema),
   validateQuery(studentSummaryQuerySchema),
   asyncHandler(analyticsController.getStudentSummary)
+);
+
+/**
+ * @route   GET /api/analytics/student/:id/games
+ * @desc    Historial completo de partidas del alumno, paginado («Cargar más»)
+ * @access  Private (Teacher propietario / Super Admin)
+ */
+router.get(
+  '/student/:id/games',
+  validateParams(analyticsStudentParamsSchema),
+  validateQuery(studentGamesQuerySchema),
+  asyncHandler(analyticsController.getStudentGames)
 );
 
 // ──────────────── Resolución de identidad seudonimizada (T-703) ────────────────

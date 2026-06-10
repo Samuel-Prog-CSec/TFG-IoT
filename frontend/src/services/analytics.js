@@ -194,6 +194,22 @@ const analyticsService = {
   },
 
   /**
+   * Historial COMPLETO de partidas del alumno, paginado («Cargar más»).
+   * Complementa `summary.lastGames` (cap 10): aquí se accede a la trayectoria entera.
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: page, limit
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<{games: Array<Object>, pagination: {page:number, limit:number, total:number, totalPages:number}}>}
+   */
+  getStudentGames: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/student/${studentId}/games`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
    * Obtiene la trayectoria de aprendizaje con tendencia calculada (mejorando/estable/declinando).
    * @param {string} studentId - ID del estudiante
    * @param {Object} [params] - Query params: timeRange (7d/30d/90d), granularity (daily/weekly/monthly)

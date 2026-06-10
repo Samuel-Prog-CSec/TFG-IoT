@@ -334,6 +334,35 @@ exports.getStudentSummary = async (req, res) => {
 };
 
 /**
+ * Historial completo de partidas de un alumno, paginado.
+ * Complementa `lastGames` del summary (cap 10) para acceder a la trayectoria
+ * entera desde `GameHistoryTable` («Cargar más»). Misma autorización/consent/audit.
+ * @route GET /api/analytics/student/:id/games
+ */
+exports.getStudentGames = async (req, res) => {
+  const { id } = req.params;
+  const { page, limit } = req.query;
+
+  await ensureStudentBelongsToTeacher(id, req.user, userRepository);
+  await consentService.requireConsent(id, 'performance_analytics');
+
+  // Audit trail — Art. 5.2 RGPD (accountability)
+  logSecurityEvent('DATA_ACCESS', {
+    ...getRequestContext(req),
+    studentPseudoId: pseudonymize(id),
+    endpoint: 'student/games'
+  });
+
+  const data = await cacheGet(
+    'cache:analytics',
+    `student:games:${id}:${page}:${limit}`,
+    async () => analyticsService.getStudentGames(id, { page, limit }),
+    120
+  );
+  sendSuccess(res, data);
+};
+
+/**
  * Mapa de calor de actividad.
  * @route GET /api/analytics/classroom/heatmap
  */

@@ -42,6 +42,11 @@ class SuddenScoreDropDetector extends AlertDetector {
         }
       },
       { $sort: { completedAt: -1 } },
+      // Reducir el documento a los 4 campos que consume el detector ANTES del
+      // `$group { $first: '$$ROOT' }`: sin esto, `$$ROOT` arrastraba el array
+      // `events[]` (hasta 500 sub-docs) de la última partida de cada alumno por
+      // el pipeline, egress evitable en el cron de detección.
+      { $project: { playerId: 1, score: 1, maxScore: 1, completedAt: 1 } },
       { $group: { _id: '$playerId', lastGame: { $first: '$$ROOT' } } }
     ];
 

@@ -622,6 +622,72 @@ describe('Analytics Endpoints (T-601)', () => {
       }
     });
 
+    it('student games: pagina el historial completo con el mismo shape que lastGames', async () => {
+      const studentId = students[0]._id.toString(); // 3 partidas completadas
+      const res = await request(app)
+        .get(`/api/analytics/student/${studentId}/games?page=1&limit=2`)
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(Array.isArray(res.body.data.games)).toBe(true);
+      expect(res.body.data.games.length).toBe(2);
+      expect(res.body.data.pagination).toMatchObject({
+        page: 1,
+        limit: 2,
+        total: 3,
+        totalPages: 2
+      });
+
+      const game = res.body.data.games[0];
+      expect(game).toHaveProperty('score');
+      expect(game).toHaveProperty('completedAt');
+      expect(game).toHaveProperty('accuracy');
+      expect(game).toHaveProperty('context');
+      expect(game).toHaveProperty('mechanic');
+    });
+
+    it('student games: la segunda página devuelve el resto (acceso al historial completo)', async () => {
+      const studentId = students[0]._id.toString();
+      const res = await request(app)
+        .get(`/api/analytics/student/${studentId}/games?page=2&limit=2`)
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.games.length).toBe(1);
+      expect(res.body.data.pagination.page).toBe(2);
+    });
+
+    it('student games: orden descendente por completedAt', async () => {
+      const studentId = students[0]._id.toString();
+      const res = await request(app)
+        .get(`/api/analytics/student/${studentId}/games?limit=50`)
+        .set(makeAuthHeaders(token));
+
+      const times = res.body.data.games.map(g => new Date(g.completedAt).getTime());
+      expect(times).toEqual([...times].sort((a, b) => b - a));
+    });
+
+    it('student games: alumno sin partidas → lista vacía y total 0', async () => {
+      const studentId = students[4]._id.toString(); // Alumno Nuevo, 0 partidas
+      const res = await request(app)
+        .get(`/api/analytics/student/${studentId}/games`)
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(200);
+      expect(res.body.data.games).toEqual([]);
+      expect(res.body.data.pagination.total).toBe(0);
+      expect(res.body.data.pagination.totalPages).toBe(1);
+    });
+
+    it('student games: limit fuera de rango (>50) es rechazado por validación', async () => {
+      const studentId = students[0]._id.toString();
+      const res = await request(app)
+        .get(`/api/analytics/student/${studentId}/games?limit=999`)
+        .set(makeAuthHeaders(token));
+
+      expect(res.statusCode).toBe(400);
+    });
+
     it('student summary: classComparison incluye la diferencia', async () => {
       const studentId = students[0]._id.toString();
       const res = await request(app)

@@ -66,6 +66,10 @@ class MechanicSpecificStruggleDetector extends AlertDetector {
         }
       },
       { $unwind: '$session' },
+      // Excluir mecánicas custom sin tipo estándar (mechanicType:null, ADR-193):
+      // agruparlas todas bajo la clave null mezclaría mecánicas heterogéneas y
+      // produciría un bucket "null" engañoso en el cálculo fuerte-vs-débil.
+      { $match: { 'session.mechanicType': { $ne: null } } },
       {
         $group: {
           _id: { playerId: '$playerId', mechanicName: '$session.mechanicType' },

@@ -14,7 +14,16 @@
 import PropTypes from 'prop-types';
 import { m as motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { Trophy, UserPlus, AlertTriangle, Layers, Megaphone, Bell } from 'lucide-react';
+import {
+  Trophy,
+  UserPlus,
+  UserCheck,
+  AlertTriangle,
+  Layers,
+  Megaphone,
+  ShieldAlert,
+  Bell
+} from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useRelativeTime } from '../../hooks/useRelativeTime';
 
@@ -47,6 +56,19 @@ const TYPE_VISUALS = {
     Icon: Megaphone,
     iconBg: 'bg-accent-cyan/15',
     iconText: 'text-accent-cyan'
+  },
+  // Cuenta de docente aprobada — evento positivo de bienvenida (tinte success).
+  account_approved: {
+    Icon: UserCheck,
+    iconBg: 'bg-success-base/15',
+    iconText: 'text-success-base'
+  },
+  // Alerta crítica del sistema (super_admin). Visual de máxima severidad para
+  // distinguirla del fallback gris (campana) — C1, antes caía al FALLBACK_VISUAL.
+  system_alert_critical: {
+    Icon: ShieldAlert,
+    iconBg: 'bg-error-base/15',
+    iconText: 'text-error-base'
   }
 };
 

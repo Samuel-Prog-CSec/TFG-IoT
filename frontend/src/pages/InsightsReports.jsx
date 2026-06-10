@@ -804,6 +804,17 @@ function AlertsTabContent({ initialAlerts, loading: initialLoading, error, onRet
     fetchForStatus(statusFilter);
   }, [statusFilter, fetchForStatus]);
 
+  // Tiempo real: refrescar la lista cuando llega una alerta nueva (mismo evento
+  // `smartalert:created` que dispara useNotifications al recibir el push y que ya
+  // escucha el Dashboard). Antes el tab de Insights NO se auto-refrescaba: una
+  // alerta nueva solo aparecía al recargar o cambiar de filtro.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = () => fetchForStatus(statusFilter);
+    window.addEventListener('smartalert:created', handler);
+    return () => window.removeEventListener('smartalert:created', handler);
+  }, [statusFilter, fetchForStatus]);
+
   if (error) {
     return <ErrorState title="Error al cargar alertas" message={error} onRetry={onRetry} />;
   }
@@ -854,6 +865,13 @@ function ReportsTabContent({ shouldReduceMotion }) {
   const [recentReports, setRecentReports] = useState([]);
   const [recentLoading, setRecentLoading] = useState(true);
   const [recentError, setRecentError] = useState(null);
+  // Paginación de informes recientes. El backend persiste hasta 100 por docente y
+  // pagina por página (`{ page, total, totalPages }`); antes solo se pedía la
+  // página 1 (≤20) y el resto quedaba INACCESIBLE. Acumulamos páginas con
+  // "Cargar más" (mismo patrón que el tab de Alertas).
+  const RECENT_PAGE_SIZE = 20;
+  const [recentPagination, setRecentPagination] = useState({ page: 1, total: 0, totalPages: 1 });
+  const [loadingMoreRecent, setLoadingMoreRecent] = useState(false);
 
   const [appliedDefaults, setAppliedDefaults] = useState(null);
   const [previewMeta, setPreviewMeta] = useState({
@@ -895,11 +913,12 @@ function ReportsTabContent({ shouldReduceMotion }) {
       try {
         setRecentLoading(true);
         setRecentError(null);
-        const data = await reportsService.getRecent({ page: 1, limit: 20 }, {
+        const data = await reportsService.getRecent({ page: 1, limit: RECENT_PAGE_SIZE }, {
           signal: recController.signal
         });
         const items = data?.items || data || [];
         setRecentReports(Array.isArray(items) ? items : []);
+        setRecentPagination(data?.pagination || { page: 1, total: items.length, totalPages: 1 });
       } catch (err) {
         if (isAbortError(err)) return;
         captureException(err);
@@ -921,9 +940,10 @@ function ReportsTabContent({ shouldReduceMotion }) {
   const refetchRecent = useCallback(async () => {
     try {
       setRecentLoading(true);
-      const data = await reportsService.getRecent({ page: 1, limit: 20 });
+      const data = await reportsService.getRecent({ page: 1, limit: RECENT_PAGE_SIZE });
       const items = data?.items || data || [];
       setRecentReports(Array.isArray(items) ? items : []);
+      setRecentPagination(data?.pagination || { page: 1, total: items.length, totalPages: 1 });
     } catch (err) {
       captureException(err);
       setRecentError('No se pudieron actualizar los informes recientes.');
@@ -931,6 +951,30 @@ function ReportsTabContent({ shouldReduceMotion }) {
       setRecentLoading(false);
     }
   }, []);
+
+  // "Cargar más": pide la siguiente página y la añade a la lista (sin re-pedir las
+  // ya cargadas). Si el delete deja la página actual incompleta, el total/totalPages
+  // de la siguiente respuesta corrige el `hasMore`.
+  const loadMoreRecent = useCallback(async () => {
+    if (loadingMoreRecent || recentPagination.page >= recentPagination.totalPages) return;
+    const nextPage = recentPagination.page + 1;
+    setLoadingMoreRecent(true);
+    try {
+      const data = await reportsService.getRecent({ page: nextPage, limit: RECENT_PAGE_SIZE });
+      const items = data?.items || [];
+      // Dedupe defensivo por _id: si se borró un informe entre páginas, el skip
+      // podría solapar y repetir un item; el Set evita keys duplicadas en React.
+      setRecentReports((prev) => {
+        const seen = new Set(prev.map((r) => r._id));
+        return [...prev, ...items.filter((r) => !seen.has(r._id))];
+      });
+      setRecentPagination(data?.pagination || { ...recentPagination, page: nextPage });
+    } catch (err) {
+      captureException(err);
+    } finally {
+      setLoadingMoreRecent(false);
+    }
+  }, [loadingMoreRecent, recentPagination]);
 
   const handleApplyTemplate = useCallback((template) => {
     if (!template) return;
@@ -1076,6 +1120,10 @@ function ReportsTabContent({ shouldReduceMotion }) {
           error={recentError}
           onOpen={handleOpenReport}
           onDelete={handleDeleteReport}
+          total={recentPagination.total}
+          hasMore={recentPagination.page < recentPagination.totalPages}
+          loadingMore={loadingMoreRecent}
+          onLoadMore={loadMoreRecent}
         />
       </section>
     </div>

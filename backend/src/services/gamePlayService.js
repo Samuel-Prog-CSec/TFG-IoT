@@ -519,16 +519,24 @@ async function getPlayStatsBySessionIds(sessionIds) {
 
   const playStatsAgg = await gamePlayRepository.aggregate([
     { $match: { sessionId: { $in: sessionIds }, status: 'completed' } },
-    { $sort: { completedAt: -1 } },
     {
       $group: {
         _id: '$sessionId',
         playsCount: { $sum: 1 },
         averageScore: { $avg: '$score' },
         lastPlayedAt: { $max: '$completedAt' },
-        // Toma las primeras 7 entradas tras el sort desc → últimas 7 partidas.
+        // $topN (Mongo 5.2+) acota la acumulación a las 7 partidas más recientes
+        // DESDE EL PRINCIPIO. La versión previa hacía un `$sort` global del set
+        // completo + `$push` de cada partida del grupo + `$slice 7` posterior:
+        // en sesiones con cientos de partidas, el array intermedio crecía con el
+        // grupo entero aunque la salida fuesen 7. `$topN` ordena internamente
+        // (su `sortBy`), así que además elimina el `$sort` previo del set completo.
         recentScoresDesc: {
-          $push: { score: '$score', completedAt: '$completedAt' }
+          $topN: {
+            n: 7,
+            sortBy: { completedAt: -1 },
+            output: { score: '$score', completedAt: '$completedAt' }
+          }
         }
       }
     },
@@ -537,10 +545,8 @@ async function getPlayStatsBySessionIds(sessionIds) {
         playsCount: 1,
         averageScore: 1,
         lastPlayedAt: 1,
-        // Limitar a 7 elementos y revertir para orden cronológico ascendente.
-        recentScores: {
-          $reverseArray: { $slice: ['$recentScoresDesc', 7] }
-        }
+        // recentScoresDesc ya viene acotado a 7 (desc) → revertir para orden asc.
+        recentScores: { $reverseArray: '$recentScoresDesc' }
       }
     }
   ]);

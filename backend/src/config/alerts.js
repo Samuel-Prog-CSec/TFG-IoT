@@ -109,7 +109,7 @@ const ALERT_TYPES = Object.freeze({
     requiresMechanic: null
   }),
 
-  // ── Específicos de Secuencia (T-923 pendiente) ──────────────────────
+  // ── Específicos de Secuencia ────────────────────────────────────────
   sequence_stagnation: Object.freeze({
     label: 'Estancamiento en Secuencia',
     description: 'El alumno no supera una longitud de secuencia tras varias partidas.',

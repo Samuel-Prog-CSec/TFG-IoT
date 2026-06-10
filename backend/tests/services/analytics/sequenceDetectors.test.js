@@ -37,7 +37,7 @@ const seedPlays = async ({
   maxScore = 100,
   metrics = {}
 }) => {
-  const base = new Date('2026-05-10T10:00:00Z').getTime();
+  const base = Date.now() - 5 * DAY;
   const docs = Array.from({ length: count }, (_, i) => ({
     sessionId: session._id,
     playerId,

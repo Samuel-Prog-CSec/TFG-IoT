@@ -100,6 +100,10 @@ const getPlays = async (req, res) => {
   // Ejecutar query con populate
   const [plays, total] = await Promise.all([
     gamePlayRepository.find(filter, {
+      // El DTO de listado (toGamePlayDTOV1) no usa `events[]` (solo el detalle lo
+      // incluye). Excluir el array — hasta 500 sub-docs por partida — evita arrastrar
+      // miles de eventos Mongo→Node por página que el DTO descarta. Proyección negativa.
+      select: '-events',
       populate: [
         { path: 'sessionId', select: 'mechanicId contextId config difficulty' },
         { path: 'playerId', select: 'name profile.age profile.classroom' }

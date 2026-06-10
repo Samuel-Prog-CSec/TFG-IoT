@@ -34,7 +34,10 @@ const getOwnerId = entity =>
  */
 const ensureResourceOwnership = (entity, userId, resourceName) => {
   if (getOwnerId(entity) !== userId.toString()) {
-    throw new ForbiddenError(`No tienes permiso para acceder a este ${resourceName}`);
+    // `recurso` (masculino, fijo) concuerda siempre con «este»; el nombre real va
+    // entre paréntesis. Antes se interpolaba el artículo + el nombre directamente
+    // («este sesión»), incorrecto en género para sustantivos femeninos.
+    throw new ForbiddenError(`No tienes permiso para acceder a este recurso (${resourceName})`);
   }
 };
 

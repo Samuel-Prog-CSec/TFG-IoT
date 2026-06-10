@@ -111,6 +111,18 @@ const studentSummaryQuerySchema = z
   .strict();
 
 /**
+ * Query params para GET /api/analytics/student/:id/games (historial paginado).
+ * `limit` se acota a 50 para que una página no degenere en una descarga masiva
+ * del historial completo de un menor (minimización + coste de agregación).
+ */
+const studentGamesQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).optional().default(1),
+    limit: z.coerce.number().int().min(1).max(50).optional().default(20)
+  })
+  .strict();
+
+/**
  * Query params para GET /api/analytics/classroom/heatmap
  *
  * QA 2026-05-30: el selector del Dashboard ofrece 90d ("Trimestre actual"), pero
@@ -321,6 +333,7 @@ module.exports = {
   classroomTrendsQuerySchema,
   classroomComparisonQuerySchema,
   studentSummaryQuerySchema,
+  studentGamesQuerySchema,
   classroomHeatmapQuerySchema,
   classroomRankingsQuerySchema,
   // Schemas avanzados

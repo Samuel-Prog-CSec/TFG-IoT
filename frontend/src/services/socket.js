@@ -112,6 +112,15 @@ class SocketService {
     this.isConnected = false;
     /** Listeners registrados en el socket de sistema */
     this.listeners = new Map();
+    /**
+     * Listeners registrados vía `on()` ANTES de que el socket de sistema exista
+     * (race del render inicial: el effect de `useNotifications` corre antes que
+     * `connect()` cree el socket). Sin esto se descartaban en silencio y las
+     * notificaciones push no llegaban en tiempo real. Se aplican en
+     * `_connectNamespace` en cuanto el socket de sistema se crea.
+     * @type {Array<{event: string, callback: Function}>}
+     */
+    this.pendingListeners = [];
     /** Listeners registrados en el socket de juego */
     this.gameListeners = new Map();
     this._wasConnected = false;
@@ -310,6 +319,17 @@ class SocketService {
       }
 
       const sock = this[prop];
+
+      // Aplicar listeners pendientes (registrados vía on() antes de que el socket
+      // de sistema existiera — race del render inicial). Solo el namespace de
+      // sistema usa on()/listeners; tras aplicarlos se vacía la cola para no
+      // re-registrarlos en reconexiones (socket.io conserva los handlers).
+      if (isSystem && this.pendingListeners.length > 0) {
+        for (const pending of this.pendingListeners) {
+          sock.on(pending.event, pending.callback);
+        }
+        this.pendingListeners = [];
+      }
       let timeoutId = null;
       let isResolved = false;
 
@@ -497,16 +517,21 @@ class SocketService {
    * @param {Function} callback - Callback a ejecutar
    */
   on(event, callback) {
-    if (!this.socket) {
-      return;
-    }
-
-    this.socket.on(event, callback);
-
+    // Registrar SIEMPRE en el tracking, aunque el socket aún no exista: así un
+    // on() llamado durante el render inicial (antes de que connect() cree el
+    // socket) NO se pierde — antes el `if (!this.socket) return` lo descartaba en
+    // silencio y los push (p. ej. notification:created) no llegaban en vivo.
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
     this.listeners.get(event).add(callback);
+
+    if (this.socket) {
+      this.socket.on(event, callback);
+    } else {
+      // Pendiente: se aplica cuando _connectNamespace cree el socket de sistema.
+      this.pendingListeners.push({ event, callback });
+    }
   }
 
   /**
@@ -515,10 +540,19 @@ class SocketService {
    * @param {Function} callback - Callback a remover (opcional, si no se pasa, remueve todos)
    */
   off(event, callback) {
-    if (!this.socket) return;
+    // Limpiar también pendientes (listeners aún no aplicados al socket): un
+    // off() durante el render inicial, antes de que el socket exista, debe
+    // poder cancelar una suscripción pendiente para no aplicarla luego.
+    if (this.pendingListeners.length > 0) {
+      this.pendingListeners = this.pendingListeners.filter(
+        p => p.event !== event || (callback && p.callback !== callback)
+      );
+    }
 
     if (callback) {
-      this.socket.off(event, callback);
+      if (this.socket) {
+        this.socket.off(event, callback);
+      }
       const callbacks = this.listeners.get(event);
       if (!callbacks) {
         return;
@@ -529,7 +563,9 @@ class SocketService {
         this.listeners.delete(event);
       }
     } else {
-      this.socket.off(event);
+      if (this.socket) {
+        this.socket.off(event);
+      }
       this.listeners.delete(event);
     }
   }

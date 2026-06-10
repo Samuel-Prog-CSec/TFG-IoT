@@ -38,9 +38,25 @@ const withTtlJitter = ttlSeconds =>
   Math.max(30, Math.floor(ttlSeconds + (Math.random() - 0.5) * ttlSeconds * 0.2));
 
 /**
+ * Mapa de promesas en vuelo para single-flight (deduplicación de misses
+ * concurrentes sobre la MISMA clave). El jitter de `withTtlJitter` desincroniza
+ * la expiración entre claves distintas, pero NO protege una clave caliente
+ * individual: cuando `teacherSessions:<id>` o un facet de analytics expira y
+ * llegan N requests del mismo dashboard en esa ventana, sin esto las N ejecutan
+ * la misma aggregation Mongo (`$lookup`+`$facet`) a la vez — el escenario que
+ * más puede degradar Atlas free-tier bajo carga concurrente. Con el inFlight,
+ * la primera calcula y las demás esperan a su promesa (single-instance basta:
+ * en multi-instancia cada réplica recalcula a lo sumo una vez, no N).
+ *
+ * @type {Map<string, Promise<*>>}
+ */
+const inFlight = new Map();
+
+/**
  * Obtiene un valor del cache o lo calcula y cachea.
- * Patrón cache-aside: busca en Redis, si no existe ejecuta fetchFn,
- * guarda el resultado en Redis y lo retorna.
+ * Patrón cache-aside con single-flight: busca en Redis, si no existe ejecuta
+ * fetchFn (coalesciendo misses concurrentes de la misma clave), guarda el
+ * resultado en Redis y lo retorna.
  *
  * Si Redis no está disponible, ejecuta fetchFn directamente (bypass transparente).
  *
@@ -72,17 +88,30 @@ const cacheGet = async (namespace, key, fetchFn, ttlSeconds) => {
   logger.debug('Cache MISS', { namespace, key });
   recordCacheLayerOutcome(namespace, 'miss');
 
-  // Fetch desde la fuente original
-  const data = await fetchFn();
+  // Single-flight: si ya hay un cálculo en vuelo para esta clave, esperar a su
+  // promesa en vez de disparar otra aggregation idéntica (anti cache stampede).
+  const flightKey = `${namespace}:${key}`;
+  const pending = inFlight.get(flightKey);
+  if (pending) {
+    return pending;
+  }
 
-  // Guardar en cache (fire-and-forget, no bloquea la respuesta).
-  // B.2: jitter ±10% sobre el TTL para evitar invalidaciones en bloque.
-  const jitteredTtl = withTtlJitter(baseTtl);
-  redisService.setWithTTL(namespace, key, JSON.stringify(data), jitteredTtl).catch(err => {
-    logger.warn('Cache: error al guardar', { namespace, key, error: err.message });
-  });
+  const promise = (async () => {
+    // Fetch desde la fuente original
+    const data = await fetchFn();
 
-  return data;
+    // Guardar en cache (fire-and-forget, no bloquea la respuesta).
+    // B.2: jitter ±10% sobre el TTL para evitar invalidaciones en bloque.
+    const jitteredTtl = withTtlJitter(baseTtl);
+    redisService.setWithTTL(namespace, key, JSON.stringify(data), jitteredTtl).catch(err => {
+      logger.warn('Cache: error al guardar', { namespace, key, error: err.message });
+    });
+
+    return data;
+  })().finally(() => inFlight.delete(flightKey));
+
+  inFlight.set(flightKey, promise);
+  return promise;
 };
 
 /**

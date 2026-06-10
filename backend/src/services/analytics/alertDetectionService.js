@@ -73,14 +73,23 @@ async function loadActiveStudentsForTeacher(teacherId) {
     {
       createdBy: toObjectId(teacherId),
       role: 'student',
-      status: 'active'
+      status: 'active',
+      // CRÍTICO RGPD (Art. 21): solo alumnos con consentimiento de
+      // `performance_analytics` ACTIVO. Misma fuente de verdad que
+      // `getAnalyticsExcludedPlayerIds` y `getClassroomExport`: el resto de
+      // analytics ya excluye a quien no consintió este propósito. Sin este filtro,
+      // las Alertas analizaban y notificaban sobre alumnos que el sistema excluye
+      // de Insights → incoherencia + tratamiento no consentido de un menor.
+      'consent.granted': true,
+      'consent.purposes': 'performance_analytics'
     },
     {
       select: 'name studentMetrics profile.classroom consent',
       lean: true
     }
   );
-  // CRÍTICO RGPD: excluir estudiantes con consentimiento retirado.
+  // Defensa adicional: excluir también consentimiento retirado a posteriori
+  // (`withdrawnAt`) por si el flag `granted` no se hubiera bajado en la retirada.
   return students.filter(s => !s.consent?.withdrawnAt);
 }
 
@@ -314,11 +323,16 @@ async function runForTeacher(teacherId, { referenceDate = new Date(), dryRun = f
     };
   }
 
-  // 1) Reactivar snoozed expirados (afecta global, no per-teacher; lo hacemos aquí también)
-  const snoozeReactivated = await smartAlertRepository.reactivateExpiredSnoozes(now);
+  // 1) Reactivar snoozed expirados DE ESTE teacher (scoped: evita repetir el
+  //    updateMany global en cada iteración del bucle de runForAllTeachers).
+  const snoozeReactivated = await smartAlertRepository.reactivateExpiredSnoozes(now, teacherId);
 
-  // 2) Mapa de alertas activas existentes
-  const activeMap = await smartAlertRepository.buildActiveAlertsMap(teacherId);
+  // 2) Mapa de alertas activas existentes (+ snoozed, para respetar el silencio
+  //    del docente y no crear duplicados — el índice único solo cubre active).
+  const [activeMap, snoozedMap] = await Promise.all([
+    smartAlertRepository.buildActiveAlertsMap(teacherId),
+    smartAlertRepository.buildSnoozedAlertsMap(teacherId)
+  ]);
 
   // 3) Ejecutar todos los detectores en paralelo
   const detectorResults = await Promise.allSettled(
@@ -352,6 +366,18 @@ async function runForTeacher(teacherId, { referenceDate = new Date(), dryRun = f
       const key = `${finding.studentId}:${finding.type}`;
       const existing = activeMap.get(key);
       try {
+        // H1: si el docente SILENCIÓ esta alerta (snoozed no expirada) y el
+        // detector la re-emite, NO crear un duplicado active. Refrescamos
+        // lastSeenAt/occurrences sobre la snoozed (mantiene el conteo) sin
+        // cambiar su estado — el snooze se respeta hasta su expiración natural
+        // (reactivateExpiredSnoozes la reactivará cuando toque).
+        if (!existing && snoozedMap.has(key)) {
+          await smartAlertRepository.updateById(snoozedMap.get(key)._id, {
+            $set: { lastSeenAt: now },
+            $inc: { occurrencesCount: 1 }
+          });
+          continue;
+        }
         const result = await upsertAlert({ teacherId, finding, existing, now });
         if (result.created) {
           created += 1;

@@ -22,7 +22,6 @@ const logger = require('../../utils/logger').child({ component: 'securityCounter
 
 const NAMESPACE = 'security:counter';
 const WINDOW_MS = 60 * 60 * 1000;
-const CLEAN_EVERY_N = 50;
 
 const SUPPORTED_EVENTS = Object.freeze([
   'auth_failed',
@@ -35,8 +34,6 @@ const SUPPORTED_EVENTS = Object.freeze([
   // accede sin autorización. Detector: `adminApprovalSpike`.
   'admin_approval'
 ]);
-
-let callCount = 0;
 
 // BUG-REDIS-DOUBLE-PREFIX (QA Sprint 0 post-v0.5.0): NO se añade `getKeyPrefix()`
 // aquí. Los comandos del cliente ioredis (zadd, zcount, zremrangebyscore) aplican
@@ -65,20 +62,19 @@ const increment = async (eventType, now = Date.now()) => {
     const key = buildKey(eventType);
     const member = `${now}:${crypto.randomBytes(4).toString('hex')}`;
 
-    callCount += 1;
-    const shouldClean = callCount % CLEAN_EVERY_N === 0;
-
-    // Un único round-trip: zadd + expire (+ limpieza perezosa cada N llamadas) en
-    // pipeline. Este contador se incrementa en ráfaga justo durante un ataque
-    // (credential stuffing); colapsar los 2-3 comandos a 1 round-trip reduce la
-    // presión sobre Redis/Upstash en el peor momento. ioredis aplica el keyPrefix
-    // también dentro del pipeline (no hay doble-prefijo).
+    // Un único round-trip: zadd + zremrangebyscore + expire en pipeline. La
+    // limpieza del rango antiguo (> 1h) es INCONDICIONAL: como ya viaja en el
+    // mismo pipeline (sin round-trips extra) y `zremrangebyscore` es barato
+    // cuando no hay nada que purgar (O(log N), M≈0), podarla en cada increment
+    // mantiene el sorted set acotado de forma permanente a ~1h de eventos reales.
+    // La versión previa solo limpiaba cada 50 llamadas, así que durante un
+    // ataque sostenido (credential stuffing, 50k/h) el ZSET acumulaba miembros
+    // entre limpiezas (~4 MB en el pico) justo cuando más presiona Upstash.
+    // ioredis aplica el keyPrefix también dentro del pipeline (no hay doble-prefijo).
     const pipeline = redis.pipeline();
     pipeline.zadd(key, now, member);
+    pipeline.zremrangebyscore(key, '-inf', now - WINDOW_MS);
     pipeline.expire(key, Math.ceil((WINDOW_MS * 2) / 1000));
-    if (shouldClean) {
-      pipeline.zremrangebyscore(key, '-inf', now - WINDOW_MS);
-    }
     await pipeline.exec();
     return true;
   } catch (error) {
