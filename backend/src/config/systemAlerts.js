@@ -152,6 +152,14 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     direction: 'negative',
     defaultRunbook: 'documentation/SECURITY.md#token-theft'
   }),
+  rfid_hmac_spike: Object.freeze({
+    label: 'Intentos anómalos RFID (HMAC/replay)',
+    description: 'Volumen elevado de firmas HMAC inválidas o intentos de replay en lecturas RFID.',
+    source: 'auth',
+    thresholds: Object.freeze({ warningPerHour: 10, criticalPerHour: 30 }),
+    direction: 'negative',
+    defaultRunbook: 'documentation/SECURITY.md'
+  }),
 
   // ── Moderación ──────────────────────────────────────────────────────
   pending_teachers_aging: Object.freeze({

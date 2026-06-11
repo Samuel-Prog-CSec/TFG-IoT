@@ -34,7 +34,12 @@
  * @property {object}  mongooseConn         - mongoose.connection
  * @property {object}  queues               - Map<queueName, BullMQ Queue>
  * @property {Date|null} lastRetentionRun
- * @property {object}  securityCounters     - Snapshot {auth_failed, account_locked, token_theft, consent_withdrawn}
+ * @property {Object.<string, number>} securityCounters - Snapshot de contadores
+ *   sliding-window por tipo de evento. Las claves son los eventos soportados por
+ *   `securityCountersService.SUPPORTED_EVENTS` (auth_failed, account_locked,
+ *   token_theft, consent_withdrawn, admin_approval, rfid_hmac_invalid,
+ *   rfid_replay); el valor es la cuenta en la última hora. La lista canónica
+ *   vive en `securityCountersService` para no duplicar la fuente de verdad.
  */
 
 class SystemAlertDetector {

@@ -133,14 +133,23 @@ async function buildContext(now) {
     logger.debug('queues no disponibles en buildContext', { error: err.message });
   }
 
-  const [authFailed, accountLocked, tokenTheft, consentWithdrawn, adminApproval] =
-    await Promise.all([
-      securityCounters.countInLastHour('auth_failed'),
-      securityCounters.countInLastHour('account_locked'),
-      securityCounters.countInLastHour('token_theft'),
-      securityCounters.countInLastHour('consent_withdrawn'),
-      securityCounters.countInLastHour('admin_approval')
-    ]);
+  const [
+    authFailed,
+    accountLocked,
+    tokenTheft,
+    consentWithdrawn,
+    adminApproval,
+    rfidHmacInvalid,
+    rfidReplay
+  ] = await Promise.all([
+    securityCounters.countInLastHour('auth_failed'),
+    securityCounters.countInLastHour('account_locked'),
+    securityCounters.countInLastHour('token_theft'),
+    securityCounters.countInLastHour('consent_withdrawn'),
+    securityCounters.countInLastHour('admin_approval'),
+    securityCounters.countInLastHour('rfid_hmac_invalid'),
+    securityCounters.countInLastHour('rfid_replay')
+  ]);
 
   // lastRetentionRun: en memoria (este proceso) o de Redis (el worker lo
   // escribió la última vez que completó).
@@ -179,7 +188,9 @@ async function buildContext(now) {
       account_locked: accountLocked,
       token_theft: tokenTheft,
       consent_withdrawn: consentWithdrawn,
-      admin_approval: adminApproval
+      admin_approval: adminApproval,
+      rfid_hmac_invalid: rfidHmacInvalid,
+      rfid_replay: rfidReplay
     }
   };
 }

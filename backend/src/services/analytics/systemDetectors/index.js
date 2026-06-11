@@ -22,6 +22,7 @@ const inMemoryCacheLowHit = require('./inMemoryCacheLowHit');
 const accountLockoutSpike = require('./accountLockoutSpike');
 const authFailedSpike = require('./authFailedSpike');
 const tokenTheftDetected = require('./tokenTheftDetected');
+const rfidHmacSpike = require('./rfidHmacSpike');
 const pendingTeachersAging = require('./pendingTeachersAging');
 const inactiveTeachers = require('./inactiveTeachers');
 const contextWithoutAssets = require('./contextWithoutAssets');
@@ -41,6 +42,7 @@ const ALL_SYSTEM_DETECTORS = Object.freeze([
   accountLockoutSpike,
   authFailedSpike,
   tokenTheftDetected,
+  rfidHmacSpike,
   pendingTeachersAging,
   inactiveTeachers,
   contextWithoutAssets,

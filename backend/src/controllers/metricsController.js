@@ -9,6 +9,7 @@
  */
 
 const rfidService = require('../services/rfidService');
+const rfidHmacValidator = require('../utils/rfidHmacValidator');
 const { sendSuccess } = require('../utils/responseHelper');
 
 /**
@@ -41,8 +42,15 @@ const getRfidHealth = (req, res) => {
     };
   }
 
+  // T-905 B8: observabilidad de la firma HMAC (contadores por instancia desde el arranque).
+  const security = {
+    hmacEnabled: rfidHmacValidator.isEnabled(),
+    ...rfidHmacValidator.peekMetrics() // valid, invalid, absent, replay, exempt
+  };
+
   sendSuccess(res, {
     ...snapshot,
+    security,
     gameEngine: engineSnippet,
     timestamp: new Date().toISOString()
   });

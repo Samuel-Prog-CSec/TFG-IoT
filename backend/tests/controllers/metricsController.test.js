@@ -7,6 +7,7 @@
  */
 
 const rfidService = require('../../src/services/rfidService');
+const rfidHmacValidator = require('../../src/utils/rfidHmacValidator');
 const { getRfidHealth } = require('../../src/controllers/metricsController');
 
 const buildRes = () => {
@@ -103,6 +104,32 @@ describe('metricsController — GET /api/metrics/rfid', () => {
     expect(body.data.counters.totalErrors).toBe(1);
     expect(body.data.timestamps.lastScanAt).toBeGreaterThan(0);
     expect(body.data.timestamps.lastErrorAt).toBeGreaterThan(0);
+  });
+
+  it('expone el bloque security con métricas HMAC (peekMetrics, sin resetear)', () => {
+    const peekSpy = jest
+      .spyOn(rfidHmacValidator, 'peekMetrics')
+      .mockReturnValue({ valid: 5, invalid: 1, absent: 0, replay: 2, exempt: 3 });
+    const enabledSpy = jest.spyOn(rfidHmacValidator, 'isEnabled').mockReturnValue(true);
+
+    const req = { app: { get: jest.fn().mockReturnValue(null) } };
+    const res = buildRes();
+    getRfidHealth(req, res);
+
+    const body = res.json.mock.calls[0][0];
+    expect(body.data.security).toMatchObject({
+      hmacEnabled: true,
+      valid: 5,
+      invalid: 1,
+      replay: 2,
+      exempt: 3,
+      absent: 0
+    });
+    // Es un snapshot de lectura: nunca debe resetear los contadores.
+    expect(peekSpy).toHaveBeenCalledTimes(1);
+
+    peekSpy.mockRestore();
+    enabledSpy.mockRestore();
   });
 
   it('incluye snapshot del gameEngine si está registrado en app', () => {
