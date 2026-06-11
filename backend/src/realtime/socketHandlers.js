@@ -1834,7 +1834,7 @@ const registerRfidHandlers = ({ io, gameNsp, gameEngine, rfidService, logger }) 
       case 'card_detected':
         logger.info(`Tarjeta detectada: ${event.uid} (${event.type})`);
         if (event.mode === RFID_MODES.GAMEPLAY) {
-          gameEngine.handleCardScan(event.uid, event.type);
+          gameEngine.handleCardScan(event.uid);
         }
         break;
       case 'card_removed':

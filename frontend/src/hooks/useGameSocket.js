@@ -22,8 +22,9 @@ import { toast } from 'sonner';
 
 const SOCKET_ERROR_MESSAGES = {
   RFID_MODE_INVALID: 'El lector de tarjetas no está listo. Avisa al profesor.',
-  RFID_SENSOR_UNAUTHORIZED: 'Este lector no está configurado para esta sesión. Avisa al profesor.',
-  RFID_SENSOR_MISMATCH: 'Se detectó un cambio en el lector durante la partida.',
+  RFID_SENSOR_UNAUTHORIZED: 'Este lector no está autorizado para esta sesión. Reconecta el lector configurado o continúa en modo táctil.',
+  RFID_SENSOR_MISMATCH: 'El lector cambió durante la partida. Reconecta el lector original.',
+  RFID_HMAC_INVALID: 'Lectura rechazada por seguridad (firma no válida). Reconecta el lector.',
   RFID_SENSOR_NOT_CONNECTED: 'El sensor RFID no está conectado. Conéctalo para continuar.',
   RFID_SENSOR_STALE: 'El sensor no responde. Comprueba que esté encendido.',
   RFID_DISABLED: 'El servicio RFID está desactivado por configuración del servidor.',
@@ -39,6 +40,14 @@ const SOCKET_ERROR_MESSAGES = {
   TEMP_BLOCKED: 'Has ido demasiado rápido. Espera unos segundos antes de continuar.',
   PAYLOAD_TOO_LARGE: 'Hubo un problema con tu acción. Inténtalo de nuevo.',
   DUPLICATE_RFID_EVENT: 'Espera un momento antes del siguiente escaneo.'
+};
+
+// El backend emite `rfid_scan_error` con `{ code: 'RFID_HMAC_INVALID', reason }`
+// donde `reason` discrimina el motivo real del rechazo. Resolvemos el mensaje
+// por `reason` (más preciso) y caemos al mensaje por `code` si no viniera.
+const RFID_SCAN_ERROR_REASONS = {
+  COUNTER_REPLAY: 'Lectura rechazada: posible repetición de una lectura anterior. Reconecta el lector.',
+  HMAC_INVALID: 'Lectura rechazada por seguridad (firma no válida). Reconecta el lector.'
 };
 
 const SCAN_IGNORED_MESSAGES = {
@@ -149,10 +158,16 @@ export function useGameSocket({
   const [sessionError, setSessionError] = useState(null);
   const [rfidConnected, setRfidConnected] = useState(false);
   const [bestScore, setBestScore] = useState(0);
+  // Estado de "lector bloqueado": el sensor físico real está conectado pero el
+  // backend rechaza sus escaneos (no autorizado, cambio de lector o firma HMAC
+  // inválida/replay). Lo expone el hook para que la UI muestre un banner guiado
+  // de reconexión. `null` = sin bloqueo. Forma: { code, message }.
+  const [rfidBlocked, setRfidBlocked] = useState(null);
 
   // Refs internos
   const initCalledRef = useRef(false);
   const lastSocketErrorToastRef = useRef(0);
+  const lastScanExpiredToastRef = useRef(0);
   const lastRetryAtRef = useRef(0);
   const previousRealtimeStatusRef = useRef('connecting');
   const playIdRef = useRef(null);
@@ -233,8 +248,21 @@ export function useGameSocket({
     const onSocketError = payload => {
       const normalized = resolveSocketError(payload);
 
-      // No mostrar warning de sensor RFID en modo fallback táctil
-      if (normalized.code === 'RFID_SENSOR_UNAUTHORIZED') {
+      // Errores de lector físico que requieren reconexión guiada
+      // (no autorizado para esta sesión / cambio de lector a media partida).
+      // Heurística sensor-real-vs-táctil: solo molestamos cuando hay un sensor
+      // físico realmente conectado (`deviceState === 'ready'`). En modo táctil
+      // (sin sensor) estos errores no deberían dispararse en la práctica y, si
+      // lo hacen, los silenciamos para no confundir al docente que juega con
+      // los botones del fallback. Cuando el sensor SÍ está activo, exponemos
+      // `rfidBlocked` para que la UI pinte el banner guiado de reconexión.
+      const sensorBlockingCodes = new Set(['RFID_SENSOR_UNAUTHORIZED', 'RFID_SENSOR_MISMATCH']);
+      if (sensorBlockingCodes.has(normalized.code)) {
+        if (webSerialService.deviceState === 'ready') {
+          setRfidBlocked({ code: normalized.code, message: normalized.message });
+          onSrAnnouncement(normalized.message);
+        }
+        // Sin sensor físico (modo táctil): silenciar. No banner, no toast.
         return;
       }
 
@@ -328,6 +356,25 @@ export function useGameSocket({
       toastFn(message, { id: 'scan-ignored', duration: 3000 });
     };
 
+    // Rechazos de escaneo por seguridad: el backend emite `rfid_scan_error` con
+    // `{ code: 'RFID_HMAC_INVALID', reason }` donde `reason` es 'HMAC_INVALID' o
+    // 'COUNTER_REPLAY'. Sin este listener esos rechazos eran invisibles. Los
+    // elevamos a `rfidBlocked` para que la UI muestre el banner guiado de
+    // reconexión, eligiendo el mensaje por `reason` (más preciso) con fallback
+    // al mensaje por `code`.
+    const onRfidScanError = payload => {
+      cancelPendingScanTimeout();
+      const securityBlockingCodes = new Set(['RFID_HMAC_INVALID', 'COUNTER_REPLAY']);
+      if (!securityBlockingCodes.has(payload?.code)) {
+        return;
+      }
+      const message = RFID_SCAN_ERROR_REASONS[payload?.reason]
+        || SOCKET_ERROR_MESSAGES[payload?.code]
+        || RFID_SCAN_ERROR_REASONS.HMAC_INVALID;
+      setRfidBlocked({ code: payload.code, message });
+      onSrAnnouncement(message);
+    };
+
     // Timeout client-side: si el frontend envía un scan y no recibe respuesta en 3s
     const handleLocalScan = () => {
       cancelPendingScanTimeout();
@@ -341,7 +388,22 @@ export function useGameSocket({
       }, SCAN_RESPONSE_TIMEOUT_MS);
     };
 
+    // `webSerialService` emite `scan_expired` cuando descarta un scan caducado
+    // en el flush (p.ej. tras una desconexión del sensor). Sin este listener el
+    // docente no se entera de que una lectura se perdió. Lo avisamos con un
+    // toast, deduplicado (max 1 cada 5s) para no spamear si caducan varios.
+    const onScanExpired = () => {
+      const now = Date.now();
+      if (now - lastScanExpiredToastRef.current > 5000) {
+        lastScanExpiredToastRef.current = now;
+        toast.warning('Un escaneo se perdió por una desconexión. Vuelve a acercar la tarjeta.', {
+          id: 'scan-expired'
+        });
+      }
+    };
+
     webSerialService.on('scan', handleLocalScan);
+    webSerialService.on('scan_expired', onScanExpired);
 
     const initRealtimePlay = async () => {
       // Prevenir re-inicialización cuando useEffect se re-ejecuta por cambios de dependencias
@@ -375,6 +437,7 @@ export function useGameSocket({
         socketService.onGame(GAME_EVENTS.PLAY_STATE, onPlayState);
         socketService.onGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
         socketService.onGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
+        socketService.onGame(GAME_EVENTS.RFID_SCAN_ERROR, onRfidScanError);
         socketService.onGame(GAME_EVENTS.ERROR, onSocketError);
         // Mecánica Secuencia (T-921): listeners registrados aquí para garantizar
         // que están activos ANTES del primer evento del backend (se emiten en
@@ -488,6 +551,7 @@ export function useGameSocket({
       socketService.offGame(GAME_EVENTS.PLAY_STATE, onPlayState);
       socketService.offGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
       socketService.offGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
+      socketService.offGame(GAME_EVENTS.RFID_SCAN_ERROR, onRfidScanError);
       socketService.offGame(GAME_EVENTS.ERROR, onSocketError);
       if (typeof onSequencePhaseMemorizing === 'function') {
         socketService.offGame(GAME_EVENTS.SEQUENCE_PHASE_MEMORIZING, onSequencePhaseMemorizing);
@@ -503,6 +567,7 @@ export function useGameSocket({
       }
       // Limpiar listener de scan local y timeout pendiente
       webSerialService.off('scan', handleLocalScan);
+      webSerialService.off('scan_expired', onScanExpired);
       cancelPendingScanTimeout();
       // Limpiar listeners de sistema (namespace /)
       socketService.off(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
@@ -677,6 +742,10 @@ export function useGameSocket({
     return socketService.sendGameCommand(GAME_EVENTS.BOARD_READY, { playId: playIdRef.current });
   }, []);
 
+  // Descarta el banner de lector bloqueado (lo invoca la UI al reconectar o
+  // al cerrar el aviso manualmente).
+  const clearRfidBlocked = useCallback(() => setRfidBlocked(null), []);
+
   return {
     // Estados
     realtimeStatus,
@@ -689,9 +758,11 @@ export function useGameSocket({
     sessionError,
     rfidConnected,
     bestScore,
+    rfidBlocked,
 
     // Setters necesarios para el componente padre
     setRealtimeError,
+    clearRfidBlocked,
 
     // Sincronización de gameState
     syncGameState,

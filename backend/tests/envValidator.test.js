@@ -33,6 +33,8 @@ describe('envValidator.validateEnv', () => {
     delete process.env.SENTRY_ENABLED;
     delete process.env.SENTRY_DSN;
     delete process.env.RFID_SOURCE;
+    delete process.env.RFID_HMAC_ENABLED;
+    delete process.env.RFID_HMAC_SECRET;
     delete process.env.SUPABASE_URL;
     delete process.env.SUPABASE_SERVICE_KEY;
     delete process.env.JWT_EXPIRES_IN;
@@ -135,6 +137,78 @@ describe('envValidator.validateEnv', () => {
     const { validateEnv } = require('../src/utils/envValidator');
 
     expect(() => validateEnv()).toThrow(/no pueden ser idénticos/);
+  });
+
+  it('RFID_HMAC_ENABLED=true sin RFID_HMAC_SECRET → warning en dev', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.JWT_SECRET = validSecret();
+    process.env.JWT_REFRESH_SECRET = validSecret();
+    process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/rfid-games';
+    process.env.RFID_SOURCE = 'client';
+    process.env.RFID_HMAC_ENABLED = 'true';
+    delete process.env.RFID_HMAC_SECRET;
+
+    const { validateEnv } = require('../src/utils/envValidator');
+
+    expect(() => validateEnv()).not.toThrow();
+    // El warning se reporta vía logger.warn(mensaje, warnings[]). El segundo
+    // argumento es el array de warnings acumulados; comprobamos que contiene
+    // la mención a RFID_HMAC_SECRET.
+    const loggedWarnings = mockLogger.warn.mock.calls.flat(2).join(' ');
+    expect(loggedWarnings).toMatch(/RFID_HMAC_SECRET/);
+  });
+
+  it('RFID_HMAC_ENABLED=TRUE (mayúsculas) sin RFID_HMAC_SECRET → también avisa', () => {
+    // El parsing del flag es case-insensitive: en UIs cloud es frecuente teclear
+    // "TRUE". El guard debe dispararse igual que con "true" minúscula.
+    process.env.NODE_ENV = 'development';
+    process.env.JWT_SECRET = validSecret();
+    process.env.JWT_REFRESH_SECRET = validSecret();
+    process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/rfid-games';
+    process.env.RFID_SOURCE = 'client';
+    process.env.RFID_HMAC_ENABLED = 'TRUE';
+    delete process.env.RFID_HMAC_SECRET;
+
+    const { validateEnv } = require('../src/utils/envValidator');
+
+    expect(() => validateEnv()).not.toThrow();
+    const loggedWarnings = mockLogger.warn.mock.calls.flat(2).join(' ');
+    expect(loggedWarnings).toMatch(/RFID_HMAC_SECRET/);
+  });
+
+  it('RFID_HMAC_ENABLED=true sin RFID_HMAC_SECRET → falla en producción', () => {
+    process.env.NODE_ENV = 'production';
+    process.env.JWT_SECRET = validSecret();
+    process.env.JWT_REFRESH_SECRET = validSecret();
+    process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/rfid-games';
+    process.env.CORS_WHITELIST = 'https://app.local';
+    process.env.PSEUDONYMIZE_SECRET = validSecret();
+    process.env.RFID_SOURCE = 'client';
+    process.env.SUPABASE_URL = 'https://supabase.local';
+    process.env.SUPABASE_SERVICE_KEY = 'service-key';
+    process.env.REDIS_URL = 'redis://localhost:6379';
+    process.env.RFID_HMAC_ENABLED = 'true';
+    delete process.env.RFID_HMAC_SECRET;
+
+    const { validateEnv } = require('../src/utils/envValidator');
+
+    expect(() => validateEnv()).toThrow(/RFID_HMAC_SECRET/);
+  });
+
+  it('RFID_HMAC_ENABLED=true con RFID_HMAC_SECRET no avisa ni falla', () => {
+    process.env.NODE_ENV = 'development';
+    process.env.JWT_SECRET = validSecret();
+    process.env.JWT_REFRESH_SECRET = validSecret();
+    process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/rfid-games';
+    process.env.RFID_SOURCE = 'client';
+    process.env.RFID_HMAC_ENABLED = 'true';
+    process.env.RFID_HMAC_SECRET = validSecret();
+
+    const { validateEnv } = require('../src/utils/envValidator');
+
+    expect(() => validateEnv()).not.toThrow();
+    const loggedWarnings = mockLogger.warn.mock.calls.flat(2).join(' ');
+    expect(loggedWarnings).not.toMatch(/RFID_HMAC_SECRET ausente/);
   });
 
   it('throws if MONGO_URI is invalid format', () => {

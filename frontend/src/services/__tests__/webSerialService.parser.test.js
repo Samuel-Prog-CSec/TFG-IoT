@@ -134,6 +134,65 @@ describe('WebSerialService — parser defensivo', () => {
     });
   });
 
+  describe('init handshake', () => {
+    it('trata `status:"starting"` como inicialización, no error', () => {
+      const svc = buildSvc();
+
+      svc.handleRawEvent({ event: 'init', status: 'starting', version: 'rfid_v1.1' });
+
+      expect(svc.deviceState).not.toBe('error');
+      expect(svc.deviceState).toBe('initializing');
+
+      // El init "starting" arma un timeout real (INIT_TIMEOUT_MS); lo limpiamos
+      // para no dejar un timer colgando entre tests.
+      if (svc.initTimeoutId) clearTimeout(svc.initTimeoutId);
+    });
+  });
+
+  describe('reenvío de firma HMAC (T-905 B8)', () => {
+    it('adjunta counter y hmac al payload cuando llegan bien formados', () => {
+      const svc = buildSvc();
+      const scanSpy = vi.fn();
+      svc.on('scan', scanSpy);
+
+      svc.handleRawEvent({
+        event: 'card_detected',
+        uid: '32B8FA05',
+        type: 'MIFARE 1KB',
+        counter: 7,
+        hmac: 'a'.repeat(64)
+      });
+
+      expect(scanSpy).toHaveBeenCalledWith(
+        expect.objectContaining({ uid: '32B8FA05', counter: 7, hmac: 'a'.repeat(64) })
+      );
+    });
+
+    it('omite counter/hmac si el firmware no los envía (compat)', () => {
+      const svc = buildSvc();
+      const scanSpy = vi.fn();
+      svc.on('scan', scanSpy);
+
+      svc.handleRawEvent({ event: 'card_detected', uid: '32B8FA05', type: 'MIFARE 1KB' });
+
+      const payload = scanSpy.mock.calls[0][0];
+      expect(payload).not.toHaveProperty('counter');
+      expect(payload).not.toHaveProperty('hmac');
+    });
+
+    it('omite la firma si solo llega uno de los dos campos (parcial inválido)', () => {
+      const svc = buildSvc();
+      const scanSpy = vi.fn();
+      svc.on('scan', scanSpy);
+
+      svc.handleRawEvent({ event: 'card_detected', uid: '32B8FA05', type: 'MIFARE 1KB', counter: 3 });
+
+      const payload = scanSpy.mock.calls[0][0];
+      expect(payload).not.toHaveProperty('counter');
+      expect(payload).not.toHaveProperty('hmac');
+    });
+  });
+
   describe('timeout de línea', () => {
     beforeEach(() => {
       vi.useFakeTimers();

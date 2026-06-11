@@ -32,7 +32,14 @@ const SUPPORTED_EVENTS = Object.freeze([
   // indicar que un super_admin con sesión activa ha sido comprometido y
   // está procesando solicitudes en masa, o que un script automatizado
   // accede sin autorización. Detector: `adminApprovalSpike`.
-  'admin_approval'
+  'admin_approval',
+  // Rechazos del validador HMAC RFID (modo enforce). `rfid_hmac_invalid`:
+  // firma incorrecta (UID/counter manipulado o secret erróneo). `rfid_replay`:
+  // counter no estrictamente mayor que el último conocido (reenvío de un scan
+  // capturado). Picos pueden indicar manipulación del firmware o un ataque de
+  // replay sobre el canal del sensor. Incrementados desde `rfidHmacValidator`.
+  'rfid_hmac_invalid',
+  'rfid_replay'
 ]);
 
 // BUG-REDIS-DOUBLE-PREFIX (QA Sprint 0 post-v0.5.0): NO se añade `getKeyPrefix()`

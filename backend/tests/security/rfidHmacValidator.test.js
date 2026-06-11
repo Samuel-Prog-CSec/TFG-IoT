@@ -11,9 +11,20 @@
  */
 
 const crypto = require('node:crypto');
+
+// El validador hace un `require` perezoso de securityCountersService dentro de
+// las ramas de rechazo (HMAC inválido / replay). Lo mockeamos para espiar
+// `increment` sin tocar Redis. El mock devuelve una promesa resuelta para que
+// el patrón fire-and-forget `.increment(...).catch(...)` del validador funcione
+// igual que en producción y no rompa los tests previos (scans válidos no llaman).
+jest.mock('../../src/services/security/securityCountersService', () => ({
+  increment: jest.fn().mockResolvedValue(true)
+}));
+
 const rfidHmac = require('../../src/utils/rfidHmacValidator');
 const { connectRedis, disconnectRedis } = require('../../src/config/redis');
 const redisService = require('../../src/services/redisService');
+const securityCounters = require('../../src/services/security/securityCountersService');
 
 const SECRET = crypto.randomBytes(32).toString('hex');
 const SENSOR_ID = 'sensor-test-001';
@@ -27,6 +38,9 @@ const buildPayload = (counter, hmac, overrides = {}) => ({
   type: 'MIFARE_1KB',
   sensorId: SENSOR_ID,
   timestamp: Date.now(),
+  // `source: 'web_serial'` es el default deliberado: la mayoría de tests prueban
+  // el path del sensor físico real (el único obligado a firmar). Las pruebas de
+  // exención táctil sobrescriben `source` vía `overrides`.
   source: 'web_serial',
   counter,
   hmac,
@@ -59,6 +73,7 @@ describe('rfidHmacValidator (B8)', () => {
     await redisService.flushNamespace(rfidHmac.COUNTER_NAMESPACE);
     process.env.RFID_HMAC_SECRET = SECRET;
     rfidHmac.drainMetrics();
+    securityCounters.increment.mockClear();
   });
 
   describe('flag off (migración gradual)', () => {
@@ -95,6 +110,16 @@ describe('rfidHmacValidator (B8)', () => {
       const result = await rfidHmac.validate(buildPayload(counter, hmac));
       expect(result.valid).toBe(true);
       expect(result.mode).toBe('enforce');
+    });
+
+    it('uid en minúsculas verifica igual (canonicalización interna)', async () => {
+      const counter = 3;
+      // El firmware firma SIEMPRE mayúsculas; el HMAC se calcula sobre UID.toUpperCase().
+      const hmac = sign(UID, counter); // UID = 'AABBCCDD' (mayúsculas)
+      const result = await rfidHmac.validate(
+        buildPayload(counter, hmac, { uid: UID.toLowerCase() })
+      );
+      expect(result.valid).toBe(true);
     });
 
     it('HMAC inválido → invalid HMAC_INVALID', async () => {
@@ -138,6 +163,70 @@ describe('rfidHmacValidator (B8)', () => {
       const rB = await rfidHmac.validate(payloadB);
       expect(rA.valid).toBe(true);
       expect(rB.valid).toBe(true);
+    });
+
+    it('HMAC inválido → incrementa securityCounter rfid_hmac_invalid', async () => {
+      const result = await rfidHmac.validate(buildPayload(1, 'b'.repeat(64)));
+      expect(result.reason).toBe('HMAC_INVALID');
+      expect(securityCounters.increment).toHaveBeenCalledWith('rfid_hmac_invalid');
+      // Solo el contador de HMAC inválido, no el de replay.
+      expect(securityCounters.increment).not.toHaveBeenCalledWith('rfid_replay');
+    });
+
+    it('replay (counter ≤ previous) → incrementa securityCounter rfid_replay', async () => {
+      // Primer scan válido establece previous=10 (no debe contar como rechazo).
+      await rfidHmac.validate(buildPayload(10, sign(UID, 10)));
+      expect(securityCounters.increment).not.toHaveBeenCalled();
+      // Replay con counter 5 → rechazo por COUNTER_REPLAY.
+      const result = await rfidHmac.validate(buildPayload(5, sign(UID, 5)));
+      expect(result.reason).toBe('COUNTER_REPLAY');
+      expect(securityCounters.increment).toHaveBeenCalledWith('rfid_replay');
+      expect(securityCounters.increment).not.toHaveBeenCalledWith('rfid_hmac_invalid');
+    });
+
+    it('scan VÁLIDO no incrementa ningún securityCounter', async () => {
+      const counter = 42;
+      const result = await rfidHmac.validate(buildPayload(counter, sign(UID, counter)));
+      expect(result.valid).toBe(true);
+      expect(securityCounters.increment).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('flag on — exención por origen (fallbacks táctiles)', () => {
+    beforeEach(() => {
+      process.env.RFID_HMAC_ENABLED = 'true';
+    });
+
+    it('source touch_fallback sin HMAC → valid mode exempt', async () => {
+      const result = await rfidHmac.validate(
+        buildPayload(undefined, undefined, { source: 'touch_fallback' })
+      );
+      expect(result).toEqual({ valid: true, mode: 'exempt' });
+      expect(rfidHmac.peekMetrics().exempt).toBe(1);
+    });
+
+    it('source touch_memory_flip sin HMAC → valid mode exempt', async () => {
+      const result = await rfidHmac.validate(
+        buildPayload(undefined, undefined, { source: 'touch_memory_flip' })
+      );
+      expect(result).toEqual({ valid: true, mode: 'exempt' });
+      expect(rfidHmac.peekMetrics().exempt).toBe(1);
+    });
+
+    it('source web_serial SIGUE exigiendo HMAC (no se exime)', async () => {
+      const result = await rfidHmac.validate(
+        buildPayload(undefined, undefined, { source: 'web_serial' })
+      );
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('HMAC_FIELDS_MISSING');
+    });
+
+    it('source ausente con flag enabled → invalid SOURCE_MISSING', async () => {
+      const payload = buildPayload(undefined, undefined);
+      delete payload.source;
+      const result = await rfidHmac.validate(payload);
+      expect(result.valid).toBe(false);
+      expect(result.reason).toBe('SOURCE_MISSING');
     });
   });
 

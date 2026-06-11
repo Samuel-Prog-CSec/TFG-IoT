@@ -144,6 +144,20 @@ function validateEnv() {
     process.env.RFID_SOURCE = source;
   }
 
+  // T-905 B8: si el enforcement HMAC está activo, el secret es obligatorio.
+  // Sin él, el backend rechazaría todos los scans del sensor (HMAC_SECRET_MISSING).
+  // Comparación case-insensitive: en UIs cloud (Koyeb) es frecuente teclear
+  // "TRUE"/"True". Debe mantenerse alineado con isEnabled() de rfidHmacValidator.js.
+  if (process.env.RFID_HMAC_ENABLED?.toLowerCase() === 'true' && !process.env.RFID_HMAC_SECRET) {
+    if (isProduction) {
+      missing.push('RFID_HMAC_SECRET (requerido con RFID_HMAC_ENABLED=true)');
+    } else {
+      warnings.push(
+        'RFID_HMAC_SECRET ausente con RFID_HMAC_ENABLED=true — scans web_serial serían rechazados'
+      );
+    }
+  }
+
   // Supabase Storage: requerido en producción (uploads de assets)
   // En desarrollo/test, se permite arrancar sin storage y se muestra warning.
   if (!process.env.SUPABASE_URL || !process.env.SUPABASE_SERVICE_KEY) {

@@ -88,6 +88,10 @@ export const GAME_EVENTS = {
   SCAN_IGNORED: 'scan_ignored',
   RFID_EVENT: 'rfid_event',
   RFID_STATUS: 'rfid_status',
+  // Rechazos de escaneo por seguridad (firma HMAC inválida / replay de
+  // contador). El backend emite este evento SOLO para RFID_HMAC_INVALID y
+  // COUNTER_REPLAY, separado del genérico `error`.
+  RFID_SCAN_ERROR: 'rfid_scan_error',
   ERROR: 'error',
   // Mecánica Secuencia (T-921). Server → cliente.
   SEQUENCE_PHASE_MEMORIZING: 'sequence_phase_memorizing',
