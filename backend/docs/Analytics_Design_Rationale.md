@@ -288,7 +288,9 @@ Espejo conceptual del § 2.5 para alertas operacionales (Redis, MongoDB, colas B
 | Cache TTL | 60 s | 30 s |
 | Cache namespace | `cache:alerts:teacher:*` | `cache:system-alerts:*` |
 
-#### Catálogo de 12 detectores
+#### Catálogo de detectores
+
+> Catálogo canónico en `config/systemAlerts.js` (`SYSTEM_ALERT_TYPES`). Se documentan aquí los detectores núcleo por categoría; los detectores de cuota free-tier (T-910) viven en `Free_Tier_Budget.md`.
 
 **Sistema/Operación (4):**
 - `redis_high_latency`: ≥3 muestras consecutivas con avgLatency superior al umbral (100ms warning / 500ms critical).
@@ -296,10 +298,11 @@ Espejo conceptual del § 2.5 para alertas operacionales (Redis, MongoDB, colas B
 - `memory_pressure`: heap percent usado >85% (warning) / >95% (critical).
 - `queue_backlog`: cualquier queue BullMQ con jobs pending > umbral o failed > 0.
 
-**Seguridad (3):**
+**Seguridad (4):**
 - `account_lockout_spike`: ≥5/h warning, ≥20/h critical. Lee `securityCounters.account_locked` (sliding 1 h en Redis).
 - `auth_failed_spike`: ≥50/h warning, ≥200/h critical. Lee `securityCounters.auth_failed`.
 - `token_theft_detected`: cualquier ocurrencia → critical inmediato. Lee `securityCounters.token_theft`.
+- `rfid_hmac_spike` (ADR-206 addendum): ≥10/h warning, ≥30/h critical sobre el **total** de rechazos del enforcement HMAC RFID. Suma dos contadores: `securityCounters.rfid_hmac_invalid` (firma no cuadra, `HMAC_INVALID`) + `securityCounters.rfid_replay` (counter no creciente, `COUNTER_REPLAY`), ambos incrementados desde `rfidHmacValidator` al rechazar en modo enforce. El finding desglosa `invalidLastHour` vs `replayLastHour`: predominio de replay → posible reproducción/sensor clonado; predominio de invalid → firmware en actualización o secret desincronizado. Playbook: `Runbook_Operacional.md` (alerta `rfid_hmac_spike`).
 
 **Moderación (3):**
 - `pending_teachers_aging`: warning si oldest pending ≥48h, critical ≥7 días. Lookup en `User` por `accountStatus:'pending_approval'`.

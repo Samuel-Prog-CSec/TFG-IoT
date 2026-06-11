@@ -205,16 +205,20 @@ Emitido cuando se detecta una tarjeta RFID en el campo de lectura.
   "event": "card_detected",
   "uid": "32B8FA05",
   "type": "MIFARE 1KB",
-  "size": 4
+  "size": 4,
+  "counter": 1287,
+  "hmac": "3f9a1c0b...d4e7"
 }
 ```
 
-| Campo   | Tipo   | Descripción                                                                       |
-| ------- | ------ | --------------------------------------------------------------------------------- |
-| `event` | string | Siempre `"card_detected"`                                                         |
-| `uid`   | string | UID de la tarjeta en hexadecimal mayúsculas (4 o 7 bytes)                         |
-| `type`  | string | Tipo de tarjeta detectada (`"MIFARE 1KB"`, `"MIFARE 4KB"`, `"NTAG"`, `"Unknown"`) |
-| `size`  | number | Tamaño del UID en bytes (4 o 7)                                                   |
+| Campo     | Tipo   | Descripción                                                                       |
+| --------- | ------ | --------------------------------------------------------------------------------- |
+| `event`   | string | Siempre `"card_detected"`                                                         |
+| `uid`     | string | UID de la tarjeta en hexadecimal mayúsculas (4 o 7 bytes)                         |
+| `type`    | string | Tipo de tarjeta detectada (`"MIFARE 1KB"`, `"MIFARE 4KB"`, `"NTAG"`, `"Unknown"`) |
+| `size`    | number | Tamaño del UID en bytes (4 o 7)                                                   |
+| `counter` | number | _(Opcional, firmware v1.1+)_ Counter monotónico por sensor usado en la firma anti-replay. Ver §4.6 |
+| `hmac`    | string | _(Opcional, firmware v1.1+)_ Firma HMAC-SHA256 del scan en hex minúsculas (64 caracteres). Ver §4.6 |
 
 **Ejemplos de UIDs:**
 
@@ -255,7 +259,8 @@ Emitido cada 10 segundos para indicar que el dispositivo está operativo.
   "event": "status",
   "uptime": 125000,
   "cards_detected": 15,
-  "free_heap": 32768
+  "free_heap": 32768,
+  "counter": 1287
 }
 ```
 
@@ -265,6 +270,7 @@ Emitido cada 10 segundos para indicar que el dispositivo está operativo.
 | `uptime`         | number | Tiempo desde encendido en milisegundos                |
 | `cards_detected` | number | Contador total de tarjetas detectadas desde el inicio |
 | `free_heap`      | number | Memoria heap libre en bytes (diagnóstico)             |
+| `counter`        | number | _(Opcional, firmware v1.1+)_ Valor actual del counter monotónico anti-replay. Ver §4.6 |
 
 ---
 
@@ -326,7 +332,9 @@ El navegador normaliza los eventos del firmware al siguiente contrato estable y 
   "type": "MIFARE_1KB",
   "sensorId": "sensor-0f5e1b9c",
   "timestamp": 1736467200000,
-  "source": "web_serial"
+  "source": "web_serial",
+  "counter": 1287,
+  "hmac": "3f9a1c0b...d4e7"
 }
 ```
 
@@ -336,7 +344,62 @@ El navegador normaliza los eventos del firmware al siguiente contrato estable y 
 | `type` | string | `MIFARE_1KB` \| `MIFARE_4KB` \| `NTAG` \| `UNKNOWN` |
 | `sensorId` | string | Identificador persistente por navegador |
 | `timestamp` | number | Epoch en milisegundos (cliente) |
-| `source` | string | Siempre `web_serial` |
+| `source` | string | `web_serial` (sensor físico) \| `touch_fallback` \| `touch_memory_flip` (juego sin sensor) |
+| `counter` | number | _(Opcional)_ Counter monotónico reenviado tal cual desde el firmware. Presente cuando `source:'web_serial'` y firmware v1.1+. Ver §4.6 |
+| `hmac` | string | _(Opcional)_ Firma reenviada tal cual desde el firmware (hex minúsculas, 64 caracteres). Presente cuando `source:'web_serial'` y firmware v1.1+. Ver §4.6 |
+
+> El navegador **reenvía** `counter`/`hmac` sin recalcularlos: no porta el secret. La verificación es responsabilidad exclusiva del backend (§4.6). Las fuentes táctiles no incluyen estos campos.
+
+### 4.6 Firma HMAC anti-replay (T-905 B8)
+
+A partir del firmware v1.1, cada scan del sensor físico va **firmado** para garantizar autenticidad (procede de un sensor con el secret) y frescura (no es un scan reproducido). La medida está **activada end-to-end** (firmware firma → navegador reenvía → backend verifica) bajo el flag `RFID_HMAC_ENABLED`.
+
+#### Contrato de firma
+
+```text
+hmac = HMAC-SHA256(secret, UID_MAYÚSCULAS + ":" + counter)   // hex minúsculas, 64 caracteres
+```
+
+- **UID canónico en MAYÚSCULAS.** El firmware convierte el UID a mayúsculas (`uidStr.toUpperCase()`) **antes** de firmar y de serializar; el backend recalcula la firma sobre el mismo UID en mayúsculas. El navegador, por su parte, normaliza el UID a mayúsculas (mismo formato que `card_decks.cardMappings[].uid`). Así la firma cuadra **byte a byte** en los tres lados y un desajuste de mayúsculas no la invalida.
+- **`secret`** = `RFID_HMAC_SECRET` (32 bytes hex). Se inyecta en el firmware en build-time (`-DRFID_HMAC_SECRET="…"` vía `build_flags` de PlatformIO) y se lee del entorno en el backend. Nunca viaja por el cable ni reside en el navegador.
+- **Hex en minúsculas**, 64 caracteres (digest SHA-256). El backend hace `hmac.toLowerCase()` antes de comparar para tolerar variaciones de caja.
+
+#### Counter monotónico (anti-replay)
+
+- El firmware mantiene un `counter` **estrictamente creciente** por sensor, persistido en EEPROM (offset 0..3, `uint32` little-endian). Para no desgastar la EEPROM (~100k ciclos), persiste en **batch de 100**: reserva un techo `counter + 100` y solo reescribe al superarlo (tras un reinicio el counter salta al último techo reservado, nunca retrocede).
+- El backend implementa anti-replay en Redis, namespace **`rfid:counter`** (clave por `sensorId`, **TTL 30 días**): exige que `counter` recibido sea **estrictamente mayor** que el último almacenado para ese sensor. Un `counter <= previousCounter` se rechaza como replay.
+
+#### Enforcement consciente del origen
+
+La verificación distingue según el campo `source` del payload:
+
+| `source` | Trato | Resultado del validador |
+| --- | --- | --- |
+| `web_serial` | **Obligado a firmar** (sensor físico, porta el secret) | `mode:'enforce'` — verifica HMAC + anti-replay |
+| `touch_fallback` | **Exento** (juego sin sensor, no porta secret) | `mode:'exempt'`, `valid:true` |
+| `touch_memory_flip` | **Exento** (juego sin sensor, no porta secret) | `mode:'exempt'`, `valid:true` |
+
+Las fuentes táctiles se eximen **por diseño**: el secret vive en el firmware, no en el navegador, así que un panel táctil no puede firmar. El juego debe seguir siendo jugable sin sensor. Como consecuencia, la propiedad anti-suplantación/anti-replay aplica **solo a la entrada por sensor físico real**.
+
+#### Flag de activación
+
+- Gated por **`RFID_HMAC_ENABLED`** (parsing `?.toLowerCase() === 'true'`; no acepta `1`/`yes`).
+  - `false` → el validador retorna `mode:'disabled'`, `valid:true` (convivencia con firmware viejo durante migración; emite métrica de observación).
+  - `true` → enforcement activo (estado operativo actual). Un guard de arranque (`envValidator.js`) **exige `RFID_HMAC_SECRET`** cuando el flag está en `true`: ausencia → fallo de arranque en producción, warning en desarrollo.
+
+#### Reason codes de rechazo (modo enforce)
+
+| `reason` | Causa |
+| --- | --- |
+| `SOURCE_MISSING` | Payload sin `source` con el flag activo (malformado) |
+| `HMAC_FIELDS_MISSING` | `source:'web_serial'` sin `counter` o sin `hmac` |
+| `HMAC_SECRET_MISSING` | `RFID_HMAC_ENABLED=true` pero `RFID_HMAC_SECRET` no configurado |
+| `HMAC_INVALID` | La firma recalculada no coincide (comparada con `crypto.timingSafeEqual`) |
+| `COUNTER_REPLAY` | `counter` no es estrictamente mayor que el último conocido del sensor |
+
+El validador emite una métrica `rfid_hmac_observed_total` con labels `valid|invalid|absent|replay|exempt` para observabilidad de la adopción y del volumen táctil exento.
+
+> **Limitación honesta.** Los modos táctiles (juego sin sensor) **no firman**: son de confianza implícita. La garantía criptográfica anti-suplantación/anti-replay cubre exclusivamente los scans del sensor físico (`web_serial`).
 
 ## 5. Backend: Servicio RFID
 
@@ -750,6 +813,14 @@ Exposición granular de la salud del sensor para dashboards y monitorización ex
       "lastEventAt": 1776640012345,
       "connectedAt": 1776600000000
     },
+    "security": {
+      "hmacEnabled": true,
+      "valid": 598,
+      "invalid": 2,
+      "absent": 0,
+      "replay": 1,
+      "exempt": 11
+    },
     "gameEngine": {
       "activePlays": 3,
       "totalCardScans": 2150,
@@ -767,6 +838,17 @@ Exposición granular de la salud del sensor para dashboards y monitorización ex
 - `ok` — servicio activo, último scan dentro de la ventana de 90 s.
 - `degraded` — servicio activo pero sin scans en los últimos 90 s.
 - `down` — servicio detenido / deshabilitado / mal configurado.
+
+**Bloque `security`** (observabilidad de la firma HMAC, §13.2): contadores acumulados **por instancia desde el arranque**, leídos de `rfidHmacValidator.peekMetrics()` de forma **no destructiva** (no resetea, a diferencia de `drainMetrics`). Son volátiles y per-proceso (no agregados de cluster ni persistidos): sirven para un diagnóstico inmediato del enforcement, no para histórico.
+
+- `hmacEnabled` — `true` si `RFID_HMAC_ENABLED=true` (enforcement activo); refleja `rfidHmacValidator.isEnabled()`.
+- `valid` — scans con firma correcta (con el flag off, payloads que ya traían `counter`/`hmac`: adopción de firmware).
+- `invalid` — firma que no cuadra, source ausente en enforce o secret no configurado (`HMAC_INVALID`/`SOURCE_MISSING`/`HMAC_SECRET_MISSING`).
+- `absent` — enforce sin `counter`/`hmac` (`HMAC_FIELDS_MISSING`); con el flag off, payloads legacy sin firmar.
+- `replay` — counter no estrictamente creciente (`COUNTER_REPLAY`).
+- `exempt` — fuentes táctiles (`touch_fallback`/`touch_memory_flip`) eximidas del enforcement por diseño.
+
+> El histórico operativo de los rechazos (`invalid`/`replay`) lo cubre el detector SmartAlert `rfid_hmac_spike` (contadores Redis con ventana de 1 h); ver `documentation/SECURITY.md` §13.6.
 
 ---
 

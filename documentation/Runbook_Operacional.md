@@ -34,6 +34,7 @@
 | 17 | [Responder alerta Sentry Performance (degradación de p95)](#17-responder-alerta-sentry-performance-degradación-de-p95) | Variable |
 | 18 | [Responder alerta UptimeRobot](#18-responder-alerta-uptimerobot) | Alta |
 | 19 | [Diagnosticar Security Audit rojo en CI](#19-diagnosticar-security-audit-rojo-en-ci) | Media (bloqueante PRs) |
+| 20 | [Responder alerta `rfid_hmac_spike` (rechazos HMAC/replay RFID)](#20-responder-alerta-rfid_hmac_spike-rechazos-hmacreplay-rfid) | Alta (posible ataque) / Media (firmware) |
 
 ---
 
@@ -972,3 +973,38 @@ Si Redis cayó >30 min:
     require('./src/queues').scheduleAnalyticsReconcileCron().then(() => process.exit(0));
   "
   ```
+
+---
+
+## 20. Responder alerta `rfid_hmac_spike` (rechazos HMAC/replay RFID)
+
+**Síntoma:** El centro de alertas del super_admin muestra una alerta `rfid_hmac_spike` (source `auth`). El detector dispara `warning` a partir de **10 rechazos/h** y `critical` a partir de **30/h** (suma de firmas inválidas + replays en la última hora). Una `critical` notifica en tiempo real a todos los super_admins (`system_alert_critical`).
+
+**Diagnóstico:** El finding desglosa el total en dos subcontadores (`invalidLastHour` vs `replayLastHour`). El reparto orienta la causa:
+
+- Predominio de **`rfid_hmac_invalid`** (firma no cuadra, `HMAC_INVALID`): normalmente **firmware en actualización**, **secret desincronizado** firmware↔backend (re-flasheo con un `RFID_HMAC_SECRET` distinto al del entorno), o **sensor defectuoso**.
+- Predominio de **`rfid_replay`** (`COUNTER_REPLAY`, counter no creciente): **ataque de reproducción** de scans capturados o **sensor clonado**. Es el caso más preocupante.
+
+**Pasos:**
+
+1. Leer el desglose actual de los contadores Redis (ventana 1 h):
+   ```bash
+   docker compose exec redis redis-cli -a 'devRedis123!' --no-auth-warning \
+     ZCOUNT rfid-games:security:counter:rfid_hmac_invalid -inf +inf
+   docker compose exec redis redis-cli -a 'devRedis123!' --no-auth-warning \
+     ZCOUNT rfid-games:security:counter:rfid_replay -inf +inf
+   ```
+   En prod (Upstash), usar la consola de Upstash con el mismo `ZCOUNT` sobre las keys `security:counter:rfid_hmac_invalid` / `:rfid_replay`.
+2. Comprobar el snapshot por instancia en `GET /api/metrics/rfid` → bloque `security` (`invalid`, `replay`, `hmacEnabled`).
+3. Revisar los logs del validador para identificar el/los `sensorId` implicados:
+   ```bash
+   # Grafana Cloud Loki:
+   {service="api"} | json | component="rfidHmac" |~ "HMAC mismatch|replay detectado"
+   ```
+   El log de replay incluye `sensorId`, `counter` y `previous` (un `COUNTER_REPLAY` recurrente sobre un mismo `sensorId` → investigar ese sensor).
+4. **Si predomina `rfid_hmac_invalid` y hubo un re-flasheo reciente:** verificar que el secret inyectado en firmware (`-DRFID_HMAC_SECRET` en `build_flags`) coincide con `RFID_HMAC_SECRET` del backend. Si no coinciden, re-provisionar (ver [playbook 5](#5-rotar-jwt_secret--jwt_refresh_secret) para el patrón de rotación y `SECURITY.md` §13.4).
+5. **Si predomina `rfid_replay` o se sospecha compromiso del secret:** rotar `RFID_HMAC_SECRET` (backend env + re-flashear todos los sensores con el nuevo secret — son los dos lados del HMAC; ver `Secrets_Rotation.md`). Mientras dure la rotación los sensores con el secret viejo recibirán `HMAC_INVALID`.
+
+**Verificación:** Tras la acción, el total de rechazos cae por debajo de 10/h; el detector deja de reaparecer y la alerta auto-resuelve tras 2 corridas sin findings (`*/5 * * * *`). Confirmar en el bloque `security` de `/api/metrics/rfid` que `invalid`/`replay` dejan de crecer.
+
+**Rollback:** N/A para la rotación del secret (es la acción correctiva). Si una rotación de secret se hizo por error y no había compromiso, re-provisionar el secret anterior en backend + firmware lo revierte.

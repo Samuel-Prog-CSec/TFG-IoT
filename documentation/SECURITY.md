@@ -395,25 +395,32 @@ Firmware ESP8266 envía JSON line-delimited al puerto serie:
 {"event":"status","uptime":...,"cards_detected":...,"free_heap":...,"counter":N}
 ```
 
-### 13.2 HMAC + counter monotónico (B8)
-- Secret compartido: `RFID_HMAC_SECRET` (32 bytes hex). Firmware lo recibe en build-time via `-DRFID_HMAC_SECRET="..."`. Backend lo lee de env.
-- HMAC-SHA256(secret, `uid:counter`) en hex. Implementado en firmware con BearSSL (incluido en framework Arduino ESP8266, sin libs extra).
-- Counter monotónico EEPROM offset 0..3 (uint32 LE). Persistencia BATCHED cada 100 scans con counter "reservado" (mitiga wear-out 100k ciclos).
-- Backend `utils/rfidHmacValidator.js`:
-  - Si `RFID_HMAC_ENABLED=false` (default migración) → siempre `valid:true`, métrica observada.
-  - Si `true` → recalcula HMAC con `crypto.timingSafeEqual`. Anti-replay: counter debe ser estrictamente mayor que `rfid:counter:<sensorId>` en Redis.
-- Integrado en `socketHandlers.handleRfidScanFromClient` antes de procesar evento.
+### 13.2 HMAC + counter monotónico (B8) — **funcional end-to-end y ACTIVADO**
+La medida está **operativa end-to-end** (firmware firma → navegador reenvía `counter`/`hmac` → backend verifica) con el flag **`RFID_HMAC_ENABLED=true`** y el secret provisionado en `.env` (ADR-206).
 
-### 13.3 Migración gradual
-- Estado actual: flag `RFID_HMAC_ENABLED=false`. Firmware nuevo manda HMAC, viejo no.
-- Métrica `rfidHmacObserved` (peek/drain) cuenta `valid/invalid/absent/replay` para medir adopción.
-- Activar `RFID_HMAC_ENABLED=true` tras 100% adopción confirmada.
+- **Contrato sobre UID canónico en MAYÚSCULAS:** `hmac = HMAC-SHA256(secret, UID_MAYÚSCULAS + ":" + counter)` en hex minúsculas (64 chars). El UID se canoniza a mayúsculas en firmware (`uidStr.toUpperCase()` antes de firmar) **y** en el backend antes de recalcular, de modo que la firma cuadra byte a byte (un desajuste de caja invalidaría la firma). Implementado en firmware con BearSSL (incluido en framework Arduino ESP8266, sin libs extra).
+- Secret compartido: `RFID_HMAC_SECRET` (32 bytes hex). Firmware lo recibe en build-time via `-DRFID_HMAC_SECRET="..."`. Backend lo lee de env. Nunca viaja por el cable ni reside en el navegador.
+- Counter monotónico EEPROM offset 0..3 (uint32 LE). Persistencia BATCHED cada 100 scans con counter "reservado" (mitiga wear-out 100k ciclos).
+- **El navegador reenvía** `counter`/`hmac` sin recalcularlos (no porta el secret); antes los descartaba. El simulador dev-only `__rfidSim` firma con SubtleCrypto para QA serial sin hardware.
+- Backend `utils/rfidHmacValidator.js`:
+  - **Enforcement consciente del origen:** solo `source:'web_serial'` (sensor físico) está obligado a firmar → `mode:'enforce'`. Las fuentes táctiles `touch_fallback` y `touch_memory_flip` (juego sin sensor, no portan secret) se **eximen** → `mode:'exempt'`, `valid:true`.
+  - Con el flag activo recalcula el HMAC y compara con `crypto.timingSafeEqual`. Anti-replay: counter estrictamente mayor que `rfid:counter:<sensorId>` en Redis (namespace `rfid:counter`, TTL 30 días).
+  - Si `RFID_HMAC_ENABLED=false` → `mode:'disabled'`, `valid:true` (legacy/migración, métrica observada).
+  - Reason codes de rechazo: `SOURCE_MISSING` (payload sin source en enforce), `HMAC_FIELDS_MISSING` (web_serial sin counter/hmac), `HMAC_SECRET_MISSING` (flag on sin secret), `HMAC_INVALID` (firma no cuadra), `COUNTER_REPLAY` (counter no creciente).
+- Integrado en `socketHandlers.handleRfidScanFromClient` antes de procesar evento.
+- **Guard de arranque (`envValidator.js`):** con `RFID_HMAC_ENABLED=true` y `RFID_HMAC_SECRET` ausente → fallo de arranque en producción (warning en desarrollo). Evita activar enforcement sin secret y bloquear todos los scans del sensor.
+
+> **Limitación honesta.** Los modos táctiles (juego sin sensor) **no firman**: son de confianza implícita por diseño (el juego debe seguir siendo jugable sin sensor). La garantía criptográfica anti-suplantación/anti-replay aplica **solo a la entrada por sensor físico real** (`web_serial`).
+
+### 13.3 Observabilidad de adopción
+- Métrica `rfid_hmac_observed_total` (peek/drain) con labels `valid|invalid|absent|replay|exempt`. El bucket `exempt` da visibilidad del volumen de juego táctil sin sensor; los demás, de la salud del enforcement por sensor.
+- El flag `RFID_HMAC_ENABLED=false` se mantiene disponible como modo de convivencia con firmware previo a v1.1, pero **el estado operativo actual es `true`**.
 
 ### 13.4 Provisionado del secret
 1. `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` → genera secret.
-2. Backend Koyeb: añadir env var `RFID_HMAC_SECRET=<secret>`.
-3. PlatformIO build: `RFID_HMAC_SECRET=<secret> pio run --target upload` (variable inyectada vía build_flags en `rfid_scanner/platformio.ini`).
-4. Cuando todos los sensores estén actualizados: `RFID_HMAC_ENABLED=true` en backend + redeploy.
+2. Backend Koyeb: añadir env var `RFID_HMAC_SECRET=<secret>` (y `RFID_HMAC_ENABLED=true`).
+3. PlatformIO build: `RFID_HMAC_SECRET=<secret> pio run --target upload` (variable inyectada vía build_flags en `rfid_scanner_NEW/rfid_scanner/platformio.ini`).
+4. El secret del firmware y el del backend deben coincidir; en caso contrario el sensor recibe `HMAC_INVALID`.
 
 ### 13.5 RFID mode mutex con timeout duro (ADR-164, C1)
 `executeWithRfidLock(userId, operation)` en `realtime/socketHandlers.js` serializa operaciones RFID por usuario. **Antes:** una operación colgada (Mongo lento, Redis bloqueado, deadlock) dejaba `releaseLock` sin invocarse y la cola del usuario esperaba indefinidamente; el socket RFID moría en silencio.
@@ -428,6 +435,32 @@ Firmware ESP8266 envía JSON line-delimited al puerto serie:
 **Env var configurable:** `RFID_OPERATION_TIMEOUT_MS=10000`. En QA permite simular timeouts más cortos para validar el flujo.
 
 **Mitigación:** una espiga en `rfidLockTimeouts` revela degradación de Mongo/Redis antes de que afecte UX masivamente. Combinado con el slow-query log de `gamePlayRepository.aggregate` (ADR-164, M1) y el circuit breaker Redis, da observabilidad fina del pipeline RFID.
+
+### 13.6 Observabilidad del enforcement HMAC (ADR-206 addendum)
+
+Con el enforcement ya activado (§13.2), la salud de la firma se hace **observable** en tres planos: métricas de instancia, alerta automatizada para super_admin y visibilidad del rechazo para el docente.
+
+**(a) Bloque `security` en `GET /api/metrics/rfid`.** El endpoint de salud del sensor (acceso `teacher`/`super_admin`) incluye un bloque `security` con el estado del flag y los contadores acumulados de la firma **por instancia desde el arranque** (lectura no destructiva vía `rfidHmacValidator.peekMetrics()`, no resetea):
+
+| Campo | Significado |
+|---|---|
+| `hmacEnabled` | `true` si `RFID_HMAC_ENABLED=true` (enforcement activo). |
+| `valid` | Scans con firma correcta (o, con el flag off, payloads que ya traían `counter`/`hmac` — adopción de firmware). |
+| `invalid` | Firmas que no cuadran, source ausente en enforce, o secret no configurado (familia `HMAC_INVALID`/`SOURCE_MISSING`/`HMAC_SECRET_MISSING`). |
+| `absent` | Enforce sin `counter`/`hmac` (`HMAC_FIELDS_MISSING`), o, con el flag off, payloads legacy sin firma. |
+| `replay` | Counter no estrictamente creciente (`COUNTER_REPLAY`). |
+| `exempt` | Fuentes táctiles (`touch_fallback`/`touch_memory_flip`) eximidas del enforcement por diseño. |
+
+Son contadores **per-instancia y volátiles** (no agregados de cluster ni persistidos): útiles para un health snapshot inmediato, no para histórico. El histórico operativo lo cubre la alerta (b).
+
+**(b) Detector `rfid_hmac_spike` (alerta SmartAlert, source `auth`).** Para sostener una señal de seguridad entre instancias y en el tiempo, los rechazos del validador en modo enforce incrementan dos contadores Redis con ventana deslizante de **1 h** (vía `securityCounters`, fail-open):
+
+- `rfid_hmac_invalid` — firma incorrecta (`HMAC_INVALID`): UID/counter manipulado o secret erróneo.
+- `rfid_replay` — reenvío de un scan capturado (`COUNTER_REPLAY`).
+
+El detector `rfidHmacSpike` suma ambos contadores de la última hora y alerta sobre el **total**: `warning` a partir de **10/h**, `critical` a partir de **30/h**. Una alerta `critical` notifica en tiempo real a **todos los super_admins** (`system_alert_critical`) a través del puente worker→HTTP existente, de modo que el pico es visible en el centro de alertas sin esperar a un refresco. El finding desglosa `invalidLastHour` vs `replayLastHour`: un pico dominado por `rfid_replay` apunta a un ataque de reproducción o a un sensor clonado; uno dominado por `rfid_hmac_invalid` suele ser firmware en actualización, secret desincronizado firmware↔backend o sensor defectuoso. Playbook de respuesta: `Runbook_Operacional.md` (playbook `rfid_hmac_spike`).
+
+**(c) Visibilidad del rechazo para el docente.** Antes, un rechazo del backend por sensor no autorizado (`RFID_SENSOR_UNAUTHORIZED`) se silenciaba en el cliente y el rechazo por firma inválida (`rfid_scan_error`) no tenía listener: el docente con un sensor físico mal pareado o con firma inválida no recibía señal alguna. Ahora la UI de partida muestra un **banner guiado** con el motivo del rechazo y una acción **«Reconectar lector»**, y el indicador de estado del lector expone en un tooltip el sensor autorizado de la sesión y el **modo seguro** (firma activa). El silencio se mantiene solo en modo táctil (sin sensor físico), donde el enforcement no aplica.
 
 ---
 
@@ -590,7 +623,7 @@ GET rfid-games:auth:lock:user@example.com
 9. Verificar:
    - Animación tap correcta (~1.5s tras detect en Asociación, ADR-113 grace para Secuencia).
    - Backend logs: `RFID_SCAN_PROCESSED` con userId.
-   - Si `RFID_HMAC_ENABLED=true`: necesitarás generar HMAC client-side. Sin ese flag el flow legacy funciona.
+   - Con `RFID_HMAC_ENABLED=true` (estado operativo actual): el simulador dev-only `__rfidSim` firma con SubtleCrypto — provisiona el secret antes con `__rfidSim.setSecret("<secret>")` para que el scan supere el enforcement.
 10. Probar 3 mecánicas: Asociación, Memoria, Secuencia. Completar partida hasta GameOver.
 11. Probar fallback táctil: sin `__rfidSim.init()`, debería aparecer `FallbackTouchPanel` → tap funciona igual.
 12. Probar casos error: UID no en mazo (esperado: `wrong_answer` o equivalente). JSON malformado (Web Serial regex rechaza).
@@ -682,8 +715,8 @@ Detalle operativo: [`Secrets_Rotation.md`](Secrets_Rotation.md).
 - [ ] `MFA_REQUIRED_FOR_SUPER_ADMIN=true` (default prod).
 - [ ] `CSP_REPORT_ONLY=true` para primer deploy a staging (1 semana, recoger violaciones).
 - [ ] `WSS_DOMAIN=wss://api-prod.koyeb.app` (o equivalente).
-- [ ] `RFID_HMAC_ENABLED=false` inicialmente; activar tras 100% adopción firmware nuevo.
-- [ ] `RFID_HMAC_SECRET` configurado en backend env Y inyectado en firmware en build.
+- [ ] `RFID_HMAC_ENABLED=true` (estado operativo actual); el guard de arranque exige `RFID_HMAC_SECRET` con el flag activo.
+- [ ] `RFID_HMAC_SECRET` configurado en backend env Y el MISMO secret inyectado en firmware en build (de lo contrario el sensor recibe `HMAC_INVALID`).
 - [ ] `TURNSTILE_SECRET` + `VITE_TURNSTILE_SITEKEY` configurados (opt-in).
 - [ ] `ACCOUNT_LOCKOUT_MAX_ATTEMPTS=5` (default OK).
 - [ ] Cloudflare Bot Fight Mode revisado contra CSP `scriptSrc` (no inyectar scripts inline).
@@ -713,7 +746,7 @@ Detalle operativo: [`Secrets_Rotation.md`](Secrets_Rotation.md).
 - ✅ **B2**: cryptoUtils AES-256-GCM + Cache-Control + DTO sanitization + Pino redact + Sentry beforeSend hardening.
 - ✅ **B3**: Magic bytes multer + health endpoint sanitization.
 - ✅ **B6**: Open redirect whitelist + Turnstile CAPTCHA **completo (backend + frontend widget)**.
-- ✅ **B8**: RFID firmware HMAC + counter EEPROM + anti-replay backend.
+- ✅ **B8**: RFID firmware HMAC + counter EEPROM + anti-replay backend. **Activado end-to-end** (`RFID_HMAC_ENABLED=true`) con enforcement consciente del origen (solo `web_serial`; táctiles exentos) — ver §13.2 y ADR-206.
 - ✅ **B9**: Suite tests adversariales (nosqlInjection, csrfBypass, rateLimitConfigs).
 
 ### 19.6 Deuda upstream (resuelta tras T-905)
