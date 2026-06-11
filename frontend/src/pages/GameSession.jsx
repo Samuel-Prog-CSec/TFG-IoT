@@ -1,11 +1,12 @@
 import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { m as motion, AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search, Gamepad2, CheckCircle2, Loader2, RefreshCw } from 'lucide-react';
+import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search, Gamepad2, CheckCircle2, Loader2, RefreshCw, PartyPopper, ShieldAlert, X, Lock } from 'lucide-react';
 import { cn, calculateStars, EASING } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
 import RFIDConnector from '../components/ui/RFIDConnector';
+import webSerialService from '../services/webSerialService';
 import { extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
@@ -134,6 +135,15 @@ export default function GameSession() {
   const sessionIsMemory = mechanicMode === 'memory';
   const sessionIsSequence = mechanicMode === 'sequence';
 
+  // Modo seguro (firma HMAC activa). El firmware lo anuncia en el init de éxito
+  // (`hmac:"enabled"`) y `webSerialService` lo propaga en `device_init` y en
+  // cada `device_state_change`. Lo reflejamos en el indicador del HUD para que
+  // el docente sepa que los scans van firmados. Arranca en `false` (modo
+  // táctil / firmware sin firma).
+  const [rfidHmacEnabled, setRfidHmacEnabled] = useState(
+    () => webSerialService.hmacEnabled || false
+  );
+
   // Estado intra-ronda de la mecánica Secuencia (T-921). Vive aquí (no en
   // SequenceGameplayPanel) para que los listeners de useGameSocket se
   // registren ANTES de que el componente Secuencia se monte por
@@ -172,6 +182,9 @@ export default function GameSession() {
   const {
     clearFeedback,
     processValidationResult,
+    signalSequencePhase,
+    signalRoundStart,
+    signalIdleNudge,
     resetForNewPlay,
     feedbackState,
     feedbackPoints,
@@ -307,9 +320,12 @@ export default function GameSession() {
       setTimeLeft(nextTimeLimit);
       setChallenge(normalizeChallenge(payload?.challenge));
       playRoundStart();
+      // Otto: saludo en la 1ª ronda y hype suave ("¡Última ronda!") en la
+      // última; rondas intermedias preservan el mood del acierto anterior.
+      signalRoundStart({ currentRound: roundNumber, totalRounds: nextTotalRounds });
       setSrAnnouncement(`Ronda ${Number(payload?.roundNumber || 1)} de ${nextTotalRounds} iniciada.`);
     },
-    [clearPendingTimeouts, normalizeChallenge, clearFeedback, playRoundStart, setTimeLeft, clearAnnouncedThresholds, dispatch]
+    [clearPendingTimeouts, normalizeChallenge, clearFeedback, playRoundStart, setTimeLeft, clearAnnouncedThresholds, dispatch, signalRoundStart]
   );
 
   const handlePlayPaused = useCallback(payload => {
@@ -562,7 +578,9 @@ export default function GameSession() {
     dispatch({ type: 'AWAIT_RESPONSE', value: false });
     clearAnnouncedThresholds();
     setTimeLeft(roundTimeRef.current || ROUND_TIME);
-  }, [setTimeLeft, clearAnnouncedThresholds, dispatch]);
+    // Otto reacciona a la fase de memorización ("¡Fíjate en el orden!").
+    signalSequencePhase('memorizing');
+  }, [setTimeLeft, clearAnnouncedThresholds, dispatch, signalSequencePhase]);
 
   const handleSequencePhaseReproducing = useCallback(payload => {
     // Sincronizar `overlayDurationMs` con el `gracePeriodMs` del backend para
@@ -614,7 +632,9 @@ export default function GameSession() {
     } else {
       dispatch({ type: 'AWAIT_RESPONSE', value: true });
     }
-  }, [setTimeLeft, clearAnnouncedThresholds, dispatch]);
+    // Otto reacciona a la fase de reproducción ("¡Ahora te toca!").
+    signalSequencePhase('reproducing');
+  }, [setTimeLeft, clearAnnouncedThresholds, dispatch, signalSequencePhase]);
 
   const handleSequenceCardResult = useCallback(payload => {
     const TYPE_TO_STATUS = {
@@ -734,6 +754,19 @@ export default function GameSession() {
     }, 2400);
   }, [playSuccess, processValidationResult, currentRound, totalRounds, dispatch]);
 
+  // Otto "más vivo": re-enganche por inactividad. Si durante el turno del
+  // alumno (juego activo + esperando respuesta) pasan ~8s sin actividad
+  // (sin cambio de ronda ni feedback), Otto da un toque amable. Se reinicia
+  // con cada acción; nunca regaña (cooldown en `signalIdleNudge`).
+  useEffect(() => {
+    // Solo durante la espera genuina de respuesta (feedbackState idle): si hay
+    // feedback en curso (success/error), NO arrancar el timer para no pisar el
+    // mood reactivo (happy/celebrating/worried) con el nudge (code review F4).
+    if (gameState !== 'playing' || !isAwaitingResponse || feedbackState !== 'idle') return undefined;
+    const t = setTimeout(() => signalIdleNudge(), 8000);
+    return () => clearTimeout(t);
+  }, [gameState, isAwaitingResponse, currentRound, feedbackState, signalIdleNudge]);
+
   const socket = useGameSocket({
     sessionId,
     retryKey,
@@ -761,6 +794,7 @@ export default function GameSession() {
     session, playId, selectedPlayerId,
     loadingSession, sessionError,
     rfidConnected, bestScore,
+    rfidBlocked, clearRfidBlocked,
     setRealtimeError,
     syncGameState,
     REALTIME_STATUS_COPY,
@@ -778,6 +812,33 @@ export default function GameSession() {
     () => session?.cardMappings || [],
     [session?.cardMappings]
   );
+
+  // Contenido del tooltip de diagnóstico del lector RFID (HUD). Resume estado
+  // del lector, el sensor autorizado de la sesión (truncado, jerga técnica útil
+  // solo para depurar) y si el modo seguro (firma HMAC) está activo. Se
+  // recalcula solo cuando cambian sus entradas para no crear strings en cada
+  // render del HUD durante la partida.
+  const rfidTooltip = useMemo(() => {
+    const estado = rfidConnected ? 'Lector conectado y listo' : 'Lector desconectado';
+    const sensorAutorizado = session?.sensorId
+      ? `Sensor autorizado: ${String(session.sensorId).slice(0, 12)}…`
+      : null;
+    const firma = rfidHmacEnabled ? '🔒 Firma activa' : null;
+    const lineas = [estado, sensorAutorizado, firma].filter(Boolean);
+    return {
+      // Texto plano para `aria-label` (lectores de pantalla anuncian el
+      // diagnóstico completo al enfocar el indicador con teclado).
+      ariaLabel: lineas.join('. '),
+      // Versión visual multilínea para el tooltip flotante.
+      content: (
+        <span className="block space-y-0.5 text-left">
+          {lineas.map(linea => (
+            <span key={linea} className="block">{linea}</span>
+          ))}
+        </span>
+      )
+    };
+  }, [rfidConnected, session?.sensorId, rfidHmacEnabled]);
 
   // Sincronizar socketSessionRef y mechanicMode cuando la sesión cargue
   useEffect(() => {
@@ -1035,6 +1096,41 @@ export default function GameSession() {
     [gameState, session?.sensorId, emitMemoryCardTap]
   );
 
+  // Reconexión guiada del lector RFID desde el banner de bloqueo. El backend
+  // rechaza scans cuando el sensor no está autorizado / cambió a media partida
+  // o la firma HMAC no valida; reabrir el puerto fuerza un init limpio que
+  // re-anuncia el sensor autorizado. `connect()` abre el selector de puerto del
+  // navegador, por lo que requiere gesto del usuario (el clic del botón lo es).
+  const handleReconnectReader = useCallback(async () => {
+    try {
+      await webSerialService.disconnect();
+      await webSerialService.connect();
+    } catch (reconnectError) {
+      toast.error(
+        reconnectError?.message || 'No se pudo reconectar el lector. Inténtalo de nuevo.'
+      );
+    } finally {
+      // Limpiar el banner pase lo que pase: si el usuario cancela el selector
+      // de puerto, el banner reaparecerá al siguiente scan rechazado.
+      clearRfidBlocked();
+    }
+  }, [clearRfidBlocked]);
+
+  // Modo seguro: escuchar el estado de firma HMAC que `webSerialService`
+  // propaga en `device_init` (al arrancar el sensor) y en cada
+  // `device_state_change` (incluida la desconexión, que lo resetea a false).
+  useEffect(() => {
+    const handleHmacState = payload => {
+      setRfidHmacEnabled(Boolean(payload?.hmacEnabled));
+    };
+    webSerialService.on('device_init', handleHmacState);
+    webSerialService.on('device_state_change', handleHmacState);
+    return () => {
+      webSerialService.off('device_init', handleHmacState);
+      webSerialService.off('device_state_change', handleHmacState);
+    };
+  }, []);
+
   const playAgain = async () => {
     if (!selectedPlayerId) {
       toast.error('No se pudo determinar el alumno para una nueva partida.');
@@ -1291,15 +1387,33 @@ export default function GameSession() {
               </Tooltip>
             ) : null}
 
-            <div className={cn(
-              "p-2 rounded-lg",
-              rfidConnected ? "bg-success-base/20 text-success-base" : "bg-error-base/20 text-error-base"
-            )}>
-              <output className="sr-only" aria-live="polite">
-                {rfidConnected ? 'Sensor RFID conectado' : 'Sensor RFID desconectado'}
-              </output>
-              {rfidConnected ? <Wifi size={20} /> : <WifiOff size={20} />}
-            </div>
+            {/* Indicador del lector con tooltip de diagnóstico (Task 7): estado
+                del lector, sensor autorizado de la sesión y modo seguro (firma
+                HMAC). El Tooltip envuelve un elemento no interactivo, por lo que
+                añade role/tabIndex/aria-label automáticamente y queda operable
+                por teclado. El candado solo aparece con firma activa. */}
+            <Tooltip content={rfidTooltip.content} side="bottom">
+              <div
+                aria-label={rfidTooltip.ariaLabel}
+                className={cn(
+                  "relative p-2 rounded-lg",
+                  rfidConnected ? "bg-success-base/20 text-success-base" : "bg-error-base/20 text-error-base"
+                )}
+              >
+                <output className="sr-only" aria-live="polite">
+                  {rfidConnected ? 'Sensor RFID conectado' : 'Sensor RFID desconectado'}
+                </output>
+                {rfidConnected ? <Wifi size={20} /> : <WifiOff size={20} />}
+                {rfidHmacEnabled && (
+                  <span
+                    className="absolute -top-1 -right-1 inline-flex items-center justify-center size-3.5 rounded-full bg-success-base text-background-base"
+                    aria-hidden="true"
+                  >
+                    <Lock size={9} strokeWidth={3} />
+                  </span>
+                )}
+              </div>
+            </Tooltip>
 
             {/* Chip de estado: durante la partida cambia de "Juego listo" a
                 "Jugando" con pulso verde para reforzar que la partida esta
@@ -1378,6 +1492,66 @@ export default function GameSession() {
           <RFIDConnector className="max-w-md" showSensorId={false} />
         </div>
       )}
+
+      {/* Banner guiado de lector bloqueado (Task 7). A diferencia del indicador
+          Wifi/WifiOff —que solo distingue conectado/desconectado— este banner
+          aparece cuando el backend RECHAZA scans por seguridad (sensor no
+          autorizado, cambio de sensor a media partida o firma HMAC inválida).
+          Esos rechazos eran invisibles; aquí se hacen accionables con una
+          reconexión guiada. Usa tono de error (más prominente que el warning de
+          `realtimeError`) siguiendo el patrón motion de RateLimitBanner. */}
+      <AnimatePresence>
+        {rfidBlocked && (
+          <div className="relative z-10 px-3 sm:px-4 mt-1 shrink-0">
+            <motion.aside
+              role="alert"
+              aria-atomic="true"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-2xl mx-auto rounded-xl border border-error-base/40 bg-error-base/10 backdrop-blur-sm overflow-hidden"
+            >
+              <div className="flex items-start gap-3 px-4 py-3">
+                <ShieldAlert
+                  size={20}
+                  className="text-error-base shrink-0 mt-0.5"
+                  aria-hidden="true"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-text-primary">
+                    Lector RFID bloqueado
+                  </p>
+                  <p className="text-xs text-text-secondary mt-0.5">
+                    {rfidBlocked.message}
+                  </p>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleReconnectReader}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-error-base/20 text-error-base text-xs font-semibold hover:bg-error-base/30 active:scale-95 transition-[background-color,transform]"
+                    >
+                      <RefreshCw size={14} aria-hidden="true" />
+                      Reconectar lector
+                    </button>
+                    <span className="text-nano text-text-muted">
+                      o continúa en modo táctil
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearRfidBlocked}
+                  className="shrink-0 p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-error-base/15 active:scale-95 transition-[color,background-color,transform]"
+                  aria-label="Descartar aviso del lector"
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </div>
+            </motion.aside>
+          </div>
+        )}
+      </AnimatePresence>
 
       {realtimeError && (
         <div className="relative z-10 px-3 sm:px-4 mt-1 shrink-0">
@@ -1483,7 +1657,11 @@ export default function GameSession() {
                 // Ambas mecanicas usan h-full para que su contenido pueda ocupar
                 // el alto disponible y se evite scroll durante la partida.
                 'w-full flex flex-col items-center h-full',
-                sessionIsMemory ? 'max-w-5xl' : 'max-w-4xl justify-center gap-4',
+                // Asociación/Secuencia: el ancho de la columna escala con el ALTO
+                // disponible (vh) en vez de un cap fijo. A 720p ≈ max-w-4xl (cabe
+                // igual), en 2K/4K se ensancha para aprovechar el espacio horizontal
+                // sin romper el fit (las cartas, proporcionales al vh, siempre caben).
+                sessionIsMemory ? 'max-w-5xl' : 'max-w-[clamp(56rem,124vh,86rem)] justify-center gap-[clamp(0.5rem,1.6vh,1rem)]',
                 shakeError && 'animate-shake'
               )}
             >
@@ -1717,11 +1895,12 @@ export default function GameSession() {
               className="text-center"
             >
               <motion.div
-                animate={{ scale: [1, 1.3, 1], rotate: [0, 10, -10, 0] }}
+                animate={shouldReduceMotion ? undefined : { scale: [1, 1.3, 1], rotate: [0, 10, -10, 0] }}
                 transition={{ duration: 0.8, repeat: Infinity }}
-                className="text-8xl mb-4"
+                className="mb-4 flex justify-center"
+                aria-hidden="true"
               >
-                🎉
+                <PartyPopper size={84} strokeWidth={1.5} className="text-warning-base drop-shadow-[0_0_22px_var(--color-warning-glow)]" />
               </motion.div>
               <motion.p
                 initial={{ opacity: 0, y: 20 }}
