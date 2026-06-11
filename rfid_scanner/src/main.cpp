@@ -1,6 +1,8 @@
 #include <Arduino.h>
 // RFID RC522 SPI for Wemos D1 mini - Optimized for MERN integration
-// T-905 B8: HMAC-SHA256 del UID + counter monotónico EEPROM para anti-replay.
+// T-905 B8: HMAC-SHA256 del UID canónico + counter monotónico EEPROM (anti-replay).
+// Mejoras hardware conservadas: SPI 4MHz, reintentos VersionReg, verificación BCC
+// en la anticolisión cruda, macro F() para strings en flash.
 
 #include <SPI.h>
 #include <MFRC522.h>
@@ -15,20 +17,18 @@
 // =============================================================================
 // HMAC + Counter EEPROM (T-905 B8)
 // =============================================================================
-// Secret se inyecta en build-time vía -DRFID_HMAC_SECRET="..." en platformio.ini.
-// NUNCA se commitea al repo. Ver rfid_scanner/README.md sección "Provisionado".
-// Si la macro no está definida, usamos un valor stub que el backend rechazará
-// cuando RFID_HMAC_ENABLED=true, forzando una compilación correcta antes de prod.
+// El secret se inyecta en build-time vía -DRFID_HMAC_SECRET="..." en
+// platformio.ini. NUNCA se commitea al repo. Ver README.md sección "Provisionado".
+// Si la macro no está definida, queda un stub que el backend rechazará cuando
+// RFID_HMAC_ENABLED=true, forzando provisionar correctamente antes de prod.
 #ifndef RFID_HMAC_SECRET
   #define RFID_HMAC_SECRET "stub-secret-replace-via-build-flags-before-production"
 #endif
 
-// EEPROM layout:
-//   offset 0..3: counter monotónico (uint32_t little-endian) "reservado".
-// Persistimos en BATCH: cada CTR_PERSIST_INTERVAL scans escribimos `counter`
-// como `currentBatch + CTR_PERSIST_INTERVAL`. En boot recuperamos como
-// (persisted - CTR_PERSIST_INTERVAL + 1). Esto reduce wear-out de EEPROM
-// (~100k ciclos) de 1 escritura/scan a 1 escritura cada 100 scans.
+// EEPROM layout: offset 0..3 = counter monotónico (uint32_t little-endian).
+// Persistimos en BATCH: cada CTR_PERSIST_INTERVAL scans escribimos el "techo".
+// En boot saltamos al techo persistido para garantizar monotonicidad estricta.
+// Reduce el wear-out de EEPROM (~100k ciclos) de 1 escritura/scan a 1 cada 100.
 const uint32_t CTR_PERSIST_INTERVAL = 100;
 const size_t   EEPROM_SIZE = 16;
 
@@ -41,16 +41,13 @@ void loadCounterFromEEPROM() {
   for (size_t i = 0; i < 4; i++) {
     ceiling |= ((uint32_t)EEPROM.read(i)) << (i * 8);
   }
-  // Si la EEPROM está virgen (0xFFFFFFFF), empezamos desde 0.
+  // EEPROM virgen (0xFFFFFFFF) → empezamos desde 0.
   if (ceiling == 0xFFFFFFFF) {
     ceiling = 0;
   }
-  // Restore conservador: asumimos que entre boot anteriores se pudieron emitir
-  // hasta CTR_PERSIST_INTERVAL-1 scans no persistidos. Saltamos al techo para
-  // garantizar monotonicidad estricta.
   currentCounter = ceiling;
   persistedCeiling = ceiling + CTR_PERSIST_INTERVAL;
-  // Persistir el siguiente techo ya mismo para reservarlo.
+  // Reservar el siguiente techo ya mismo.
   for (size_t i = 0; i < 4; i++) {
     EEPROM.write(i, (persistedCeiling >> (i * 8)) & 0xFF);
   }
@@ -80,7 +77,8 @@ String toHex(const uint8_t* buf, size_t len) {
   return out;
 }
 
-// Calcula HMAC-SHA256(secret, "uid:counter") y devuelve hex.
+// HMAC-SHA256(secret, "uid:counter") en hex. El uid llega YA en mayúsculas
+// (forma canónica del sistema), de modo que coincida con lo que recalcula el backend.
 String computeHmac(const String& uid, uint32_t counter) {
   String message = uid + ":" + String(counter);
   br_hmac_key_context kc;
@@ -95,7 +93,11 @@ String computeHmac(const String& uid, uint32_t counter) {
 
 MFRC522 mfrc522(SS_PIN, RST_PIN);
 
-void emitCardEvent(const String& uidStr, const String& typeName, uint8_t size) {
+// Emite un card_detected firmado. Canoniza el UID a MAYÚSCULAS (igual que
+// card_decks y el backend) ANTES de firmar y de serializar, para que el HMAC
+// recalculado en el servidor sobre el uid recibido coincida byte a byte.
+void emitCardEvent(String uidStr, const String& typeName, uint8_t size) {
+  uidStr.toUpperCase();
   currentCounter++;
   maybePersistCounter();
   String hmac = computeHmac(uidStr, currentCounter);
@@ -109,29 +111,35 @@ void emitCardEvent(const String& uidStr, const String& typeName, uint8_t size) {
 
 void setup() {
   Serial.begin(115200);
-  delay(2000); // Esperar a que pase el ruido de boot del ESP8266
+  delay(500); // Esperar a que pase el ruido de boot del ESP8266
   loadCounterFromEEPROM();
-  Serial.println("RFID Scanner v1.1 - HMAC + counter (T-905 B8)");
+  Serial.println(F("{\"event\":\"init\",\"status\":\"starting\",\"version\":\"rfid_v1.1\"}"));
 
   SPI.begin();
-  pinMode(SS_PIN, OUTPUT);
+  SPI.setFrequency(4000000); // 4MHz — estable para RC522
+
   pinMode(RST_PIN, OUTPUT);
-  digitalWrite(SS_PIN, HIGH);
   digitalWrite(RST_PIN, HIGH);
 
-  // Hardware reset for clones
+  // Hardware reset del RC522
   digitalWrite(RST_PIN, LOW);
   delay(50);
   digitalWrite(RST_PIN, HIGH);
   delay(50);
 
   mfrc522.PCD_Init();
-  mfrc522.PCD_AntennaOn();
-  mfrc522.PCD_SetAntennaGain(mfrc522.RxGain_38dB);
+  mfrc522.PCD_SetAntennaGain(MFRC522::RxGain_38dB);
 
-  byte version = mfrc522.PCD_ReadRegister(MFRC522::VersionReg);
+  // Verificar comunicacion con reintentos (clones a veces tardan en responder)
+  byte version = 0x00;
+  for (byte attempt = 0; attempt < 5; attempt++) {
+    version = mfrc522.PCD_ReadRegister(MFRC522::VersionReg);
+    if (version != 0x00 && version != 0xFF) break;
+    delay(100);
+  }
+
   if (version == 0x00 || version == 0xFF) {
-    Serial.println("{\"event\":\"error\",\"type\":\"init_failure\",\"message\":\"RC522 communication failed\"}");
+    Serial.println(F("{\"event\":\"error\",\"type\":\"init_failure\",\"message\":\"RC522 communication failed — check SPI wiring\"}"));
   } else {
     String json = "{\"event\":\"init\",\"status\":\"success\",\"version\":\"0x" + String(version, HEX) +
                   "\",\"hmac\":\"enabled\",\"counter\":" + String(currentCounter) + "}";
@@ -156,18 +164,17 @@ void loop() {
     lastHeartbeat = millis();
   }
 
-  // Check for new cards
   bool cardPresent = mfrc522.PICC_IsNewCardPresent();
 
   if (cardPresent) {
     noDetectCount = 0;
-    // Intentar leer UID con reintentos cortos (algunos clones requieren varios intentos)
+    // Reintentos cortos de lectura (algunos clones requieren varios intentos)
     bool readSerial = false;
     const int maxAttempts = 3;
     for (int attempt = 1; attempt <= maxAttempts; ++attempt) {
       readSerial = mfrc522.PICC_ReadCardSerial();
       if (readSerial) break;
-      delay(50);
+      delay(50); // Pequeño delay entre intentos
     }
 
     if (readSerial) {
@@ -183,38 +190,47 @@ void loop() {
       cardPresentFlag = true;
       cardsDetected++;
 
+      // Halt PICC
       mfrc522.PICC_HaltA();
+      // Stop encryption on PCD
       mfrc522.PCD_StopCrypto1();
-      delay(500);
+
+      delay(500); // Pausa corta antes de buscar otra
     }
     else {
-      // Si falla PICC_ReadCardSerial, intentar anticollision crudo
+      // Fallback: anticolisión cruda para clones con firmware no estándar
       byte acCmd[2] = { 0x93, 0x20 };
       byte backLen = 10;
       byte backBuf[10];
       byte validBits = 0;
       MFRC522::StatusCode st = mfrc522.PCD_TransceiveData(acCmd, 2, backBuf, &backLen, &validBits, 0, false);
       if (st == MFRC522::STATUS_OK && backLen == 5) {
+        byte bcc = 0;
         for (byte i = 0; i < 4; i++) {
           mfrc522.uid.uidByte[i] = backBuf[i];
+          bcc ^= backBuf[i];
         }
         mfrc522.uid.size = 4;
-        mfrc522.uid.sak = 0x08;
+        mfrc522.uid.sak = 0x04;
 
-        String uidStr = "";
-        for (byte i = 0; i < mfrc522.uid.size; i++) {
-          if (mfrc522.uid.uidByte[i] < 0x10) uidStr += "0";
-          uidStr += String(mfrc522.uid.uidByte[i], HEX);
+        if (bcc == backBuf[4]) {
+          String uidStr = "";
+          for (byte i = 0; i < mfrc522.uid.size; i++) {
+            if (mfrc522.uid.uidByte[i] < 0x10) uidStr += "0";
+            uidStr += String(mfrc522.uid.uidByte[i], HEX);
+          }
+          emitCardEvent(uidStr, "Unknown", mfrc522.uid.size);
+
+          lastUid = uidStr;
+          cardPresentFlag = true;
+          cardsDetected++;
+
+          mfrc522.PICC_HaltA();
+          mfrc522.PCD_StopCrypto1();
+          delay(500);
+        } else {
+          Serial.println(F("{\"event\":\"error\",\"type\":\"read_failure\",\"message\":\"BCC mismatch in anticollision\"}"));
         }
-        emitCardEvent(uidStr, "Unknown", mfrc522.uid.size);
-
-        lastUid = uidStr;
-        cardPresentFlag = true;
-        cardsDetected++;
-
-        mfrc522.PICC_HaltA();
-        mfrc522.PCD_StopCrypto1();
-        delay(500);
       } else {
         String json = "{\"event\":\"error\",\"type\":\"read_failure\",\"message\":\"Anticollision failed, status: " + String(st) + "\"}";
         Serial.println(json);
