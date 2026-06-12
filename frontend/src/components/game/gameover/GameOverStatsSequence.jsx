@@ -41,12 +41,12 @@ function GameOverStatsSequence({ summary }) {
   })();
 
   return (
-    <div className="space-y-3 mb-8">
+    <div className="space-y-[clamp(0.35rem,1.4vh,0.75rem)] mb-[clamp(0.5rem,2vh,2rem)]">
       {/* Hero metric: mejor longitud alcanzada */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-2xl bg-accent-amber/10 border border-accent-amber/30 px-4 py-3 flex items-center justify-between"
+        className="rounded-2xl bg-accent-amber/10 border border-accent-amber/30 px-4 py-[clamp(0.45rem,1.5vh,0.75rem)] flex items-center justify-between"
       >
         <div className="flex items-center gap-3">
           <div className="size-10 rounded-full bg-accent-amber/20 flex items-center justify-center" aria-hidden="true">

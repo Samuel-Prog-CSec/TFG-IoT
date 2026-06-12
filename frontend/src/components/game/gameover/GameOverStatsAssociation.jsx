@@ -152,7 +152,7 @@ function GameOverStatsAssociation({ summary, totalRounds, correctAnswers }) {
     <motion.div
       initial={{ opacity: 0, y: 8 }}
       animate={{ opacity: 1, y: 0 }}
-      className="rounded-2xl bg-accent-cyan/10 border border-accent-cyan/30 px-4 py-3 flex items-center justify-between gap-3"
+      className="rounded-2xl bg-accent-cyan/10 border border-accent-cyan/30 px-4 py-[clamp(0.45rem,1.5vh,0.75rem)] flex items-center justify-between gap-3"
     >
       <div className="flex items-center gap-3">
         <div
@@ -176,7 +176,7 @@ function GameOverStatsAssociation({ summary, totalRounds, correctAnswers }) {
 
   if (errors == null) {
     return (
-      <div className="space-y-3 mb-8">
+      <div className="space-y-[clamp(0.35rem,1.4vh,0.75rem)] mb-[clamp(0.5rem,2vh,2rem)]">
         {heroBlock}
         <div className="grid grid-cols-3 gap-2">
           <MetricPill
@@ -194,7 +194,7 @@ function GameOverStatsAssociation({ summary, totalRounds, correctAnswers }) {
   }
 
   return (
-    <div className="space-y-3 mb-8">
+    <div className="space-y-[clamp(0.35rem,1.4vh,0.75rem)] mb-[clamp(0.5rem,2vh,2rem)]">
       {heroBlock}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
         <MetricPill

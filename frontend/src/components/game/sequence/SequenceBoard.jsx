@@ -31,6 +31,7 @@ import SequenceProgressDots from './SequenceProgressDots';
 import PhaseTransitionOverlay from './PhaseTransitionOverlay';
 import { SEQUENCE_PHASES, SEQUENCE_CARD_STATES } from '../../../constants/sequenceConfig';
 import { cn } from '../../../lib/utils';
+import { useSquareGridColumns } from '../../../hooks/useSquareGridColumns';
 
 const DEAL_STAGGER_MS = 90;
 const COLLECT_STAGGER_MS = 70;
@@ -78,13 +79,6 @@ const reducedDealVariants = {
   })
 };
 
-function getGridCols(length) {
-  if (length <= 3) return 'grid-cols-3';
-  if (length <= 4) return 'grid-cols-4';
-  if (length <= 6) return 'grid-cols-3 md:grid-cols-6';
-  return 'grid-cols-4 md:grid-cols-7';
-}
-
 const EMPTY_SEQUENCE = [];
 const EMPTY_CARD_STATUSES = {};
 
@@ -120,6 +114,11 @@ function SequenceBoard({
     status: cardStatuses[item.uid] || SEQUENCE_CARD_STATES.HIDDEN,
     highlight: highlightIndex === index ? index + 1 : null
   }));
+
+  // Columnas adaptativas por aspect-ratio de la región (ADR-207 addendum):
+  // maximiza el lado de carta para la región medida en cada viewport. Secuencias
+  // de hasta 7 cartas → hasta 7 columnas (1 fila ancha) cuando el alto lo limita.
+  const [gridRef, gridCols] = useSquareGridColumns(items.length, { maxCols: 7 });
 
   const isMemorizing = phase === SEQUENCE_PHASES.MEMORIZING;
   const isReproducing = phase === SEQUENCE_PHASES.REPRODUCING;
@@ -160,8 +159,8 @@ function SequenceBoard({
   const variants = reduceMotion ? reducedDealVariants : dealVariants;
 
   return (
-    <div className="relative w-full max-w-5xl mx-auto flex flex-col items-center gap-4">
-      <header className="flex flex-col items-center gap-1">
+    <div className="relative w-full h-full min-h-0 max-w-[clamp(48rem,116vh,80rem)] mx-auto flex flex-col items-center gap-[clamp(0.3rem,1vh,1rem)]">
+      <header className="flex flex-col items-center gap-1 shrink-0">
         {/* La línea "Ronda X de N" se omite aquí: el HUD global de
             GameSession ya la muestra (evitamos duplicar el contador). */}
         <p
@@ -180,19 +179,20 @@ function SequenceBoard({
         </p>
       </header>
 
-      <div className="relative w-full">
+      <div className="relative w-full flex-1 min-h-0">
         <PhaseTransitionOverlay
           visible={showOverlay}
           reduceMotion={reduceMotion}
           durationMs={overlayDurationMs}
         />
 
+        {/* Grid acotado al alto del board (h-full + auto-rows-fr) con columnas
+            adaptativas: las cartas escalan para llenar la región y se centran,
+            en vez de crecer en alto al ensanchar el viewport (desbordamiento previo). */}
         <ol
-          className={cn(
-            'grid gap-3 sm:gap-4',
-            getGridCols(items.length),
-            'list-none p-0 m-0'
-          )}
+          ref={gridRef}
+          className="grid gap-2 sm:gap-3 h-full w-full auto-rows-fr content-center justify-center list-none p-0 m-0"
+          style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
           aria-label={
             isMemorizing
               ? 'Secuencia mostrada: memorízala en orden.'
@@ -210,6 +210,7 @@ function SequenceBoard({
                     variants={variants}
                     initial="hidden"
                     animate="show"
+                    className="relative aspect-square max-h-full max-w-full mx-auto min-h-0"
                   >
                     <CardCellButton
                       item={item}
@@ -230,6 +231,7 @@ function SequenceBoard({
                   variants={collectVariants}
                   initial="show"
                   animate="exit"
+                  className="relative aspect-square max-h-full max-w-full mx-auto min-h-0 w-full"
                 >
                   <CardCellButton
                     item={item}
@@ -280,7 +282,7 @@ function CardCellButton({ item, onCardTap, isInteractive, isFaceUp, reduceMotion
     <button
       type="button"
       onClick={() => onCardTap?.(item)}
-      className="block w-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded-xl"
+      className="block w-full h-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber focus-visible:ring-offset-2 focus-visible:ring-offset-background-base rounded-xl"
       aria-label={ariaLabel}
     >
       <SequenceCard

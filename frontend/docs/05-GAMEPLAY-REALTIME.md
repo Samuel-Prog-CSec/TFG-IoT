@@ -79,6 +79,16 @@ Estado adicional de conectividad realtime:
 - Cada tap emite `rfid_scan_from_client` con payload validado (`uid`, `type`, `sensorId`, `timestamp`, `source`).
 - Se muestra aviso docente y CTA para pausar/revisar sensor sin perder control de sesión.
 
+## Layout fit-to-viewport — sin scroll (ADR-207)
+
+Invariante de las pantallas de partida y de fin de partida: **caben enteras en el viewport sin scroll desde 720p**, reajustando el tamaño de sus componentes para aprovechar el espacio.
+
+- **Presupuesto vertical por reparto flex.** La columna de juego llena el alto del `main` (`h-full min-h-0`) y reparte el espacio entre la **región de referencia** (reto en Asociación / board en Memoria y Secuencia) y la **región de input táctil** como hermanas `flex-1 min-h-0` (reparto equilibrado). No se usa `justify-center` sobre contenido que pueda desbordar: el panel táctil ya **nunca empuja ni recorta** el reto, porque son hermanos con cuota de alto fija, no elementos apilados.
+- **Rejillas dirigidas por ALTO, no por ancho.** Las cartas de los paneles táctiles (`FallbackTouchPanel`, `FallbackTouchPanelSequence`) y de los boards (`MemoryBoard`, `SequenceBoard`) escalan por **alto disponible**: la rejilla es `flex-1 min-h-0 auto-rows-fr content-center justify-center` y la carta `aspect-square max-h-full max-w-full mx-auto` con suelo `min-h-[2.75rem]` (44px, WCAG 2.5.8). El `max-w-full` es **imprescindible**: sin él, a viewports altos la carta se dimensiona por la fila y desborda la columna, solapándose con las vecinas.
+- **Columnas adaptativas por aspect-ratio (`useSquareGridColumns`).** El nº de columnas NO es estático: el hook mide la región con `ResizeObserver` y elige el recuento que **maximiza el lado de carta** (`pickSquareColumns` en `lib/squareGrid.js`). Región ancha-baja (720p) → más columnas/menos filas (cartas ~2× mayores que con columnas fijas); región más cuadrada (4K con el cap) → menos columnas que llenan el alto. Mantiene el reparto 50/50 y da la carta máxima en toda la escalera.
+- **GameOver vh-aware.** `GameOverScreen` y los `GameOverStats{Association,Memory,Sequence}` usan `clamp` con `vh` en paddings, márgenes y tamaños para comprimirse en viewports bajos; el `max-h-[98dvh] overflow-y-auto` queda solo como red de seguridad extrema. El caso más alto (Secuencia con badge de récord) cabe sin scroll a 1280×720.
+- **Antipatrón a evitar.** Cartas `aspect-square` dirigidas por ancho dentro de una rejilla cuyo ancho escala con `vh`/viewport: crecen en alto al ensanchar la pantalla y desbordan el presupuesto vertical.
+
 ## Refinado visual infantil (Sprint gameplay core)
 
 - Copy de estado realtime simplificado para niños (`Juego listo`, `Conectando`, `Sin conexión`).

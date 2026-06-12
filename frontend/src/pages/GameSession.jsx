@@ -1650,69 +1650,78 @@ export default function GameSession() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className={cn(
-                // Memoria necesita mas ancho para el grid de 4 cols; asociacion
-                // tambien aprovecha anchura para que consigna y grid de respuestas
-                // sean mas legibles (antes con max-w-2xl quedaba mucho aire
-                // lateral, detectado en QA 2026-04-23).
-                // Ambas mecanicas usan h-full para que su contenido pueda ocupar
-                // el alto disponible y se evite scroll durante la partida.
-                'w-full flex flex-col items-center h-full',
-                // Asociación/Secuencia: el ancho de la columna escala con el ALTO
-                // disponible (vh) en vez de un cap fijo. A 720p ≈ max-w-4xl (cabe
-                // igual), en 2K/4K se ensancha para aprovechar el espacio horizontal
-                // sin romper el fit (las cartas, proporcionales al vh, siempre caben).
-                sessionIsMemory ? 'max-w-5xl' : 'max-w-[clamp(56rem,124vh,86rem)] justify-center gap-[clamp(0.5rem,1.6vh,1rem)]',
+                // FIT-TO-VIEWPORT (sin scroll): la columna llena el alto del `main`
+                // (h-full + min-h-0) y reparte el espacio entre la región de
+                // referencia (reto/board) y la región de input táctil mediante
+                // reparto flex, en lugar de centrar contenido que pueda desbordar.
+                // Antes `justify-center` + hijos sin encoger recortaba la tarjeta
+                // del reto al aparecer el panel táctil (QA responsive 2026-06-12).
+                'w-full flex flex-col items-center h-full min-h-0 gap-[clamp(0.35rem,1.2vh,0.85rem)]',
+                // Cap de altura + centrado (el `main` ya centra): a 1440/4K el área
+                // de juego NO se estira a toda la pantalla (cartas pequeñas con
+                // huecos), sino que renderiza el layout probado (~1080) centrado con
+                // márgenes elegantes, igual que un `max-width` pero en el eje Y.
+                'max-h-[1100px]',
+                // El ancho de la columna escala con el ALTO disponible (vh): a 720p
+                // cabe igual, en 2K/4K se ensancha para aprovechar el espacio
+                // horizontal sin romper el fit vertical.
+                sessionIsMemory ? 'max-w-[clamp(64rem,128vh,86rem)]' : 'max-w-[clamp(56rem,124vh,86rem)]',
                 shakeError && 'animate-shake'
               )}
             >
-              <Suspense fallback={null}>
-                {(() => {
-                  if (sessionIsMemory) {
+              {/* Región de REFERENCIA: reto (Asociación), tablero (Memoria) o
+                  board (Secuencia). Toma una parte equitativa del alto (flex-1) y
+                  centra su contenido; con min-h-0 puede encoger sin recortes. */}
+              <div className="w-full flex-1 min-h-0 flex flex-col items-center justify-center">
+                <Suspense fallback={null}>
+                  {(() => {
+                    if (sessionIsMemory) {
+                      return (
+                        <MemoryGameplayPanel
+                          board={memoryBoard}
+                          attempts={memoryStats.attempts}
+                          matchedCount={memoryStats.matchedCount}
+                          totalCards={memoryStats.totalCards}
+                          feedbackState={feedbackState}
+                          feedbackPoints={feedbackPoints}
+                          feedbackMessage={feedbackMessage}
+                          onCardTap={handleMemoryCardTap}
+                        />
+                      );
+                    }
+                    if (sessionIsSequence) {
+                      return (
+                        <SequenceGameplayPanel
+                          totalRounds={totalRounds}
+                          cardMappings={sequenceCardMappings}
+                          rfidConnected={rfidConnected}
+                          soundEnabled={soundEnabled}
+                          sequenceState={sequenceState}
+                          onCardTap={emitFallbackScan}
+                        />
+                      );
+                    }
                     return (
-                      <MemoryGameplayPanel
-                        board={memoryBoard}
-                        attempts={memoryStats.attempts}
-                        matchedCount={memoryStats.matchedCount}
-                        totalCards={memoryStats.totalCards}
+                      <AssociationGameplayPanel
+                        ref={gameFeedback.challengeRef}
+                        challenge={challenge}
+                        paused={gameState === 'paused'}
                         feedbackState={feedbackState}
                         feedbackPoints={feedbackPoints}
                         feedbackMessage={feedbackMessage}
-                        onCardTap={handleMemoryCardTap}
+                        isTimeout={feedbackIsTimeout}
                       />
                     );
-                  }
-                  if (sessionIsSequence) {
-                    return (
-                      <SequenceGameplayPanel
-                        totalRounds={totalRounds}
-                        cardMappings={sequenceCardMappings}
-                        rfidConnected={rfidConnected}
-                        soundEnabled={soundEnabled}
-                        sequenceState={sequenceState}
-                        onCardTap={emitFallbackScan}
-                      />
-                    );
-                  }
-                  return (
-                    <AssociationGameplayPanel
-                      ref={gameFeedback.challengeRef}
-                      challenge={challenge}
-                      paused={gameState === 'paused'}
-                      feedbackState={feedbackState}
-                      feedbackPoints={feedbackPoints}
-                      feedbackMessage={feedbackMessage}
-                      isTimeout={feedbackIsTimeout}
-                    />
-                  );
-                })()}
-              </Suspense>
+                  })()}
+                </Suspense>
+              </div>
 
               {!sessionIsSequence && (
               <motion.p
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
-                className="mt-2 text-center text-text-secondary text-sm sm:text-base font-semibold"
+                className="shrink-0 text-center text-text-secondary text-sm sm:text-base font-semibold"
               >
                 {(() => {
                   if (sessionIsMemory) {
@@ -1740,6 +1749,9 @@ export default function GameSession() {
               </motion.p>
               )}
 
+              {/* Región de INPUT táctil (Asociación sin sensor): hermana flex-1 de
+                  la referencia → reparto equilibrado del alto. El propio panel se
+                  acota con min-h-0 y escala sus cartas por alto disponible. */}
               {!rfidConnected && !sessionIsMemory && !sessionIsSequence && (
                 <FallbackTouchPanel
                   cards={shuffledFallbackCards}
@@ -1753,7 +1765,7 @@ export default function GameSession() {
 
               {!rfidConnected && sessionIsMemory && !hasTappedBoardOnce && (
                 <motion.div
-                  className="mt-2 rounded-lg border border-accent-indigo/25 bg-accent-indigo/5 px-3 py-1.5"
+                  className="shrink-0 rounded-lg border border-accent-indigo/25 bg-accent-indigo/5 px-3 py-1.5"
                   initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}

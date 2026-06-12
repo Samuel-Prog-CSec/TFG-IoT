@@ -15,7 +15,7 @@ import { m as motion } from 'framer-motion';
 import { Hand } from 'lucide-react';
 import PropTypes from 'prop-types';
 import CardAssetPreview from '../../ui/CardAssetPreview';
-import { cn } from '../../../lib/utils';
+import { useSquareGridColumns } from '../../../hooks/useSquareGridColumns';
 
 const TAP_COOLDOWN_MS = 250;
 
@@ -33,12 +33,10 @@ function FallbackTouchPanelSequence({ cards, onSelectCard, cursor = 0, sequenceL
     .sort((a, b) => getSortKey(a).localeCompare(getSortKey(b), 'es'))
     .slice(0, 12);
 
-  const colsClass = (() => {
-    const n = visibleCards.length;
-    if (n <= 3) return 'grid-cols-3';
-    if (n <= 4) return 'grid-cols-4';
-    return 'grid-cols-3 md:grid-cols-6';
-  })();
+  // Columnas adaptativas por aspect-ratio (ADR-207 addendum) — ver
+  // FallbackTouchPanel de Asociación. Maximiza el lado de carta para la región
+  // medida en cada viewport, manteniendo todas las cartas del mazo visibles.
+  const [gridRef, gridCols] = useSquareGridColumns(visibleCards.length, { maxCols: 6 });
 
   const handleTap = card => {
     const now = Date.now();
@@ -50,8 +48,10 @@ function FallbackTouchPanelSequence({ cards, onSelectCard, cursor = 0, sequenceL
   };
 
   return (
-    <div className="mt-2 w-full max-w-5xl rounded-2xl border border-accent-amber/25 bg-accent-amber/5 p-3 sm:p-4">
-      <div className="flex flex-col items-center justify-center gap-1 text-text-secondary mb-3">
+    // Región flex-1 (reparto equilibrado con el board) y sizing de cartas por
+    // ALTO disponible — mismo patrón que el panel táctil de Asociación.
+    <div className="w-full flex-1 min-h-0 max-w-[clamp(48rem,116vh,80rem)] mx-auto rounded-2xl border border-accent-amber/25 bg-accent-amber/5 p-2.5 sm:p-3 flex flex-col">
+      <div className="flex flex-col items-center justify-center gap-1 text-text-secondary mb-2 shrink-0">
         <div className="flex items-center gap-2">
           <Hand size={14} className="shrink-0 text-accent-amber" aria-hidden="true" />
           <p className="text-xs font-medium">
@@ -70,7 +70,9 @@ function FallbackTouchPanelSequence({ cards, onSelectCard, cursor = 0, sequenceL
 
       {visibleCards.length > 0 && (
         <fieldset
-          className={cn('grid gap-3 sm:gap-4 border-0 p-0 m-0', colsClass)}
+          ref={gridRef}
+          className="grid gap-2 sm:gap-3 border-0 p-0 m-0 flex-1 min-h-0 auto-rows-fr content-center justify-center w-full"
+          style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
           aria-label="Cartas disponibles para reproducir la secuencia"
         >
           {visibleCards.map(card => (
@@ -84,7 +86,7 @@ function FallbackTouchPanelSequence({ cards, onSelectCard, cursor = 0, sequenceL
               whileTap={{ scale: 0.94 }}
               whileHover={{ y: -2 }}
               transition={{ type: 'spring', stiffness: 500, damping: 28 }}
-              className="relative aspect-square min-h-[72px] md:min-h-[110px] rounded-xl border-2 border-border-default bg-background-base/60 p-2 text-center hover:border-accent-amber/50 hover:shadow-[0_4px_16px_rgba(245,158,11,0.18)] active:bg-accent-amber/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber focus-visible:ring-offset-2 focus-visible:ring-offset-background-base transition-[background-color,border-color,box-shadow]"
+              className="relative aspect-square max-h-full max-w-full mx-auto min-h-[2.75rem] rounded-xl border-2 border-border-default bg-background-base/60 p-1.5 text-center hover:border-accent-amber/50 hover:shadow-[0_4px_16px_rgba(245,158,11,0.18)] active:bg-accent-amber/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber focus-visible:ring-offset-2 focus-visible:ring-offset-background-base transition-[background-color,border-color,box-shadow]"
               aria-label={`Tocar carta: ${card.assignedValue || card.uid}`}
             >
               <CardAssetPreview

@@ -8,7 +8,9 @@ import { useEffect, useState } from 'react';
 import { AnimatePresence, m as motion } from 'framer-motion';
 import { Hand, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import PropTypes from 'prop-types';
+import { cn } from '../../lib/utils';
 import CardAssetPreview from '../ui/CardAssetPreview';
+import { useSquareGridColumns } from '../../hooks/useSquareGridColumns';
 
 /**
  * Panel de respuesta tactil para modo sin sensor RFID.
@@ -67,34 +69,28 @@ export default function FallbackTouchPanel({
     onSelectCard(card);
   };
 
-  // Numero de columnas adaptativo: con 2-4 cartas una fila compacta, con mas
-  // un grid 3xN. Los cards son siempre grandes (aspect-square) pero se escalan
-  // con el ancho disponible para que siempre quepan en viewport sin scroll.
-  // Target size WCAG 2.5.8 y Apple HIG (>=44pt) para niños 4-6 años.
-  // En tablets pequeñas (640-768px) mantenemos 3 cols hasta `md` para
-  // que cada botón tenga al menos ~96px de lado útil.
-  const colsClass = (() => {
-    const n = visibleCards.length;
-    if (n <= 3) return 'grid-cols-3';
-    if (n <= 4) return 'grid-cols-4';
-    // Límite lg:5 (antes md:6): con 6 cols en mazos grandes (12+ cartas)
-    // los botones se aplastaban a < 96px de lado en md (640-1024px),
-    // sacrificando target size WCAG. 3/4/5 garantiza >=110px en cualquier
-    // viewport >=md y mantiene la cuadrícula legible.
-    if (n <= 8) return 'grid-cols-2 sm:grid-cols-4';
-    return 'grid-cols-3 md:grid-cols-4 lg:grid-cols-5';
-  })();
+  // Columnas adaptativas por aspect-ratio de la región (ADR-207 addendum): el
+  // hook mide el `fieldset` y elige el nº de columnas que MAXIMIZA el lado de
+  // carta cuadrada. Región ancha-baja (720p) → más columnas/menos filas; región
+  // alta (4K) → menos columnas que llenan el alto. Suelo táctil WCAG en la carta.
+  const [gridRef, gridCols] = useSquareGridColumns(visibleCards.length, { maxCols: 6 });
 
   return (
-    <div className="mt-2 w-full max-w-5xl rounded-2xl border border-accent-indigo/25 bg-accent-indigo/5 p-3 sm:p-4">
-      <div className="flex items-center justify-center gap-2 text-text-secondary mb-3">
+    // Región flex-1 hermana de la referencia (reparto equilibrado del alto).
+    // Internamente: header shrink-0, grid flex-1 que escala las cartas por ALTO
+    // disponible (auto-rows-fr) y botón de pausa shrink-0. Así el panel nunca
+    // empuja ni recorta el reto y las cartas siempre caben sin scroll.
+    <div className="w-full flex-1 min-h-0 max-w-[clamp(48rem,116vh,80rem)] mx-auto rounded-2xl border border-accent-indigo/25 bg-accent-indigo/5 p-2.5 sm:p-3 flex flex-col">
+      <div className="flex items-center justify-center gap-2 text-text-secondary mb-2 shrink-0">
         <Hand size={14} className="shrink-0 text-accent-indigo" aria-hidden="true" />
         <p className="text-xs font-medium">Selecciona la carta correcta</p>
       </div>
 
       {visibleCards.length > 0 && (
         <fieldset
-          className={`grid ${colsClass} gap-3 sm:gap-4 border-0 p-0 m-0`}
+          ref={gridRef}
+          className="grid gap-2 sm:gap-3 border-0 p-0 m-0 flex-1 min-h-0 auto-rows-fr content-center justify-center w-full"
+          style={{ gridTemplateColumns: `repeat(${gridCols}, minmax(0, 1fr))` }}
           aria-label="Cartas disponibles para selección táctil"
         >
           {visibleCards.map(card => {
@@ -129,19 +125,35 @@ export default function FallbackTouchPanel({
                 // `active:bg-accent-indigo/20` (resuelve el token del tema y
                 // se homogeneiza con Secuencia al alpha /20); whileTap queda
                 // sólo con el scale para no hardcodear un rgba fijo.
-                whileTap={{ scale: 0.94 }}
-                whileHover={tappedUid === null ? { y: -2 } : undefined}
+                whileTap={{ scale: 0.93 }}
+                whileHover={tappedUid === null ? { y: -4, scale: 1.03 } : undefined}
                 animate={isError ? { x: [-3, 3, -2, 2, 0], transition: { duration: 0.35 } } : undefined}
                 transition={{ type: 'spring', stiffness: 500, damping: 28 }}
                 aria-label={`Seleccionar carta: ${card.assignedValue || card.uid}`}
                 aria-busy={isWaiting}
-                // Tamaño generoso para desktop (QA 2026-04-23: antes las cartas
-                // quedaban muy pequeñas dejando mucho aire al usuario). En mobile
-                // se mantiene un min de 72px para preservar el target size WCAG.
-                // `opacity-60` (antes 40) suaviza el bloqueo: las otras cards
-                // siguen siendo legibles aunque deshabilitadas; el contraste
-                // anterior parecía un error de la app, no un estado de espera.
-                className={`relative aspect-square min-h-[72px] md:min-h-[110px] rounded-xl border-2 ${borderClass} ${glowClass} bg-background-base/60 p-2 text-center transition-[background-color,border-color,box-shadow,opacity] hover:border-accent-indigo/50 hover:shadow-[0_4px_16px_rgba(99,102,241,0.2)] active:bg-accent-indigo/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base disabled:cursor-not-allowed ${tappedUid !== null && !isTapped ? 'opacity-60' : ''}`}
+                // Tamaño dirigido por ALTO disponible: la carta es cuadrada
+                // (aspect-square) acotada a la celda (max-h-full/max-w-full) y
+                // centrada (mx-auto). En pantalla ancha la carta crece en ancho
+                // sin crecer en alto; el suelo min-h-[2.75rem] (44px, WCAG 2.5.8)
+                // garantiza target táctil incluso en mazos grandes a 720p.
+                // `opacity-60` suaviza el bloqueo de las demás cartas tras un tap.
+                className={cn(
+                  'relative aspect-square max-h-full max-w-full mx-auto min-h-[2.75rem] rounded-xl border-2 p-1.5 text-center',
+                  // Superficie premium: gradiente vertical sutil + bisel superior
+                  // (inner highlight) para que la carta se sienta física y "tocable".
+                  'bg-gradient-to-b from-background-surface/80 to-background-base/65',
+                  'shadow-[inset_0_1px_0_color-mix(in_oklab,var(--color-text-primary)_14%,transparent)]',
+                  'transition-[transform,background-color,border-color,box-shadow,opacity] duration-200',
+                  'hover:border-accent-indigo/50 hover:shadow-[0_10px_28px_color-mix(in_oklab,var(--color-accent-indigo)_30%,transparent)]',
+                  'active:bg-accent-indigo/20',
+                  'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
+                  'disabled:cursor-not-allowed',
+                  borderClass,
+                  // glowClass (éxito/error) va DESPUÉS del bisel para que su
+                  // sombra de color sustituya al inner highlight al dar feedback.
+                  glowClass,
+                  tappedUid !== null && !isTapped && 'opacity-60'
+                )}
               >
                 <CardAssetPreview
                   asset={card.displayData || { display: card.assignedValue || card.uid }}
@@ -209,7 +221,7 @@ export default function FallbackTouchPanel({
         // anclado al inicio (debajo del primer asset) por defecto del flow.
         // Wording neutral: el panel táctil se usa sin sensor, así que
         // "Pausar para revisar sensor" sugería revisar algo inexistente.
-        <div className="mt-3 flex justify-center">
+        <div className="mt-2 flex justify-center shrink-0">
           <button
             type="button"
             onClick={onPauseRequest}

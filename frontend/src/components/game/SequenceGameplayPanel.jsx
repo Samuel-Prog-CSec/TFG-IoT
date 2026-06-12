@@ -112,22 +112,26 @@ function SequenceGameplayPanel({
   }, [onCardTap]);
 
   return (
-    <div className="relative w-full h-full flex flex-col items-center justify-center gap-4 px-2 md:px-4">
-      <SequenceBoard
-        sequence={sequence}
-        length={length}
-        phase={phase}
-        cursor={cursor}
-        cardStatuses={cardStatuses}
-        highlightIndex={lastHighlightedRef.current >= 0 ? lastHighlightedRef.current : null}
-        displaySeconds={displaySeconds}
-        roundNumber={roundNumber}
-        totalRounds={totalRounds}
-        reduceMotion={shouldReduceMotion}
-        isCollecting={isCollecting}
-        overlayDurationMs={overlayDurationMs}
-        onCardTap={!rfidConnected && phase === SEQUENCE_PHASES.REPRODUCING ? handleCardTap : null}
-      />
+    <div className="relative w-full h-full min-h-0 flex flex-col items-center justify-center gap-[clamp(0.35rem,1.2vh,0.85rem)] px-2 md:px-4">
+      {/* Board: región flex-1 (reparto equilibrado del alto con el panel táctil
+          cuando aparece). Con min-h-0 puede encoger sin recortar las cartas. */}
+      <div className="w-full flex-1 min-h-0 flex flex-col items-center justify-center">
+        <SequenceBoard
+          sequence={sequence}
+          length={length}
+          phase={phase}
+          cursor={cursor}
+          cardStatuses={cardStatuses}
+          highlightIndex={lastHighlightedRef.current >= 0 ? lastHighlightedRef.current : null}
+          displaySeconds={displaySeconds}
+          roundNumber={roundNumber}
+          totalRounds={totalRounds}
+          reduceMotion={shouldReduceMotion}
+          isCollecting={isCollecting}
+          overlayDurationMs={overlayDurationMs}
+          onCardTap={!rfidConnected && phase === SEQUENCE_PHASES.REPRODUCING ? handleCardTap : null}
+        />
+      </div>
 
       {!rfidConnected && phase === SEQUENCE_PHASES.REPRODUCING && (
         <FallbackTouchPanelSequence

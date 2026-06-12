@@ -59,7 +59,11 @@ function SequenceCard({
   const statusConfig = STATUS_CONFIG[status];
 
   return (
-    <div className="relative w-full aspect-square">
+    // Rellena la celda cuadrada que la envuelve (la `li`/botón ya fija el
+    // tamaño cuadrado dirigido por alto en SequenceBoard). Antes era
+    // `w-full aspect-square` (dirigido por ancho), que crecía en alto al
+    // ensanchar el viewport y desbordaba el board.
+    <div className="relative w-full h-full">
       <div
         className={cn(
           'memory-card-flip h-full w-full',

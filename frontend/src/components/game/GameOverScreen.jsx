@@ -172,6 +172,7 @@ function GameOverScreen({
   const springScore = useSpring(0, { stiffness: 50, damping: 20 });
   const displayScore = useTransform(springScore, (v) => Math.round(v));
   const scoreRef = useRef(null);
+  const playAgainRef = useRef(null);
 
   useEffect(() => {
     if (shouldReduceMotion) {
@@ -186,6 +187,14 @@ function GameOverScreen({
       if (scoreRef.current) scoreRef.current.textContent = v;
     });
   }, [displayScore]);
+
+  // Foco al botón principal al montar (a11y: el foco va a la acción principal
+  // al terminar la partida). `preventScroll` evita que el navegador desplace
+  // la card hacia el botón — en viewports de poca altura (p.ej. 720p) eso
+  // recortaba el icono hero por arriba (QA esta sesión).
+  useEffect(() => {
+    playAgainRef.current?.focus({ preventScroll: true });
+  }, []);
 
   const { fireSuccess, fireFireworks } = useConfetti();
 
@@ -261,7 +270,10 @@ function GameOverScreen({
             rectas → "picos" cuadrados (más visibles en light, donde la sombra
             negra contrasta con el fondo claro). Una caja no recorta su propia
             sombra, así que con el overflow aquí la sombra sigue redondeada. */}
-        <div className="glass-card-gradient p-8 text-center max-h-[92dvh] overflow-y-auto custom-scrollbar">
+        {/* FIT-TO-VIEWPORT: la card cabe entera sin scroll; el padding y los
+            espaciados internos son vh-aware (clamp con vh) para compactarse en
+            viewports de poca altura (p.ej. 720p) y reocupar el tamaño. */}
+        <div className="glass-card-gradient p-[clamp(0.85rem,2.6vh,2rem)] text-center max-h-[98dvh] overflow-y-auto custom-scrollbar">
           {/* Icono hero del tier (Lucide en vez de emoji para consistencia) */}
           <motion.div
             animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
@@ -269,10 +281,10 @@ function GameOverScreen({
               rotate: [0, 5, -5, 0]
             }}
             transition={shouldReduceMotion ? { duration: 0 } : { duration: 1, repeat: 5 }}
-            className="mb-4 flex items-center justify-center"
+            className="mb-[clamp(0.3rem,1.4vh,1rem)] flex items-center justify-center"
             aria-hidden="true"
           >
-            <tierConfig.Icon size={80} className={tierConfig.iconClass} />
+            <tierConfig.Icon size={80} className={cn('w-[clamp(2.75rem,7vh,5rem)] h-[clamp(2.75rem,7vh,5rem)]', tierConfig.iconClass)} />
           </motion.div>
 
           {/* Main message */}
@@ -285,11 +297,11 @@ function GameOverScreen({
           >
             {message.text}
           </motion.h1>
-          <p id="game-over-description" className="text-text-muted mb-6">{message.sub}</p>
+          <p id="game-over-description" className="text-text-muted mb-[clamp(0.4rem,2vh,1.5rem)]">{message.sub}</p>
 
           {/* Stars */}
           <div 
-            className="flex justify-center gap-3 mb-6" 
+            className="flex justify-center gap-3 mb-[clamp(0.4rem,2vh,1.5rem)]" 
             role="img" 
             aria-label={`Puntuación: ${stars} de 3 estrellas`}
           >
@@ -313,7 +325,7 @@ function GameOverScreen({
                       size={48}
                       aria-hidden="true"
                       className={cn(
-                        "transition-colors",
+                        "size-[clamp(1.75rem,4.5vh,3rem)] transition-colors",
                         isEarned
                           ? "fill-warning-base text-warning-base drop-shadow-[0_0_15px_var(--color-warning-glow)]"
                           : "fill-background-surface text-text-disabled"
@@ -338,7 +350,7 @@ function GameOverScreen({
             initial={{ opacity: 0, scale: 0.5 }}
             animate={{ opacity: 1, scale: 1 }}
             transition={{ delay: 0.5 }}
-            className="bg-background-elevated/50 rounded-2xl p-6 mb-6"
+            className="bg-background-elevated/50 rounded-2xl p-[clamp(0.55rem,1.8vh,1.5rem)] mb-[clamp(0.35rem,1.6vh,1.5rem)]"
           >
             <div
               ref={scoreRef}
@@ -377,7 +389,7 @@ function GameOverScreen({
                 initial={{ scale: 0 }}
                 animate={{ scale: 1 }}
                 transition={{ delay: 0.7, type: 'spring' }}
-                className="inline-flex items-center gap-2 mt-4 px-4 py-2 bg-warning-base/20 text-warning-base rounded-full text-sm font-bold"
+                className="inline-flex items-center gap-2 mt-[clamp(0.4rem,1.5vh,1rem)] px-4 py-1.5 bg-warning-base/20 text-warning-base rounded-full text-sm font-bold"
                 role="status"
               >
                 <Trophy size={16} aria-hidden="true" />
@@ -396,7 +408,7 @@ function GameOverScreen({
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 6 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: 0.7 }}
-                className="mt-3 text-text-muted text-sm"
+                className="mt-[clamp(0.3rem,1.2vh,0.75rem)] text-text-muted text-sm"
               >
                 A {Math.abs(scoreDelta)} puntos de tu récord
               </motion.p>
@@ -408,8 +420,8 @@ function GameOverScreen({
               el contador de cartas acertadas frente al total acumulado de la
               partida — el detalle por tipo de evento se muestra abajo en
               GameOverStatsSequence. */}
-          <dl className="grid grid-cols-2 gap-4 mb-6">
-            <div className={cn('rounded-xl p-4 border', heroCardTheme.bg, heroCardTheme.border)}>
+          <dl className="grid grid-cols-2 gap-[clamp(0.5rem,1.5vh,1rem)] mb-[clamp(0.4rem,2vh,1.5rem)]">
+            <div className={cn('rounded-xl p-[clamp(0.55rem,1.7vh,1rem)] border', heroCardTheme.bg, heroCardTheme.border)}>
               <dt className="text-xs text-text-muted order-2">
                 {(() => {
                   if (summary?.mode === 'memory') return 'Parejas';
@@ -417,11 +429,11 @@ function GameOverScreen({
                   return 'Correctas';
                 })()}
               </dt>
-              <dd className={cn('text-2xl font-bold font-display', heroCardTheme.value)}>{correctAnswers}</dd>
+              <dd className={cn('text-[clamp(1.1rem,2.6vh,1.5rem)] font-bold font-display leading-tight', heroCardTheme.value)}>{correctAnswers}</dd>
             </div>
-            <div className="bg-background-surface/30 rounded-xl p-4 border border-border-subtle">
+            <div className="bg-background-surface/30 rounded-xl p-[clamp(0.55rem,1.7vh,1rem)] border border-border-subtle">
               <dt className="text-xs text-text-muted order-2">Total</dt>
-              <dd className="text-2xl font-bold font-display text-text-secondary">{totalRounds}</dd>
+              <dd className="text-[clamp(1.1rem,2.6vh,1.5rem)] font-bold font-display text-text-secondary leading-tight">{totalRounds}</dd>
             </div>
           </dl>
 
@@ -432,18 +444,16 @@ function GameOverScreen({
 
           {/* Actions */}
           <nav className="flex flex-wrap gap-3 justify-center" aria-label="Acciones de fin de juego">
-            {/* eslint-disable jsx-a11y/no-autofocus -- autoFocus intencionado: al terminar la partida, el foco debe ir al boton principal */}
             <ButtonPremium
+              ref={playAgainRef}
               variant="primary"
               size="lg"
               onClick={onPlayAgain}
               icon={<RotateCcw size={20} aria-hidden="true" />}
               className="flex-1"
-              autoFocus
             >
               Jugar de Nuevo
             </ButtonPremium>
-            {/* eslint-enable jsx-a11y/no-autofocus */}
             <ButtonPremium
               variant="secondary"
               size="lg"
@@ -508,12 +518,14 @@ function GameOverScreen({
         aria-hidden="true"
         className="hidden md:block absolute bottom-16 left-16 pointer-events-none"
       >
-        <div className="scale-[1.4] origin-bottom-left">
+        <div className="origin-bottom-left">
           <CharacterMascot
             mood={mascotConfig.mood}
             message={mascotConfig.message}
             mechanicType={summary?.mode}
             position="left"
+            size="lg"
+            isFirstAppearance
           />
         </div>
       </div>
