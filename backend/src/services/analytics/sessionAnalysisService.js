@@ -364,7 +364,7 @@ async function getClassroomFatigue(teacherId, { timeRange = '30d' } = {}) {
   // Obtener estudiantes del profesor
   const students = await userRepository.find(
     { createdBy: toObjectId(teacherId), role: 'student', status: 'active' },
-    { select: 'name' }
+    { select: 'name', lean: true }
   );
 
   const studentIds = students.map(s => toObjectId(s._id));
@@ -386,9 +386,24 @@ async function getClassroomFatigue(teacherId, { timeRange = '30d' } = {}) {
       }
     },
     {
+      // Filtrar los eventos de respuesta DENTRO de Mongo (mismo predicado que
+      // antes se aplicaba en JS) en vez de traer events[] íntegro (rfid_scan,
+      // round_start/end…) de todas las partidas de la clase. $filter preserva
+      // el orden, requerido por el cálculo de mitades.
       $project: {
         playerId: 1,
-        events: 1
+        answerEvents: {
+          $filter: {
+            input: '$events',
+            as: 'e',
+            cond: {
+              $and: [
+                { $in: ['$$e.eventType', ['correct', 'error', 'timeout']] },
+                { $gt: ['$$e.timeElapsed', 0] }
+              ]
+            }
+          }
+        }
       }
     }
   ];
@@ -401,9 +416,8 @@ async function getClassroomFatigue(teacherId, { timeRange = '30d' } = {}) {
   );
 
   for (const gp of gameplays) {
-    const answerEvents = gp.events.filter(
-      e => ['correct', 'error', 'timeout'].includes(e.eventType) && e.timeElapsed > 0
-    );
+    // answerEvents ya viene filtrado desde Mongo ($filter en el pipeline).
+    const answerEvents = gp.answerEvents;
 
     if (answerEvents.length < 4) {
       continue;

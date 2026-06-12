@@ -2094,18 +2094,11 @@ async function getTopContextsAndMechanics(teacherId, timeRange = '30d', limitPar
   // Si los ZSETs no existen (TTL expirado, primera ejecución tras
   // deploy), fallback a las aggregations Mongo originales — sin perder
   // funcionalidad mientras la reconciliación nocturna repuebla.
-  const fastTopContexts = await readTopFromMaterialized({
-    teacherId,
-    timeRange,
-    dimension: 'context',
-    limit
-  });
-  const fastTopMechanics = await readTopFromMaterialized({
-    teacherId,
-    timeRange,
-    dimension: 'mechanic',
-    limit
-  });
+  // Las dos lecturas del ZSET materializado son independientes → en paralelo.
+  const [fastTopContexts, fastTopMechanics] = await Promise.all([
+    readTopFromMaterialized({ teacherId, timeRange, dimension: 'context', limit }),
+    readTopFromMaterialized({ teacherId, timeRange, dimension: 'mechanic', limit })
+  ]);
 
   const [topContexts, topMechanics] = await Promise.all([
     fastTopContexts || gamePlayRepository.aggregate(contextPipeline),

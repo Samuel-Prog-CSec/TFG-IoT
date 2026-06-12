@@ -57,7 +57,9 @@ function normalizeSessionMappingsFromDeck(deck) {
 }
 
 async function syncSessionFromDeck(session, { deckId, userId }) {
-  const deck = await cardDeckRepository.findById(deckId);
+  // Read-only: se leen campos del mazo para construir la sesión (el doc que se
+  // guarda es `session`, no `deck`) → lean.
+  const deck = await cardDeckRepository.findById(deckId, { lean: true });
   if (!deck) {
     throw new NotFoundError('Mazo');
   }
@@ -75,7 +77,7 @@ async function syncSessionFromDeck(session, { deckId, userId }) {
     throw new ValidationError(`El mazo debe tener al menos ${MIN_DECK_CARDS} cardMappings`);
   }
 
-  const context = await gameContextRepository.findById(deck.contextId);
+  const context = await gameContextRepository.findById(deck.contextId, { lean: true });
   if (!context) {
     throw new NotFoundError('Contexto de juego');
   }
@@ -175,7 +177,8 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
  * @throws {ValidationError} Si la mecánica no está activa
  */
 async function validateMechanic(mechanicId) {
-  const mechanic = await gameMechanicRepository.findById(mechanicId);
+  // Read-only (solo se lee isActive/name; no se hace .save()) → lean.
+  const mechanic = await gameMechanicRepository.findById(mechanicId, { lean: true });
 
   if (!mechanic) {
     throw new NotFoundError('Mecánica de juego');
@@ -198,7 +201,8 @@ async function validateMechanic(mechanicId) {
  * @throws {ValidationError} Si no hay suficientes assets
  */
 async function validateContext(contextId, requiredAssets) {
-  const context = await gameContextRepository.findById(contextId);
+  // Read-only (solo se lee assets.length) → lean.
+  const context = await gameContextRepository.findById(contextId, { lean: true });
 
   if (!context) {
     throw new NotFoundError('Contexto de juego');

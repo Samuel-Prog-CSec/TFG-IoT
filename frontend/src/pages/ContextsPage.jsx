@@ -1,4 +1,4 @@
-import { useState, useCallback, useRef, useId } from 'react';
+import { useState, useCallback, useMemo, useRef, useId } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
 import { m as motion, AnimatePresence } from 'framer-motion';
@@ -140,23 +140,30 @@ export default function ContextsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Filtro local por nombre o contextId
-  const filteredContexts = contexts.filter(
-    ctx =>
-      ctx.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ctx.contextId.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filtro local por nombre o contextId. Memoizado para no re-filtrar (ni
+  // re-bajar a minúsculas toda la lista) en cada render del input controlado.
+  const filteredContexts = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    return contexts.filter(
+      ctx =>
+        ctx.name.toLowerCase().includes(q) ||
+        ctx.contextId.toLowerCase().includes(q)
+    );
+  }, [contexts, searchTerm]);
 
-  // Stats globales
-  const totalAssets = contexts.reduce((acc, ctx) => acc + (ctx.assetsCount || ctx.assets?.length || 0), 0);
-  const totalAudio = contexts.reduce(
-    (acc, ctx) => acc + (ctx.audioCount ?? ctx.assets?.filter(a => a.audioUrl)?.length ?? 0),
-    0
-  );
-  const totalImages = contexts.reduce(
-    (acc, ctx) => acc + (ctx.imageCount ?? ctx.assets?.filter(a => a.imageUrl)?.length ?? 0),
-    0
-  );
+  // Stats globales: dependen solo de la lista (no del término de búsqueda).
+  // Una sola pasada en vez de 3 reduce con filter anidado (O(contextos×assets)).
+  const { totalAssets, totalAudio, totalImages } = useMemo(() => {
+    let assets = 0;
+    let audio = 0;
+    let images = 0;
+    for (const ctx of contexts) {
+      assets += ctx.assetsCount || ctx.assets?.length || 0;
+      audio += ctx.audioCount ?? ctx.assets?.filter(a => a.audioUrl)?.length ?? 0;
+      images += ctx.imageCount ?? ctx.assets?.filter(a => a.imageUrl)?.length ?? 0;
+    }
+    return { totalAssets: assets, totalAudio: audio, totalImages: images };
+  }, [contexts]);
 
   const handleCreateSuccess = useCallback(
     newContext => {

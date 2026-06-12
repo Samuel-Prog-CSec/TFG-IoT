@@ -67,13 +67,14 @@ SeverityCounter.propTypes = {
 };
 
 const EMPTY_ALERTS = [];
+const EMPTY_COUNTS = {};
 
 function SystemAlertsHub({
   alerts = EMPTY_ALERTS,
   loading = false,
   statusFilter,
   onStatusChange,
-  statusCounts = {},
+  statusCounts = EMPTY_COUNTS,
   onRefetch
 }) {
   const { shouldReduceMotion } = useReducedMotion();

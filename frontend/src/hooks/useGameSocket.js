@@ -421,8 +421,14 @@ export function useGameSocket({
         setBootstrappingPlay(true);
         setSessionError(null);
 
-        // 1. Conectar socket primero (crea this.socket si no existe)
-        if (!socketService.isSocketConnected()) {
+        // 1. Conectar socket primero (crea this.socket/this.gameSocket si no
+        //    existen). Asegurar AMBOS namespaces: isSocketConnected() solo mira
+        //    el socket de sistema; si el de /game cayó de forma independiente
+        //    (timeout/transport) con el de sistema aún arriba, sin comprobar
+        //    isGameSocketConnected() se saltaba el connect() y los onGame() de
+        //    abajo se registraban sobre un gameSocket inexistente. connect() es
+        //    idempotente (no-op si ambos ya están conectados).
+        if (!socketService.isSocketConnected() || !socketService.isGameSocketConnected()) {
           await socketService.connect();
         }
         if (controller.signal.aborted) return undefined;

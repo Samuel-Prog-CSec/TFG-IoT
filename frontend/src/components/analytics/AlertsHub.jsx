@@ -240,12 +240,14 @@ AlertCard.propTypes = {
 
 const EMPTY_ALERTS = [];
 
+const EMPTY_COUNTS = {};
+
 function AlertsHub({
   alerts = EMPTY_ALERTS,
   loading = false,
   statusFilter,
   onStatusChange,
-  statusCounts = {},
+  statusCounts = EMPTY_COUNTS,
   onRefetch
 }) {
   const { shouldReduceMotion } = useReducedMotion();

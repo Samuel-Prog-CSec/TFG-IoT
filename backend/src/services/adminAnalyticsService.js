@@ -86,6 +86,10 @@ const getActiveTeachersCount = async startDate => {
       }
     },
     { $unwind: '$session' },
+    // Proyección post-lookup: el $group solo usa createdBy. Descartamos los
+    // arrays pesados de la sesión (cardMappings/boardLayout/sequencePlan) que
+    // de otro modo viajarían materializados hasta el $group.
+    { $project: { 'session.createdBy': 1 } },
     {
       $group: {
         _id: '$session.createdBy'
@@ -150,6 +154,9 @@ const getActivityAggregate = async startDate => {
       }
     },
     { $unwind: '$session' },
+    // Proyección post-lookup: solo mechanicId (para el 2º lookup) +
+    // score/maxScore (SCORE_PERCENT_EXPR). Descarta los arrays pesados.
+    { $project: { score: 1, maxScore: 1, 'session.mechanicId': 1 } },
     {
       $lookup: {
         from: 'game_mechanics',
@@ -330,6 +337,9 @@ const getTopTeachers = async startDate => {
       }
     },
     { $unwind: '$session' },
+    // Proyección post-lookup: createdBy (group) + playerId (uniqueStudents) +
+    // score/maxScore (SCORE_PERCENT_EXPR). Descarta los arrays pesados.
+    { $project: { score: 1, maxScore: 1, playerId: 1, 'session.createdBy': 1 } },
     {
       $group: {
         _id: '$session.createdBy',
@@ -394,6 +404,9 @@ const getTopMechanics = async startDate => {
       }
     },
     { $unwind: '$session' },
+    // Proyección post-lookup: solo mechanicId (para el 2º lookup) +
+    // score/maxScore (SCORE_PERCENT_EXPR). Descarta los arrays pesados.
+    { $project: { score: 1, maxScore: 1, 'session.mechanicId': 1 } },
     {
       $lookup: {
         from: 'game_mechanics',
@@ -449,6 +462,9 @@ const getTopContexts = async startDate => {
       }
     },
     { $unwind: '$session' },
+    // Proyección post-lookup: solo contextId (para el 2º lookup) +
+    // score/maxScore (SCORE_PERCENT_EXPR). Descarta los arrays pesados.
+    { $project: { score: 1, maxScore: 1, 'session.contextId': 1 } },
     {
       $lookup: {
         from: 'game_contexts',
@@ -491,27 +507,26 @@ const getTopContexts = async startDate => {
 const getCenterOverview = async ({ timeRange = '30d' } = {}) => {
   const startDate = getStartDate(timeRange);
 
-  const [
-    usersBase,
-    activity,
-    content,
-    alerts,
-    topTeachers,
-    topMechanics,
-    topContexts,
-    activeTeachers
-  ] = await Promise.all([
-    getUsersAggregate(),
-    getActivityAggregate(startDate),
-    getContentAggregate(),
-    getAlertsAggregate(),
-    getTopTeachers(startDate),
-    getTopMechanics(startDate),
-    getTopContexts(startDate),
-    getActiveTeachersCount(startDate)
-  ]);
+  const [usersBase, activity, content, alerts, topTeachers, topContexts, activeTeachers] =
+    await Promise.all([
+      getUsersAggregate(),
+      getActivityAggregate(startDate),
+      getContentAggregate(),
+      getAlertsAggregate(),
+      getTopTeachers(startDate),
+      getTopContexts(startDate),
+      getActiveTeachersCount(startDate)
+    ]);
 
   const users = { ...usersBase, activeTeachers };
+
+  // Top mecánicas: se deriva del desglose que `getActivityAggregate` ya calcula
+  // (`playsByMechanic`, ordenado desc por totalPlays, mismo shape y redondeo que
+  // `getTopMechanics`). Antes `getTopMechanics` re-escaneaba `gameplays` entera
+  // con el MISMO doble `$lookup` solo para aplicar un `$limit` → doble escaneo
+  // de la colección por cada overview. `getTopMechanics` se mantiene como
+  // utilidad standalone exportada, pero el overview ya no la necesita.
+  const topMechanics = activity.playsByMechanic.slice(0, TOP_N);
 
   // Enriquecemos la puntuación media del centro con su RAG para reutilizar el
   // framework BI compartido con `analyticsHelpers` (whatHappened/soWhat/nowWhat

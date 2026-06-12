@@ -483,48 +483,23 @@ export default function StudentManagement() {
   // D.1 (pre-v1.0.0): AbortController propagado. La navegación rápida en
   // el sidebar admin dejaba dos requests `/api/users` colgadas — no graves
   // pero pulidas para que el contador de comandos Redis no infle.
-  const fetchInitialData = useCallback(async (page = 1, signal) => {
+  const fetchStudents = useCallback(async (page = 1, signal) => {
     setLoading(true);
     setError(null);
     try {
-      const [studentsRes, allTeachers] = await Promise.all([
-        usersAPI.getUsers(
-          {
-            role: 'student',
-            page,
-            limit: pagination.limit,
-            search: deferredSearch || undefined
-          },
-          { signal }
-        ),
-        // Cargar TODOS los profesores activos paginando hasta agotar (el backend
-        // capa a 100/página). Antes se pedía UNA sola página de 100 → con >100
-        // profesores activos el resto no aparecía en el selector y no se les
-        // podía asignar alumnos. SelectPremium ya filtra client-side, así que
-        // basta con tener la lista completa para que la búsqueda los encuentre.
-        (async () => {
-          const TEACHERS_PAGE_SIZE = 100;
-          const collected = [];
-          let tPage = 1;
-          let tTotalPages = 1;
-          do {
-            const res = await usersAPI.getUsers(
-              { role: 'teacher', status: 'active', page: tPage, limit: TEACHERS_PAGE_SIZE },
-              { signal }
-            );
-            const body = res.data;
-            if (Array.isArray(body.data)) collected.push(...body.data);
-            tTotalPages = body.pagination?.totalPages || 1;
-            tPage += 1;
-          } while (tPage <= tTotalPages);
-          return collected;
-        })()
-      ]);
+      const studentsRes = await usersAPI.getUsers(
+        {
+          role: 'student',
+          page,
+          limit: pagination.limit,
+          search: deferredSearch || undefined
+        },
+        { signal }
+      );
 
       const studentsData = studentsRes.data;
 
       setStudents(Array.isArray(studentsData.data) ? studentsData.data : []);
-      setTeachers(allTeachers);
       
       setPagination(prev => ({
         ...prev,
@@ -544,6 +519,39 @@ export default function StudentManagement() {
     }
   }, [deferredSearch, pagination.limit]);
 
+  // Profesores: una sola carga (no depende de la búsqueda de alumnos ni de la
+  // paginación). Pagina hasta agotar (backend capa a 100/página) para que el
+  // selector de asignación tenga la lista completa aunque haya >100 activos.
+  // Antes vivía dentro del mismo fetch que los alumnos, así que cada tecla de
+  // búsqueda re-bajaba todas las páginas de profesores.
+  const fetchTeachers = useCallback(async (signal) => {
+    try {
+      const TEACHERS_PAGE_SIZE = 100;
+      const collected = [];
+      let tPage = 1;
+      let tTotalPages = 1;
+      do {
+        const res = await usersAPI.getUsers(
+          { role: 'teacher', status: 'active', page: tPage, limit: TEACHERS_PAGE_SIZE },
+          { signal }
+        );
+        const body = res.data;
+        if (Array.isArray(body.data)) collected.push(...body.data);
+        tTotalPages = body.pagination?.totalPages || 1;
+        tPage += 1;
+      } while (tPage <= tTotalPages);
+      setTeachers(collected);
+    } catch (err) {
+      // No bloqueante: si los profesores fallan, el selector de asignación
+      // queda incompleto pero la gestión de alumnos sigue operativa.
+      if (!isAbortError(err)) {
+        toast.error('No se pudo cargar la lista de profesores', {
+          description: 'El selector de asignación puede estar incompleto.'
+        });
+      }
+    }
+  }, []);
+
   // En React StrictMode (dev) este effect se monta dos veces y dispara
   // dos fetchs idénticos a /api/users. En producción ocurre una sola vez.
   // No hay bug funcional, es el comportamiento documentado de StrictMode.
@@ -551,12 +559,19 @@ export default function StudentManagement() {
   // navegación rápida) no deje requests colgadas en background.
   useEffect(() => {
     const controller = new AbortController();
-    fetchInitialData(1, controller.signal);
+    fetchStudents(1, controller.signal);
     return () => controller.abort();
-  }, [fetchInitialData]);
+  }, [fetchStudents]);
+
+  // Carga one-shot de la lista de profesores al montar.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchTeachers(controller.signal);
+    return () => controller.abort();
+  }, [fetchTeachers]);
 
   useRefetchOnFocus({
-    refetch: () => fetchInitialData(pagination.page),
+    refetch: () => fetchStudents(pagination.page),
     isLoading: loading,
     hasData: students.length > 0
   });
@@ -603,7 +618,7 @@ export default function StudentManagement() {
     try {
       await usersAPI.hardDeleteUser(getId(selectedStudent));
       toast.success('Datos del alumno eliminados permanentemente (Art. 17 RGPD)');
-      fetchInitialData(pagination.page);
+      fetchStudents(pagination.page);
       setIsHardDeleteModalOpen(false);
     } catch (err) {
       toast.error(extractErrorMessage(err));
@@ -926,7 +941,7 @@ export default function StudentManagement() {
           <ButtonPremium
             variant="ghost"
             size="sm"
-            onClick={() => fetchInitialData(pagination.page - 1)}
+            onClick={() => fetchStudents(pagination.page - 1)}
             disabled={pagination.page <= 1}
             icon={<ChevronLeft size={16} />}
           >
@@ -938,7 +953,7 @@ export default function StudentManagement() {
           <ButtonPremium
             variant="ghost"
             size="sm"
-            onClick={() => fetchInitialData(pagination.page + 1)}
+            onClick={() => fetchStudents(pagination.page + 1)}
             disabled={pagination.page >= pagination.totalPages}
             icon={<ChevronRight size={16} />}
             iconPosition="right"
@@ -951,7 +966,7 @@ export default function StudentManagement() {
       <CreateStudentModal
         isOpen={isModalOpen}
         onClose={() => setIsModalOpen(false)}
-        onCreated={() => fetchInitialData(pagination.page)}
+        onCreated={() => fetchStudents(pagination.page)}
         teachers={teachers}
       />
 
@@ -961,7 +976,7 @@ export default function StudentManagement() {
           setIsEditModalOpen(false);
           setSelectedStudent(null);
         }}
-        onUpdated={() => fetchInitialData(pagination.page)}
+        onUpdated={() => fetchStudents(pagination.page)}
         student={selectedStudent}
       />
 
@@ -973,7 +988,7 @@ export default function StudentManagement() {
           setSelectedStudent(null);
         }}
         student={selectedStudent}
-        onConsentChanged={() => fetchInitialData(pagination.page)}
+        onConsentChanged={() => fetchStudents(pagination.page)}
       />
 
       {/* Modal de borrado efectivo Art. 17 RGPD */}

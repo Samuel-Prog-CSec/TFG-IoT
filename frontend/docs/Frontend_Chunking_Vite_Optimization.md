@@ -115,7 +115,7 @@ Estado final:
 
 Riesgo residual:
 
-- `icons` sigue por encima del umbral de 500 kB (advertencia no bloqueante).
+- `icons`: **41 KB raw / 11 KB brotli** (lucide v1.x tree-shakea correctamente). *(Corregido en la revisión de mantenimiento 2026-06-12: la nota previa de «por encima de 500 kB» quedó obsoleta — el chunk servido es despreciable.)*
 
 Interpretación práctica:
 
@@ -276,7 +276,7 @@ Separación explícita para que el split lazy de Sentry y qrcode sea limpio en l
 
 ### 11.2 Lo que NO se aplicó (y por qué)
 
-- **LazyMotion de Framer Motion (`<LazyMotion features={domAnimation} strict>`)**: aportaría ~25-30 KB de reducción del bundle base, pero requiere migrar todas las llamadas `motion.X` → `m.X` en ~100 archivos. Sin la migración global, con `strict={false}` Framer carga el bundle completo dinámicamente al detectar un `motion.X` interno — el beneficio es cero. La migración cae fuera del scope de T-907 por riesgo de regresión visual; queda documentado como tarea independiente.
+- **LazyMotion de Framer Motion** — *Actualizado (revisión de mantenimiento 2026-06-12): YA APLICADO.* En T-907 se difirió (requería migrar ~100 `motion.X`→`m.X`), pero **la migración se completó después** (T-907 INT2 / QA 2026-05-30): `App.jsx` envuelve con `<LazyMotion features={domMax}>` y los componentes importan `m as motion`. Se usa **`domMax` (no `domAnimation`)** a propósito: las shared-element/layout transitions del proyecto no están incluidas en `domAnimation`. ⚠️ **No bajar a `domAnimation`** — rompería esas animaciones (regresión visual). Chunk `motion` servido actualmente: **~40 KB brotli**.
 - **Lazy wrappers individuales por chart Recharts**: la arquitectura actual ya separa Recharts en chunk `charts` via `manualChunks` y todas las páginas que lo consumen (Analytics, etc.) son lazy en `App.jsx`. Crear wrappers individuales por chart añadiría un `Suspense fallback` adicional por componente sin reducir el bundle (Recharts ya se descarga 1 vez y se reutiliza). Cambio descartado por relación coste/beneficio.
 - **Sustituir Recharts por librería más ligera**: cambio masivo, riesgo alto de regresión visual en 11 charts distintos. Fuera de scope.
 

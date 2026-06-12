@@ -10,6 +10,7 @@
 
 import { useCallback, useEffect, useState } from 'react';
 import announcementsService from '../services/announcements';
+import { useRefetchOnFocus } from './useRefetchOnFocus';
 
 const DISMISS_KEY_PREFIX = 'announcement-dismissed:';
 
@@ -55,12 +56,17 @@ export function useActiveAnnouncements({ enabled = true } = {}) {
     fetchAnnouncements();
   }, [fetchAnnouncements]);
 
-  useEffect(() => {
-    if (!enabled) return undefined;
-    const handler = () => fetchAnnouncements();
-    window.addEventListener('focus', handler);
-    return () => window.removeEventListener('focus', handler);
-  }, [enabled, fetchAnnouncements]);
+  // Refetch al recuperar foco para captar avisos recién publicados, pero
+  // throttle a 30s: antes se refetcheaba en CADA `focus` (cada alt-tab),
+  // generando spam de `/announcements/active`. Reusa el hook probado en vez
+  // de un listener crudo. No pasamos `hasData` para no anular el refetch
+  // (queremos captar avisos nuevos aunque ya haya algunos en pantalla).
+  useRefetchOnFocus({
+    refetch: fetchAnnouncements,
+    enabled,
+    isLoading: loading,
+    minIntervalMs: 30000,
+  });
 
   const dismissOne = useCallback(id => {
     persistDismiss(id);

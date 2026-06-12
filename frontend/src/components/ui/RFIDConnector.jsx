@@ -152,7 +152,13 @@ export default function RFIDConnector({
   const handleConnect = async () => {
     setHasAttempted(true);
     try {
-      if (!socketService.isSocketConnected()) {
+      // Asegurar AMBOS namespaces: isSocketConnected() solo mira el socket de
+      // sistema, pero los scans RFID se reenvían por el namespace /game. Si
+      // /game cayó de forma aislada con el de sistema aún arriba, sin comprobar
+      // isGameSocketConnected() se saltaba el connect() y no se reconectaba
+      // /game (los scans quedaban encolados hasta la auto-reconexión). connect()
+      // es idempotente. Misma corrección que useGameSocket (gate dual).
+      if (!socketService.isSocketConnected() || !socketService.isGameSocketConnected()) {
         await socketService.connect();
       }
       await webSerialService.connect();

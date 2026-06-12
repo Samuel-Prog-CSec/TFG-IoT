@@ -30,7 +30,11 @@ const logger = require('../utils/logger').child({ component: 'gamePlayService' }
  * está activa" y bloqueaba el botón Jugar de Nuevo en GameOver.
  */
 async function validateGameSession(sessionId) {
-  const session = await gameSessionRepository.findById(sessionId);
+  // Read-only: la sesión se usa para comprobar permisos/estado y para
+  // `computeMaxScore` (función pura sobre los arrays de layout). No se hace
+  // `.save()`, así que `lean` devuelve un POJO ligero (regla baseRepository).
+  // Sin `select`: computeMaxScore necesita boardLayout/sequencePlan/cardMappings.
+  const session = await gameSessionRepository.findById(sessionId, { lean: true });
 
   if (!session) {
     throw new NotFoundError('Sesión de juego');
@@ -58,7 +62,10 @@ async function validateGameSession(sessionId) {
  * @throws {ValidationError} Si el jugador no es estudiante o ya tiene partida activa
  */
 async function validatePlayer(playerId, sessionId) {
-  const player = await userRepository.findById(playerId);
+  // Read-only y solo se leen `role` y `consent` (el retorno se descarta en
+  // createPlay). `lean` + `select` evita hidratar el documento User completo
+  // (PII innecesaria) en cada creación de partida.
+  const player = await userRepository.findById(playerId, { lean: true, select: 'role consent' });
 
   if (!player) {
     throw new NotFoundError('Jugador');

@@ -212,6 +212,15 @@ const SessionCard = memo(function SessionCard({
   // inconsistente (QA 22/04/2026).
   const rawTitle = session.name || session.deck?.name || 'Sesión sin mazo asignado';
   const title = toTitleCaseEs(rawTitle);
+
+  // Handler de rename estable por card. `onRename` es la versión currificada
+  // estable del padre; la aplicamos a esta `session` una sola vez (useMemo) en
+  // vez de currificar en el call site del padre, donde se recreaba en cada
+  // render y rompía el `memo()` de SessionCard al teclear en la búsqueda.
+  const handleRenameSave = useMemo(
+    () => (onRename ? onRename(session) : undefined),
+    [onRename, session]
+  );
   const mechanicLabel = session.mechanic?.displayName || session.mechanic?.name || 'Mecánica';
   // Memoria usa parejas (no rondas independientes). Adaptamos el copy del KPI
   // para no confundir al profesor cuando revisa sesiones guardadas.
@@ -269,7 +278,7 @@ const SessionCard = memo(function SessionCard({
               <div className="min-h-[3.5rem]">
                 <InlineEditableText
                   value={session.name || session.deck?.name || ''}
-                  onSave={onRename}
+                  onSave={handleRenameSave}
                   validate={(v) => {
                     const trimmed = (v || '').trim();
                     if (!trimmed) return 'El nombre no puede estar vacío.';
@@ -533,7 +542,7 @@ const renderSessionsContent = ({
                 onClone={handleClone}
                 onDelete={handleDelete}
                 onNavigate={navigate}
-                onRename={handleRename ? handleRename(session) : undefined}
+                onRename={handleRename}
               />
             </motion.div>
           );

@@ -127,6 +127,16 @@ class SocketService {
     this.pendingListeners = [];
     /** Listeners registrados en el socket de juego */
     this.gameListeners = new Map();
+    /**
+     * Listeners registrados vía `onGame()` ANTES de que el socket de juego
+     * exista (mismo race que `pendingListeners` en el namespace de sistema: si
+     * se registran antes de `connect()`, el `if (!this.gameSocket) return` los
+     * descartaba en silencio y el gameplay se quedaba sin eventos en tiempo real
+     * sin error visible). Se aplican en `_connectNamespace` al crear el socket
+     * de juego.
+     * @type {Array<{event: string, callback: Function}>}
+     */
+    this.pendingGameListeners = [];
     this._wasConnected = false;
     /** Timer del heartbeat de modo RFID (refresca watchdog del backend). */
     this._rfidHeartbeatTimerId = null;
@@ -333,6 +343,15 @@ class SocketService {
           sock.on(pending.event, pending.callback);
         }
         this.pendingListeners = [];
+      } else if (!isSystem && this.pendingGameListeners.length > 0) {
+        // Aplicar listeners de juego registrados vía onGame() antes de que el
+        // socket de /game existiera. Ya están en gameListeners (tracking); aquí
+        // solo se enganchan al socket. Se vacía la cola para no re-registrarlos
+        // en reconexiones (socket.io conserva los handlers).
+        for (const pending of this.pendingGameListeners) {
+          sock.on(pending.event, pending.callback);
+        }
+        this.pendingGameListeners = [];
       }
       let timeoutId = null;
       let isResolved = false;
@@ -634,16 +653,22 @@ class SocketService {
    * @param {Function} callback - Callback a ejecutar
    */
   onGame(event, callback) {
-    if (!this.gameSocket) {
-      return;
-    }
-
-    this.gameSocket.on(event, callback);
-
+    // Registrar SIEMPRE en el tracking, aunque el socket de juego aún no exista:
+    // así un onGame() llamado antes de que connect() cree el socket de /game NO
+    // se pierde (mismo race que on()/pendingListeners en sistema; antes el
+    // `if (!this.gameSocket) return` lo descartaba en silencio y el gameplay se
+    // quedaba sin eventos en tiempo real, sin error visible).
     if (!this.gameListeners.has(event)) {
       this.gameListeners.set(event, new Set());
     }
     this.gameListeners.get(event).add(callback);
+
+    if (this.gameSocket) {
+      this.gameSocket.on(event, callback);
+    } else {
+      // Pendiente: se aplica cuando _connectNamespace cree el socket de juego.
+      this.pendingGameListeners.push({ event, callback });
+    }
   }
 
   /**
@@ -652,10 +677,19 @@ class SocketService {
    * @param {Function} callback - Callback a remover (opcional, si no se pasa, remueve todos)
    */
   offGame(event, callback) {
-    if (!this.gameSocket) return;
+    // Limpiar también pendientes (listeners aún no aplicados al socket de juego):
+    // un offGame() antes de que el socket de /game exista debe poder cancelar una
+    // suscripción pendiente para no aplicarla luego.
+    if (this.pendingGameListeners.length > 0) {
+      this.pendingGameListeners = this.pendingGameListeners.filter(
+        p => p.event !== event || (callback && p.callback !== callback)
+      );
+    }
 
     if (callback) {
-      this.gameSocket.off(event, callback);
+      if (this.gameSocket) {
+        this.gameSocket.off(event, callback);
+      }
       const callbacks = this.gameListeners.get(event);
       if (!callbacks) {
         return;
@@ -666,7 +700,9 @@ class SocketService {
         this.gameListeners.delete(event);
       }
     } else {
-      this.gameSocket.off(event);
+      if (this.gameSocket) {
+        this.gameSocket.off(event);
+      }
       this.gameListeners.delete(event);
     }
   }

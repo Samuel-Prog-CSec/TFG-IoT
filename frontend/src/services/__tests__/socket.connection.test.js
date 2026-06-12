@@ -133,3 +133,59 @@ describe('socket BUG-WS-1 — idempotencia de connect()', () => {
     expect(io).toHaveBeenCalledTimes(2);
   });
 });
+
+describe('socket — onGame() resistente al race del socket de juego', () => {
+  let socketService;
+
+  beforeEach(async () => {
+    vi.resetModules();
+    currentToken = 'tok-initial';
+    socketService = await importService();
+  });
+
+  afterEach(() => {
+    socketService.disconnect();
+  });
+
+  it('onGame() antes de que exista el socket de juego NO descarta el listener: lo trackea y lo encola', () => {
+    const cb = vi.fn();
+    expect(socketService.gameSocket).toBeFalsy();
+
+    socketService.onGame('round_started', cb);
+
+    // No se pierde: trackeado (para cleanup) y encolado (para aplicar al conectar).
+    expect(socketService.gameListeners.get('round_started')?.has(cb)).toBe(true);
+    expect(
+      socketService.pendingGameListeners.some(
+        p => p.event === 'round_started' && p.callback === cb
+      )
+    ).toBe(true);
+  });
+
+  it('al crear el socket de juego, los onGame() pendientes se aplican y la cola se vacía', async () => {
+    const { io } = await import('socket.io-client');
+    io.mockClear();
+    const cb = vi.fn();
+
+    socketService.onGame('round_started', cb);
+    // connect() crea ambos sockets y vuelca los pendientes sincrónicamente.
+    socketService.connect().catch(() => {});
+
+    // io() se llama 2 veces: [0]=sistema, [1]=/game.
+    const gameSock = io.mock.results[1].value;
+    const aplicado = gameSock.on.mock.calls.some(([ev]) => ev === 'round_started');
+    expect(aplicado).toBe(true);
+    expect(socketService.pendingGameListeners).toHaveLength(0);
+  });
+
+  it('offGame() antes de conectar cancela un listener de juego pendiente', () => {
+    const cb = vi.fn();
+    socketService.onGame('round_started', cb);
+    socketService.offGame('round_started', cb);
+
+    expect(
+      socketService.pendingGameListeners.some(p => p.event === 'round_started')
+    ).toBe(false);
+    expect(socketService.gameListeners.has('round_started')).toBe(false);
+  });
+});
