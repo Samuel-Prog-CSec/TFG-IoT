@@ -65,6 +65,7 @@ import PageHeader from '../components/ui/PageHeader';
 import ErrorState from '../components/ui/ErrorState';
 import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
 import EmptyState from '../components/ui/EmptyState';
+import CharacterMascot from '../components/game/CharacterMascot';
 import { EmptyDecksIllustration } from '../components/ui/illustrations';
 import { toast } from 'sonner';
 
@@ -149,7 +150,8 @@ const renderDecksLoadingState = () => (
 
 const renderDecksEmptyState = ({ hasActiveFilters, clearFilters, handleCreateDeck }) => (
   <EmptyState
-    illustration={<EmptyDecksIllustration size={180} />}
+    illustration={hasActiveFilters ? <EmptyDecksIllustration size={180} /> : undefined}
+    mascot={hasActiveFilters ? undefined : <CharacterMascot mood="encouraging" size="sm" noBubble />}
     variant={hasActiveFilters ? 'filtered' : 'first-use'}
     title={hasActiveFilters ? 'Prueba con otro filtro' : 'Crea tu primer mazo'}
     description={

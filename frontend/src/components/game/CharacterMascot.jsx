@@ -1,92 +1,87 @@
 import { m as motion, AnimatePresence, useInView } from 'framer-motion';
-import { useRef, useMemo, memo } from 'react';
+import { useRef, useMemo, useId, useState, useEffect, memo } from 'react';
 import PropTypes from 'prop-types';
-import { Star, Sparkles } from 'lucide-react';
 import { cn, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { getMechanicTheme } from '../../lib/mechanicTheme';
-import MascotAccessory from './MascotAccessory';
+import { EXPRESSIONS, bodyAnimFor } from './mascot/owlExpressions';
+import {
+  OwlDefs, OwlShadow, OwlEars, OwlWings, OwlBody, OwlFeet, OwlFace, OwlProps
+} from './mascot/owlParts';
 
+// Animación CORPORAL por mood. Solo `transform` (GPU-friendly). El rig
+// (cara, props, parpadeo) aporta la micro-expresividad; esto da el "peso"
+// y la energía juguetona del cuerpo entero.
 const bodyAnimation = {
+  // Reposo: flotar + micro-respiración (escala sutil) → "vivo" sin coste.
   float: {
     y: [0, -8, 0],
-    transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
+    scale: [1, 1.02, 1],
+    transition: { duration: 3, repeat: Infinity, ease: 'easeInOut' }
   },
   bounce: {
-    y: [0, -15, 0],
-    scale: [1, 1.1, 1],
-    transition: { duration: 0.5, repeat: Infinity }
+    y: [0, -14, 0],
+    scale: [1, 1.08, 1],
+    transition: { duration: 0.5, repeat: Infinity, ease: 'easeOut' }
   },
   jump: {
-    y: [0, -30, 0],
-    rotate: [0, 10, -10, 0],
-    transition: { duration: 0.6, repeat: Infinity }
+    y: [0, -28, 0],
+    rotate: [0, 8, -8, 0],
+    transition: { duration: 0.6, repeat: Infinity, ease: 'easeOut' }
   },
   nod: {
     rotate: [0, 5, -5, 0],
-    transition: { duration: 1, repeat: Infinity }
+    transition: { duration: 1, repeat: Infinity, ease: 'easeInOut' }
   },
   tilt: {
-    rotate: [0, 15, 0],
-    transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
+    rotate: [0, 14, 0],
+    transition: { duration: 2.2, repeat: Infinity, ease: 'easeInOut' }
   },
   sway: {
     x: [-5, 5, -5],
     transition: { duration: 2, repeat: Infinity, ease: 'easeInOut' }
   },
-  // T-953 Fase 2.2 — nuevos moods.
-  // `pointRight`: gestura indexadora (subir y rotate-y), tilt-right ligero
-  // para que se sienta "señalando" sin caer en cliché de mano levantada.
-  pointRight: {
+  // Gestura de señalar: inclina y empuja hacia el objetivo (sin cliché de mano).
+  point: {
     rotate: [0, 5, 8, 5, 0],
     x: [0, 4, 6, 4, 0],
     transition: { duration: 1.6, repeat: Infinity, ease: 'easeInOut' }
   },
-  // `wobble`: oscilación micro X + opacity para "preocupación contenida".
-  // No usamos shake para no parecer error de validación.
+  // Preocupación contenida: micro-oscilación X + leve opacity. NO shake
+  // (evita parecer un error de validación).
   wobble: {
     x: [0, -2, 2, -2, 0],
-    opacity: [1, 0.85, 1, 0.85, 1],
+    opacity: [1, 0.9, 1, 0.9, 1],
     transition: { duration: 2.4, repeat: Infinity, ease: 'easeInOut' }
   },
-  // `pop`: respuesta de sorpresa puntual. NO usa repeat:Infinity porque
-  // el "asombro" decae rápido en la realidad — repetir lo convierte en
-  // tic visual molesto. Se reproduce una vez al cambio de mood y luego
-  // se queda quieto hasta el siguiente trigger.
+  // Sorpresa puntual: un solo "pop" enérgico, sin repeat (el asombro decae).
   pop: {
-    scale: [1, 1.3, 0.95, 1.05, 1],
+    scale: [1, 1.28, 0.96, 1.06, 1],
     rotate: [0, -4, 4, -2, 0],
     transition: { duration: 0.7, ease: 'easeOut' }
-  },
+  }
 };
 
-const expressions = {
-  idle: { bodyAnim: 'float' },
-  happy: { bodyAnim: 'bounce' },
-  encouraging: { bodyAnim: 'nod' },
-  celebrating: { bodyAnim: 'jump' },
-  thinking: { bodyAnim: 'tilt' },
-  sad: { bodyAnim: 'sway' },
-  // T-953 Fase 2.2: 3 moods nuevos para más expresividad.
-  pointing: { bodyAnim: 'pointRight' },
-  worried: { bodyAnim: 'wobble' },
-  surprised: { bodyAnim: 'pop' },
+// Mapa glow (familia de color del halo) → clase Tailwind.
+const GLOW_CLASS = {
+  success: 'bg-success-base/25',
+  warning: 'bg-warning-base/30',
+  warningSoft: 'bg-warning-base/15',
+  brand: 'bg-brand-light/20',
+  error: 'bg-error-base/18',
+  pink: 'bg-accent-pink/25'
 };
 
-// Pool minimal de "greeting" — solo se usa cuando NO se pasa `message`
-// como prop. Esto solo ocurre en el primer render antes del primer
-// validation_result (la mascota saluda al alumno) o en las pocas
-// pantallas donde se monta sin hook (por ahora ninguna). Para los moods
-// expresivos (happy/encouraging/celebrating/sad/thinking/pointing/
-// worried/surprised), el `message` viene siempre desde
-// `useGameFeedback` con la frase de `mascotDialog.js` por mecánica
-// (T-953 Fase 2.1, sesión 2026-05-09). Mantener pools genéricos por
-// mood era código muerto: el hook ya decide la frase y nunca deja
-// `message` vacío en esos casos.
-// (M-007) Pool ampliado para que, cuando la mascota acompaña empty states
-// sin `message` explícito, el saludo deje entrever el contexto educativo en
-// lugar de sonar genérico. Las páginas que tienen copy específico siguen
-// pasando `message` por prop y este pool no se usa.
+// Ancho FLUIDO del personaje por tamaño (clamp por viewport). Se ajusta a la
+// resolución para que Otto no quede diminuto en 4K ni invada en 720p; al ser
+// vectorial, sus detalles se aprecian nítidos en toda la escalera. El alto se
+// deriva del viewBox 200x215 vía aspect-ratio.
+const SIZE_CLAMP = {
+  sm: 'clamp(78px, 4.5vw + 30px, 118px)',
+  md: 'clamp(98px, 5.5vw + 42px, 150px)',
+  lg: 'clamp(120px, 6vw + 56px, 188px)'
+};
+
 const greetingPool = [
   '¡Hola!',
   '¿Jugamos?',
@@ -96,133 +91,185 @@ const greetingPool = [
   '¡Aquí estoy!'
 ];
 
+// Delight ambiental "con firma": en moods de REPOSO (idle/thinking) Otto "echa
+// un vistazo" de vez en cuando — la pupila se desliza a un objetivo y vuelve al
+// centro, reutilizando el muelle de la pupila del rig. Baja frecuencia y
+// ALEATORIZADA (no metronómica) → se siente vivo sin distraer; en partida los
+// moods son reactivos y frecuentes, así que esto luce especialmente en
+// superficies en reposo (login, estados vacíos). Se desactiva fuera de viewport
+// y en reduced-motion (`active=false`), donde se mantiene la mirada centrada.
+const GAZE_RESTING_MOODS = new Set(['idle', 'thinking']);
+const GAZE_TARGETS = [
+  { x: 6, y: 1 },
+  { x: -6, y: 1 },
+  { x: 4, y: -3 },
+  { x: -4, y: -3 },
+  { x: 7, y: 0 }
+];
+
+function useAmbientGaze(mood, active) {
+  const [gaze, setGaze] = useState({ x: 0, y: 0 });
+
+  useEffect(() => {
+    if (!active || !GAZE_RESTING_MOODS.has(mood)) {
+      setGaze({ x: 0, y: 0 });
+      return undefined;
+    }
+    let timer;
+    const scheduleNext = () => {
+      // 2.8–6.4s entre vistazos (aleatorio → no metronómico).
+      // eslint-disable-next-line sonarjs/pseudo-random -- cadencia visual de la mirada, no requiere CSPRNG
+      const delay = 2800 + Math.random() * 3600;
+      timer = globalThis.setTimeout(() => {
+        // eslint-disable-next-line sonarjs/pseudo-random -- selección visual de objetivo de mirada
+        setGaze(GAZE_TARGETS[Math.floor(Math.random() * GAZE_TARGETS.length)]);
+        // …vuelve al centro tras ~1s y reprograma.
+        timer = globalThis.setTimeout(() => {
+          setGaze({ x: 0, y: 0 });
+          scheduleNext();
+        }, 1000);
+      }, delay);
+    };
+    scheduleNext();
+    return () => globalThis.clearTimeout(timer);
+  }, [mood, active]);
+
+  return gaze;
+}
+
 /**
- * Mascota animada híbrida (emoji 🦉 + accesorios SVG) que acompaña al niño durante el juego.
- * El emoji base es siempre 🦉 para consistencia de identidad.
- * La expresividad se logra con accesorios SVG superpuestos y animaciones corporales.
+ * Otto — mascota búho con rig SVG paramétrico (sustituye al emoji 🦉 +
+ * accesorios). Render idéntico en cualquier navegador y expresión facial real
+ * (ojos, párpados, cejas, pico que cambian) en los 9 moods. El "cerebro"
+ * (`useGameFeedback` + `mascotDialog.js`) y el bocadillo/halo/gating se
+ * conservan: este componente es presentacional.
  *
  * @param {Object} props
  * @param {'idle'|'happy'|'encouraging'|'celebrating'|'thinking'|'sad'|'pointing'|'worried'|'surprised'} props.mood
- * @param {string} props.message - Mensaje contextual en burbuja de diálogo
- * @param {'left' | 'right'} props.position
- * @param {'memory'|'association'|'sequence'|null} props.mechanicType
- *   Mecánica activa. Tinta el halo en estados pasivos (idle/thinking) y
- *   selecciona el accesorio SVG mecánica-aware en estados expresivos
- *   (thinking, celebrating).
- * @param {boolean} [props.isFirstAppearance=false]
- *   Cuando es true, la mascota entra deslizando lateralmente en lugar
- *   del fade-scale habitual. Útil al montarse en GameSession por primera
- *   vez para que el alumno note el "saludo" sin necesidad de mood nuevo.
+ * @param {string} [props.message] - Mensaje contextual en burbuja.
+ * @param {'left'|'right'} [props.position]
+ * @param {'memory'|'association'|'sequence'|null} [props.mechanicType] - Tinta el halo en estados pasivos.
+ * @param {'sm'|'md'|'lg'} [props.size] - Tamaño del personaje (sm esquina, lg héroe GameOver).
+ * @param {boolean} [props.isFirstAppearance=false] - Entrada deslizante lateral en el primer mount.
+ * @param {boolean} [props.noBubble=false] - Suprime el bocadillo (ilustración decorativa).
+ * @param {string} [props.className]
  */
-// T-907 F: memo evita re-render por cambios irrelevantes de props del padre
-// (GameSession.jsx re-renderiza por cada scan; las props de la mascota solo
-// cambian en eventos significativos — mood, message, mechanicType — y el
-// shallow-compare por defecto detecta eso correctamente).
-// eslint-disable-next-line sonarjs/cyclomatic-complexity -- mapeo de mood→animación/expresión de la mascota con muchas variantes
+// memo: GameSession re-renderiza por cada scan; las props de Otto solo
+// cambian en eventos significativos (mood, message, mechanicType).
 function CharacterMascot({
   mood = 'idle',
   message,
   position = 'left',
   mechanicType = null,
+  size = 'sm',
   isFirstAppearance = false,
   noBubble = false,
+  bubbleTimeout = 0,
   className
 }) {
   const { shouldReduceMotion } = useReducedMotion();
+  const rawId = useId();
+  const uid = useMemo(() => rawId.replace(/:/g, ''), [rawId]);
   const lastMsgRef = useRef(-1);
 
-  // Sprint 0 pre-v1.0.0 (M3): pausamos los loops `repeat: Infinity` cuando
-  // la mascota está fuera del viewport (típicamente tras navegar a GameOver
-  // o desplazarse). Sin esto, Framer Motion mantiene cada loop activo
-  // gastando CPU/RAF aunque el usuario no lo vea. `once: false` permite
-  // reanudar al volver a entrar (e.g. scroll back).
+  // M3: pausar loops `repeat: Infinity` fuera del viewport.
   const containerRef = useRef(null);
   const isInView = useInView(containerRef, { once: false, margin: '0px' });
   const animationsActive = isInView && !shouldReduceMotion;
 
-  const expr = expressions[mood];
+  // Mirada ambiental (delight con firma) en moods de reposo.
+  const gaze = useAmbientGaze(mood, animationsActive);
 
-  // ADR-D + T-953 Fase 2.2: cuando la mecánica está disponible, el glow
-  // se tinta con su accent color en estados pasivos (idle, thinking,
-  // pointing) para mantener la identidad por mecánica incluso entre
-  // rondas. Para los estados expresivos (happy/celebrating/encouraging/
-  // sad/worried/surprised) el glow propio del mood manda — son momentos
-  // de celebración, consuelo o sorpresa donde la mecánica pasa a
-  // segundo plano (la emoción es lo que importa).
-  const mechanicGlowVar = mechanicType
-    ? getMechanicTheme(mechanicType).accentVar
-    : null;
-  const useMechanicTintForGlow =
-    mechanicGlowVar && (mood === 'idle' || mood === 'thinking' || mood === 'pointing');
+  const expr = EXPRESSIONS[mood] || EXPRESSIONS.idle;
+  const bodyAnim = bodyAnimFor(mood);
 
-  // Selecciona una frase de "greeting" rotativa SOLO cuando el caller no
-  // pasa `message` y el mood es idle. En el resto de moods, si no hay
-  // `message`, no mostramos burbuja (el hook es la fuente canónica de
-  // frases — `mascotDialog.js`). Esto evita el "AI slop" de mostrar
-  // mensajes genéricos descontextualizados cuando la mascota está en
-  // happy/encouraging/sad pero el caller olvidó pasar message.
+  // Halo: en estados pasivos (idle/thinking/pointing) se tinta con el accent
+  // de la mecánica activa para mantener la identidad por mecánica; en los
+  // estados expresivos manda el color del mood (celebración/consuelo/sorpresa).
+  const mechanicGlowVar = mechanicType ? getMechanicTheme(mechanicType).accentVar : null;
+  const useMechanicTint = mechanicGlowVar && expr.glow === 'mechanic';
+  const glowClass = useMechanicTint
+    ? null
+    : (GLOW_CLASS[expr.glow] || 'bg-text-muted/10');
+
+  const widthClamp = SIZE_CLAMP[size] || SIZE_CLAMP.sm;
+
+  // Greeting rotativo SOLO en idle sin `message` (evita slop de mensajes
+  // genéricos descontextualizados en moods expresivos).
   const rotatingMessage = useMemo(() => {
     if (mood !== 'idle') return null;
     if (greetingPool.length <= 1) return greetingPool[0];
     let idx;
     do {
-      // eslint-disable-next-line sonarjs/pseudo-random -- seleccion aleatoria de mensaje visual, no requiere seguridad criptografica
+      // eslint-disable-next-line sonarjs/pseudo-random -- selección visual de saludo, no requiere CSPRNG
       idx = Math.floor(Math.random() * greetingPool.length);
     } while (idx === lastMsgRef.current && greetingPool.length > 1);
     lastMsgRef.current = idx;
     return greetingPool[idx];
   }, [mood]);
 
-  // `noBubble` permite usar la mascota como ilustración decorativa sin
-  // bocadillo (OnboardingOverlay, EmptyState, etc. — sitios donde el mensaje
-  // principal ya está en el contenedor padre y la burbuja generaría
-  // redundancia visual + solape con el layout del padre). ADR-163.
-  const displayMessage = noBubble ? null : (message || rotatingMessage);
+  // Auto-dismiss del bocadillo (opt-in vía `bubbleTimeout` ms). En partida las
+  // frases son EFÍMERAS: Otto las dice y la burbuja se desvanece tras unos
+  // segundos manteniendo el mood facial, para que ninguna frase quede "fuera de
+  // lugar" colgada hasta el siguiente evento. En superficies ambientales
+  // (login, estados vacíos) se omite → bienvenida persistente.
+  const [bubbleHidden, setBubbleHidden] = useState(false);
+  useEffect(() => {
+    if (!bubbleTimeout || !message) {
+      setBubbleHidden(false);
+      return undefined;
+    }
+    setBubbleHidden(false);
+    const t = setTimeout(() => setBubbleHidden(true), bubbleTimeout);
+    return () => clearTimeout(t);
+  }, [message, bubbleTimeout]);
+
+  const displayMessage = noBubble || bubbleHidden ? null : (message || rotatingMessage);
 
   return (
     <div
       ref={containerRef}
-      className={cn(
-        "relative",
-        position === 'left' ? 'items-start' : 'items-end',
-        className
-      )}
+      className={cn('relative', position === 'left' ? 'items-start' : 'items-end', className)}
     >
-      {/* Speech bubble */}
+      {/* Bocadillo */}
       <AnimatePresence>
         {displayMessage && (
           <motion.div
             key={displayMessage}
-            initial={shouldReduceMotion ? false : { opacity: 0, scale: 0, y: 10 }}
+            // Decorativo para lectores de pantalla: el bocadillo duplica info que
+            // ya aporta la página (consigna, resultado vía aria-live propio, o el
+            // dialog del GameOver). Sin esto el SR leería texto estático y
+            // redundante. El SVG ya es aria-hidden; faltaba el bocadillo.
+            aria-hidden="true"
+            initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.9, y: 10 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8, y: 6 }}
+            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.85, y: 6 }}
             transition={shouldReduceMotion ? { duration: 0 } : { duration: 0.25, ease: EASING.outQuart }}
             className={cn(
-              "absolute -top-20 max-w-48 z-10",
-              "bg-glass-bg backdrop-blur-sm",
-              "px-3 py-1.5 rounded-2xl",
-              "border border-glass-border",
-              "text-text-primary text-sm font-medium",
+              // El bocadillo ancla su BORDE INFERIOR al borde superior de Otto
+              // (`bottom-full`) y crece hacia ARRIBA: gap constante (~8px) y
+              // nunca lo tapa, sea 1/2/3 líneas o tamaño sm/lg. (Antes `-top-16`
+              // fijo → una frase de 2 líneas quedaba a 8px y 3 líneas lo tapaban.)
+              'absolute bottom-full mb-2 max-w-48 z-10',
+              'bg-glass-bg backdrop-blur-sm',
+              'px-3 py-1.5 rounded-2xl',
+              'border border-glass-border',
+              'text-text-primary text-sm font-medium',
               position === 'left' ? 'left-0' : 'right-0'
             )}
           >
             {displayMessage}
-            {/* Bubble tail */}
             <div className={cn(
-              "absolute -bottom-2 size-4",
-              "bg-glass-bg border-l border-b border-glass-border",
-              "rotate-[-45deg]",
+              'absolute -bottom-2 size-4',
+              'bg-glass-bg border-l border-b border-glass-border',
+              'rotate-[-45deg]',
               position === 'left' ? 'left-4' : 'right-4'
             )} />
           </motion.div>
         )}
       </AnimatePresence>
 
-      {/* Mascot container — `isFirstAppearance` añade un slide lateral
-          (desde la izquierda si position=left, de la derecha si right)
-          al primer mount, para que la mascota se sienta "saludando" en
-          lugar de aparecer de la nada. Después la animación pasa al
-          loop bodyAnimation normal. */}
+      {/* Cuerpo: animación corporal + entrada deslizante en primer mount */}
       <motion.div
         initial={
           shouldReduceMotion || !isFirstAppearance
@@ -231,100 +278,53 @@ function CharacterMascot({
         }
         animate={
           animationsActive
-            ? bodyAnimation[expr.bodyAnim]
-            : { x: 0, y: 0, scale: 1, rotate: 0 }
+            ? bodyAnimation[bodyAnim]
+            : { x: 0, y: 0, scale: 1, rotate: 0, opacity: 1 }
         }
         transition={
           isFirstAppearance && !shouldReduceMotion
-            ? { x: { duration: 0.6, ease: [0.16, 1, 0.3, 1] }, opacity: { duration: 0.4 } }
+            ? { x: { duration: 0.6, ease: EASING.outExpo }, opacity: { duration: 0.4 } }
             : undefined
         }
         className="relative"
+        style={{ width: widthClamp, aspectRatio: '200 / 215' }}
       >
-        {/* Glow effect — un color por familia de mood:
-            celebrating/happy → warmth (warning/success),
-            encouraging      → brand soft (acompañamiento),
-            sad/worried      → warning soft / error soft (atención),
-            surprised        → accent-pink (chispa de sorpresa),
-            idle/thinking/pointing → tint mecánica si hay, gris neutro si no. */}
+        {/* Halo difuso */}
         <div
-          className={cn(
-            'absolute inset-0 rounded-full blur-xl',
-            mood === 'celebrating' && 'bg-warning-base/30',
-            mood === 'happy' && 'bg-success-base/20',
-            mood === 'encouraging' && 'bg-brand-light/20',
-            mood === 'sad' && 'bg-warning-base/15',
-            mood === 'worried' && 'bg-error-base/15',
-            mood === 'surprised' && 'bg-accent-pink/25',
-            !useMechanicTintForGlow &&
-              (mood === 'idle' || mood === 'thinking' || mood === 'pointing') &&
-              'bg-text-muted/10'
-          )}
+          className={cn('absolute inset-0 rounded-full blur-xl', glowClass)}
           style={
-            useMechanicTintForGlow
-              ? {
-                  // Halo tintado con el accent de la mecánica (ADR-D).
-                  // ~22% opacity con color-mix para que respete tema oscuro.
-                  backgroundColor: `color-mix(in oklab, var(${mechanicGlowVar}) 22%, transparent)`
-                }
+            useMechanicTint
+              ? { backgroundColor: `color-mix(in oklab, var(${mechanicGlowVar}) 22%, transparent)` }
               : undefined
           }
         />
 
-        {/* Mascot emoji — always 🦉 for identity consistency */}
-        <AnimatePresence mode="wait">
-          <motion.div
-            key={mood}
-            initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
-            animate={{
-              opacity: 1,
-              scale: !shouldReduceMotion && (mood === 'happy' || mood === 'celebrating')
-                ? [1, 1.1, 1]
-                : 1,
-            }}
-            exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.8 }}
-            transition={shouldReduceMotion
-              ? { duration: 0 }
-              : { duration: 0.5, repeat: (mood === 'happy' || mood === 'celebrating') ? Infinity : 0 }
-            }
-            className="relative text-6xl select-none filter drop-shadow-lg"
-          >
-            🦉
-            {/* SVG accessory overlay — mecánica-aware en `thinking`. */}
-            <MascotAccessory mood={mood} mechanicType={mechanicType} />
-          </motion.div>
-        </AnimatePresence>
-
-        {/* Extra decorations for celebrating — antes emojis ⭐✨, ahora
-            Lucide Star/Sparkles para coherencia con el resto del design
-            system y para que el color rote con --color-warning-base.
-            Solo se renderiza cuando la mascota está en viewport para no
-            mantener los loops Infinity activos fuera de pantalla (M3). */}
-        {mood === 'celebrating' && animationsActive && (
-          <>
-            <motion.span
-              className="absolute -top-2 -right-2 text-warning-base drop-shadow-[0_0_8px_var(--color-warning-glow)]"
-              animate={{
-                scale: [0, 1, 0],
-                rotate: [0, 180, 360]
-              }}
-              transition={{ duration: 1, repeat: Infinity }}
-              aria-hidden="true"
-            >
-              <Star size={20} fill="currentColor" strokeWidth={1.25} />
-            </motion.span>
-            <motion.span
-              className="absolute -top-1 -left-2 text-brand-light drop-shadow-[0_0_6px_var(--color-brand-glow)]"
-              animate={{
-                scale: [0, 1, 0],
-              }}
-              transition={{ duration: 1, repeat: Infinity, delay: 0.3 }}
-              aria-hidden="true"
-            >
-              <Sparkles size={18} fill="currentColor" strokeWidth={1.25} />
-            </motion.span>
-          </>
-        )}
+        {/* El búho */}
+        <svg
+          viewBox="0 0 200 215"
+          width="100%"
+          height="100%"
+          data-otto-size={size}
+          className="relative block select-none"
+          style={{ overflow: 'visible', filter: 'drop-shadow(0 6px 10px oklch(27% 0.1 285 / 0.28))' }}
+          aria-hidden="true"
+        >
+          <OwlDefs uid={uid} />
+          <OwlShadow />
+          <OwlEars />
+          <OwlWings variant={expr.wings} animate={animationsActive} reduce={shouldReduceMotion} />
+          <OwlBody uid={uid} />
+          <OwlFeet />
+          {/* Cara + props PERSISTENTES: NUNCA se desmontan al cambiar de mood.
+              Cada slot (cejas/ojos/pico/mejillas/alas) transiciona EN EL SITIO y
+              los props entran/salen por su propio AnimatePresence solapado. Esto
+              elimina el "blank-out" del rig que provocaba el `mode="wait"` keyed
+              por mood: ojos/pico desaparecían ~0.22-0.44s en cada cambio (timeout)
+              y el ala/pompones se desincronizaban del prop. Continuidad sobre
+              teletransporte (ui-animation / emil-design-eng). */}
+          <OwlFace mood={mood} uid={uid} animate={animationsActive} reduce={shouldReduceMotion} gaze={gaze} />
+          <OwlProps names={expr.props} animate={animationsActive} />
+        </svg>
       </motion.div>
     </div>
   );
@@ -337,15 +337,11 @@ CharacterMascot.propTypes = {
   ]),
   message: PropTypes.string,
   position: PropTypes.oneOf(['left', 'right']),
-  // Mecánica activa para tintar el halo en estados pasivos (ADR-D).
-  // null/undefined mantiene el comportamiento histórico (gris neutro).
   mechanicType: PropTypes.oneOf(['memory', 'association', 'sequence', null]),
-  // Slide-in lateral en el primer mount (T-953 Fase 2.2).
+  size: PropTypes.oneOf(['sm', 'md', 'lg']),
   isFirstAppearance: PropTypes.bool,
-  // Suprime el bocadillo aunque haya `message` o `rotatingMessage`. Útil
-  // cuando la mascota se usa como ilustración decorativa (OnboardingOverlay,
-  // EmptyState) y el texto principal ya vive en el contenedor padre.
   noBubble: PropTypes.bool,
+  bubbleTimeout: PropTypes.number,
   className: PropTypes.string
 };
 

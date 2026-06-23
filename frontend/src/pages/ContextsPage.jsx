@@ -27,6 +27,7 @@ import ButtonPremium from '../components/ui/ButtonPremium';
 import PageHeader from '../components/ui/PageHeader';
 import InputPremium from '../components/ui/InputPremium';
 import EmptyState from '../components/ui/EmptyState';
+import CharacterMascot from '../components/game/CharacterMascot';
 import { EmptyContextsIllustration } from '../components/ui/illustrations';
 import ErrorState from '../components/ui/ErrorState';
 import Tooltip from '../components/ui/Tooltip';
@@ -292,7 +293,8 @@ export default function ContextsPage() {
           );
           if (filteredContexts.length === 0) return (
             <EmptyState
-              illustration={<EmptyContextsIllustration size={180} />}
+              illustration={searchTerm ? <EmptyContextsIllustration size={180} /> : undefined}
+              mascot={searchTerm ? undefined : <CharacterMascot mood="encouraging" size="sm" noBubble />}
               variant={searchTerm ? 'filtered' : 'first-use'}
               title={searchTerm ? 'Nada coincide con tu búsqueda' : 'Aún no hay contextos'}
               description={

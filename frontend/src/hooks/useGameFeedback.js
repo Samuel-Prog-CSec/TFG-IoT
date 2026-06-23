@@ -25,6 +25,9 @@ const WORRIED_TOTAL_ERRORS = 5;
 // volver a disparar la burbuja nueva durante este intervalo (sería
 // agobiar al alumno con repeticiones).
 const WORRIED_COOLDOWN_MS = 8000;
+// Cooldown del re-enganche por inactividad (`idleNudge`): Otto no vuelve a
+// "dar un toque" hasta pasado este intervalo, para acompañar sin agobiar.
+const IDLE_NUDGE_COOLDOWN_MS = 12000;
 
 /**
  * @param {Object} options
@@ -55,6 +58,10 @@ export function useGameFeedback({
   const streakRef = useRef(0);
   const totalErrorsRef = useRef(0);
   const lastWorriedAtRef = useRef(0);
+  // Otto "más vivo": primer acierto de la partida (`firstCorrect`) y
+  // cooldown del re-enganche por inactividad (`idleNudge`).
+  const hasScoredRef = useRef(false);
+  const lastNudgeAtRef = useRef(0);
 
   // T-953 Fase 4 (QA fix): el `mechanicType` que llega por closure puede
   // estar stale en consumers que registran callbacks de socket cuando la
@@ -65,6 +72,29 @@ export function useGameFeedback({
   // Mirror via ref → leemos siempre el valor más reciente al ejecutar.
   const mechanicTypeRef = useRef(mechanicType);
   mechanicTypeRef.current = mechanicType;
+
+  // Mirror del mood actual: `signalRoundStart` (nearWin) lo lee para NO degradar
+  // un mood positivo (si Otto acaba de celebrar una racha, la última ronda no
+  // debe bajarlo a `encouraging` — sería un bajón tras el subidón).
+  const mascotMoodRef = useRef(mascotMood);
+  mascotMoodRef.current = mascotMood;
+
+  // Selección de frase de la mascota EVITANDO repetir la última consecutiva.
+  // Doble propósito: (1) variedad (no oír "¡Genial!" dos veces seguidas); y
+  // (2) el bocadillo de `CharacterMascot` auto-dismiss depende de que el string
+  // `message` CAMBIE — si el mismo evento repite la misma frase, el efecto no se
+  // re-ejecuta y el bocadillo no reaparece. Forzar string distinto lo arregla.
+  const lastMascotMsgRef = useRef('');
+  const pickMascotPhrase = useCallback((m, ev) => {
+    let msg = pickMascotMessage(m, ev);
+    let tries = 0;
+    while (msg && msg === lastMascotMsgRef.current && tries < 4) {
+      msg = pickMascotMessage(m, ev);
+      tries += 1;
+    }
+    if (msg) lastMascotMsgRef.current = msg;
+    return msg;
+  }, []);
 
   /**
    * Process a validation result from the server.
@@ -131,15 +161,21 @@ export function useGameFeedback({
     if (isTimeoutResult) {
       nextMood = mechanicTypeRef.current ? 'sad' : 'encouraging';
       if (mechanicTypeRef.current) {
-        nextMessage = pickMascotMessage(mechanicTypeRef.current, 'timeout') || message;
+        nextMessage = pickMascotPhrase(mechanicTypeRef.current, 'timeout') || message;
       }
     } else if (isCorrect) {
       const reachedStreak = streakRef.current >= MASCOT_STREAK_THRESHOLD;
+      // `firstCorrect`: el primer acierto de la partida estrena una frase de
+      // arranque cálido ("¡Buen comienzo!") en lugar del pool genérico, para
+      // que el primer logro se sienta especial. Solo aplica si aún no es racha.
+      const isFirstScore = !hasScoredRef.current;
+      hasScoredRef.current = true;
       nextMood = !reachedStreak && mechanicTypeRef.current ? 'happy' : 'celebrating';
       if (mechanicTypeRef.current) {
-        nextMessage =
-          pickMascotMessage(mechanicTypeRef.current, reachedStreak ? 'streakReached' : 'correctAnswer') ||
-          message;
+        let correctEvent = 'correctAnswer';
+        if (reachedStreak) correctEvent = 'streakReached';
+        else if (isFirstScore) correctEvent = 'firstCorrect';
+        nextMessage = pickMascotPhrase(mechanicTypeRef.current, correctEvent) || message;
       }
     } else {
       // Decisiones de error: orden de precedencia
@@ -152,17 +188,17 @@ export function useGameFeedback({
       const now = Date.now();
       const worriedCooldownPassed = now - lastWorriedAtRef.current > WORRIED_COOLDOWN_MS;
 
-      if (streakWasHigh && mechanicType) {
+      if (streakWasHigh && mechanicTypeRef.current) {
         nextMood = 'surprised';
-        nextMessage = pickMascotMessage(mechanicTypeRef.current, 'streakBroken') || message;
-      } else if (accumulatingErrors && mechanicType && worriedCooldownPassed) {
+        nextMessage = pickMascotPhrase(mechanicTypeRef.current, 'streakBroken') || message;
+      } else if (accumulatingErrors && mechanicTypeRef.current && worriedCooldownPassed) {
         nextMood = 'worried';
-        nextMessage = pickMascotMessage(mechanicTypeRef.current, 'worriedRebound') || message;
+        nextMessage = pickMascotPhrase(mechanicTypeRef.current, 'worriedRebound') || message;
         lastWorriedAtRef.current = now;
       } else {
         nextMood = 'encouraging';
         if (mechanicTypeRef.current) {
-          nextMessage = pickMascotMessage(mechanicTypeRef.current, 'errorAnswer') || message;
+          nextMessage = pickMascotPhrase(mechanicTypeRef.current, 'errorAnswer') || message;
         }
       }
     }
@@ -214,8 +250,135 @@ export function useGameFeedback({
     // listeners no necesitan re-registrarse.
     // T-953 Fase 2.7: añadido `fireBurst` para micro-celebraciones cada 5
     // aciertos consecutivos.
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- mechanicType se lee vía mechanicTypeRef.current a propósito para mantener el callback estable y no re-registrar listeners (ver comentario arriba)
-  }, [isMemoryMode, shouldReduceMotion, fireFromElement, fireBurst]);
+    // `mechanicType` se lee SIEMPRE vía `mechanicTypeRef.current` (no se
+    // referencia el closure), por eso no está en deps y el callback se mantiene
+    // estable entre cambios de mecánica sin re-registrar listeners.
+  }, [isMemoryMode, shouldReduceMotion, fireFromElement, fireBurst, pickMascotPhrase]);
+
+  // ── Eventos curados "Otto más vivo" (rediseño mascota) ──────────────
+  // Señales para momentos que NO son validation_result, donde antes la
+  // mascota se quedaba muda. Leen `mechanicTypeRef.current` (estable) y
+  // escriben mood + frase contextual del diccionario.
+
+  // Memoria: el backend emite `memory_turn_state` con phase `match`/`mismatch`
+  // (NO `validation_result`), así que `processValidationResult` no corría y Otto
+  // NO reaccionaba a las parejas (mood/frase mudos en juego; sólo hablaba en
+  // roundStart/idleNudge). Esta señal reacciona SÓLO la mascota (mood + frase +
+  // racha + micro-celebración) y NO toca el feedback de tablero de Memoria
+  // (`memoryFeedbackActive`/`feedbackState`, que GameSession gestiona por fases)
+  // ni dispara el confetti de Asociación. Reusa la misma escalera expresiva que
+  // `processValidationResult` (happy/celebrating/surprised/worried/encouraging).
+  const signalMemoryResult = useCallback((isMatch) => {
+    const mech = mechanicTypeRef.current;
+    const previousStreak = streakRef.current;
+
+    if (isMatch) {
+      streakRef.current += 1;
+      setStreak(streakRef.current);
+    } else {
+      streakRef.current = 0;
+      setStreak(0);
+      totalErrorsRef.current += 1;
+      setTotalErrors(totalErrorsRef.current);
+    }
+
+    let nextMood;
+    let nextMessage = '';
+    if (isMatch) {
+      const reachedStreak = streakRef.current >= MASCOT_STREAK_THRESHOLD;
+      const isFirstScore = !hasScoredRef.current;
+      hasScoredRef.current = true;
+      nextMood = reachedStreak ? 'celebrating' : 'happy';
+      let correctEvent = 'correctAnswer';
+      if (reachedStreak) correctEvent = 'streakReached';
+      else if (isFirstScore) correctEvent = 'firstCorrect';
+      nextMessage = pickMascotPhrase(mech, correctEvent) || '';
+    } else {
+      const streakWasHigh = previousStreak >= MASCOT_STREAK_THRESHOLD;
+      const accumulatingErrors =
+        totalErrorsRef.current >= WORRIED_TOTAL_ERRORS && streakRef.current === 0;
+      const now = Date.now();
+      const worriedCooldownPassed = now - lastWorriedAtRef.current > WORRIED_COOLDOWN_MS;
+      if (streakWasHigh) {
+        nextMood = 'surprised';
+        nextMessage = pickMascotPhrase(mech, 'streakBroken') || '';
+      } else if (accumulatingErrors && worriedCooldownPassed) {
+        nextMood = 'worried';
+        nextMessage = pickMascotPhrase(mech, 'worriedRebound') || '';
+        lastWorriedAtRef.current = now;
+      } else {
+        nextMood = 'encouraging';
+        nextMessage = pickMascotPhrase(mech, 'errorAnswer') || '';
+      }
+    }
+    setMascotMood(nextMood);
+    setMascotMessage(nextMessage);
+
+    // Micro-celebración tintada cada N parejas consecutivas (paridad con
+    // processValidationResult; sin cambiar mood ni resetear racha).
+    if (
+      isMatch &&
+      !shouldReduceMotion &&
+      streakRef.current > 0 &&
+      streakRef.current % MICRO_CELEBRATION_EVERY === 0 &&
+      streakRef.current !== MASCOT_STREAK_THRESHOLD
+    ) {
+      const themeColor = getMechanicTheme(mech || 'memory').accentHexFallback;
+      fireBurst({
+        particleCount: 18,
+        spread: 60,
+        colors: themeColor ? [themeColor] : undefined,
+      });
+    }
+  }, [shouldReduceMotion, fireBurst, pickMascotPhrase]);
+
+  // Fases de Secuencia: memorizar → `thinking` ("¡Fíjate en el orden!"),
+  // reproducir → `pointing` ("¡Ahora te toca!"). Antes Otto no reaccionaba
+  // a estas transiciones (solo a card/round results).
+  const signalSequencePhase = useCallback((phase) => {
+    const mech = mechanicTypeRef.current;
+    if (phase === 'memorizing') {
+      setMascotMood('thinking');
+      setMascotMessage(pickMascotPhrase(mech, 'memorizing') || '');
+    } else if (phase === 'reproducing') {
+      setMascotMood('pointing');
+      setMascotMessage(pickMascotPhrase(mech, 'reproducing') || '');
+    }
+  }, [pickMascotPhrase]);
+
+  // Inicio de ronda: saludo en la PRIMERA ronda (`roundStart`) e hype suave
+  // en la ÚLTIMA (`nearWin`, mood `encouraging`). Las rondas intermedias NO
+  // se tocan, para no pisar el `happy`/`celebrating` que arrastra el acierto
+  // anterior (sería un bajón de ánimo innecesario).
+  const signalRoundStart = useCallback((gameContext = {}) => {
+    const mech = mechanicTypeRef.current;
+    const round = Number(gameContext.currentRound);
+    const total = Number(gameContext.totalRounds);
+    if (Number.isFinite(total) && total > 0 && Number.isFinite(round) && round >= total) {
+      // Hype de última ronda SIN bajón: si Otto venía positivo (happy/
+      // celebrating del acierto anterior), conserva ese mood y solo añade la
+      // frase "¡Última ronda!"; si no, lo lleva a `encouraging`.
+      const { current: currentMood } = mascotMoodRef;
+      if (currentMood !== 'happy' && currentMood !== 'celebrating') {
+        setMascotMood('encouraging');
+      }
+      setMascotMessage(pickMascotPhrase(mech, 'nearWin') || '');
+    } else if (Number.isFinite(round) && round <= 1) {
+      setMascotMood('idle');
+      setMascotMessage(pickMascotPhrase(mech, 'roundStart') || '');
+    }
+  }, [pickMascotPhrase]);
+
+  // Re-enganche por inactividad: si el alumno lleva un rato sin tocar, Otto
+  // "da un toque" amable (`pointing` + "¿Cuál crees?"). NUNCA es un regaño;
+  // tiene cooldown para no repetirse.
+  const signalIdleNudge = useCallback(() => {
+    const now = Date.now();
+    if (now - lastNudgeAtRef.current < IDLE_NUDGE_COOLDOWN_MS) return;
+    lastNudgeAtRef.current = now;
+    setMascotMood('pointing');
+    setMascotMessage(pickMascotPhrase(mechanicTypeRef.current, 'idleNudge') || '');
+  }, [pickMascotPhrase]);
 
   const clearFeedback = useCallback(() => {
     setFeedbackState('idle');
@@ -236,6 +399,10 @@ export function useGameFeedback({
     // T-953 Fase 2.5: reset cooldown del mood `worried` para que la
     // siguiente partida pueda volver a disparar la frase de rebound.
     lastWorriedAtRef.current = 0;
+    // Otto "más vivo": reset de firstCorrect y cooldown de nudge por partida.
+    hasScoredRef.current = false;
+    lastNudgeAtRef.current = 0;
+    lastMascotMsgRef.current = '';
   }, [clearFeedback]);
 
   return {
@@ -249,6 +416,10 @@ export function useGameFeedback({
     totalErrors,
     challengeRef,
     processValidationResult,
+    signalMemoryResult,
+    signalSequencePhase,
+    signalRoundStart,
+    signalIdleNudge,
     clearFeedback,
     resetForNewPlay,
   };

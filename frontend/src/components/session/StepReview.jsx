@@ -6,6 +6,7 @@
  */
 
 import PropTypes from 'prop-types';
+import { m as motion } from 'framer-motion';
 import {
   CreditCard,
   Layers,
@@ -17,9 +18,14 @@ import GlassCard from '../ui/GlassCard';
 import InputPremium from '../ui/InputPremium';
 import CardAssetPreview from '../ui/CardAssetPreview';
 import AudioPlayBadge from '../ui/AudioPlayBadge';
+import CharacterMascot from '../game/CharacterMascot';
 import { getId } from '../../lib/entityId';
 import { normalizeMechanicName } from './sessionHelpers';
 import { deckShape, mechanicShape, configShape } from './sessionPropTypes';
+
+// Mecánicas con tinte de halo propio para Otto en la revisión. Si el nombre
+// no es una de estas, se omite `mechanicType` (el halo cae a su color neutro).
+const MASCOT_MECHANIC_TYPES = new Set(['memory', 'association', 'sequence']);
 
 /**
  * Paso 4: Revisar y Crear
@@ -27,8 +33,10 @@ import { deckShape, mechanicShape, configShape } from './sessionPropTypes';
 export default function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMechanic }) {
   const mechanicName = normalizeMechanicName(selectedMechanic);
   const isMemory = mechanicName === 'memory';
+  const mascotMechanicType = MASCOT_MECHANIC_TYPES.has(mechanicName) ? mechanicName : null;
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
       {/* Nombre de la sesion */}
       <GlassCard className="p-6">
         <h2 className="text-lg font-semibold text-text-primary mb-4">
@@ -146,6 +154,24 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
           </div>
         </div>
       </GlassCard>
+      </div>
+
+      {/* Otto cierra el wizard anticipando el juego: la sesión está casi
+          lista. En su propia zona (no sobre los controles del footer), con
+          el halo tintado por la mecánica elegida. */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+        className="flex justify-center pt-2"
+      >
+        <CharacterMascot
+          mood="happy"
+          size="md"
+          mechanicType={mascotMechanicType}
+          message="¡Casi lista! ¿Empezamos?"
+        />
+      </motion.div>
     </div>
   );
 }

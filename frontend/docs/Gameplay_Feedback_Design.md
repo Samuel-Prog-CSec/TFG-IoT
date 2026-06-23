@@ -167,3 +167,51 @@ Documentado en ADR-118. Resumen de cómo la sesión 2026-05-09 amplía este sist
 **Leitmotiv "Tactile RFID + Paper" preservado:** la mascota sigue siendo expresiva y reactiva (mood cambia con resultados de ronda); solo se detiene cuando el alumno no la ve. La integración con `useGameFeedback` (mensajes contextualizados por mecánica) no cambia.
 
 **Mensaje sin bocadillo (`noBubble`):** Onboarding y otros sitios donde la mascota se usa como ilustración decorativa siguen pasando `noBubble={true}` para suprimir el speech bubble sin perder la animación facial expresiva del mood. Mantenido desde ADR-163.
+
+## Otto — rig SVG paramétrico + biblia de personaje (ADR-204)
+
+La mascota es ahora **Otto** (de *Otus*, género de búho): un personaje **100% SVG paramétrico** que sustituye al emoji 🦉 + accesorios. Render idéntico en cualquier navegador y **expresión facial real** (ojos/párpados/cejas/pico que cambian) en los 9 moods. Geometría canónica aprobada en `docs/plans/mascota-owl-model-sheet.html`.
+
+**Arquitectura.** `components/game/mascot/owlParts.jsx` (capas SVG) + `owlExpressions.js` (tabla declarativa `EXPRESSIONS[mood]` → ojos/cejas/pico/mejillas/alas/props/animación). `CharacterMascot.jsx` orquesta bocadillo + halo + `<OwlCharacter>` + gating; **API pública estable** + prop `size` (sm/md/lg, **ancho fluido `clamp()` por viewport** → vectorial, nítido y proporcionado de 720p a 4K). Identidad índigo fija (constantes OKLCH); props temáticos `var(--color-*)` (adaptan light/dark); gradientes namespaced con `useId` (varios Ottos coexisten). `MascotAccessory.jsx` eliminado.
+
+**Biblia de personaje (voz de Otto).**
+- **Rol:** mentor cálido y juguetón. Acompaña, anima, celebra el esfuerzo. NUNCA regaña, asusta ni culpa: el error es siempre "casi" / "otra vez" / "mira de nuevo".
+- **Voz:** frases cortas (≤5 palabras), español, vocabulario 4-8 años; mayúsculas solo para celebración grande; sin emojis en el texto.
+- **Gestos firma:** parpadeo periódico, micro-respiración, salto de celebración, pompones de ánimo, gota de sudor *tierna* al preocuparse (por el niño, no para reprochar).
+
+**Capa de vida — momentos curados** (amplía el "cerebro" del ADR-D por petición; cooldown para no saturar). Matriz disparador → mood → pool de frases (fuente de verdad):
+
+| Disparador | Mood | Pool (`mascotDialog.js`) |
+|---|---|---|
+| Inicio 1ª ronda | idle | `roundStart` |
+| Primer acierto de la partida | happy | `firstCorrect` |
+| Acierto normal | happy | `correctAnswer` |
+| Racha ≥3 | celebrating | `streakReached` |
+| Racha rota (venía ≥3) | surprised | `streakBroken` |
+| 5+ errores y racha 0 | worried | `worriedRebound` |
+| Error puntual | encouraging | `errorAnswer` |
+| Timeout | sad | `timeout` |
+| Última ronda | encouraging | `nearWin` |
+| Secuencia · memorizar | thinking | `memorizing` |
+| Secuencia · reproducir | pointing | `reproducing` |
+| Inactividad ~8s (turno del alumno) | pointing | `idleNudge` (cooldown 12s) |
+| GameOver por tier (0/1/2/3⭐) | worried/encouraging/happy/celebrating | `gameOverLow/Mid/High` |
+
+Implementación: métodos señal en `useGameFeedback` (`signalSequencePhase`, `signalRoundStart`, `signalIdleNudge`) + `firstCorrect` dentro de `processValidationResult`, cableados en los handlers de socket de `GameSession`. Frases contextuales por mecánica en `mascotDialog.js`.
+
+## Otto — continuidad del rig, reacción en Memoria y bocadillo efímero (ADR-209)
+
+**Continuidad sobre teletransporte.** El rig facial dejó de envolverse en `<AnimatePresence mode="wait">` keyed por `mood` (que borraba ojos/cejas/pico ~0.22-0.44 s en cada cambio y desincronizaba el ala/prop). Ahora la base + cara + props quedan **montados permanentemente** y cada slot transiciona en el sitio: pupila por muelle (`cx/cy`), ojos por **parpadeo-swap**, cejas por morph de `d`, pico/mejillas/alas por crossfade (`AnimatePresence` por variante, sin `mode="wait"`), props con su propio `AnimatePresence` solapado. La cara NUNCA se borra.
+
+**Reacción en Memoria (disparador que faltaba).** El backend emite `memory_turn_state` (no `validation_result`), por lo que la mascota no reaccionaba a las parejas. Nueva señal `signalMemoryResult(isMatch)` (mascot-only, no toca el feedback de tablero) cableada en `handleMemoryTurnState`:
+
+| Disparador | Mood | Evento |
+|---|---|---|
+| Memoria · pareja correcta (`match`) | happy / celebrating (racha) | `correctAnswer` / `streakReached` |
+| Memoria · fallo de pareja (`mismatch`) | encouraging / surprised (racha rota) | `errorAnswer` / `streakBroken` |
+
+**Bocadillo efímero.** Prop `bubbleTimeout` en `CharacterMascot`: en partida la frase se auto-oculta (~3,6 s) manteniendo el mood facial → ninguna frase queda "fuera de lugar". Ambiental (login/empty) la omite.
+
+**Mirada ambiental.** `useAmbientGaze` desliza la pupila en moods de reposo (idle/thinking), baja frecuencia aleatorizada, pausada fuera de viewport y en reduced-motion.
+
+**Presencia ampliada.** Reusando la API de `CharacterMascot`: estados vacíos (slot `mascot` de `EmptyState`), Login/Register, errores (NotFound, `ErrorBoundary`, slot `mascot` de `ErrorState`) y previa de partida (`StepReview`).

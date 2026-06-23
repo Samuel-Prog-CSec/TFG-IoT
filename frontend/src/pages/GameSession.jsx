@@ -76,6 +76,11 @@ export default function GameSession() {
   const continueButtonRef = useRef(null);
   const gameStartTimeRef = useRef(null);
   const boardReadyEmittedRef = useRef(false);
+  // Idempotencia de la reacción de Otto en Memoria: ya reaccionó al turno
+  // actual. Se arma en match/mismatch y se rearma en cualquier fase previa
+  // (first_pick/concealed/round_start…) → una sola reacción por turno aunque
+  // el backend re-emita el mismo `memory_turn_state` (replay al reconectar).
+  const memoryTurnReactedRef = useRef(false);
   const totalRoundsRef = useRef(5);
   const roundTimeRef = useRef(ROUND_TIME);
   const socketSessionRef = useRef(null); // Ref al objeto session del socket hook
@@ -182,6 +187,7 @@ export default function GameSession() {
   const {
     clearFeedback,
     processValidationResult,
+    signalMemoryResult,
     signalSequencePhase,
     signalRoundStart,
     signalIdleNudge,
@@ -446,6 +452,16 @@ export default function GameSession() {
 
     if (phase === 'match' || phase === 'mismatch') {
       setMemoryFeedbackActive(true);
+      // ADR-D / rediseño Otto: la mascota reacciona a la pareja (match→happy/
+      // celebrating "¡Pareja!", mismatch→encouraging "Mira otra vez"). Señal
+      // mascot-only: NO toca memoryFeedbackActive/feedbackState (gestionados por
+      // fases) para no alterar el flip de cartas ni el timer de Memoria.
+      // Idempotente: una sola reacción por turno (no recontar racha/errores si
+      // el backend re-emite el mismo turno).
+      if (!memoryTurnReactedRef.current) {
+        memoryTurnReactedRef.current = true;
+        signalMemoryResult(phase === 'match');
+      }
     }
 
     if (
@@ -456,8 +472,10 @@ export default function GameSession() {
       phase === 'ignored'
     ) {
       setMemoryFeedbackActive(false);
+      // Fase previa al desenlace → rearmar la reacción para el próximo turno.
+      memoryTurnReactedRef.current = false;
     }
-  }, [setTimeLeft, dispatch]);
+  }, [setTimeLeft, dispatch, signalMemoryResult]);
 
   const handleGameOver = useCallback(payload => {
     playGameOver();
@@ -1867,15 +1885,24 @@ export default function GameSession() {
           visible independientemente de la altura del footer de métricas
           (detectado en QA 2026-04-23: con `bottom-4` la mascota colisionaba
           con el footer en viewports pequeños y se percibía como "desaparecida").
-          Scale completo ahora que tiene espacio reservado. */}
-      <div className="fixed bottom-24 left-4 sm:left-6 z-20 origin-bottom-left pointer-events-none">
-        <CharacterMascot
-          mood={mascotMood}
-          message={mascotMessage || undefined}
-          position="left"
-          mechanicType={mechanicMode}
-        />
-      </div>
+          Scale completo ahora que tiene espacio reservado.
+          Gated a `playing`/`paused` (como el footer): en `finished` el
+          GameOverScreen renderiza SU PROPIO Otto (héroe tier-aware, abajo-izq);
+          sin este gate ambos coincidían en la esquina inferior izquierda y se
+          veían DOS búhos superpuestos. `!showPreCelebration` además lo oculta
+          durante el overlay de celebración (semi-transparente, gameState aún
+          `playing` ~1.2s): si no, Otto se asomaba difuminado tras el confeti. */}
+      {(gameState === 'playing' || gameState === 'paused') && !showPreCelebration && (
+        <div className="fixed bottom-24 left-4 sm:left-6 z-20 origin-bottom-left pointer-events-none">
+          <CharacterMascot
+            mood={mascotMood}
+            message={mascotMessage || undefined}
+            position="left"
+            mechanicType={mechanicMode}
+            bubbleTimeout={3600}
+          />
+        </div>
+      )}
 
       {/* Footer: solo metricas — el progreso de rondas vive en el header como
           dots (ver header). Eliminamos el indicador redundante del footer y la

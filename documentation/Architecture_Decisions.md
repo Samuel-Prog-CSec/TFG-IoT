@@ -10704,3 +10704,46 @@ Tras el pase principal se atacaron dos de los diferidos por su valor real, y se 
 
 **Alcance del addendum.** Frontend (`services/socket.js`, `hooks/useGameSocket.js`, `components/ui/RFIDConnector.jsx`, `services/__tests__/socket.connection.test.js`). Backend (`services/adminAnalyticsService.js`).
 
+## ADR-209: Rig de mascota — "continuidad sobre teletransporte", reacción en Memoria, bocadillo efímero, mirada ambiental y presencia ampliada [Frontend, UX, Animation]
+
+**Contexto.** El rig SVG paramétrico de Otto (`mascot/owlParts.jsx` + `owlExpressions.js`) envolvía **toda la cara + props** en un único `<AnimatePresence mode="wait">` keyed por `mood`. `mode="wait"` obliga al grupo saliente a desvanecerse del todo (opacity→0, scale→0.96) **antes** de montar el entrante, así que los rasgos PERSISTENTES (ojos, cejas, pico — presentes en los 9 moods) se borraban ~0.22–0.44 s en cada cambio (ojos/pico "desaparecían" en el timeout). Además `OwlWings` vivía **fuera** de esa presencia y hacía hard-cut de variante, desincronizado del prop que sí animaba dentro (ala/flecha al señalar, brazos/pompones al animar). Aparte, en **Memoria** el backend emite `memory_turn_state` (no `validation_result`), por lo que la mascota no reaccionaba a las parejas (mood/frase mudos en juego).
+
+**Decisión.**
+- **Continuidad sobre teletransporte** (ley de motion, ui-animation / emil-design-eng): se elimina el `AnimatePresence mode="wait"` que envolvía la cara. La base + `OwlFace` + `OwlProps` quedan **montados de forma permanente** (sin `key={mood}`); cada slot transiciona EN EL SITIO:
+  - **Pupila** → `motion.circle` con `animate={{cx,cy}}` + muelle (mirada que se desliza).
+  - **Ojos (forma)** → **parpadeo-swap**: un dip de `scaleY` (`useAnimationControls` + `renderedVariant`, cancelable) oculta el cambio open/wide/narrow/closedSmile/droopy (no morfables) y es un gesto de búho con carácter.
+  - **Cejas** → morph del `d` (`motion.path`; las 7 variantes comparten estructura `M..Q..` → Framer interpola).
+  - **Pico / mejillas / alas** → `AnimatePresence` por variante **sin `mode="wait"`** (crossfade solapado); las alas crossfadean al mismo cambio de `mood` que el prop → desincronía eliminada.
+  - **`OwlProps`** → su **propio** `AnimatePresence` solapado: cada prop corre su `enter`/`exit` (antes muerto) sin tocar la cara; loops `repeat:Infinity` intactos.
+  - Todo <300 ms, ease-out fuerte, exit < enter, sólo `opacity`/atributos SVG numéricos (GPU). Gating `animationsActive = isInView && !shouldReduceMotion` y namespacing `uid` preservados; rama reduced-motion por slot (instantáneo).
+- **Reacción en Memoria**: nueva señal `signalMemoryResult(isMatch)` en `useGameFeedback` (mascot-only: mood + frase + racha + micro-celebración, sin tocar `feedbackState`/`memoryFeedbackActive` que gestiona GameSession por fases). `handleMemoryTurnState` la invoca en `match`/`mismatch`. Reusa la misma escalera expresiva que `processValidationResult`.
+- **Bocadillo efímero**: prop `bubbleTimeout` (opt-in) en `CharacterMascot`; en partida la frase se auto-oculta (~3,6 s) manteniendo el mood facial → ninguna frase queda "fuera de lugar". En superficies ambientales se omite (bienvenida persistente).
+- **Mirada ambiental ("delight con firma")**: `useAmbientGaze` desplaza la pupila a objetivos aleatorios y vuelve, sólo en moods de reposo (idle/thinking), baja frecuencia aleatorizada, pausada fuera de viewport y anulada en reduced-motion.
+- **Presencia ampliada de marca** (reusando la API estable de `CharacterMascot`, sin variantes nuevas): estados vacíos (slot `mascot` de `EmptyState`, antes inerte: Sesiones/Mazos/Contextos), Login/Register (escena hero), estados de error (NotFound, `ErrorBoundary`, slot `mascot` nuevo en `ErrorState`) y previa de partida (`StepReview`).
+- **Doble búho en GameOver (corregido).** La mascota de la esquina de `GameSession` NO estaba gateada por `gameState`, así que sobrevivía a `finished` y coincidía con el Otto-héroe del `GameOverScreen` (ambos abajo-izquierda) → DOS búhos superpuestos. Fix: gatear la mascota de la esquina a `playing`/`paused` (como el footer hermano); en `finished` manda el héroe tier-aware del GameOver. Latente (precedía a esta sesión), cazado en la QA en vivo.
+
+**Consecuencias.** La cara nunca se borra en una transición; ala↔prop sincronizados; Otto reacciona a las parejas de Memoria con las frases `MEMORY_DIALOG` que antes estaban muertas en juego; las frases no se quedan colgadas; Otto cobra vida en reposo (mirada) y aparece como imagen de marca donde aporta. Copy: se retira el anglicismo "match" y se amplían los pools `timeout` (variedad), alineado con `Microcopy_Style_Guide.md`.
+
+**Verificación.** `npm run lint` 0/0, `npm run build` OK, `npm test` **652/652** (nuevo `CharacterMascot.persistence.test.jsx` — la cara no se desmonta entre moods; `useGameFeedback.test.js` ampliado con la matriz de Memoria). QA en vivo (Docker + navegador, ambos temas) sobre las 3 mecánicas y los 9 moods.
+
+**Alternativas descartadas.** (1) Mantener `mode="wait"` y sólo acortar la duración: no resuelve el blank-out (los rasgos persistentes seguirían desmontándose). (2) Crossfade de los ojos en vez de parpadeo-swap: dos formas de ojo superpuestas leen peor; el parpadeo es más limpio y con más carácter. (3) Llamar a `processValidationResult` también en Memoria: alteraría `feedbackState`/`memoryFeedbackActive` (flip de cartas, timer) — de ahí la señal mascot-only. (4) Bajar `domMax`→`domAnimation` para aligerar: rompería layout/shared transitions (anti-regresión ADR-208).
+
+**Alcance.** Frontend: `components/game/CharacterMascot.jsx`, `components/game/mascot/owlParts.jsx`, `hooks/useGameFeedback.js`, `pages/GameSession.jsx`, `lib/mascotDialog.js`, `components/ui/EmptyState.jsx` (slot ya existía) + `ErrorState.jsx` (slot nuevo), `pages/{SessionsPage,CardDecksPage,ContextsPage,Login,Register,NotFound}.jsx`, `components/common/ErrorBoundary.jsx`, `components/session/StepReview.jsx`, tests. Documentación: este ADR, `frontend/docs/Gameplay_Feedback_Design.md`.
+
+### Addendum — Ronda de QA adversarial (doble búho + 5 fixes de robustez)
+
+Pase de QA profundo con **dos auditorías de código adversariales** (agentes independientes) + navegación en vivo. Hallazgos reales corregidos:
+
+- **Doble búho en GameOver (y su medio-primo).** La mascota de la esquina de `GameSession` no estaba gateada por `gameState` → sobrevivía a `finished` y coincidía con el Otto-héroe del `GameOverScreen` (ambos abajo-izquierda) = DOS búhos. Fix: gatear a `(playing||paused)`. Además `!showPreCelebration`: durante el overlay de celebración (~1.2s, semi-transparente, `gameState` aún `playing`) Otto se asomaba difuminado tras el confeti.
+- **Parpadeo-swap podía dejar un ojo cerrado** en cambios rápidos A→B→A más cortos que el dip (el `cancelled` saltaba el reopen y, si la variante volvía a la ya renderizada, el guard no reabría). Fix: dos efectos (cerrar+cambiar forma / reabrir cuando `rendered===variant`) → el ojo SIEMPRE converge a abierto.
+- **Pupila sin clamp**: en `thinking` (pupila `{7,-4}`) + mirada ambiental `{7,0}` el iris se salía del blanco (bizco). Fix: `clampPupil` a `{9,7}`.
+- **Frase repetida no reaparecía**: el auto-dismiss del bocadillo depende de que `message` cambie de string; si el mismo evento elegía la misma frase, el bocadillo quedaba oculto. Fix: `pickMascotPhrase` evita repetir la última frase consecutiva (variedad + reaparición garantizada).
+- **A11y**: el bocadillo (decorativo, duplica info que ya da la página/aria-live) ahora es `aria-hidden` (el SVG ya lo era).
+
+**Cierre de los 3 diferidos (2ª pasada, "100% terminado"):**
+- **Doble-fire de `signalMemoryResult` → guard de idempotencia.** `memoryTurnReactedRef` en `handleMemoryTurnState`: una sola reacción por turno (se arma en match/mismatch, se rearma en cualquier fase previa first_pick/concealed/round_start). Inmune a re-emisiones del backend (replay al reconectar). Verificado en vivo: match→happy, mismatch→encouraging, una reacción por turno.
+- **`nearWin` ya NO degrada un mood positivo.** `mascotMoodRef` (mirror del mood); en la última ronda, si Otto venía `happy`/`celebrating`, conserva ese mood y solo añade la frase "¡Última ronda!" (antes lo bajaba a `encouraging`). Test nuevo en `useGameFeedback.test.js`.
+- **`idleNudge` con `new_round` lento >8s = FALSO POSITIVO.** El reducer (`useGameSessionState.js`) pone `isAwaitingResponse:false` en `ANSWER_CORRECT`/`ANSWER_INCORRECT` y solo `NEW_ROUND` lo vuelve a `true`; el gate `!isAwaitingResponse` del efecto del nudge ya impide que dispare en el hueco entre rondas. No hay bug que corregir (sin código muerto añadido).
+
+**Verificación.** lint 0/0, `npm test` **653/653** (incluido el test nuevo de no-degradación de `nearWin`). QA en vivo (Docker + navegador): **Memoria pareja correcta → Otto happy** y **fallo → encouraging** (reacción única por turno — confirma `signalMemoryResult` + el guard de idempotencia); doble búho GameOver = **1 búho** (`querySelectorAll('svg[data-otto-size]').length===1`); moods idle/pointing/happy/surprised/sad/encouraging renderizan con sus props sincronizados, light y dark.
+

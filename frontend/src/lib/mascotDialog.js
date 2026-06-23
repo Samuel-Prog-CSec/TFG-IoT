@@ -32,7 +32,7 @@ const MEMORY_DIALOG = Object.freeze({
     '¡Pareja!',
     '¡Lo recordaste!',
     '¡Memoria fina!',
-    '¡Otro match!',
+    '¡Bien visto!',
     '¡Genial!'
   ],
   errorAnswer: [
@@ -42,9 +42,7 @@ const MEMORY_DIALOG = Object.freeze({
     '¡Tranqui!',
     '¡Siguiente!'
   ],
-  // Balanceado a 3 frases (T-953 Fase 2.4): antes solo había 2,
-  // saturando el loop visual cuando el alumno se quedaba en blanco.
-  timeout: ['¡Inténtalo!', 'Sigue mirando…', 'Tu turno, ¡ánimo!'],
+  timeout: ['¡Inténtalo!', 'Sigue mirando…', 'Tu turno, ¡ánimo!', '¿Cuál destapas?'],
   streakReached: ['¡MEMORIA TOP!', '¡Imparable!', '¡Cerebro al 100%!', '¡Eres un crack!'],
   // T-953 Fase 2.4 — eventos nuevos:
   // - `streakBroken`: cuando una racha >=3 se rompe; mascota `surprised`.
@@ -53,6 +51,14 @@ const MEMORY_DIALOG = Object.freeze({
   streakBroken: ['¡Ay!', '¡Casi seguías!', 'Vuelves a empezar'],
   worriedRebound: ['Respira y mira', 'Vamos paso a paso', 'Un match cada vez'],
   greeting: ['¡Hola crack!', '¿Listo para parejas?', '¡Vamos a recordar!'],
+  // Eventos curados (rediseño de Otto): reacciones contextuales nuevas a
+  // momentos de alto valor, con cooldown para no saturar.
+  //  - `firstCorrect`: primer acierto de la partida (arranque cálido).
+  //  - `nearWin`: queda la última pareja (hype suave, no presión).
+  //  - `idleNudge`: el alumno lleva un rato sin tocar (re-enganche amable).
+  firstCorrect: ['¡Primera pareja!', '¡Buen comienzo!', '¡Empiezas fino!'],
+  nearWin: ['¡Última pareja!', '¡Ya casi están!', '¡Solo falta una!'],
+  idleNudge: ['¿Dónde estará?', 'Prueba una carta', 'Tú recuerdas dónde'],
   gameOverHigh: ['¡INCREÍBLE!', '¡MEMORIA DE ELEFANTE!', '¡PERFECTO!'],
   gameOverMid: ['¡Muy bien!', '¡Sigue así!', '¡Buen trabajo!'],
   gameOverLow: ['Otra y mejorarás', 'No te rindas', 'La práctica suma']
@@ -78,11 +84,15 @@ const ASSOCIATION_DIALOG = Object.freeze({
     '¡Tranqui!',
     'Mira de nuevo'
   ],
-  timeout: ['¡A elegir!', '¡Decídete!', '¿Cuál es?'],
+  timeout: ['¡A elegir!', '¡Decídete!', '¿Cuál es?', '¡Tú puedes!'],
   streakReached: ['¡CONEXIÓN TOTAL!', '¡IMPARABLE!', '¡Genio!', '¡Tú mandas!'],
   streakBroken: ['¡Casi seguías!', 'Vuelve a conectar', '¡Otra ronda!'],
   worriedRebound: ['Respira, hay tiempo', 'Mira con calma', 'Una a una'],
   greeting: ['¡Hola crack!', '¿Listo para asociar?', '¡A conectar!'],
+  // Eventos curados (rediseño de Otto) — ver nota en MEMORY_DIALOG.
+  firstCorrect: ['¡Buen comienzo!', '¡Empiezas genial!', '¡Bien visto!'],
+  nearWin: ['¡Última ronda!', '¡Ya casi!', '¡La última!'],
+  idleNudge: ['¿Cuál crees?', 'Mira y elige', 'Tú puedes con esta'],
   gameOverHigh: ['¡INCREÍBLE!', '¡CONEXIÓN PERFECTA!', '¡ERES UN GENIO!'],
   gameOverMid: ['¡Muy bien!', '¡Sigue así!', '¡Vas creciendo!'],
   gameOverLow: ['Otra y mejorarás', 'No te rindas', 'A practicar']
@@ -104,11 +114,19 @@ const SEQUENCE_DIALOG = Object.freeze({
     'Otra ronda',
     'Mira otra vez'
   ],
-  timeout: ['¡Tu turno!', '¡Reproduce!', '¡Vamos!'],
+  timeout: ['¡Tu turno!', '¡Reproduce!', '¡Vamos!', '¡Sigue el orden!'],
   streakReached: ['¡SIGUES EL RITMO!', '¡SECUENCIA EPICA!', '¡Imparable!', '¡Tú mandas!'],
   streakBroken: ['¡Vaya!', 'Se rompió el ritmo', 'A retomar el compás'],
   worriedRebound: ['Respira, escucha', 'Una a una', 'Recupera el orden'],
   greeting: ['¡Hola crack!', '¿Listo para el ritmo?', '¡Vamos a memorizar!'],
+  // Eventos curados (rediseño de Otto) — ver nota en MEMORY_DIALOG.
+  //  - `memorizing`/`reproducing`: fases propias de Secuencia donde Otto
+  //    estaba mudo; ahora acompaña el "mira el orden" → "ahora te toca".
+  firstCorrect: ['¡Buen primer paso!', '¡Así se empieza!', '¡Vas bien!'],
+  nearWin: ['¡Última carta!', '¡Ya casi!', '¡La que cierra!'],
+  idleNudge: ['¿Por cuál seguía?', 'Toca la siguiente', 'Tú recuerdas el orden'],
+  memorizing: ['¡Fíjate en el orden!', 'Mira con atención', 'Memoriza el camino', '¡Atento al orden!'],
+  reproducing: ['¡Ahora te toca!', '¡Repite el orden!', '¡Tu turno!', '¡A reproducir!'],
   gameOverHigh: ['¡SECUENCIA PERFECTA!', '¡INCREÍBLE!', '¡RITMO TOTAL!'],
   gameOverMid: ['¡Muy bien!', '¡Cada vez mejor!', '¡Buen trabajo!'],
   gameOverLow: ['Otra y mejorarás', 'No te rindas', 'La práctica suma']

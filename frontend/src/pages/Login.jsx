@@ -25,6 +25,7 @@ import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import ThemeToggle from '../components/ui/ThemeToggle';
 import AuthBackground from '../components/auth/AuthBackground';
+import CharacterMascot from '../components/game/CharacterMascot';
 import { ROUTES } from '../constants/routes';
 
 // T-905 B6: CAPTCHA Turnstile tras 3 fallos previos.
@@ -301,6 +302,15 @@ export default function Login() {
               </motion.li>
             ))}
           </ul>
+
+          {/* Otto da la bienvenida (imagen de marca). En idle saluda y su
+              "mirada ambiental" pasea con calma → personalidad sin distraer del
+              form. CharacterMascot ya gestiona su entrada (isFirstAppearance) y
+              respeta reduced-motion; no envolvemos en otro motion (evita sumar
+              complejidad y una animación redundante). */}
+          <div className="mt-12 pl-2">
+            <CharacterMascot mood="idle" size="md" position="left" isFirstAppearance />
+          </div>
         </motion.aside>
 
         {/* Panel form — `<main>` para aportar el landmark de contenido

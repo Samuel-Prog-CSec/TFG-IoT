@@ -16,14 +16,32 @@ export default function ErrorState({
   title = 'Algo salió mal',
   message,
   icon,
+  mascot,
   onRetry,
   retryLabel = 'Reintentar',
   className,
 }) {
   const { shouldReduceMotion } = useReducedMotion();
 
-  return (
-    <GlassCard className={cn('p-10 text-center', className)}>
+  // Héroe visual: precedencia mascot > icon. Si se pasa `mascot`
+  // (`<CharacterMascot />`), se renderiza en el bloque hero con su propio
+  // float interno; en caso contrario, el icono circular por defecto.
+  let heroVisual;
+  if (mascot) {
+    heroVisual = (
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.85, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: DURATION.entrance, ease: EASING.outExpo, delay: 0.05 }}
+        // Alto reservado para que la burbuja de diálogo no recorte sobre el
+        // título. La mascota ya tiene su propio float, no añadimos animate-float.
+        className="relative mx-auto mb-7 flex h-32 items-end justify-center"
+      >
+        {mascot}
+      </motion.div>
+    );
+  } else {
+    heroVisual = (
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
         animate={{ opacity: 1, scale: 1 }}
@@ -32,6 +50,12 @@ export default function ErrorState({
       >
         {icon || <AlertTriangle size={28} />}
       </motion.div>
+    );
+  }
+
+  return (
+    <GlassCard className={cn('p-10 text-center', className)}>
+      {heroVisual}
 
       <motion.p
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
@@ -73,6 +97,7 @@ ErrorState.propTypes = {
   title: PropTypes.string,
   message: PropTypes.string,
   icon: PropTypes.element,
+  mascot: PropTypes.node,
   onRetry: PropTypes.func,
   retryLabel: PropTypes.string,
   className: PropTypes.string,

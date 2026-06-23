@@ -41,6 +41,7 @@ import StatusBadge from '../components/ui/StatusBadge';
 import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
 import Tooltip from '../components/ui/Tooltip';
 import EmptyState from '../components/ui/EmptyState';
+import CharacterMascot from '../components/game/CharacterMascot';
 import { EmptySessionsIllustration } from '../components/ui/illustrations';
 import ErrorState from '../components/ui/ErrorState';
 import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
@@ -488,7 +489,8 @@ const renderSessionsContent = ({
   if (sessions.length === 0) {
     return (
       <EmptyState
-        illustration={<EmptySessionsIllustration size={180} />}
+        illustration={hasActiveFilters ? <EmptySessionsIllustration size={180} /> : undefined}
+        mascot={hasActiveFilters ? undefined : <CharacterMascot mood="encouraging" size="sm" noBubble />}
         variant={hasActiveFilters ? 'filtered' : 'first-use'}
         title={hasActiveFilters ? 'Ninguna sesión coincide con tus filtros' : 'Aún no tienes sesiones'}
         description={
