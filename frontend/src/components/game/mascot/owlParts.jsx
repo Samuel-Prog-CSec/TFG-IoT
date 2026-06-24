@@ -66,12 +66,28 @@ const EXCLAIM = 'var(--color-error-base)';
 const PUPIL_SPRING = { type: 'spring', stiffness: 220, damping: 26, mass: 0.6 };
 // Cejas: morph de `d` (las 7 variantes comparten estructura M..Q..).
 const BROW_MORPH = { duration: 0.24, ease: EASING.outQuart };
-// Crossfade solapado de slots no morfables (pico, alas) y mejillas.
-const SLOT_FADE_IN = { duration: 0.2, ease: EASING.outQuart };
-const SLOT_FADE_OUT = { duration: 0.14, ease: EASING.outQuart };
-// Parpadeo-swap del ojo: dip que oculta el cambio de forma del ojo.
+// Crossfade solapado de slots no morfables (pico, alas, props) y mejillas.
+// CLAVE anti-parpadeo: el ENTRANTE sube RÁPIDO y el SALIENTE baja LENTO. Así
+// en cada instante hay una forma casi sólida presente y el "máx. opacidad" del
+// slot nunca cae por debajo de ~0.85 (antes IN=0.2 lento / OUT=0.14 rápido →
+// hueco al cruzarse: el accesorio "desaparecía" a media transición). El
+// solape asimétrico lee como un relevo limpio, no como un fundido a medias.
+const SLOT_FADE_IN = { duration: 0.12, ease: EASING.outQuart };
+const SLOT_FADE_OUT = { duration: 0.28, ease: EASING.outQuart };
+// Parpadeo-swap del ojo: solo se usa al cruzar a/desde formas NO morfables
+// (closedSmile, droopy). Dentro de la familia redonda (open/wide/narrow) los
+// radios MORFAN sin parpadeo (ver SingleEye). El dip oculta el cambio de
+// estructura tras un pestañeo de búho con carácter.
 const BLINK_CLOSE = { duration: 0.09, ease: 'easeIn' };
-const BLINK_OPEN = { duration: 0.1, ease: 'easeOut' };
+const BLINK_OPEN = { duration: 0.11, ease: 'easeOut' };
+// Morph de radios del ojo dentro de la familia redonda (open/wide/narrow): el
+// blanco/iris/brillo cambian de tamaño suavemente, sin pestañeo.
+const EYE_MORPH = { duration: 0.22, ease: EASING.outQuart };
+// Familia de ojos "redondos" intercambiables por morph (misma estructura:
+// blanco + iris + brillo). closedSmile (arco) y droopy (párpado recortado) son
+// estructuras distintas → esas SÍ usan parpadeo-swap para ocultar el cambio.
+const ROUND_EYES = new Set(['open', 'wide', 'narrow']);
+const isEyeMorphPair = (a, b) => ROUND_EYES.has(a) && ROUND_EYES.has(b);
 // Limita un offset de pupila a [-lim, lim] (evita que el iris salga del blanco).
 const clampPupil = (v, lim) => Math.max(-lim, Math.min(lim, v));
 
@@ -137,20 +153,25 @@ export function OwlFeet() {
 }
 
 /* ============================================================
-   ALAS — variantes rest / pointing / pompom
+   ALAS — variantes rest / pointing / pompom / wave
    ============================================================
    Geometría por variante. Antes la postura cambiaba con hard-cut (las
    alas vivían FUERA del AnimatePresence de la cara) y se desincronizaba
    del prop que sí animaba (flecha/pompones). Ahora crossfadean al ritmo
    del mismo cambio de `mood` que el prop → entran/salen sincronizadas. */
 const WING_VARIANTS = {
-  // Alas finas levantadas en gesto (sujetan pompones).
+  // Alas LEVANTADAS hacia arriba —las DOS, como el ala del saludo (`wave`)— que
+  // SUJETAN un pompón en cada punta. Los brazos se extienden arriba y hacia
+  // fuera desde los costados, mayormente FUERA de la silueta del cuerpo (igual
+  // que el ala del wave) → se ven bien. El pompón (en la capa de props) se posa
+  // en cada extremo. Antes el "puño" quedaba escondido tras el cuerpo y el gesto
+  // no se leía.
   pompom: (
     <>
-      <ellipse cx="48" cy="116" rx="11" ry="32" transform="rotate(-32 48 116)" fill={C.wing} />
-      <ellipse cx="50" cy="118" rx="4.5" ry="21" transform="rotate(-32 48 116)" fill={C.wingHi} opacity="0.45" />
-      <ellipse cx="152" cy="116" rx="11" ry="32" transform="rotate(32 152 116)" fill={C.wing} />
-      <ellipse cx="150" cy="118" rx="4.5" ry="21" transform="rotate(32 152 116)" fill={C.wingHi} opacity="0.45" />
+      <ellipse cx="34" cy="120" rx="13" ry="38" transform="rotate(-26 34 120)" fill={C.wing} />
+      <ellipse cx="36" cy="122" rx="5" ry="22" transform="rotate(-26 34 120)" fill={C.wingHi} opacity="0.45" />
+      <ellipse cx="166" cy="120" rx="13" ry="38" transform="rotate(26 166 120)" fill={C.wing} />
+      <ellipse cx="164" cy="122" rx="5" ry="22" transform="rotate(26 166 120)" fill={C.wingHi} opacity="0.45" />
     </>
   ),
   // Solo ala izquierda en reposo; la derecha cede su sitio a la flecha.
@@ -160,12 +181,37 @@ const WING_VARIANTS = {
       <ellipse cx="42" cy="140" rx="15" ry="37" fill={C.wing} />
       <ellipse cx="158" cy="140" rx="15" ry="37" fill={C.wing} />
     </>
+  ),
+  // Saludo (bienvenida onboarding): ala izquierda en reposo + ala derecha
+  // LEVANTADA que ondea como un "hola". Es FUNCIÓN `(animate, reduce)` porque
+  // el ala derecha anima en bucle (pivote en su base, gated); `OwlWings` la
+  // resuelve. Las demás variantes siguen siendo JSX estático.
+  wave: (animate, reduce) => (
+    <>
+      <ellipse cx="42" cy="140" rx="15" ry="37" fill={C.wing} />
+      <motion.g
+        style={{ transformBox: 'fill-box', transformOrigin: '50% 92%' }}
+        animate={animate && !reduce ? { rotate: [0, -16, 6, -12, 0] } : { rotate: 0 }}
+        transition={
+          animate && !reduce
+            ? { duration: 1.5, repeat: Infinity, repeatDelay: 2, ease: 'easeInOut' }
+            : { duration: 0 }
+        }
+      >
+        <ellipse cx="168" cy="118" rx="13" ry="34" transform="rotate(30 168 118)" fill={C.wing} />
+        <ellipse cx="166" cy="120" rx="5" ry="20" transform="rotate(30 168 118)" fill={C.wingHi} opacity="0.45" />
+      </motion.g>
+    </>
   )
 };
 
 export function OwlWings({ variant, animate = true, reduce = false }) {
   const v = WING_VARIANTS[variant] ? variant : 'rest';
   const still = reduce || !animate;
+  // `wave` es función `(animate, reduce) => JSX` (ala que ondea); el resto son
+  // JSX estático. Se resuelve aquí para que la variante anime gated por viewport.
+  const raw = WING_VARIANTS[v];
+  const content = typeof raw === 'function' ? raw(animate, reduce) : raw;
   return (
     <g data-otto-slot="wings">
       <AnimatePresence initial={false} mode="sync">
@@ -175,7 +221,7 @@ export function OwlWings({ variant, animate = true, reduce = false }) {
           animate={{ opacity: 1, transition: still ? { duration: 0 } : SLOT_FADE_IN }}
           exit={still ? { opacity: 0 } : { opacity: 0, transition: SLOT_FADE_OUT }}
         >
-          {WING_VARIANTS[v]}
+          {content}
         </motion.g>
       </AnimatePresence>
     </g>
@@ -236,7 +282,10 @@ function EyeContent({ side, variant, pupil, uid, animate, clipId }) {
   const radii = EYE_RADII[variant] || EYE_RADII.open;
   const irisX = c.x + pupil.x;
   const irisY = c.y + 2 + pupil.y;
-  const pupilT = animate ? PUPIL_SPRING : { duration: 0 };
+  // Pupila (cx/cy) con muelle = eye-tracking natural; radios (r) con morph
+  // suave = open/wide/narrow se redimensionan sin pestañeo ni salto.
+  const posT = animate ? PUPIL_SPRING : { duration: 0 };
+  const rT = animate ? EYE_MORPH : { duration: 0 };
 
   const blink = animate ? { scaleY: [1, 1, 0.12, 1, 1] } : { scaleY: 1 };
   const blinkTransition = animate
@@ -249,31 +298,28 @@ function EyeContent({ side, variant, pupil, uid, animate, clipId }) {
       animate={blink}
       transition={blinkTransition}
     >
-      <circle cx={c.x} cy={c.y} r={radii.white} fill={C.eyeWhite} />
+      <motion.circle cx={c.x} cy={c.y} fill={C.eyeWhite} initial={false} animate={{ r: radii.white }} transition={rT} />
       <motion.circle
-        r={radii.iris}
         fill={`url(#owlIris-${uid})`}
         initial={false}
-        animate={{ cx: irisX, cy: irisY }}
-        transition={pupilT}
+        animate={{ cx: irisX, cy: irisY, r: radii.iris }}
+        transition={{ cx: posT, cy: posT, r: rT }}
       />
       <motion.circle
-        r={radii.hi}
         fill={C.eyeWhite}
         initial={false}
-        animate={{ cx: irisX + 4, cy: irisY - 5 }}
-        transition={pupilT}
+        animate={{ cx: irisX + 4, cy: irisY - 5, r: radii.hi }}
+        transition={{ cx: posT, cy: posT, r: rT }}
       />
-      {variant === 'wide' && (
-        <motion.circle
-          r="2.6"
-          fill={C.eyeWhite}
-          opacity="0.7"
-          initial={false}
-          animate={{ cx: irisX - 6, cy: irisY + 6 }}
-          transition={pupilT}
-        />
-      )}
+      {/* Brillo secundario propio de `wide`: SIEMPRE montado; su radio anima a 0
+          cuando el mood no es wide → aparece/desaparece sin "pop". */}
+      <motion.circle
+        fill={C.eyeWhite}
+        opacity="0.7"
+        initial={false}
+        animate={{ cx: irisX - 6, cy: irisY + 6, r: variant === 'wide' ? 2.6 : 0 }}
+        transition={{ cx: posT, cy: posT, r: rT }}
+      />
     </motion.g>
   );
 }
@@ -286,11 +332,14 @@ EyeContent.propTypes = {
   clipId: PropTypes.string
 };
 
-// Parpadeo-swap: al cambiar la FORMA del ojo (open↔wide↔narrow↔closedSmile↔
-// droopy, no morfables entre sí), Otto da un pestañeo (dip de scaleY) y cambia
-// la forma en el frame cerrado → el cambio queda oculto y, de paso, es un gesto
-// de búho con carácter. La cara NUNCA se desmonta (continuidad). En
-// reduced-motion / fuera de viewport el swap es instantáneo.
+// Transición del ojo según el tipo de cambio:
+//  · open↔wide↔narrow (familia redonda, misma estructura) → MORFAN los radios
+//    en EyeContent, sin pestañeo (la mayoría de cambios de mood en partida).
+//  · a/desde closedSmile (arco) o droopy (párpado) → estructuras distintas:
+//    parpadeo-swap (dip de scaleY) que cambia la forma en el frame cerrado, de
+//    paso un gesto de búho con carácter.
+// La cara NUNCA se desmonta (continuidad). En reduced-motion / fuera de
+// viewport cualquier cambio es instantáneo.
 function SingleEye({ side, variant, pupil, uid, animate, reduce, clipId }) {
   const [rendered, setRendered] = useState(variant);
   const swap = useAnimationControls();
@@ -303,10 +352,15 @@ function SingleEye({ side, variant, pupil, uid, animate, reduce, clipId }) {
   // objetivo. Si una transición es superada, la siguiente (o el reopen) converge.
   useEffect(() => {
     if (variant === rendered) return undefined;
-    if (reduce || !animate) {
+    // Morph dentro de la familia redonda (open/wide/narrow) → SIN parpadeo: los
+    // radios del ojo animan suavemente en EyeContent. También instantáneo en
+    // reduce-motion / fuera de viewport.
+    if (isEyeMorphPair(rendered, variant) || reduce || !animate) {
       setRendered(variant);
       return undefined;
     }
+    // Cambio de ESTRUCTURA (a/desde closedSmile o droopy) → parpadeo-swap que
+    // oculta el cambio de forma tras un pestañeo de búho con carácter.
     let active = true;
     (async () => {
       try {
@@ -489,7 +543,11 @@ const propIn = (animate) => ({
   initial: animate ? { opacity: 0, scale: 0.6 } : false,
   animate: { opacity: 1, scale: 1 },
   exit: animate ? { opacity: 0, scale: 0.6 } : { opacity: 0 },
-  transition: { type: 'spring', stiffness: 460, damping: 20 }
+  transition: { type: 'spring', stiffness: 460, damping: 20 },
+  // `fill-box` + origen central: el prop crece desde SU PROPIO centro. Sin
+  // esto el `<g>` SVG escala desde el origen del viewBox (0,0) y el accesorio
+  // "entra volando" desde la esquina superior izquierda en vez de aparecer in situ.
+  style: { transformBox: 'fill-box', transformOrigin: 'center' }
 });
 
 function Sparkle({ animate }) {
@@ -548,9 +606,9 @@ function ThoughtCloud({ animate }) {
   );
 }
 
-function PomPom({ tx, ty }) {
+function PomPom({ tx, ty, rot = 0, scale = 1 }) {
   return (
-    <g transform={`translate(${tx},${ty})`}>
+    <g transform={`translate(${tx},${ty}) rotate(${rot}) scale(${scale})`}>
       <rect x="-3" y="3" width="6" height="26" rx="3" fill={C.pomHandle} />
       <g stroke={C.pomMain} strokeWidth="3.6" strokeLinecap="round">
         <path d="M6 0 L19 0" /><path d="M5.2 3 L16.5 9.5" /><path d="M3 5.2 L9.5 16.5" />
@@ -570,8 +628,11 @@ function PomPom({ tx, ty }) {
     </g>
   );
 }
-PomPom.propTypes = { tx: PropTypes.number, ty: PropTypes.number };
+PomPom.propTypes = { tx: PropTypes.number, ty: PropTypes.number, rot: PropTypes.number, scale: PropTypes.number };
 
+// Pompones SUJETOS en la punta de las alas levantadas (ver variante de ala
+// `pompom`): se posan en el extremo de cada brazo extendido, arriba y a los
+// lados, y agitan en sitio.
 function PomPoms({ animate }) {
   return (
     <motion.g {...propIn(animate)}>
@@ -580,29 +641,39 @@ function PomPoms({ animate }) {
         transition={animate ? { duration: 0.8, repeat: Infinity, ease: 'easeInOut' } : undefined}
         style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
       >
-        <PomPom tx={31} ty={80} />
+        <PomPom tx={17} ty={82} rot={-16} scale={0.85} />
       </motion.g>
       <motion.g
         animate={animate ? { rotate: [0, 10, 0] } : undefined}
         transition={animate ? { duration: 0.8, repeat: Infinity, ease: 'easeInOut', delay: 0.1 } : undefined}
         style={{ transformBox: 'fill-box', transformOrigin: 'center' }}
       >
-        <PomPom tx={169} ty={80} />
+        <PomPom tx={183} ty={82} rot={16} scale={0.85} />
       </motion.g>
     </motion.g>
   );
 }
 
+// Gesto de SEÑALAR = ala/brazo índigo extendido (parte del cuerpo de Otto) +
+// flecha ámbar indicadora encima. Recupera el "ala extendida" de la hoja de
+// modelo: sin ella la flecha flotaba suelta y no se leía que Otto señalara (la
+// queja recurrente). Va en la capa de props → se dibuja SOBRE el cuerpo (Otto
+// adelanta el ala), co-anima con la flecha (empuje hacia el objetivo) y entra/
+// sale con el mood. El ala redondeada nace del costado derecho del cuerpo.
 function Arrow({ animate }) {
   return (
     <motion.g
-      initial={animate ? { opacity: 0, x: -8 } : false}
-      animate={animate ? { opacity: 1, x: [0, 5, 0] } : { opacity: 1 }}
-      exit={{ opacity: 0, x: -8 }}
-      transition={animate ? { x: { duration: 1, repeat: Infinity, ease: 'easeInOut' }, opacity: { duration: 0.25 } } : { duration: 0.2 }}
+      initial={animate ? { opacity: 0, x: -10 } : false}
+      animate={animate ? { opacity: 1, x: [0, 6, 0] } : { opacity: 1 }}
+      exit={{ opacity: 0, x: -10 }}
+      transition={animate ? { x: { duration: 1.1, repeat: Infinity, ease: 'easeInOut' }, opacity: { duration: 0.22 } } : { duration: 0.2 }}
     >
-      <rect x="150" y="95" width="30" height="11" rx="5.5" fill={BEAK} stroke={C.beakShadow} strokeWidth="1.5" />
-      <path d="M175 84 L199 100.5 L175 117 Z" fill={BEAK} stroke={C.beakShadow} strokeWidth="1.5" strokeLinejoin="round" />
+      {/* Ala/brazo extendida (índigo de identidad) saliendo del costado. */}
+      <path d="M148 119 Q172 111 197 119 Q174 129 148 134 Z" fill={C.wing} />
+      <path d="M153 121 Q173 116 191 121" stroke={C.wingHi} strokeWidth="3" fill="none" strokeLinecap="round" opacity="0.5" />
+      {/* Flecha ámbar (indicador de dirección, por encima del ala). */}
+      <rect x="151" y="92" width="29" height="11" rx="5.5" fill={BEAK} stroke={C.beakShadow} strokeWidth="1.5" />
+      <path d="M175 81 L199 97.5 L175 114 Z" fill={BEAK} stroke={C.beakShadow} strokeWidth="1.5" strokeLinejoin="round" />
     </motion.g>
   );
 }

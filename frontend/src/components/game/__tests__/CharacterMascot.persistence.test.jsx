@@ -51,7 +51,7 @@ describe('CharacterMascot — persistencia del rig (continuidad sobre teletransp
 
   it('ojos, cejas y pico NUNCA quedan a cero tras un cambio de mood (no blank-out)', () => {
     const { container, rerender } = render(<CharacterMascot mood="idle" />);
-    for (const mood of ['sad', 'pointing', 'celebrating', 'worried', 'happy', 'thinking']) {
+    for (const mood of ['sad', 'pointing', 'celebrating', 'worried', 'happy', 'thinking', 'greeting']) {
       rerender(<CharacterMascot mood={mood} />);
       expect(slot(container, 'eyes').length).toBe(1);
       expect(slot(container, 'brows').length).toBe(1);
@@ -77,6 +77,29 @@ describe('CharacterMascot — persistencia del rig (continuidad sobre teletransp
     expect(slot(pointing.container, 'wings')[0].querySelectorAll('ellipse').length).toBe(1);
     const encouraging = render(<CharacterMascot mood="encouraging" />);
     expect(slot(encouraging.container, 'wings')[0].querySelectorAll('ellipse').length).toBe(4);
+  });
+
+  // Saludo (`greeting`): mood nuevo para la bienvenida del onboarding. Reusa la
+  // cara persistente y añade la variante de ala `wave` (ala izq reposo + ala
+  // dcha levantada saludando = 3 elipses). Bloquea que el gesto se renderice.
+  it('saludo (greeting): cara persiste + ala wave (3 elipses)', () => {
+    const { container } = render(<CharacterMascot mood="greeting" />);
+    expect(slot(container, 'eyes').length).toBe(1);
+    expect(slot(container, 'beak').length).toBe(1);
+    expect(slot(container, 'wings')[0].querySelectorAll('ellipse').length).toBe(3);
+  });
+
+  // Regresión: el gesto de SEÑALAR debe dibujar el ala/brazo extendido índigo
+  // (recuperado de la hoja de modelo canónica) además de la flecha. Sin él la
+  // flecha flotaba suelta y no se leía que Otto señalara — el bug histórico que
+  // reaparecía. Bloquea que el `d` del brazo (M148 119 …) siga presente en props.
+  it('señalar (pointing): dibuja el ala/brazo extendido + flecha (no flecha suelta)', () => {
+    const { container } = render(<CharacterMascot mood="pointing" />);
+    const props = container.querySelector('[data-otto-slot="props"]');
+    expect(props).not.toBeNull();
+    const paths = [...props.querySelectorAll('path')].map((p) => p.getAttribute('d') || '');
+    // brazo/ala extendida que nace del costado derecho hacia la flecha
+    expect(paths.some((d) => d.startsWith('M148 119'))).toBe(true);
   });
 
   it('props: vacío en idle, con contenido en moods expresivos', () => {

@@ -3,11 +3,12 @@ import { createPortal } from 'react-dom';
 import PropTypes from 'prop-types';
 import { m as motion, AnimatePresence } from 'framer-motion';
 import { ChevronLeft, ChevronRight, X, ArrowRight } from 'lucide-react';
-import { cn } from '../../lib/utils';
+import { cn, EASING } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import ButtonPremium from '../ui/ButtonPremium';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import CharacterMascot from '../game/CharacterMascot';
+import { mascotForStep } from './mascotForStep';
 
 /**
  * @fileoverview Overlay de onboarding multi-track (T-951 Fase 4).
@@ -124,37 +125,6 @@ function useTargetRect(dataTour, isVisible) {
   return { rect, missing };
 }
 
-function StepIcon({ Icon, variant }) {
-  if (!Icon) return null;
-  const tint =
-    variant === 'warning'
-      ? 'from-warning-base/25 to-accent-orange/20 border-warning-base/40 text-warning-base'
-      : 'from-brand-base/20 to-accent-indigo/20 border-brand-base/30 text-brand-base';
-  const glow =
-    variant === 'warning'
-      ? 'shadow-[0_0_30px_var(--color-warning-glow)]'
-      : 'shadow-[var(--shadow-glow)]';
-
-  return (
-    <div
-      className={cn(
-        'flex items-center justify-center size-20 rounded-2xl',
-        'bg-gradient-to-br border',
-        tint,
-        glow,
-      )}
-      aria-hidden="true"
-    >
-      <Icon size={40} strokeWidth={1.75} />
-    </div>
-  );
-}
-
-StepIcon.propTypes = {
-  Icon: PropTypes.elementType,
-  variant: PropTypes.string,
-};
-
 function StepProgress({ track, currentStep }) {
   // Indicador de progreso del onboarding: una barra fina que se llena + un
   // contador "Paso X de Y" visible. Para un usuario no técnico, una afordancia
@@ -246,30 +216,74 @@ NavButtons.propTypes = {
 };
 
 /**
- * Calcula `mood` y `message` de la mascota para un paso del tour.
- * Reglas:
- *  - Step 1 (modal de bienvenida) → `idle` con `isFirstAppearance` y
- *    saludo "¡Bienvenido!".
- *  - Último step → `celebrating` con "¡A jugar!".
- *  - Resto modales narrativos → `pointing` apuntando al texto del step,
- *    con un fragmento corto del título como burbuja.
+ * Otto como guía-narrador del tour: la mascota (`size="sm"`) + un bocadillo
+ * A SU LADO con la frase del paso. Compartido por los pasos modal y spotlight
+ * para que Otto sea consistente. El bocadillo lo dibuja aquí (no el interno de
+ * `CharacterMascot`, que ancla ENCIMA y desbordaría la cabecera). `flip`
+ * voltea a Otto en horizontal (señalar a la izquierda) sin tocar el bocadillo.
+ * `aria-hidden`: el contenido accesible es el título/descripción del paso.
  */
-function mascotForStep(step, currentStep, totalSteps) {
-  const isFirst = currentStep === 0;
-  const isLast = currentStep === totalSteps - 1;
-  if (isFirst) {
-    return { mood: 'idle', message: '¡Hola!', isFirstAppearance: true };
-  }
-  if (isLast) {
-    return { mood: 'celebrating', message: '¡Vamos!', isFirstAppearance: false };
-  }
-  // Para steps intermedios usamos un fragmento del título cuando es
-  // breve, si no, una frase neutra. Evita que la burbuja recorte
-  // títulos largos como "Tres mecánicas, tres asistentes".
-  const title = step?.title || '';
-  const message = title.length > 0 && title.length <= 22 ? title : 'Mira aquí';
-  return { mood: 'pointing', message, isFirstAppearance: false };
+function MascotGuide({ mood, line, flip = false, isFirstAppearance = false, stacked = false }) {
+  return (
+    <div
+      // `flex-col-reverse` en stacked: el bocadillo (que va DESPUÉS de Otto en el
+      // DOM) se pinta ENCIMA → la frase queda arriba y Otto debajo, centrado.
+      className={cn('pointer-events-none flex gap-2', stacked ? 'flex-col-reverse items-center' : 'items-center')}
+      aria-hidden="true"
+    >
+      <div
+        data-otto-flip={flip ? 'true' : 'false'}
+        className="shrink-0"
+        style={flip ? { transform: 'scaleX(-1)' } : undefined}
+      >
+        <CharacterMascot
+          mood={mood}
+          size="sm"
+          position="left"
+          isFirstAppearance={isFirstAppearance}
+          noBubble
+        />
+      </div>
+      {line && (
+        <motion.div
+          key={line}
+          initial={{ opacity: 0, scale: 0.92, ...(stacked ? { y: -6 } : { x: -6 }) }}
+          animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
+          transition={{ duration: 0.25, ease: EASING.outQuart }}
+          className={cn(
+            'relative bg-glass-bg backdrop-blur-sm border border-glass-border',
+            'rounded-2xl px-3 py-1.5 text-sm font-medium text-text-primary max-w-[14rem]',
+            stacked && 'text-center',
+          )}
+        >
+          {line}
+          {/* Pico del bocadillo apuntando a Otto: hacia ABAJO y a la IZQUIERDA
+              (stacked: bocadillo encima; el pico va a la izquierda por convención
+              de cómic, no centrado) o a su izquierda (en línea, spotlight). */}
+          <span
+            className={cn(
+              'absolute size-3 bg-glass-bg rotate-45',
+              stacked
+                ? 'left-5 -bottom-1.5 border-b border-r border-glass-border'
+                : 'top-1/2 -left-1.5 -translate-y-1/2 border-l border-b border-glass-border',
+            )}
+            aria-hidden="true"
+          />
+        </motion.div>
+      )}
+    </div>
+  );
 }
+
+MascotGuide.propTypes = {
+  mood: PropTypes.string.isRequired,
+  line: PropTypes.string,
+  flip: PropTypes.bool,
+  isFirstAppearance: PropTypes.bool,
+  stacked: PropTypes.bool,
+};
+
+export { MascotGuide };
 
 function ModalStep({ step, currentStep, totalSteps, isFirstStep, isLastStep, onPrev, onNext, onComplete, onSkip, shouldReduceMotion }) {
   const variants = shouldReduceMotion ? reducedVariants : panelVariants;
@@ -294,11 +308,13 @@ function ModalStep({ step, currentStep, totalSteps, isFirstStep, isLastStep, onP
         aria-label={step.title}
       >
         <GlassCard variant="solid" padding="lg" className="relative overflow-visible">
+          {/* Saltar: esquina superior derecha en ABSOLUTO → no empuja la
+              cabecera, que queda centrada con Otto. La cabecera-guía sigue EN
+              FLUJO, así que no tapa "Atrás" ni la nota inferior. */}
           <button
             onClick={onSkip}
             className={cn(
-              'absolute top-4 right-4 z-20 p-2 rounded-xl',
-              'text-text-muted hover:text-text-primary',
+              'absolute top-3 right-3 z-10 p-2 rounded-xl text-text-muted hover:text-text-primary',
               'bg-background-elevated/40 hover:bg-background-elevated/70',
               'border border-border-subtle hover:border-border-default',
               'transition-colors duration-200 focus-ring',
@@ -308,10 +324,35 @@ function ModalStep({ step, currentStep, totalSteps, isFirstStep, isLastStep, onP
             <X size={18} aria-hidden="true" />
           </button>
 
-          <div className="min-h-[280px] flex flex-col items-center justify-center text-center pt-2">
-            <div className="flex flex-col items-center gap-5 px-2">
-              <StepIcon Icon={step.icon} variant={step.variant} />
-              <h2 className="text-2xl font-bold text-text-primary font-display leading-tight">
+          {/* Cabecera-guía: Otto + bocadillo, CENTRADOS y apilados (Otto arriba,
+              su frase debajo) → Otto queda en el centro de la cabecera. */}
+          <div className="flex justify-center mb-3">
+            <MascotGuide
+              mood={mascotConfig.mood}
+              line={mascotConfig.line}
+              isFirstAppearance={currentStep === 0}
+              stacked
+            />
+          </div>
+
+          <div className="min-h-[220px] flex flex-col items-center justify-center text-center">
+            <div className="flex flex-col items-center gap-4 px-2">
+              {/* Icono temático PEQUEÑO junto al título (conserva la pista de
+                  tema; Otto pasa a ser el ancla visual de la cabecera). */}
+              <h2 className="flex items-center gap-2 text-2xl font-bold text-text-primary font-display leading-tight">
+                {step.icon && (
+                  <span
+                    className={cn(
+                      'inline-flex items-center justify-center size-8 rounded-lg border shrink-0',
+                      step.variant === 'warning'
+                        ? 'bg-warning-base/15 border-warning-base/30 text-warning-base'
+                        : 'bg-brand-base/15 border-brand-base/30 text-brand-base',
+                    )}
+                    aria-hidden="true"
+                  >
+                    <step.icon size={18} strokeWidth={1.75} />
+                  </span>
+                )}
                 {step.title}
               </h2>
               <p className="text-text-secondary text-base leading-relaxed max-w-md">
@@ -335,28 +376,6 @@ function ModalStep({ step, currentStep, totalSteps, isFirstStep, isLastStep, onP
           <p className="text-center mt-4 text-xs text-text-muted">
             Puedes volver a ver el tutorial desde la barra lateral en cualquier momento.
           </p>
-
-          {/* Mascota guía (T-953 Fase 2.9) — esquina inferior izquierda
-              del card. NO compite con el StepIcon hero porque vive
-              fuera del flow vertical principal y a tamaño reducido.
-              `aria-hidden` para que VoiceOver no anuncie dos veces el
-              mismo título (la mascota repite con la burbuja).
-              `noBubble`: el modal del paso ya muestra título+descripción,
-              añadir burbuja duplicaba el texto y se veía "pegada" al borde
-              superior izquierdo del card (ADR-163, QA 2026-05-19). */}
-          <div
-            aria-hidden="true"
-            className="absolute -left-2 -bottom-4 sm:-left-6 sm:-bottom-8 pointer-events-none"
-          >
-            <div className="scale-75 sm:scale-90 origin-bottom-left">
-              <CharacterMascot
-                mood={mascotConfig.mood}
-                position="left"
-                isFirstAppearance={mascotConfig.isFirstAppearance}
-                noBubble
-              />
-            </div>
-          </div>
         </GlassCard>
       </motion.div>
     </motion.div>
@@ -432,6 +451,16 @@ function SpotlightStep({ step, currentStep, totalSteps, isFirstStep, isLastStep,
     height: rect.height + SPOTLIGHT_PADDING * 2,
   };
   const tooltip = calculateTooltipPosition(padded);
+
+  // Otto guía también en spotlight, orientado hacia el elemento resaltado:
+  //  - tooltip a la DERECHA del target (side 'right') → target a su izquierda → flip.
+  //  - tooltip DEBAJO (side 'bottom') → target arriba → mirada pensativa (el brazo
+  //    lateral no aplica).
+  const mascotConfig = mascotForStep(step, currentStep, totalSteps);
+  let mascotMood = mascotConfig.mood;
+  let mascotFlip = false;
+  if (tooltip.side === 'right') mascotFlip = true;
+  else if (tooltip.side === 'bottom') mascotMood = 'thinking';
 
   return (
     <motion.div
@@ -515,6 +544,11 @@ function SpotlightStep({ step, currentStep, totalSteps, isFirstStep, isLastStep,
           >
             <X size={14} aria-hidden="true" />
           </button>
+
+          {/* Cabecera-guía: Otto señalando el elemento real resaltado. */}
+          <div className="mb-2 pr-6">
+            <MascotGuide mood={mascotMood} line={mascotConfig.line} flip={mascotFlip} />
+          </div>
 
           <div className="flex flex-col gap-3 pt-1 pr-6">
             <div className="flex items-center gap-3">

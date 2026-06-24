@@ -303,13 +303,14 @@ export default function Login() {
             ))}
           </ul>
 
-          {/* Otto da la bienvenida (imagen de marca). En idle saluda y su
-              "mirada ambiental" pasea con calma → personalidad sin distraer del
-              form. CharacterMascot ya gestiona su entrada (isFirstAppearance) y
-              respeta reduced-motion; no envolvemos en otro motion (evita sumar
-              complejidad y una animación redundante). */}
-          <div className="mt-12 pl-2">
-            <CharacterMascot mood="idle" size="md" position="left" isFirstAppearance />
+          {/* Otto se ASOMA por el borde derecho del hero —el lado del
+              formulario— y SALUDA con el ala ("greeting": ala que ondea +
+              "¡Hola!"). Antes flotaba abajo-izquierda, lejos del login y mezclado
+              con las tarjetas decorativas; ahora da la bienvenida mirando hacia
+              la acción. `position="right"` ancla bocadillo y entrada a ese lado.
+              CharacterMascot ya respeta reduced-motion. */}
+          <div className="mt-10 flex justify-end pr-2 xl:pr-6">
+            <CharacterMascot mood="greeting" size="md" position="right" isFirstAppearance />
           </div>
         </motion.aside>
 

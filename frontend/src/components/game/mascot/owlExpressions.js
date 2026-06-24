@@ -22,7 +22,7 @@
  * @property {'calm'|'soft'|'raised'|'curious'|'high'|'tense'|'sad'} brows  Forma de cejas.
  * @property {'closed'|'closedSmall'|'openSmile'|'openSmileSmall'|'openO'} beak  Forma del pico.
  * @property {boolean} cheeks  Mostrar rubor en las mejillas.
- * @property {'rest'|'pointing'|'pompom'} wings  Postura de las alas.
+ * @property {'rest'|'pointing'|'pompom'|'wave'} wings  Postura de las alas.
  * @property {string[]} props  Props decorativos (sparkle, stars, thoughtCloud, pomPoms, arrow, sweatDrop, tear, exclaim).
  * @property {'float'|'bounce'|'jump'|'nod'|'tilt'|'sway'|'wobble'|'pop'|'point'} body  Variante de animación corporal.
  * @property {'mechanic'|'success'|'warning'|'warningSoft'|'brand'|'error'|'pink'} glow  Familia de color del halo.
@@ -33,6 +33,12 @@ export const EXPRESSIONS = Object.freeze({
   idle: {
     eyes: 'open', pupil: { x: 0, y: 0 }, brows: 'calm', beak: 'closed',
     cheeks: false, wings: 'rest', props: [], body: 'float', glow: 'mechanic'
+  },
+  // Saludo de bienvenida (onboarding): cara cálida + un ala levantada que
+  // saluda (variante `wave`). Es el "hola" que `happy` (contento) no comunica.
+  greeting: {
+    eyes: 'open', pupil: { x: 0, y: 0 }, brows: 'soft', beak: 'openSmileSmall',
+    cheeks: true, wings: 'wave', props: [], body: 'sway', glow: 'brand'
   },
   happy: {
     eyes: 'closedSmile', pupil: { x: 0, y: 0 }, brows: 'soft', beak: 'closedSmall',
@@ -70,7 +76,7 @@ export const EXPRESSIONS = Object.freeze({
 
 /** Moods válidos (orden estable para tests y storybook futuros). */
 export const OWL_MOODS = Object.freeze([
-  'idle', 'happy', 'celebrating', 'thinking', 'encouraging',
+  'idle', 'greeting', 'happy', 'celebrating', 'thinking', 'encouraging',
   'pointing', 'surprised', 'worried', 'sad'
 ]);
 

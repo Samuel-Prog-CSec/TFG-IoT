@@ -145,7 +145,7 @@ function useAmbientGaze(mood, active) {
  * conservan: este componente es presentacional.
  *
  * @param {Object} props
- * @param {'idle'|'happy'|'encouraging'|'celebrating'|'thinking'|'sad'|'pointing'|'worried'|'surprised'} props.mood
+ * @param {'idle'|'greeting'|'happy'|'encouraging'|'celebrating'|'thinking'|'sad'|'pointing'|'worried'|'surprised'} props.mood
  * @param {string} [props.message] - Mensaje contextual en burbuja.
  * @param {'left'|'right'} [props.position]
  * @param {'memory'|'association'|'sequence'|null} [props.mechanicType] - Tinta el halo en estados pasivos.
@@ -194,10 +194,11 @@ function CharacterMascot({
 
   const widthClamp = SIZE_CLAMP[size] || SIZE_CLAMP.sm;
 
-  // Greeting rotativo SOLO en idle sin `message` (evita slop de mensajes
-  // genéricos descontextualizados en moods expresivos).
+  // Greeting rotativo en idle/greeting sin `message` (evita slop de mensajes
+  // genéricos descontextualizados en moods expresivos). `greeting` saluda con
+  // el ala mientras dice "¡Hola!"/"¿Jugamos?"… (bienvenida del login).
   const rotatingMessage = useMemo(() => {
-    if (mood !== 'idle') return null;
+    if (mood !== 'idle' && mood !== 'greeting') return null;
     if (greetingPool.length <= 1) return greetingPool[0];
     let idx;
     do {
@@ -269,62 +270,75 @@ function CharacterMascot({
         )}
       </AnimatePresence>
 
-      {/* Cuerpo: animación corporal + entrada deslizante en primer mount */}
+      {/* Wrapper EXTERNO: entrada (una sola vez) — desliza + funde. La opacidad
+          y la `x` de entrada SOLO viven aquí y SIEMPRE resuelven a {x:0,
+          opacity:1}. Antes la entrada y la animación corporal compartían un
+          único `animate`: como las animaciones de cuerpo (float/sway/…) no
+          declaran `opacity` ni `x`, Framer dejaba a Otto congelado en su estado
+          inicial (opacity:0, x:-60) → invisible y desplazado. Separar ambos lo
+          evita. */}
       <motion.div
         initial={
           shouldReduceMotion || !isFirstAppearance
             ? false
             : { x: position === 'right' ? 60 : -60, opacity: 0 }
         }
-        animate={
-          animationsActive
-            ? bodyAnimation[bodyAnim]
-            : { x: 0, y: 0, scale: 1, rotate: 0, opacity: 1 }
-        }
+        animate={{ x: 0, opacity: 1 }}
         transition={
           isFirstAppearance && !shouldReduceMotion
             ? { x: { duration: 0.6, ease: EASING.outExpo }, opacity: { duration: 0.4 } }
-            : undefined
+            : { duration: 0 }
         }
         className="relative"
         style={{ width: widthClamp, aspectRatio: '200 / 215' }}
       >
-        {/* Halo difuso */}
-        <div
-          className={cn('absolute inset-0 rounded-full blur-xl', glowClass)}
-          style={
-            useMechanicTint
-              ? { backgroundColor: `color-mix(in oklab, var(${mechanicGlowVar}) 22%, transparent)` }
-              : undefined
+        {/* Wrapper INTERNO: animación corporal en bucle (y/scale/rotate y, en
+            sway/point, su propia oscilación de x). Nunca toca la opacidad. */}
+        <motion.div
+          className="relative size-full"
+          animate={
+            animationsActive
+              ? bodyAnimation[bodyAnim]
+              : { x: 0, y: 0, scale: 1, rotate: 0 }
           }
-        />
-
-        {/* El búho */}
-        <svg
-          viewBox="0 0 200 215"
-          width="100%"
-          height="100%"
-          data-otto-size={size}
-          className="relative block select-none"
-          style={{ overflow: 'visible', filter: 'drop-shadow(0 6px 10px oklch(27% 0.1 285 / 0.28))' }}
-          aria-hidden="true"
         >
-          <OwlDefs uid={uid} />
-          <OwlShadow />
-          <OwlEars />
-          <OwlWings variant={expr.wings} animate={animationsActive} reduce={shouldReduceMotion} />
-          <OwlBody uid={uid} />
-          <OwlFeet />
-          {/* Cara + props PERSISTENTES: NUNCA se desmontan al cambiar de mood.
-              Cada slot (cejas/ojos/pico/mejillas/alas) transiciona EN EL SITIO y
-              los props entran/salen por su propio AnimatePresence solapado. Esto
-              elimina el "blank-out" del rig que provocaba el `mode="wait"` keyed
-              por mood: ojos/pico desaparecían ~0.22-0.44s en cada cambio (timeout)
-              y el ala/pompones se desincronizaban del prop. Continuidad sobre
-              teletransporte (ui-animation / emil-design-eng). */}
-          <OwlFace mood={mood} uid={uid} animate={animationsActive} reduce={shouldReduceMotion} gaze={gaze} />
-          <OwlProps names={expr.props} animate={animationsActive} />
-        </svg>
+          {/* Halo difuso */}
+          <div
+            className={cn('absolute inset-0 rounded-full blur-xl', glowClass)}
+            style={
+              useMechanicTint
+                ? { backgroundColor: `color-mix(in oklab, var(${mechanicGlowVar}) 22%, transparent)` }
+                : undefined
+            }
+          />
+
+          {/* El búho */}
+          <svg
+            viewBox="0 0 200 215"
+            width="100%"
+            height="100%"
+            data-otto-size={size}
+            className="relative block select-none"
+            style={{ overflow: 'visible', filter: 'drop-shadow(0 6px 10px oklch(27% 0.1 285 / 0.28))' }}
+            aria-hidden="true"
+          >
+            <OwlDefs uid={uid} />
+            <OwlShadow />
+            <OwlEars />
+            <OwlWings variant={expr.wings} animate={animationsActive} reduce={shouldReduceMotion} />
+            <OwlBody uid={uid} />
+            <OwlFeet />
+            {/* Cara + props PERSISTENTES: NUNCA se desmontan al cambiar de mood.
+                Cada slot (cejas/ojos/pico/mejillas/alas) transiciona EN EL SITIO y
+                los props entran/salen por su propio AnimatePresence solapado. Esto
+                elimina el "blank-out" del rig que provocaba el `mode="wait"` keyed
+                por mood: ojos/pico desaparecían ~0.22-0.44s en cada cambio (timeout)
+                y el ala/pompones se desincronizaban del prop. Continuidad sobre
+                teletransporte (ui-animation / emil-design-eng). */}
+            <OwlFace mood={mood} uid={uid} animate={animationsActive} reduce={shouldReduceMotion} gaze={gaze} />
+            <OwlProps names={expr.props} animate={animationsActive} />
+          </svg>
+        </motion.div>
       </motion.div>
     </div>
   );
@@ -332,7 +346,7 @@ function CharacterMascot({
 
 CharacterMascot.propTypes = {
   mood: PropTypes.oneOf([
-    'idle', 'happy', 'encouraging', 'celebrating', 'thinking', 'sad',
+    'idle', 'greeting', 'happy', 'encouraging', 'celebrating', 'thinking', 'sad',
     'pointing', 'worried', 'surprised'
   ]),
   message: PropTypes.string,

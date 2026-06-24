@@ -345,17 +345,17 @@ export default function Register() {
             <span>Diseñado para infantil y primer ciclo de primaria</span>
           </motion.div>
 
-          {/* Otto anima el inicio del viaje (registro = empezar a jugar). En
-              `encouraging` invita con calidez; el bocadillo es persistente
-              porque es una bienvenida ambiental, no un feedback efímero. El
-              reset global de prefers-reduced-motion (index.css) neutraliza esta
-              entrada del wrapper, y CharacterMascot ya respeta el hook para su
-              deslizamiento (isFirstAppearance). */}
+          {/* Otto anima el inicio del viaje (registro = empezar a jugar). Se
+              asoma por el borde IZQUIERDO del hero —que en registro es el lado
+              del formulario (hero a la derecha, form a la izquierda)— y en
+              `encouraging` invita con calidez. El bocadillo es persistente
+              (bienvenida ambiental). `position="left"` ancla bocadillo/entrada a
+              ese lado; CharacterMascot ya respeta reduced-motion. */}
           <motion.div
             initial={{ opacity: 0, y: 14 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ delay: 0.8, ease: [0.22, 1, 0.36, 1] }}
-            className="mt-10 pl-2"
+            className="mt-10 flex justify-start"
           >
             <CharacterMascot
               mood="encouraging"
