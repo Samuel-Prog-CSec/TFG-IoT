@@ -313,7 +313,7 @@ async function getClassroomExport(teacherId, { timeRange: _timeRange = '30d' } =
       'consent.granted': true,
       'consent.purposes': 'performance_analytics'
     },
-    { select: 'name profile.classroom profile.age studentMetrics' }
+    { select: 'name profile.classroom profile.age studentMetrics', lean: true }
   );
 
   const headers = [

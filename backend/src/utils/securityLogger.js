@@ -152,6 +152,11 @@ const SECURITY_EVENTS = {
     message: 'Payload WebSocket rechazado por tamaño',
     sentry: { threshold: 5, windowMs: 60 * 1000, level: 'warning' }
   },
+  SECURITY_FILE_TYPE_REJECTED: {
+    level: 'warn',
+    message: 'Archivo rechazado por tipo (magic bytes desconocidos o no permitidos)',
+    sentry: { threshold: 5, windowMs: 60 * 1000, level: 'warning' }
+  },
   SECURITY_RFID_DEDUPE: {
     level: 'info',
     message: 'Evento RFID duplicado bloqueado'

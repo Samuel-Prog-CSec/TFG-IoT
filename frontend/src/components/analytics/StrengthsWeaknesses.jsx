@@ -53,8 +53,21 @@ function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
     [performanceByContext, performanceByMechanic]
   );
 
+  // Si aún no hay datos suficientes (todos los contextos/mecánicas con 0 partidas),
+  // mostramos una card explicativa en vez de desaparecer del layout sin avisar
+  // (un hueco vacío inexplicado confunde al docente).
   if (strengths.length === 0 && weaknesses.length === 0) {
-    return null;
+    return (
+      <GlassCard variant="default" padding="none" className="p-5">
+        <h3 className="text-sm font-semibold text-text-primary mb-2">
+          Fortalezas y debilidades
+        </h3>
+        <p className="text-sm text-text-muted">
+          Se necesitan partidas completadas para analizar las fortalezas y
+          debilidades de este alumno.
+        </p>
+      </GlassCard>
+    );
   }
 
   return (

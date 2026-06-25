@@ -9,7 +9,15 @@
  */
 
 const gamePlayRepository = require('../../repositories/gamePlayRepository');
-const { toObjectId, getStartDate, linearRegression, enrichMetric } = require('./analyticsHelpers');
+const {
+  toObjectId,
+  getStartDate,
+  linearRegression,
+  enrichMetric,
+  // % normalizado (score/maxScore×100) — fuente única compartida; antes se
+  // redefinía aquí un literal idéntico (riesgo de divergencia, gotcha maxScore).
+  SCORE_PERCENT_EXPR
+} = require('./analyticsHelpers');
 
 // Sub-agregaciones para el informe `format=detailed` del docente; se acotan a
 // 7 s para que MongoDB aborte antes que el `Promise.race` (8 s) de
@@ -76,13 +84,6 @@ const buildBaseStages = async (teacherId, startDate) => {
  * @private
  * @returns {Object} Sub-objeto de campos para el `$group` stage
  */
-// Puntuación normalizada a % (score/maxScore×100). Unifica el rendimiento entre
-// mecánicas con distinto techo de puntos; antes el `$avg('$score')` crudo se
-// clampaba a 100 (ver más abajo) porque podía superarlo. Ver analyticsService.
-const SCORE_PERCENT_EXPR = {
-  $cond: [{ $gt: ['$maxScore', 0] }, { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] }, 0]
-};
-
 const buildSharedAggregates = () => ({
   avgScore: { $avg: SCORE_PERCENT_EXPR },
   avgAccuracy: {
@@ -355,13 +356,20 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
   const startDate = getStartDate(timeRange);
 
   // (B1) Prefiltro por sesiones del profesor ANTES del $lookup (ver buildBaseStages).
-  const { getTeacherSessionIds } = require('../analyticsService');
-  const teacherSessionIds = await getTeacherSessionIds(teacherId);
+  // Además excluimos las partidas de alumnos cuyo tutor se opuso al tratamiento
+  // analítico (Art. 21 RGPD), igual que buildBaseStages y el resto de analytics;
+  // sin esto, los menores opuestos se colaban en la dificultad de cartas de clase.
+  const { getTeacherSessionIds, getAnalyticsExcludedPlayerIds } = require('../analyticsService');
+  const [teacherSessionIds, excludedIds] = await Promise.all([
+    getTeacherSessionIds(teacherId),
+    getAnalyticsExcludedPlayerIds(teacherId)
+  ]);
 
   const pipeline = [
     {
       $match: {
         sessionId: { $in: teacherSessionIds },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } }),
         status: 'completed',
         completedAt: { $gte: startDate }
       }
@@ -473,8 +481,12 @@ async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mech
   const startDate = getStartDate(timeRange);
 
   // (B1) Prefiltro por sesiones del profesor ANTES del $lookup (ver buildBaseStages).
-  const { getTeacherSessionIds } = require('../analyticsService');
-  const teacherSessionIds = await getTeacherSessionIds(teacherId);
+  // Excluimos partidas de alumnos opuestos al tratamiento analítico (Art. 21 RGPD).
+  const { getTeacherSessionIds, getAnalyticsExcludedPlayerIds } = require('../analyticsService');
+  const [teacherSessionIds, excludedIds] = await Promise.all([
+    getTeacherSessionIds(teacherId),
+    getAnalyticsExcludedPlayerIds(teacherId)
+  ]);
 
   // El filtro por contexto/mecánica sigue requiriendo el doc de sesión (post-lookup).
   const sessionMatch = {};
@@ -489,6 +501,7 @@ async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mech
     {
       $match: {
         sessionId: { $in: teacherSessionIds },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } }),
         status: 'completed',
         completedAt: { $gte: startDate }
       }
@@ -503,6 +516,19 @@ async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mech
     },
     { $unwind: '$session' },
     ...(Object.keys(sessionMatch).length > 0 ? [{ $match: sessionMatch }] : []),
+    // Proyectamos SOLO lo necesario antes del $lookup de contexto + $sort + $group:
+    // descarta el array `events[]` (hasta 500 sub-docs/partida) que de otro modo se
+    // arrastraría por las etapas pesadas (in-memory sort). Mantiene `session.contextId`
+    // para el lookup y `maxScore` por convención (gotcha del cálculo de porcentaje).
+    {
+      $project: {
+        playerId: 1,
+        score: 1,
+        maxScore: 1,
+        completedAt: 1,
+        'session.contextId': 1
+      }
+    },
     {
       $lookup: {
         from: 'game_contexts',

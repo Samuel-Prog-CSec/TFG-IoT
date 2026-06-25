@@ -435,10 +435,20 @@ async function getClassroomEngagement(
 ) {
   const startDate = getStartDate(timeRange);
 
-  // Obtener estudiantes
+  // Obtener estudiantes. Excluimos a quienes su tutor se opuso al tratamiento
+  // analítico (Art. 21 RGPD): no deben aparecer en la lista NI computar en los
+  // agregados de clase. Al filtrarlos aquí, `studentIds` ya los excluye y el
+  // pipeline posterior (`playerId: { $in: studentIds }`) tampoco los agrega.
+  // (require diferido para evitar ciclo engagementService ↔ analyticsService.)
+  const { ANALYTICS_CONSENT_FILTER } = require('../analyticsService');
   const students = await userRepository.find(
-    { createdBy: toObjectId(teacherId), role: 'student', status: 'active' },
-    { select: 'name' }
+    {
+      createdBy: toObjectId(teacherId),
+      role: 'student',
+      status: 'active',
+      ...ANALYTICS_CONSENT_FILTER
+    },
+    { select: 'name', lean: true }
   );
 
   if (students.length === 0) {

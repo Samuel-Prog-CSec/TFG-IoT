@@ -1,8 +1,8 @@
 /**
  * @fileoverview Detector: pico de retiradas de consentimiento parental (T-942).
  *
- * Cuenta entradas `consent.history` con action='withdrawn' en las últimas
- * 24h, agregando sobre todos los alumnos. Umbrales: info ≥5/día, warning ≥20.
+ * Cuenta alumnos cuya retirada de consentimiento (`consent.withdrawnAt`) cae en
+ * las últimas 24h. Umbrales: info ≥5/día, warning ≥20.
  *
  * Esto NO es un evento "negativo" en sí mismo (los tutores tienen derecho
  * pleno a retirar consentimiento por RGPD), pero un pico repentino puede
@@ -28,18 +28,16 @@ class ConsentWithdrawalSpikeDetector extends SystemAlertDetector {
     const cfg = SYSTEM_ALERT_TYPES.consent_withdrawal_spike;
     try {
       const since = new Date(now.getTime() - 24 * 60 * 60 * 1000);
-      const agg = await User.aggregate([
-        { $match: { role: 'student', 'consent.history.action': 'withdrawn' } },
-        { $unwind: '$consent.history' },
-        {
-          $match: {
-            'consent.history.action': 'withdrawn',
-            'consent.history.timestamp': { $gte: since }
-          }
-        },
-        { $count: 'count' }
-      ]);
-      const count = agg[0]?.count || 0;
+      // Cuenta alumnos cuya retirada de consentimiento ocurrió en las últimas 24h.
+      // Usa el campo de primer nivel `consent.withdrawnAt` (indexado, sparse) en
+      // lugar de un `$unwind` sobre el historial: más barato (corre cada 5 min) y
+      // CORRECTO. La versión previa consultaba `consent.history.*`, un campo que NO
+      // existe en el esquema (el real es `consentHistory` a nivel raíz), por lo que
+      // el `$unwind` devolvía 0 documentos y la alerta NUNCA se disparaba.
+      const count = await User.countDocuments({
+        role: 'student',
+        'consent.withdrawnAt': { $gte: since }
+      });
 
       if (count < cfg.thresholds.infoPerDay) {
         return [];

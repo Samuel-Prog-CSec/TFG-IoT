@@ -119,7 +119,10 @@ export default function AlertHistoryModal({ alertId, onClose }) {
               {error && !loading && (
                 <p className="text-sm text-error-base">{error}</p>
               )}
-              {!loading && !error && data?.timeline && (
+              {!loading && !error && (!data?.timeline || data.timeline.length === 0) && (
+                <p className="text-sm text-text-muted">Sin historial disponible.</p>
+              )}
+              {!loading && !error && data?.timeline?.length > 0 && (
                 <ol className="space-y-3" aria-label="Eventos del ciclo de vida">
                   {data.timeline.map((event, idx) => {
                     const Icon = EVENT_ICONS[event.event] || Sparkles;

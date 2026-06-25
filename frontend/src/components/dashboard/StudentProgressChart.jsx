@@ -77,7 +77,8 @@ function StudentProgressChart({
     let lastIdx = -1;
     for (let i = 0; i < data.length; i++) {
       const point = data[i];
-      if (hasValue(point?.score) || hasValue(point?.classAverage)) {
+      // `classAverage` se eliminó (ADR-201 B7); la única serie es `score`.
+      if (hasValue(point?.score)) {
         if (firstIdx === -1) firstIdx = i;
         lastIdx = i;
       }

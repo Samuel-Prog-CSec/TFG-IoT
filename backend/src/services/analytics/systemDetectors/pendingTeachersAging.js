@@ -40,9 +40,12 @@ class PendingTeachersAgingDetector extends SystemAlertDetector {
         return [];
       }
 
-      const total = await userRepository
-        .find({ role: 'teacher', accountStatus: 'pending_approval' }, { lean: true })
-        .then(arr => arr.length);
+      // count() en lugar de traer todos los docs solo para `.length`: la query la
+      // sirve el índice {role, accountStatus} sin materializar documentos.
+      const total = await userRepository.count({
+        role: 'teacher',
+        accountStatus: 'pending_approval'
+      });
 
       const severity = ageDays >= cfg.thresholds.criticalDays ? 'critical' : 'warning';
 

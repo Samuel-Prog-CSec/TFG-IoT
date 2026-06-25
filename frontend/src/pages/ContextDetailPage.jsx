@@ -104,7 +104,7 @@ export default function ContextDetailPage() {
       if (err?.response?.status === 409) {
         toast.error('No se puede eliminar: el recurso está en uso por un mazo activo', { description: msg });
       } else {
-        toast.error('Error al eliminar el recurso', { description: msg });
+        toast.error('No pudimos eliminar el recurso', { description: msg });
       }
     } finally {
       setIsDeletingAsset(null);
@@ -132,7 +132,7 @@ export default function ContextDetailPage() {
       toast.success(`Audio de "${asset.value}" eliminado`);
       await fetchContext();
     } catch (err) {
-      toast.error('Error al eliminar el audio', { description: extractErrorMessage(err) });
+      toast.error('No pudimos eliminar el audio', { description: extractErrorMessage(err) });
     } finally {
       setIsDeletingAudio(null);
     }
@@ -162,8 +162,11 @@ export default function ContextDetailPage() {
         <div>
           <div className="h-8 w-32 bg-background-elevated rounded animate-pulse mb-6" />
           <div className="h-24 bg-background-elevated rounded-2xl animate-pulse mb-8" />
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-[var(--space-fluid-gutter)]">
-            {Array.from({ length: 6 }, (_, i) => `ctx-detail-skeleton-${i}`).map(id => <SkeletonCard key={id} />)}
+          {/* El skeleton replica la rejilla real de assets (hasta 5 columnas) y
+              rinde 10 placeholders para ocupar el mismo footprint y evitar el
+              salto de layout al llegar los datos. */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {Array.from({ length: 10 }, (_, i) => `ctx-detail-skeleton-${i}`).map(id => <SkeletonCard key={id} />)}
           </div>
         </div>
       </div>
@@ -636,7 +639,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
       toast.success('Imagen subida correctamente');
       onSuccess();
     } catch (err) {
-      toast.error('Error al subir imagen', {
+      toast.error('No pudimos subir la imagen', {
         description: extractErrorMessage(err)
       });
     } finally {

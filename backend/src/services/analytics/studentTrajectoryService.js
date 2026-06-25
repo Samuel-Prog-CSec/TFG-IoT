@@ -14,15 +14,11 @@ const {
   getStartDate,
   linearRegression,
   classifyTrend,
-  enrichMetric
+  enrichMetric,
+  // % normalizado (score/maxScore×100) — fuente única; antes se redefinía aquí
+  // un literal idéntico (riesgo de divergencia si cambia la fórmula).
+  SCORE_PERCENT_EXPR
 } = require('./analyticsHelpers');
-
-// Puntuación normalizada a % (score/maxScore×100) para que la trayectoria y la
-// evolución por contexto/mecánica sean comparables entre mecánicas con distinto
-// techo de puntos (ver analyticsService.SCORE_PERCENT_EXPR).
-const SCORE_PERCENT_EXPR = {
-  $cond: [{ $gt: ['$maxScore', 0] }, { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] }, 0]
-};
 
 // Margen de 1 s sobre `reportDataService.REPORT_TIMEOUT_MS=8000` para que
 // MongoDB aborte por `maxTimeMS` antes de que el Promise.race rechace la
@@ -133,7 +129,10 @@ async function getStudentTrajectory(studentId, { timeRange = '30d', granularity 
     const userRepository = require('../../repositories/userRepository');
     // Lazy require: analyticsService ya depende de este módulo (evita ciclo).
     const { getTeacherSessionIds, getAnalyticsExcludedPlayerIds } = require('../analyticsService');
-    const studentDoc = await userRepository.findById(studentId, { select: 'createdBy' });
+    const studentDoc = await userRepository.findById(studentId, {
+      select: 'createdBy',
+      lean: true
+    });
     if (studentDoc?.createdBy) {
       const teacherId = studentDoc.createdBy.toString();
       const [teacherSessionIds, excludedIds] = await Promise.all([

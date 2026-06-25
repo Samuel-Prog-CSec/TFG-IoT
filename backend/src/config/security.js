@@ -164,10 +164,16 @@ const initRateLimiters = () => {
     rateLimitersRegistry[prefix] = rateLimit({
       ...rateLimitOptions,
       store: rateLimitOptions.store || createRedisStore(prefix),
-      // Si el store (Redis) falla mid-request, permitir el paso en vez de
-      // devolver 500: preferimos fail-open para no tirar el servicio entero
-      // durante un blip de Redis. El fallback ya quedó registrado en métricas.
-      passOnStoreError: rateLimitOptions.passOnStoreError ?? true
+      // Comportamiento ante fallo del store (Redis) mid-request:
+      //  - Límites de disponibilidad (global, creations, uploads…): fail-OPEN —
+      //    preferimos dejar pasar a tirar el servicio durante un blip de Redis.
+      //  - auth / register: fail-CLOSED — sin Redis NO hay rate limiting (express
+      //    -rate-limit con passOnStoreError NO cae a MemoryStore, simplemente no
+      //    limita), lo que abriría una ventana de fuerza bruta sin límite (en 1
+      //    instancia, sin límite = sin protección global). Preferimos rechazar
+      //    temporalmente login/registro a exponer fuerza bruta sobre datos de
+      //    menores. El blip de Redis ya degrada el servicio de todos modos.
+      passOnStoreError: rateLimitOptions.passOnStoreError ?? !['auth', 'register'].includes(prefix)
     });
   }
 

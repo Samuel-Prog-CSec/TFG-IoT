@@ -992,7 +992,10 @@ async function getClassroomStudents(
   }
 
   const students = await userRepository.find(filter, {
-    select: 'name profile.avatar profile.classroom profile.age studentMetrics status'
+    select: 'name profile.avatar profile.classroom profile.age studentMetrics status',
+    // lean: solo se leen valores planos (se mapean a DTO abajo), no métodos de
+    // instancia → evitamos hidratar el documento Mongoose completo de toda la clase.
+    lean: true
   });
 
   // Calcular tiers por mecánica una sola vez (ADR-E). Una pipeline
@@ -1111,7 +1114,7 @@ async function getClassroomDistribution(teacherId, { contextId, mechanicId, time
       status: 'active',
       ...ANALYTICS_CONSENT_FILTER
     },
-    { select: 'studentMetrics.averageScore' }
+    { select: 'studentMetrics.averageScore', lean: true }
   );
 
   const totalStudents = students.length;
@@ -2188,5 +2191,9 @@ module.exports = {
   getTeacherSessionIds,
   // Lista de playerIds excluidos por oposición al tratamiento (Art. 21 RGPD).
   // Expuesto para que contentEffectivenessService aplique la misma exclusión.
-  getAnalyticsExcludedPlayerIds
+  getAnalyticsExcludedPlayerIds,
+  // Fragmento de filtro de consentimiento de analytics (Art. 21 RGPD). Expuesto
+  // como fuente única para que los sub-servicios (engagement, etc.) excluyan de
+  // sus LISTAS de alumnos a quienes se opusieron, sin duplicar el literal.
+  ANALYTICS_CONSENT_FILTER
 };

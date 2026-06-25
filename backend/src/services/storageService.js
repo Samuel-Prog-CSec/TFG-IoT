@@ -104,7 +104,13 @@ class StorageService {
       // 3. Subir el archivo (Buffer)
       const { error } = await this.supabase.storage.from(BUCKET_NAME).upload(filePath, buffer, {
         contentType: storageMimeType,
-        upsert: false
+        upsert: false,
+        // Assets efectivamente inmutables: el `filePath` lleva un timestamp único
+        // por subida, así que una sustitución produce un path nuevo (y se borra el
+        // viejo). Un cache largo evita que el navegador re-descargue cada asset en
+        // cada visita pasada la 1h por defecto de Supabase — el mayor coste de
+        // egress evitable en el free-tier medido.
+        cacheControl: '31536000'
       });
 
       if (error) {

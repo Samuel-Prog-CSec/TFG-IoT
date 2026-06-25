@@ -142,7 +142,7 @@ const buildValidator = (allowedMimes, kind) =>
 
       const detected = detectMagic(req.file.buffer);
       if (!detected) {
-        logSecurityEvent('SECURITY_PAYLOAD_TOO_LARGE', {
+        logSecurityEvent('SECURITY_FILE_TYPE_REJECTED', {
           ...getRequestContext(req),
           reason: 'FILE_MAGIC_BYTES_UNKNOWN',
           declaredMime: req.file.mimetype,
@@ -154,7 +154,7 @@ const buildValidator = (allowedMimes, kind) =>
       }
 
       if (!allowedMimes.has(detected.mime)) {
-        logSecurityEvent('SECURITY_PAYLOAD_TOO_LARGE', {
+        logSecurityEvent('SECURITY_FILE_TYPE_REJECTED', {
           ...getRequestContext(req),
           reason: 'FILE_MAGIC_BYTES_MISMATCH',
           declaredMime: req.file.mimetype,

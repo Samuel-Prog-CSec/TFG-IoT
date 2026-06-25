@@ -186,6 +186,12 @@ async function recordPlayCompletion(payload) {
     sequencesCompleted = 0
   } = payload;
 
+  // Porcentaje de la partida (score/maxScore×100): el leaderboard acumula % en
+  // vez de score crudo para que mecánicas con techos muy distintos (Secuencia
+  // 210-420 vs Asociación 50-90) sean comparables y ninguna domine por su escala.
+  // Coherente con el reconciliador nocturno y con student:metrics (ADR-213).
+  const scorePercent = maxScore > 0 ? (score / maxScore) * 100 : 0;
+
   // Las escrituras pueden fallar de forma silenciosa (Redis caído,
   // circuit breaker abierto). El job nocturno reconciliará — no
   // bloqueamos endPlay.
@@ -208,7 +214,8 @@ async function recordPlayCompletion(payload) {
           leaderboardId(dimension, 'plays', teacherId, range)
         );
         const member = toIdString(dimensionId);
-        p.zincrby(scoreKey, score, member);
+        // Acumula PORCENTAJE de la partida (no score crudo) — ver `scorePercent`.
+        p.zincrby(scoreKey, scorePercent, member);
         p.zincrby(playsKey, 1, member);
         p.expire(scoreKey, LEADERBOARD_TTL_SECONDS);
         p.expire(playsKey, LEADERBOARD_TTL_SECONDS);
@@ -528,6 +535,10 @@ async function purgeStudentMaterialization({ studentId, teacherId } = {}) {
 async function reconcileLeaderboards({ teacherIds } = {}) {
   const gamePlayRepository = require('../../repositories/gamePlayRepository');
   const gameSessionRepository = require('../../repositories/gameSessionRepository');
+  // % normalizado (score/maxScore×100). Fuente única compartida con el resto de
+  // analytics; el reconcile reconstruye el ZSET con el MISMO % que escribe el
+  // writer en vivo, manteniendo unidades coherentes (ADR-213).
+  const { SCORE_PERCENT_EXPR } = require('./analyticsHelpers');
 
   // Si no se pasan teacherIds, deducirlos: profesores que tienen sesiones
   // con plays completadas en los últimos 30 días.
@@ -603,6 +614,7 @@ async function reconcileLeaderboards({ teacherIds } = {}) {
           {
             $project: {
               score: 1,
+              maxScore: 1,
               'session.contextId': 1,
               'session.mechanicId': 1
             }
@@ -613,7 +625,7 @@ async function reconcileLeaderboards({ teacherIds } = {}) {
                 {
                   $group: {
                     _id: '$session.contextId',
-                    totalScore: { $sum: '$score' },
+                    totalScore: { $sum: SCORE_PERCENT_EXPR },
                     plays: { $sum: 1 }
                   }
                 }
@@ -622,7 +634,7 @@ async function reconcileLeaderboards({ teacherIds } = {}) {
                 {
                   $group: {
                     _id: '$session.mechanicId',
-                    totalScore: { $sum: '$score' },
+                    totalScore: { $sum: SCORE_PERCENT_EXPR },
                     plays: { $sum: 1 }
                   }
                 }

@@ -140,12 +140,21 @@ const validate = async payload => {
     return { valid: false, mode: 'enforce', reason: 'HMAC_INVALID' };
   }
 
-  // Anti-replay: counter debe ser estrictamente mayor que el último conocido.
-  const previousRaw = await redisService.get(COUNTER_NAMESPACE, sensorId);
-  const previous = previousRaw ? Number.parseInt(previousRaw, 10) : -1;
-  if (Number.isFinite(previous) && counter <= previous) {
+  // Anti-replay atómico (CAS Lua): el counter debe ser estrictamente mayor que el
+  // último conocido. `rfidCounterCheckAndAdvance` lee-y-avanza en una sola ejecución
+  // de Redis, cerrando la ventana TOCTOU del get-then-setex previo (dos scans del
+  // mismo sensor podían leer el mismo `previous`, pasar ambos y reabrir la ventana
+  // de replay). Fail-open ante Redis/Lua caído: la firma HMAC ya verificada sigue
+  // protegiendo, solo se podría reutilizar un scan capturado durante el outage.
+  const { accepted } = await redisService.rfidCounterCheckAndAdvance(
+    COUNTER_NAMESPACE,
+    sensorId,
+    counter,
+    COUNTER_TTL_SECONDS
+  );
+  if (!accepted) {
     recordMetric('replay');
-    logger.warn({ uid, sensorId, counter, previous }, 'RFID counter replay detectado');
+    logger.warn({ uid, sensorId, counter }, 'RFID counter replay detectado');
     // Señal para el detector SmartAlert (contador Redis, ventana 1h). Fail-open.
     try {
       require('../services/security/securityCountersService')
@@ -157,7 +166,6 @@ const validate = async payload => {
     return { valid: false, mode: 'enforce', reason: 'COUNTER_REPLAY' };
   }
 
-  await redisService.setWithTTL(COUNTER_NAMESPACE, sensorId, String(counter), COUNTER_TTL_SECONDS);
   recordMetric('valid');
   return { valid: true, mode: 'enforce' };
 };

@@ -132,9 +132,15 @@ function GameHistoryTable({ games, initialCount = 10, onLoadMore, hasMore: hasMo
                       {game.mechanicName || game.mechanic || '—'}
                     </td>
                     <td className="py-2.5 pr-3 text-right">
-                      <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded-md inline-block", badge.className)} aria-label={`Puntuación ${Math.round(game.score ?? 0)}, nivel ${badge.label}`}>
-                        {Math.round(game.score ?? 0)}
-                      </span>
+                      {game.score != null ? (
+                        <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded-md inline-block", badge.className)} aria-label={`Puntuación ${Math.round(game.score)}, nivel ${badge.label}`}>
+                          {Math.round(game.score)}
+                        </span>
+                      ) : (
+                        // Sin score real no mostramos "0" (que parecería la peor nota):
+                        // un guion neutro deja claro que no hay dato.
+                        <span className="text-xs text-text-muted" aria-label="Sin puntuación">—</span>
+                      )}
                     </td>
                     <td className="py-2.5 pr-3 text-right text-text-secondary tabular-nums">
                       {accuracy != null ? `${accuracy}%` : '—'}

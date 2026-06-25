@@ -190,7 +190,8 @@ const createPlay = async (req, res) => {
   const play = await gamePlayService.createPlay({
     sessionId,
     playerId,
-    creatorId: req.user._id
+    creatorId: req.user._id,
+    creatorRole: req.user.role
   });
 
   sendCreated(res, toGamePlayDetailDTOV1(play), 'Partida creada exitosamente');

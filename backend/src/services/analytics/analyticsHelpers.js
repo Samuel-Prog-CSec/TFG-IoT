@@ -95,10 +95,14 @@ const getStartDate = (timeRange, from = new Date()) => {
  * para comparaciones período-sobre-período.
  *
  * @param {string} timeRange - '7d', '30d' o '90d'
+ * @param {Date} [from=new Date()] - Fecha de referencia ("ahora"). Por defecto la
+ *   fecha actual; los flujos de backfill/dry-run de los detectores la pasan
+ *   explícitamente para calcular ventanas relativas a una fecha histórica (antes
+ *   se ignoraba y siempre se usaba `new Date()`, rompiendo esos flujos).
  * @returns {{ currentStart: Date, previousStart: Date, now: Date }}
  */
-const getPeriodDates = timeRange => {
-  const now = new Date();
+const getPeriodDates = (timeRange, from = new Date()) => {
+  const now = from;
   const days = { '7d': 7, '30d': 30, '90d': 90 };
   const d = days[timeRange] || 30;
 

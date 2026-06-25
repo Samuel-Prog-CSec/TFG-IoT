@@ -27,6 +27,7 @@
     "migrate:mechanic-type:dry-run": "node scripts/migrate-mechanic-type.js --dry-run",
     "migrate:score-percent": "node scripts/migrate-score-percent.js",
     "migrate:score-percent:dry-run": "node scripts/migrate-score-percent.js --dry-run",
+    "migrate:leaderboard-percent": "node scripts/migrate-leaderboard-percent.js",
     "data:audit": "node scripts/dataAudit.js",
     "data:retention": "node scripts/dataRetention.js",
     "data:retention:dry-run": "node scripts/dataRetention.js --dry-run",

@@ -160,6 +160,9 @@ describe('materializedAnalyticsService — Reconciliación nocturna (B.12)', () 
           sessionId,
           playerId: studentId,
           score,
+          // maxScore=100 → el leaderboard (ahora en %) acumula score/maxScore×100 =
+          // score, así que la suma sigue siendo 60+75+90=225 y las aserciones valen.
+          maxScore: 100,
           status: 'completed',
           completedAt: new Date(),
           metrics: { correctAttempts: 5, totalAttempts: 6 },

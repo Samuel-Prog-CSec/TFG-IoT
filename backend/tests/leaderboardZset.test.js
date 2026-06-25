@@ -55,6 +55,10 @@ describe('materializedAnalyticsService — Leaderboards ZSET (B.10)', () => {
         mechanicId,
         studentId,
         score: 85,
+        // maxScore=100 → el leaderboard acumula score/maxScore×100 = 85 (%). El
+        // ZSET ahora guarda PORCENTAJE, no score crudo; con techo 100 coincide
+        // numéricamente con el score, manteniendo las aserciones legibles.
+        maxScore: 100,
         correctAttempts: 8,
         errorAttempts: 1,
         timeoutAttempts: 1,
@@ -123,6 +127,7 @@ describe('materializedAnalyticsService — Leaderboards ZSET (B.10)', () => {
         mechanicId,
         studentId,
         score: 60,
+        maxScore: 100,
         mechanicName: 'association'
       });
       await materializedAnalytics.recordPlayCompletion({
@@ -131,6 +136,7 @@ describe('materializedAnalyticsService — Leaderboards ZSET (B.10)', () => {
         mechanicId,
         studentId,
         score: 40,
+        maxScore: 100,
         mechanicName: 'association'
       });
 
@@ -191,7 +197,8 @@ describe('materializedAnalyticsService — Leaderboards ZSET (B.10)', () => {
           contextId: ctx2,
           mechanicId: new mongoose.Types.ObjectId(),
           studentId,
-          score: 10
+          score: 10,
+          maxScore: 100
         });
       }
       await materializedAnalytics.recordPlayCompletion({
@@ -199,7 +206,8 @@ describe('materializedAnalyticsService — Leaderboards ZSET (B.10)', () => {
         contextId: ctx1,
         mechanicId: new mongoose.Types.ObjectId(),
         studentId,
-        score: 80
+        score: 80,
+        maxScore: 100
       });
 
       // Ordenado por plays DESC: ctx2 primero (3 plays > 1 play)

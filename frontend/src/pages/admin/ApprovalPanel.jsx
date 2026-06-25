@@ -405,7 +405,7 @@ export default function ApprovalPanel() {
       }
       const message = extractErrorMessage(err);
       setError(message);
-      toast.error('Error al cargar las solicitudes', {
+      toast.error('No pudimos cargar las solicitudes', {
         description: 'Recarga la página o inténtalo de nuevo en unos segundos.'
       });
     } finally {
@@ -563,7 +563,7 @@ export default function ApprovalPanel() {
               <div className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/20">
                 <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-error-base font-bold">Error al cargar datos</p>
+                  <p className="text-error-base font-bold">No pudimos cargar las solicitudes</p>
                   <p className="text-error-base/80 text-sm mt-1">{error}</p>
                 </div>
               </div>
@@ -582,16 +582,37 @@ export default function ApprovalPanel() {
             // Centramos el estado vacío en un área generosa (capada a 560px) en
             // vez de dejarlo pegado arriba con el hueco entero debajo — se veía
             // descompensado en pantallas grandes/4K (QA 2026-06-04).
-            if (filteredTeachers.length === 0) return (
-              <div className="flex items-center justify-center min-h-[min(45vh,560px)]">
-                <EmptyState
-                  title="Todo al día"
-                  description="No hay solicitudes pendientes. Cuando nuevos profesores se registren, aparecerán aquí para que les des paso."
-                  illustration={<EmptyAlertsIllustration size={180} />}
-                  className="bg-transparent"
-                />
-              </div>
-            );
+            if (filteredTeachers.length === 0) {
+              // Distinguir "sin resultados de búsqueda" de "no hay pendientes":
+              // antes ambos casos mostraban el mismo aviso de cola vacía, lo que
+              // confundía al director (un término que no casa parecía vaciar la cola).
+              const isSearching = deferredSearchQuery.trim().length > 0;
+              return (
+                <div className="flex items-center justify-center min-h-[min(45vh,560px)]">
+                  <EmptyState
+                    title={isSearching ? 'Sin coincidencias' : 'Todo al día'}
+                    description={
+                      isSearching
+                        ? `Ningún docente pendiente coincide con «${deferredSearchQuery.trim()}». Prueba con otro término o limpia la búsqueda.`
+                        : 'No hay solicitudes pendientes. Cuando nuevos profesores se registren, aparecerán aquí para que les des paso.'
+                    }
+                    illustration={<EmptyAlertsIllustration size={180} />}
+                    className="bg-transparent"
+                    action={
+                      isSearching ? (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery('')}
+                          className="px-4 py-2 rounded-xl text-sm font-medium bg-background-elevated/80 border border-border-default text-text-primary hover:border-border-strong transition-colors focus-ring"
+                        >
+                          Limpiar búsqueda
+                        </button>
+                      ) : undefined
+                    }
+                  />
+                </div>
+              );
+            }
             return (
               <div className="space-y-4">
                 <AnimatePresence mode="popLayout">

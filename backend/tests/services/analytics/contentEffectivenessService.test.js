@@ -29,7 +29,11 @@ const redisService = require('../../../src/services/redisService');
 // celda restante no aparece en el output (filtrado por totalPlays>0).
 // ══════════════════════════════════════════════════════════════════════
 
-const NOW = new Date('2026-05-22T10:00:00Z');
+// Anclado a la fecha de ejecución (no una fecha absoluta): las partidas se siembran
+// con `completedAt = NOW - daysAgo`, así que una fecha fija acababa cayendo fuera de
+// la ventana real de 30/90 días (`completedAt >= startDate`) y la matriz cruzada salía
+// vacía. Relativo a hoy mantiene el espaciado por días sin caducar nunca.
+const NOW = new Date();
 
 let teacher;
 let otherTeacher;

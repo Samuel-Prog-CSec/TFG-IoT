@@ -232,7 +232,11 @@ export default function TransferStudents() {
                 options={studentOptions}
                 value={selectedStudentId}
                 onChange={setSelectedStudentId}
-                placeholder={sourceTeacherId ? "Selecciona un alumno" : "Primero elige un profesor"}
+                placeholder={
+                  (!sourceTeacherId && 'Primero elige un profesor') ||
+                  (students.length === 0 && 'Este profesor no tiene alumnos') ||
+                  'Selecciona un alumno'
+                }
                 disabled={!sourceTeacherId || students.length === 0}
                 required
               />

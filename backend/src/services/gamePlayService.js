@@ -61,11 +61,14 @@ async function validateGameSession(sessionId) {
  * @throws {NotFoundError} Si el jugador no existe
  * @throws {ValidationError} Si el jugador no es estudiante o ya tiene partida activa
  */
-async function validatePlayer(playerId, sessionId) {
-  // Read-only y solo se leen `role` y `consent` (el retorno se descarta en
-  // createPlay). `lean` + `select` evita hidratar el documento User completo
+async function validatePlayer(playerId, sessionId, { creatorId, creatorRole } = {}) {
+  // Read-only y solo se leen `role`, `consent` y `createdBy` (el retorno se descarta
+  // en createPlay). `lean` + `select` evita hidratar el documento User completo
   // (PII innecesaria) en cada creación de partida.
-  const player = await userRepository.findById(playerId, { lean: true, select: 'role consent' });
+  const player = await userRepository.findById(playerId, {
+    lean: true,
+    select: 'role consent createdBy'
+  });
 
   if (!player) {
     throw new NotFoundError('Jugador');
@@ -73,6 +76,19 @@ async function validatePlayer(playerId, sessionId) {
 
   if (player.role !== 'student') {
     throw new ValidationError('Solo los estudiantes pueden jugar partidas');
+  }
+
+  // IDOR (defense in depth): un docente solo puede crear partidas para SUS
+  // alumnos. El selector de la UI ya muestra solo los propios, pero el endpoint
+  // acepta cualquier `playerId`, así que un docente podía vincular su sesión a un
+  // alumno de otro docente pasando su ObjectId directamente. super_admin exento
+  // (gestión centralizada). El dueño de la sesión ya se valida en createPlay.
+  if (
+    creatorRole !== 'super_admin' &&
+    creatorId &&
+    player.createdBy?.toString() !== creatorId.toString()
+  ) {
+    throw new ForbiddenError('No tienes permiso para crear partidas para este alumno');
   }
 
   // Defense in depth: verificar consentimiento activo — Art. 6.1 RGPD (licitud del tratamiento)
@@ -107,7 +123,7 @@ async function validatePlayer(playerId, sessionId) {
  * @returns {Promise<Object>} Partida creada con populate
  * @throws {ForbiddenError} Si el creador no es el dueño de la sesión
  */
-async function createPlay({ sessionId, playerId, creatorId }) {
+async function createPlay({ sessionId, playerId, creatorId, creatorRole }) {
   // Validar sesión
   const session = await validateGameSession(sessionId);
 
@@ -116,8 +132,8 @@ async function createPlay({ sessionId, playerId, creatorId }) {
     throw new ForbiddenError('No tienes permiso para crear partidas en esta sesión');
   }
 
-  // Validar jugador
-  await validatePlayer(playerId, sessionId);
+  // Validar jugador (incluye comprobación de propiedad del alumno — IDOR)
+  await validatePlayer(playerId, sessionId, { creatorId, creatorRole });
 
   // Techo de puntuación teórico (P19, ADR-114): usa el tipo explícito de la
   // sesión (`mechanicType`) y, si falta (sesiones legacy aún sin migrar),
@@ -171,7 +187,13 @@ async function createPlay({ sessionId, playerId, creatorId }) {
  * @throws {ValidationError} Si la partida no está en progreso
  */
 async function addEventToPlay(playId, eventData) {
-  const play = await gamePlayRepository.findById(playId);
+  // `select: '-events'` evita rehidratar el array `events[]` (hasta 500 sub-docs)
+  // en CADA evento de partida (path más caliente, un evento por scan RFID). El
+  // documento sigue siendo no-lean para poder llamar `play.addEvent()`, que
+  // persiste vía `updateOne($push/$inc)` sin leer el array previo; aquí solo se
+  // lee `status` (vía `isInProgress()`). Antes se cargaba el doc completo → coste
+  // O(eventos²) en bytes a lo largo de una partida.
+  const play = await gamePlayRepository.findById(playId, { select: '-events' });
 
   if (!play) {
     throw new NotFoundError('Partida');
@@ -210,10 +232,10 @@ async function completePlay(playId) {
   //   - sessionId: necesitamos `config` (pointsPerCorrect, numberOfRounds
   //     para `calculateRating`) y `_id` para `recalculateSessionStatusFromPlays`.
   const play = await gamePlayRepository.findById(playId, {
-    populate: [
-      { path: 'playerId', select: '_id' },
-      { path: 'sessionId', select: 'config' }
-    ]
+    // `playerId` NO se popula: solo necesitábamos su `_id`, que YA es el propio
+    // `play.playerId` (ObjectId del ref). El populate con `select:'_id'` materializaba
+    // un documento {_id} inútil (un round-trip y un wrap sin valor).
+    populate: [{ path: 'sessionId', select: 'config' }]
   });
 
   if (!play) {
@@ -229,7 +251,7 @@ async function completePlay(playId) {
 
   // Actualizar métricas del estudiante
   // Solo si el tutor no ha ejercido el derecho de oposición a analytics (Art. 21 RGPD)
-  const player = await userRepository.findById(play.playerId._id);
+  const player = await userRepository.findById(play.playerId);
   // Snapshot del rendimiento previo para detectar transición a "en riesgo"
   // tras la actualización de métricas (T-955 trigger: student_at_risk).
   const prevAverage =
@@ -267,7 +289,7 @@ async function completePlay(playId) {
 
   logger.info('Partida completada via service', {
     playId: play._id,
-    playerId: play.playerId._id,
+    playerId: play.playerId,
     finalScore: play.score,
     rating
   });

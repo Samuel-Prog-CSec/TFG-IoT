@@ -589,7 +589,7 @@ export default function AdminDashboard() {
 
         {error && !data && (
           <ErrorState
-            title="Error al cargar la vista del centro"
+            title="No pudimos cargar la vista del centro"
             message={error}
             onRetry={fetchData}
           />
@@ -640,7 +640,11 @@ export default function AdminDashboard() {
                   tone={(data.alerts?.totalCriticalActive ?? 0) > 0 ? 'error' : 'success'}
                   ctaLabel="Ver alertas"
                   higherIsBetter={false}
-                  onClick={() => navigate(ROUTES.INSIGHTS)}
+                  onClick={() =>
+                    document
+                      .getElementById('alertas-por-profesor')
+                      ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                  }
                 />
               </div>
               <StatCard
@@ -727,7 +731,15 @@ export default function AdminDashboard() {
               className="grid grid-cols-1 lg:grid-cols-2 gap-6"
             >
               <TopTeachersCard teachers={data.topTeachers} />
-              <AlertsByTeacherCard byTeacher={data.alerts?.byTeacher} />
+              {/* Ancla del CTA "Ver alertas" del HeroStatCard. Las alertas críticas
+                  del centro son SmartAlerts (pedagógicas, por alumno/profesor) y no
+                  tienen una vista de detalle propia del director: este card es su
+                  resumen. El CTA hace scroll aquí en lugar de navegar a
+                  /analytics/insights (ruta SOLO de profesor que rebotaba al
+                  super_admin de vuelta al dashboard — botón muerto). */}
+              <div id="alertas-por-profesor" className="scroll-mt-24 h-full">
+                <AlertsByTeacherCard byTeacher={data.alerts?.byTeacher} />
+              </div>
             </motion.div>
 
             {/* Fila 4 — Análisis por dimensión */}

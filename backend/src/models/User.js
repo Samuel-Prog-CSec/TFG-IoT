@@ -655,4 +655,12 @@ userSchema.index({ createdBy: 1, role: 1 });
  */
 userSchema.index({ role: 1, accountStatus: 1 });
 
+/**
+ * Índice sparse sobre la fecha de retirada de consentimiento.
+ * Caso de uso: detector `consentWithdrawalSpike` (cron cada 5 min) que cuenta
+ * alumnos con `consent.withdrawnAt` dentro de una ventana reciente. Sparse porque
+ * la inmensa mayoría de usuarios tiene `withdrawnAt: null` (consentimiento vigente).
+ */
+userSchema.index({ 'consent.withdrawnAt': 1 }, { sparse: true });
+
 module.exports = mongoose.model('User', userSchema);

@@ -172,6 +172,8 @@ export default function SessionDetail() {
   const [availableStudents, setAvailableStudents] = useState([]);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [loadingStudents, setLoadingStudents] = useState(false);
+  // Distingue "fallo al cargar alumnos" de "el docente no tiene alumnos".
+  const [studentsFetchError, setStudentsFetchError] = useState(false);
 
   // A11y del modal de selección de alumno (foco inicial al botón cerrar,
   // focus-trap por Tab, Escape, lock de scroll y restauración de foco)
@@ -280,6 +282,7 @@ export default function SessionDetail() {
     }
 
     setLoadingStudents(true);
+    setStudentsFetchError(false);
     try {
       const studentsRes = await usersAPI.getStudentsByTeacher(teacherId, {
         sortBy: 'name',
@@ -288,6 +291,10 @@ export default function SessionDetail() {
       const students = extractData(studentsRes) || [];
       setAvailableStudents(Array.isArray(students) ? students : []);
     } catch (err) {
+      // Marcamos el fallo para distinguirlo de "no hay alumnos" en el render:
+      // antes el catch solo lanzaba un toast y dejaba la lista vacía, por lo que
+      // el modal mostraba "Aún no tienes alumnos" aunque fuera un error de red.
+      setStudentsFetchError(true);
       toast.error('No se pudieron cargar los alumnos', {
         description: extractErrorMessage(err)
       });
@@ -802,7 +809,21 @@ export default function SessionDetail() {
                   Cargando alumnos…
                 </div>
               )}
-              {!loadingStudents && availableStudents.length === 0 && (
+              {!loadingStudents && studentsFetchError && (
+                <div className="text-center py-6 space-y-3">
+                  <p className="text-sm text-error-base">
+                    No se pudieron cargar los alumnos. Comprueba tu conexión e inténtalo de nuevo.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={handleOpenPlayerModal}
+                    className="px-4 py-2 rounded-xl text-sm font-medium bg-background-elevated/80 border border-border-default text-text-primary hover:border-border-strong transition-colors focus-ring"
+                  >
+                    Reintentar
+                  </button>
+                </div>
+              )}
+              {!loadingStudents && !studentsFetchError && availableStudents.length === 0 && (
                 <div className="text-center py-6 text-text-muted text-sm">
                   Aún no tienes alumnos en tu aula. La dirección del centro puede asignártelos desde el Panel de dirección.
                 </div>

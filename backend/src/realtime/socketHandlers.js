@@ -426,6 +426,17 @@ const getAuthCacheEntry = accessToken => {
     return null;
   }
 
+  // El TTL del cache (30s) es INDEPENDIENTE del `exp` del propio JWT: un access
+  // token puede haber caducado hace <30s y seguir en cache. Sin esta comprobación,
+  // un token expirado autorizaría eventos sensibles del socket hasta 30s (el
+  // cache-hit hacía short-circuit sin re-verificar `exp`). Si el JWT ya expiró,
+  // tratamos la entrada como miss → `verifyAccessToken` lo rechaza limpiamente.
+  if (cached.tokenExp && cached.tokenExp * 1000 <= Date.now()) {
+    authRevalidationCache.delete(accessToken);
+    runtimeMetrics.recordSocketRevalidationCache('miss');
+    return null;
+  }
+
   runtimeMetrics.recordSocketRevalidationCache('hit');
   return cached;
 };

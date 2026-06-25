@@ -83,9 +83,6 @@ const NAMESPACES = {
   /** Flags de seguridad (logout forzado) */
   SECURITY: 'security',
 
-  /** Familias de tokens por usuario */
-  TOKEN_FAMILY: 'tokenfamily',
-
   /** Cache de mecánicas de juego (TTL: 1h) */
   CACHE_MECHANIC: 'cache:mechanic',
 
@@ -1344,6 +1341,62 @@ const reserveCardsAtomic = async (namespace, entries = [], ttlSeconds = 0) => {
 };
 
 /**
+ * Anti-replay del counter RFID con compare-and-set atómico (Lua).
+ *
+ * Lee y avanza el counter monotónico por sensor en UNA sola ejecución, cerrando
+ * la ventana TOCTOU del get-then-setex previo (dos scans del mismo sensor podían
+ * leer el mismo `previous`, pasar ambos y reabrir la ventana de replay).
+ * Fail-open si Redis/Lua no están disponibles: la firma HMAC sigue protegiendo;
+ * solo se podría reutilizar un scan capturado durante el outage (degradación
+ * consciente, alineada con `reserveCardsAtomic`).
+ *
+ * @param {string} namespace - Namespace del counter (p. ej. 'rfid:counter').
+ * @param {string} sensorId - Identificador del sensor.
+ * @param {number} counter - Counter entrante del firmware.
+ * @param {number} ttlSeconds - TTL del key en segundos.
+ * @returns {Promise<{accepted:boolean, degraded:boolean}>} accepted=false => replay.
+ */
+const rfidCounterCheckAndAdvance = async (namespace, sensorId, counter, ttlSeconds) => {
+  if (!checkRedisAvailable()) {
+    return { accepted: true, degraded: true };
+  }
+  try {
+    const counterKey = buildKey(namespace, sensorId);
+    const res = await evalLuaScript(
+      'rfidCounterCas',
+      1,
+      counterKey,
+      String(counter),
+      String(ttlSeconds)
+    );
+    redisBreaker.recordSuccess();
+    return { accepted: Number(res) === 1, degraded: false };
+  } catch (error) {
+    // Lua no disponible (entorno test con ioredis-mock, o fallo puntual): fallback
+    // secuencial get-then-setex. Reintroduce la ventana TOCTOU SOLO en este camino
+    // raro y no concurrente (en producción la CAS Lua es la vía normal), pero
+    // preserva la semántica anti-replay en vez de hacer fail-open.
+    logger.warn('Redis rfidCounterCheckAndAdvance: Lua no disponible, fallback get/set', {
+      error: error.message
+    });
+    try {
+      const previousRaw = await get(namespace, sensorId);
+      const previous = previousRaw ? Number.parseInt(previousRaw, 10) : -1;
+      if (Number.isFinite(previous) && counter <= previous) {
+        return { accepted: false, degraded: false };
+      }
+      await setWithTTL(namespace, sensorId, String(counter), ttlSeconds);
+      return { accepted: true, degraded: false };
+    } catch (fallbackError) {
+      logger.warn('Redis rfidCounterCheckAndAdvance: fallback get/set falló, fail-open', {
+        error: fallbackError.message
+      });
+      return { accepted: true, degraded: true };
+    }
+  }
+};
+
+/**
  * Liberación condicional atómica de tarjetas RFID usando Lua.
  * Solo elimina keys cuyo valor coincide con el playId esperado (owner-aware).
  *
@@ -1638,6 +1691,7 @@ module.exports = {
   reserveCardsAtomic,
   releaseCardsAtomic,
   renewLeaseAtomic,
+  rfidCounterCheckAndAdvance,
 
   // Pipeline batch operations
   existsMany,

@@ -33,12 +33,9 @@ describe('pendingTeachersAging detector', () => {
     const now = new Date();
     const fiveDaysAgo = new Date(now.getTime() - 5 * 24 * 60 * 60 * 1000);
     jest.spyOn(userRepository, 'findOne').mockResolvedValue(buildTeacher(fiveDaysAgo));
-    jest
-      .spyOn(userRepository, 'find')
-      .mockResolvedValue([
-        buildTeacher(fiveDaysAgo),
-        buildTeacher(new Date(now.getTime() - 3 * 24 * 60 * 60 * 1000), 'p2@test.com')
-      ]);
+    // El detector ahora cuenta con `userRepository.count` (antes traía todos los
+    // docs solo para `.length`); mockeamos el conteo en lugar de la lista.
+    jest.spyOn(userRepository, 'count').mockResolvedValue(2);
 
     const findings = await detector.run({ now });
     expect(findings).toHaveLength(1);
@@ -52,7 +49,7 @@ describe('pendingTeachersAging detector', () => {
     const now = new Date();
     const tenDaysAgo = new Date(now.getTime() - 10 * 24 * 60 * 60 * 1000);
     jest.spyOn(userRepository, 'findOne').mockResolvedValue(buildTeacher(tenDaysAgo));
-    jest.spyOn(userRepository, 'find').mockResolvedValue([buildTeacher(tenDaysAgo)]);
+    jest.spyOn(userRepository, 'count').mockResolvedValue(1);
 
     const findings = await detector.run({ now });
     expect(findings).toHaveLength(1);

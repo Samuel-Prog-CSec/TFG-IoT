@@ -882,7 +882,12 @@ class GameEngine {
       const invalidationTeacherId = playState.sessionDoc?.createdBy;
       const invalidationStudentId = playState.playDoc.playerId;
       const cacheInvalidations = [
-        cacheInvalidatePattern('cache:analytics', `*${invalidationStudentId}*`)
+        cacheInvalidatePattern('cache:analytics', `*${invalidationStudentId}*`),
+        // Las KPIs agregadas del centro (`admin:overview:<rango>`) NO llevan id de
+        // alumno/profesor en su key, así que los patrones por id no las alcanzan.
+        // Sin esto, el dashboard del director quedaba stale hasta el TTL (5 min)
+        // tras cada partida. Son 3 keys (7d/30d/90d): coste de invalidación mínimo.
+        cacheInvalidatePattern('cache:analytics', 'admin:overview:*')
       ];
       if (invalidationTeacherId) {
         cacheInvalidations.push(
