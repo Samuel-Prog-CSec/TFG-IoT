@@ -150,24 +150,48 @@ async function getCardAnalysis(teacherId, { timeRange = '30d', contextId, limit 
         completedAt: { $gte: startDate }
       }
     },
+    // El $lookup a game_sessions SOLO sirve para filtrar por contexto; sin
+    // contextId nos ahorramos el join sobre TODOS los plays del rango.
+    ...(contextId
+      ? [
+          {
+            $lookup: {
+              from: 'game_sessions',
+              localField: 'sessionId',
+              foreignField: '_id',
+              as: 'session'
+            }
+          },
+          { $unwind: '$session' },
+          { $match: { 'session.contextId': toObjectId(contextId) } }
+        ]
+      : []),
+    // Prefiltrar y proyectar ANTES del $unwind: nos quedamos solo con los eventos
+    // relevantes (correct/error/timeout con cardUid) y descartamos `session` y el
+    // resto de campos. Así el $unwind explota muchos menos sub-documentos y el
+    // $match por evento desenrollado deja de ser necesario.
     {
-      $lookup: {
-        from: 'game_sessions',
-        localField: 'sessionId',
-        foreignField: '_id',
-        as: 'session'
+      $project: {
+        playerId: 1,
+        events: {
+          $filter: {
+            input: '$events',
+            as: 'e',
+            cond: {
+              $and: [
+                { $in: ['$$e.eventType', ['correct', 'error', 'timeout']] },
+                // `$gt: [campo, null]` excluye null Y ausente (los `timeout` no llevan
+                // cardUid), replicando `$match {cardUid: {$ne: null}}`. Un `$ne` en
+                // expresión NO descarta el campo ausente → dejaría pasar timeouts sin
+                // tarjeta y crearía un grupo `_id: null` espurio (verificado en vivo).
+                { $gt: ['$$e.cardUid', null] }
+              ]
+            }
+          }
+        }
       }
     },
-    { $unwind: '$session' },
-    // Filtro por contexto (requiere el doc de sesión, post-lookup).
-    ...(contextId ? [{ $match: { 'session.contextId': toObjectId(contextId) } }] : []),
     { $unwind: '$events' },
-    {
-      $match: {
-        'events.eventType': { $in: ['correct', 'error', 'timeout'] },
-        'events.cardUid': { $ne: null }
-      }
-    },
     {
       $group: {
         _id: '$events.cardUid',

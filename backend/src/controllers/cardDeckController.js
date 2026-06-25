@@ -14,6 +14,7 @@ const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHe
 const { buildFilter } = require('../utils/filterBuilder');
 const { ensureResourceOwnership } = require('../utils/ownershipHelpers');
 const { withTransaction } = require('../utils/withTransaction');
+const { assertAssignedValuesInContext } = require('../utils/cardMappingValidation');
 
 /**
  * Límites de configuración para mazos de cartas.
@@ -99,14 +100,7 @@ async function validateContextAndAssignedValues(contextId, cardMappings) {
   }
 
   // assignedValue debe existir dentro de los assets del contexto (por value)
-  const allowedValues = new Set((context.assets || []).map(a => a.value));
-  const invalidValues = cardMappings.map(m => m.assignedValue).filter(v => !allowedValues.has(v));
-
-  if (invalidValues.length > 0) {
-    throw new ValidationError(
-      `assignedValue no existe en los assets del contexto: ${[...new Set(invalidValues)].join(', ')}`
-    );
-  }
+  assertAssignedValuesInContext(cardMappings, context);
 
   return context;
 }

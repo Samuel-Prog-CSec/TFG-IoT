@@ -25,7 +25,8 @@ export default function CardAssetPreview({
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(Boolean(imageUrl));
   // Retries permite recuperarse de fallos transitorios (red inestable, 5xx puntual).
-  // Cada retry invalida la cache del navegador con ?retry=N para forzar fetch nuevo.
+  // Cada retry remonta el <img> vía `key` (re-dispara la carga) manteniendo la URL
+  // canónica; antes se usaba ?retry=N, que rompía el cache de CDN/navegador.
   const [retries, setRetries] = useState(0);
 
   // Reset total cuando cambia la URL fuente (asset distinto).
@@ -65,16 +66,11 @@ export default function CardAssetPreview({
     }
   }, [retries, imageUrl, onImageError]);
 
-  // Cada retry añade ?retry=N al src para bypasear el cache del error.
-  let displaySrc = null;
-  if (imageUrl) {
-    if (retries > 0) {
-      const separator = imageUrl.includes('?') ? '&' : '?';
-      displaySrc = `${imageUrl}${separator}retry=${retries}`;
-    } else {
-      displaySrc = imageUrl;
-    }
-  }
+  // El src se mantiene canónico (cache-friendly). Para reintentar tras un error
+  // forzamos el remount del <img> vía `key` (re-dispara la carga) en lugar de
+  // ensuciar la URL con ?retry=N, que rompía el cache de CDN/navegador y volvía
+  // a descargar la imagen en cada reintento.
+  const displaySrc = imageUrl || null;
 
   const shouldShowImage = Boolean(imageUrl) && !imageError;
   // Preferimos fallbackLabel explicito del caller sobre asset.display porque
@@ -106,6 +102,7 @@ export default function CardAssetPreview({
           )}
           {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- onLoad/onError are lifecycle events, not user interactions */}
           <img
+            key={imageUrl ? `${imageUrl}#${retries}` : undefined}
             ref={imgRef}
             src={displaySrc}
             alt={alt || asset?.value || 'Recurso'}

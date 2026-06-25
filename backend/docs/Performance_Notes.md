@@ -785,3 +785,23 @@ React Doctor v2 + 5 agentes estáticos + verificación manual. La capa de datos 
 **Índices:** cobertura muy buena, alineada con las query shapes calientes. **No se recomienda crear ninguno** — los fixes son de proyección/`lean`, no de soporte de índice (la creación de índices es decisión humana).
 
 Detalle completo en ADR-208; informes de los agentes en `development/perf-audit-2026-06-12/`.
+
+---
+
+## Pase de rendimiento 2026-06-25 (production-readiness, target 1 instancia free-tier) — ADR-213..216
+
+**Restricción de plataforma: Atlas M0/M2/M5 NO soportan `allowDiskUse`.** Verificado en la doc oficial de Atlas (Free/Shared cluster limitations): los tiers compartidos **no** admiten `allowDiskUse` en `aggregate` (ni helper ni cursor), limitan a **50 stages** por pipeline y aplican el tope de **100 MB por etapa bloqueante** sin spill a disco. **Implicación operativa:** NO añadir `allowDiskUse: true` a ninguna agregación mientras el despliegue sea M0 — lanzaría error en runtime. Las pipelines se diseñan **memory-bounded**: prefiltro por `sessionId ∈ sesiones-del-docente` / `playerId ∈ alumnos` cuanto antes, `$project` que descarta `events[]`/`cardMappings[]` antes de `$unwind`/`$group`, y `$limit`. Si se migra a M10+ (dedicado), `gamePlayRepository.aggregate` podría threadear `allowDiskUse` por call-site en los pipelines pesados.
+
+**Optimizaciones aplicadas:**
+- **`sessionAnalysisService.getCardAnalysis`**: `$lookup` a `game_sessions` ahora **condicional** a `contextId`; `$filter`+`$project` de eventos relevantes **antes** del `$unwind` (menos cardinalidad, descarta `session`), eliminando el `$match` post-unwind. **Gotcha:** el equivalente en expresión de `{$ne:null}` (query) es `{$gt:['$$e.campo', null]}` — `{$ne:[...,null]}` deja pasar el campo *ausente* (los `timeout` no llevan `cardUid`) y crea un grupo `_id:null` espurio. Verificado equivalente en vivo (MCP, 62==62 grupos).
+- **`alertDetectionService.maybeReopenDismissed`**: N+1 (`findOne` por finding crítico) → un `find` con `$or` + Map en memoria.
+- **`alertDetectionService.bulkAction`**: invalidación por patrón (SCAN) que corría por cada alerta del lote (hasta 100) → una sola tras el bucle (flag `skipCacheInvalidation`).
+- **`GameEngine.endPlay`**: invalida también `admin:overview:*` (sus keys no llevan id de alumno/profesor; antes stale hasta el TTL).
+- **`lean`/`count`/proyección**: `count()` en `pendingTeachersAging`; `lean` en consultas de clase (engagement, classroom students/distribution, trajectory, export); populate redundante de `playerId` fuera de `completePlay`.
+- **Frontend assets:** `CardAssetPreview` reintenta vía remount con `key` (URL canónica, cache-friendly) en vez de `?retry=N` (rompía cache CDN); `AudioMiniPlayer` con `preload='metadata'` (solo duración, no el clip).
+
+**Diferido con razón (optimizaciones de ESCALA, no bugs a escala TFG / 1 instancia):**
+- **Reconcile de alertas write-side N+1** (`bulkWrite`): ruta de fondo (worker */15), impacto bajo con pocos docentes; refactor de ruta sensible (alertas de menores).
+- **Rate-limiter Redis recovery**: en 1 instancia el fallback a MemoryStore es funcionalmente correcto (el Redis store solo aporta en multi-instancia).
+- **Invalidación analytics inverse-index** (evitar 2 SCAN por partida): 26 call-sites, riesgo de staleness; ya diferido por el autor original.
+- **Batching de los ~12 detectores**: su `$match` ya está cubierto por el índice `{playerId,status,completedAt}` + proyectan `events[]` fuera antes del `$group` + corren en paralelo.

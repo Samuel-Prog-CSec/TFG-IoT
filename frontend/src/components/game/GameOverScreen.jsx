@@ -2,7 +2,7 @@ import { memo, useMemo, useEffect, useRef } from 'react';
 import { m as motion, useSpring, useTransform } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Star, Trophy, RotateCcw, Home, PartyPopper, Flame, Sparkles as SparklesIcon, Sparkle } from 'lucide-react';
-import { cn, calculateStars } from '../../lib/utils';
+import { cn, calculateStars, MAX_STARS } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { useConfetti } from '../../hooks/useConfetti';
 import { getGameOverCopy } from '../../lib/gameOverCopy';
@@ -24,9 +24,10 @@ import GameOverStats from './gameover/GameOverStats';
  *  - 3⭐ → `celebrating` + frase gameOverHigh.
  */
 function tierToMascot(stars) {
-  if (stars >= 3) return { mood: 'celebrating', tier: 'high' };
-  if (stars === 2) return { mood: 'happy', tier: 'mid' };
-  if (stars === 1) return { mood: 'encouraging', tier: 'mid' };
+  if (stars >= 5) return { mood: 'celebrating', tier: 'high' };
+  if (stars === 4) return { mood: 'happy', tier: 'high' };
+  if (stars === 3) return { mood: 'happy', tier: 'mid' };
+  if (stars === 2) return { mood: 'encouraging', tier: 'mid' };
   return { mood: 'worried', tier: 'low' };
 }
 
@@ -102,9 +103,9 @@ function GameOverScreen({
   const mechanicAccentVar = useMemo(() => {
     if (!summary?.mode) return null;
     const theme = getMechanicTheme(summary.mode);
-    // En Secuencia + 3⭐ → forzamos `--color-accent-orange` para alejar
+    // En Secuencia + nota máxima → forzamos `--color-accent-orange` para alejar
     // del amarillo del Trophy. En el resto, usamos `accentVar` directo.
-    if (summary.mode === 'sequence' && stars === 3) {
+    if (summary.mode === 'sequence' && stars === MAX_STARS) {
       return '--color-accent-orange';
     }
     return theme.accentVar;
@@ -138,19 +139,20 @@ function GameOverScreen({
   const tierConfig = useMemo(() => {
     const { title, subtitle } = getGameOverCopy(stars, summary?.mode);
     switch (stars) {
-      case 3: return {
+      case 5: return {
         Icon: Trophy, iconClass: 'text-warning-base drop-shadow-[0_0_18px_var(--color-warning-glow)]',
         text: title, sub: subtitle,
         glowA: 'bg-warning-base/25',
         glowB: mechanicGlowB || 'bg-brand-base/25',
       };
-      case 2: return {
+      case 4: return {
         Icon: PartyPopper, iconClass: 'text-success-base drop-shadow-[0_0_14px_var(--color-success-glow)]',
         text: title, sub: subtitle,
         glowA: 'bg-success-base/20',
         glowB: mechanicGlowB || 'bg-accent-cyan/20',
       };
-      case 1: return {
+      case 3:
+      case 2: return {
         Icon: Flame, iconClass: 'text-brand-base drop-shadow-[0_0_14px_var(--color-brand-glow)]',
         text: title, sub: subtitle,
         glowA: 'bg-brand-base/20',
@@ -220,12 +222,12 @@ function GameOverScreen({
   }, [stars, summary?.mode]);
 
   useEffect(() => {
-    if (shouldReduceMotion || stars < 2) return undefined;
-    // 2 estrellas (>=70%): rafagas laterales cortas.
-    // 3 estrellas (100%): rafagas + fireworks sostenidos 2s para celebracion completa.
+    if (shouldReduceMotion || stars < 3) return undefined;
+    // 3-4 estrellas (>=60%): rafagas laterales cortas.
+    // 5 estrellas (>=90%): rafagas + fireworks sostenidos 2s para celebracion completa.
     const timers = [];
     timers.push(setTimeout(() => fireSuccess({ colors: confettiColors }), 400));
-    if (stars === 3) {
+    if (stars === MAX_STARS) {
       // Offset sobre el fireSuccess para que se perciban en capas.
       timers.push(setTimeout(() => fireFireworks(2000, { colors: confettiColors }), 600));
     }
@@ -303,9 +305,9 @@ function GameOverScreen({
           <div 
             className="flex justify-center gap-3 mb-[clamp(0.4rem,2vh,1.5rem)]" 
             role="img" 
-            aria-label={`Puntuación: ${stars} de 3 estrellas`}
+            aria-label={`Puntuación: ${stars} de ${MAX_STARS} estrellas`}
           >
-            {[0, 1, 2].map((i) => {
+            {Array.from({ length: MAX_STARS }, (_, i) => i).map((i) => {
               const isEarned = i < stars;
               return (
                 <motion.div

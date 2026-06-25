@@ -60,6 +60,11 @@ export default function AudioMiniPlayer({
   // Crear y configurar el elemento de audio
   useEffect(() => {
     const audio = new Audio(audioUrl);
+    // preload='metadata': trae solo la duración (pocos KB) para pintar la barra,
+    // NO el clip completo hasta que el usuario pulse Play (ahorra egress de Supabase
+    // cuando el reproductor se monta pero no se reproduce). El audio es la única
+    // clase de asset sin optimizar en servidor, así que esto importa.
+    audio.preload = 'metadata';
     audioRef.current = audio;
 
     const onLoadedMetadata = () => {

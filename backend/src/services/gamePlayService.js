@@ -313,45 +313,63 @@ async function completePlay(playId) {
 }
 
 /**
- * Calcula el número de estrellas (0-3) a partir del porcentaje de aciertos.
- * Mismos umbrales que el frontend (lib/utils.js calculateStars).
+ * Escala canónica de estrellas (1-5) a partir del porcentaje de aciertos.
+ * Umbrales 90/75/60/40; mínimo 1⭐ (motivador para 4-8 años). Fuente ÚNICA
+ * compartida por la nota del docente y el rating de la respuesta de partida,
+ * y alineada con el frontend (lib/utils.js calculateStars).
+ *
+ * @param {number} percentage - 0..100
+ * @returns {number} 1..5
+ */
+function scorePercentToStars(percentage) {
+  if (percentage >= 90) {
+    return 5;
+  }
+  if (percentage >= 75) {
+    return 4;
+  }
+  if (percentage >= 60) {
+    return 3;
+  }
+  if (percentage >= 40) {
+    return 2;
+  }
+  return 1;
+}
+
+/**
+ * Calcula el número de estrellas (1-5) a partir de score/maxScore.
  *
  * @param {number} score
  * @param {number} pointsPerCorrect
  * @param {number} rounds
- * @returns {number} 0..3
+ * @returns {number} 1..5
  */
 function calculateStarsServerSide(score, pointsPerCorrect, rounds) {
   const safeRounds = Number.isInteger(rounds) && rounds > 0 ? rounds : 1;
   const maxScore = (pointsPerCorrect || 10) * safeRounds;
   const percentage = maxScore > 0 ? (Number(score) / maxScore) * 100 : 0;
-  if (percentage >= 90) {
-    return 3;
-  }
-  if (percentage >= 70) {
-    return 2;
-  }
-  if (percentage >= 50) {
-    return 1;
-  }
-  return 0;
+  return scorePercentToStars(percentage);
 }
 
 /**
- * Frase de elogio asociada al número de estrellas conseguidas.
+ * Frase de elogio asociada al número de estrellas (1-5) conseguidas.
  * Mantener tono docente conversacional, sin tecnicismos.
  *
- * @param {number} stars - 0..3
+ * @param {number} stars - 1..5
  * @returns {string}
  */
 function getPraiseForStars(stars) {
-  if (stars >= 3) {
+  if (stars >= 5) {
     return '¡Trabajo redondo!';
   }
-  if (stars === 2) {
+  if (stars === 4) {
+    return '¡Casi perfecto!';
+  }
+  if (stars === 3) {
     return '¡Buen ritmo!';
   }
-  if (stars === 1) {
+  if (stars === 2) {
     return 'Sigue así.';
   }
   return 'Toca repasar — vuelve a intentarlo.';
@@ -439,29 +457,20 @@ async function notifyTeacherPlayCompleted(play) {
 }
 
 /**
- * Calcula el rating visual (estrellas) basado en la puntuación.
+ * Rating visual en estrellas (⭐ a ⭐⭐⭐⭐⭐) basado en la puntuación.
+ * Deriva de la MISMA escala canónica que la nota del docente (scorePercentToStars),
+ * así que ambos coinciden siempre.
  *
  * @param {number} score - Puntuación final
  * @param {number} maxPointsPerRound - Puntos máximos por ronda
- * @returns {string} Rating en estrellas (⭐⭐⭐⭐⭐ a ⭐)
+ * @param {number} rounds - Número de rondas
+ * @returns {string} Rating en estrellas (⭐ a ⭐⭐⭐⭐⭐)
  */
 function calculateRating(score, maxPointsPerRound, rounds) {
   const safeRounds = Number.isInteger(rounds) && rounds > 0 ? rounds : 1;
-  const percentage = (score / (maxPointsPerRound * safeRounds)) * 100;
-
-  if (percentage >= 90) {
-    return '⭐⭐⭐⭐⭐';
-  }
-  if (percentage >= 75) {
-    return '⭐⭐⭐⭐';
-  }
-  if (percentage >= 60) {
-    return '⭐⭐⭐';
-  }
-  if (percentage >= 40) {
-    return '⭐⭐';
-  }
-  return '⭐';
+  const maxScore = (maxPointsPerRound || 10) * safeRounds;
+  const percentage = maxScore > 0 ? (score / maxScore) * 100 : 0;
+  return '⭐'.repeat(scorePercentToStars(percentage));
 }
 
 /**

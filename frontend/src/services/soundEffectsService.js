@@ -204,23 +204,22 @@ class SoundEffectsService {
    * intensidad y duración crecen con el tier para que la pantalla
    * GameOver suene proporcional al rendimiento del alumno.
    *
-   *  - 0⭐ → silencio (no celebrar fracasos).
-   *  - 1⭐ → pop suave de un par de notas.
-   *  - 2⭐ → arpegio C-E-G-C de duración media.
-   *  - 3⭐ → fanfare completa C-E-G-C-E-G-C ascendente y final largo.
+   *  - 1-2⭐ → pop suave de un par de notas.
+   *  - 3-4⭐ → arpegio C-E-G-C de duración media.
+   *  - 5⭐ → fanfare completa C-E-G-C-E-G-C ascendente y final largo.
    *
-   * @param {number} stars — 0..3
+   * @param {number} stars — 1..5 (escala canónica)
    */
   playGameOverFanfare(stars) {
     if (!this._enabled || !Number.isFinite(stars) || stars <= 0) return;
-    if (stars === 1) {
+    if (stars <= 2) {
       this._playSequence([
         { freq: 523, dur: 0.12 },  // C5
         { freq: 659, dur: 0.18 },  // E5
       ], 0.22);
       return;
     }
-    if (stars === 2) {
+    if (stars <= 4) {
       this._playSequence([
         { freq: 523, dur: 0.1 },   // C5
         { freq: 659, dur: 0.1 },   // E5
@@ -229,7 +228,7 @@ class SoundEffectsService {
       ], 0.28);
       return;
     }
-    // 3 estrellas — fanfare más rica.
+    // 5 estrellas — fanfare más rica.
     this._playSequence([
       { freq: 523, dur: 0.08 },    // C5
       { freq: 659, dur: 0.08 },    // E5

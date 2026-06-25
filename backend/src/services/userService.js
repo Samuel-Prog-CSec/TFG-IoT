@@ -14,29 +14,6 @@ const {
   ForbiddenError
 } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'userService' });
-const { invalidateUserCache } = require('../middlewares/auth');
-
-/**
- * Valida que un email no esté duplicado al crear o actualizar usuarios.
- *
- * @param {string} email - Email a validar
- * @param {string} [excludeUserId] - ID del usuario a excluir de la búsqueda (para updates)
- * @returns {Promise<void>}
- * @throws {ConflictError} Si el email ya existe
- */
-async function validateEmailUniqueness(email, excludeUserId = null) {
-  const query = { email };
-
-  if (excludeUserId) {
-    query._id = { $ne: excludeUserId };
-  }
-
-  const existingUser = await userRepository.findOne(query);
-
-  if (existingUser) {
-    throw new ConflictError('El email ya está en uso');
-  }
-}
 
 /**
  * Valida que un nombre no esté duplicado para estudiantes del mismo profesor.
@@ -257,79 +234,6 @@ async function updateConsent(studentId, consentData, requestingUser) {
     $set: updates,
     $push: { consentHistory: { $each: [historyEntry], $slice: -100 } }
   });
-}
-
-/**
- * Actualiza un usuario existente con validaciones.
- *
- * @param {string} userId - ID del usuario a actualizar
- * @param {Object} updates - Campos a actualizar
- * @param {string} [updates.name] - Nuevo nombre
- * @param {string} [updates.email] - Nuevo email (solo profesores)
- * @param {Object} [updates.profile] - Nuevos datos de perfil
- * @param {string} [updates.status] - Nuevo estado
- * @param {string} requestingUserId - ID del usuario que solicita la actualización
- * @returns {Promise<Object>} Usuario actualizado
- * @throws {NotFoundError} Si el usuario no existe
- * @throws {ValidationError} Si intenta modificar el role o actualizar datos inválidos
- */
-async function updateUser(userId, updates, requestingUserId) {
-  const user = await userRepository.findById(userId);
-
-  if (!user) {
-    throw new NotFoundError('Usuario');
-  }
-
-  // Validar que no se intente cambiar el role
-  if (updates.role && updates.role !== user.role) {
-    throw new ValidationError('No se puede cambiar el rol de un usuario');
-  }
-
-  // Si actualiza email, validar unicidad
-  if (updates.email && updates.email !== user.email) {
-    if (user.role !== 'teacher') {
-      throw new ValidationError('Los estudiantes no pueden tener email');
-    }
-    await validateEmailUniqueness(updates.email, userId);
-  }
-
-  // Si actualiza nombre de estudiante, validar unicidad con el mismo profesor
-  if (updates.name && updates.name !== user.name && user.role === 'student') {
-    await validateStudentNameUniqueness(
-      updates.name,
-      user.createdBy,
-      updates.profile?.classroom,
-      userId
-    );
-  }
-
-  // Actualizar campos
-  if (updates.name) {
-    user.name = updates.name;
-  }
-  if (updates.email) {
-    user.email = updates.email;
-  }
-  if (updates.status) {
-    user.status = updates.status;
-  }
-
-  if (updates.profile) {
-    user.profile = { ...user.profile.toObject(), ...updates.profile };
-  }
-
-  await user.save();
-
-  // Invalidar cache de slim-user para reflejar cambios en el siguiente request autenticado.
-  await invalidateUserCache(user._id);
-
-  logger.info('Usuario actualizado via service', {
-    userId: user._id,
-    role: user.role,
-    updatedBy: requestingUserId
-  });
-
-  return user;
 }
 
 /**
@@ -568,13 +472,11 @@ async function hardDeleteStudent(studentId, requestingUser) {
 
 module.exports = {
   createStudent,
-  updateUser,
   updateConsent,
   hardDeleteStudent,
   getStudentComparativeStats,
   getTeacherStudents,
   validateUserDeletion,
-  validateEmailUniqueness,
   validateStudentNameUniqueness,
   findDuplicateStudent,
   validateTeacher

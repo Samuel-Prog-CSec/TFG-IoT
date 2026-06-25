@@ -316,15 +316,23 @@ export function getRandomAccentColor() {
 }
 
 /**
- * Calcula las estrellas basado en el porcentaje de aciertos
+ * Número máximo de estrellas en la escala canónica de puntuación.
+ */
+export const MAX_STARS = 5;
+
+/**
+ * Calcula las estrellas (1-5) a partir del porcentaje de aciertos.
+ * Escala canónica: 90/75/60/40; mínimo 1⭐ (motivador para 4-8 años).
+ * Misma escala que el backend (gamePlayService.scorePercentToStars).
  * @param {number} correctPercentage - Porcentaje de respuestas correctas (0-100)
- * @returns {number} - Número de estrellas (0-3)
+ * @returns {number} - Número de estrellas (1-5)
  */
 export function calculateStars(correctPercentage) {
-  if (correctPercentage >= 90) return 3;
-  if (correctPercentage >= 70) return 2;
-  if (correctPercentage >= 50) return 1;
-  return 0;
+  if (correctPercentage >= 90) return MAX_STARS;
+  if (correctPercentage >= 75) return 4;
+  if (correctPercentage >= 60) return 3;
+  if (correctPercentage >= 40) return 2;
+  return 1;
 }
 
 /**

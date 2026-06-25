@@ -928,4 +928,22 @@ Pase complementario al de ADR-196 (8 agentes por dominio + verificación dinámi
 
 ---
 
-**Última actualización:** Segundo pase de auditoría ADR-197 (2026-06-06).
+## Auditoría de production-readiness (2026-06-25) — ver ADR-215
+
+Pase de production-readiness (target 1 instancia free-tier; datos de menores). Hallazgos de seguridad/RGPD y mitigaciones (detalle y verificación en ADR-215):
+
+- **Anti-replay RFID atómico (TOCTOU cerrado).** El validador HMAC hacía `GET` del counter y luego `SETEX` (dos scans concurrentes con el mismo counter podían colarse). Sustituido por **compare-and-set atómico en Lua** (`scripts/lua/rfidCounterCas.lua` vía `redisService.rfidCounterCheckAndAdvance`). Verificado: signed→válido, replay/counter-menor→`COUNTER_REPLAY`, tampered→`HMAC_INVALID`, táctil exento (19/19 tests + runtime).
+- **Dos IDOR cerrados.** `play_state_sync` (socket) devolvía el estado de una partida ajena (faltaba `requirePlayOwnership`); `createPlay` permitía a un docente vincular a un alumno de **otro** docente (ahora valida `player.createdBy === creator` salvo super_admin). Art. 21 / minimización.
+- **Gates de consentimiento (Art. 21 RGPD) en 3 vías de analytics** que analizaban/devolvían datos de alumnos sin consentimiento de `performance_analytics`: engagement de clase, dificultad de cartas y curvas de aprendizaje (mismo filtro de oposición que `getAnalyticsExcludedPlayerIds`).
+- **Detector de retirada de consentimiento revivido** — consultaba un path inexistente (`consent.history.*`) y nunca disparaba; reescrito a `countDocuments({role:'student','consent.withdrawnAt':{$gte:since}})` + índice sparse.
+- **Tokens expirados en socket** — `getAuthCacheEntry` ya no autoriza entradas cacheadas cuyo `tokenExp` venció.
+- **Rate-limit `auth`/`register` fail-closed** ante caída de Redis (el resto degrada a permitir por disponibilidad). Evento de telemetría propio `SECURITY_FILE_TYPE_REJECTED`.
+
+### Riesgos aceptados / decisiones de escala (2026-06-25)
+
+- **`allowDiskUse` NO se usa** (Atlas M0/M2/M5 no lo soportan): agregaciones memory-bounded por diseño. Ver ADR-216 / `Performance_Notes.md`.
+- **Optimizaciones de escala diferidas** (no son fallos de seguridad): reconcile de alertas write-side N+1, recovery del rate-limiter Redis (irrelevante en 1 instancia), inverse-index de invalidación analytics. Ver ADR-216.
+
+---
+
+**Última actualización:** Pase de production-readiness ADR-215/216 (2026-06-25).

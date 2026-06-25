@@ -5,7 +5,7 @@
  *   - Botón Bell de Lucide con badge contador de no leídas.
  *   - Pulse subtle cuando hay no-leídas (respeta reduced-motion).
  *   - Micro-celebración (scale + glow extra) cuando llega una notif
- *     `play_completed` con 3 estrellas (Phase 7 polish).
+ *     `play_completed` con 4-5 estrellas (Phase 7 polish).
  *   - Trigger del `NotificationsPanel` con click o `Shift+B`.
  *
  * @module components/notifications/NotificationBell
@@ -36,7 +36,8 @@ function isCelebratoryPush(notifications) {
     return false;
   }
   const stars = head?.metadata?.stars;
-  return typeof stars === 'number' && stars >= 3;
+  // Escala canónica 1-5: celebramos las 2 notas más altas (4-5⭐, >=75%).
+  return typeof stars === 'number' && stars >= 4;
 }
 
 export default function NotificationBell({ compact = false }) {

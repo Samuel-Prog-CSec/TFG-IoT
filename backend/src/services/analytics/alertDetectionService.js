@@ -253,21 +253,30 @@ async function maybeReopenDismissed(teacherId, findings, now) {
     return 0;
   }
 
+  // Una sola query trae TODOS los descartados candidatos (antes: un findOne por
+  // finding crítico → N+1 en cada ejecución del worker). Se indexan en memoria por
+  // studentId+type con el más reciente (el find viene ordenado por dismissedAt desc,
+  // así que la primera ocurrencia de cada clave es la última descartada).
+  const dismissedList = await smartAlertRepository.find(
+    {
+      teacherId,
+      status: 'dismissed',
+      $or: criticalFindings.map(f => ({ studentId: f.studentId, type: f.type }))
+    },
+    { sort: { dismissedAt: -1 } }
+  );
+  const latestDismissedByKey = new Map();
+  for (const d of dismissedList) {
+    const key = `${d.studentId}:${d.type}`;
+    if (!latestDismissedByKey.has(key)) {
+      latestDismissedByKey.set(key, d);
+    }
+  }
+
   // eslint-disable-next-line sonarjs/too-many-break-or-continue-in-loop -- guard clauses (early-continue) más legibles que anidar el cuerpo del bucle
   for (const finding of criticalFindings) {
-    const dismissed = await smartAlertRepository.findOne(
-      {
-        teacherId,
-        studentId: finding.studentId,
-        type: finding.type,
-        status: 'dismissed'
-      },
-      { sort: { dismissedAt: -1 } }
-    );
-    if (!dismissed) {
-      continue;
-    }
-    if (!dismissed.dismissedAt) {
+    const dismissed = latestDismissedByKey.get(`${finding.studentId}:${finding.type}`);
+    if (!dismissed || !dismissed.dismissedAt) {
       continue;
     }
     if (now - new Date(dismissed.dismissedAt) < reopenThresholdMs) {
@@ -639,7 +648,11 @@ async function getOwnedAlert(teacherId, alertId, { allowSuperAdmin = false } = {
   return alert;
 }
 
-async function dismissAlert(teacherId, alertId, { reason, userId, isSuperAdmin = false } = {}) {
+async function dismissAlert(
+  teacherId,
+  alertId,
+  { reason, userId, isSuperAdmin = false, skipCacheInvalidation = false } = {}
+) {
   if (reason && !DISMISS_REASONS_SET.has(reason)) {
     throw new ValidationError(`Motivo de descarte no válido: ${reason}`);
   }
@@ -653,7 +666,9 @@ async function dismissAlert(teacherId, alertId, { reason, userId, isSuperAdmin =
       dismissReason: reason || 'other'
     }
   });
-  await invalidateTeacherCache(teacherId);
+  if (!skipCacheInvalidation) {
+    await invalidateTeacherCache(teacherId);
+  }
   logger.info('alertLifecycle.dismissed', {
     teacherId,
     alertId: String(alertId),
@@ -663,7 +678,11 @@ async function dismissAlert(teacherId, alertId, { reason, userId, isSuperAdmin =
   return updated;
 }
 
-async function resolveAlert(teacherId, alertId, { userId, isSuperAdmin = false } = {}) {
+async function resolveAlert(
+  teacherId,
+  alertId,
+  { userId, isSuperAdmin = false, skipCacheInvalidation = false } = {}
+) {
   const alert = await getOwnedAlert(teacherId, alertId, { allowSuperAdmin: isSuperAdmin });
   const now = new Date();
   const updated = await smartAlertRepository.updateById(alert._id, {
@@ -673,7 +692,9 @@ async function resolveAlert(teacherId, alertId, { userId, isSuperAdmin = false }
       resolvedAutomatically: false
     }
   });
-  await invalidateTeacherCache(teacherId);
+  if (!skipCacheInvalidation) {
+    await invalidateTeacherCache(teacherId);
+  }
   logger.info('alertLifecycle.resolvedManually', {
     teacherId,
     alertId: String(alertId),
@@ -683,7 +704,11 @@ async function resolveAlert(teacherId, alertId, { userId, isSuperAdmin = false }
   return updated;
 }
 
-async function snoozeAlert(teacherId, alertId, { untilDate, userId, isSuperAdmin = false } = {}) {
+async function snoozeAlert(
+  teacherId,
+  alertId,
+  { untilDate, userId, isSuperAdmin = false, skipCacheInvalidation = false } = {}
+) {
   if (!(untilDate instanceof Date) || Number.isNaN(untilDate.getTime())) {
     throw new ValidationError('untilDate requerido');
   }
@@ -699,7 +724,9 @@ async function snoozeAlert(teacherId, alertId, { untilDate, userId, isSuperAdmin
       snoozedBy: userId
     }
   });
-  await invalidateTeacherCache(teacherId);
+  if (!skipCacheInvalidation) {
+    await invalidateTeacherCache(teacherId);
+  }
   logger.info('alertLifecycle.snoozed', {
     teacherId,
     alertId: String(alertId),
@@ -756,17 +783,37 @@ async function bulkAction(
   for (const id of alertIds) {
     try {
       let r;
+      // skipCacheInvalidation: una acción bulk toca alertas del MISMO docente; dejar
+      // que cada llamada invalide por patrón (SCAN) sería N invalidaciones idénticas.
       if (action === 'dismiss') {
-        r = await dismissAlert(teacherId, id, { reason, userId, isSuperAdmin });
+        r = await dismissAlert(teacherId, id, {
+          reason,
+          userId,
+          isSuperAdmin,
+          skipCacheInvalidation: true
+        });
       } else if (action === 'resolve') {
-        r = await resolveAlert(teacherId, id, { userId, isSuperAdmin });
+        r = await resolveAlert(teacherId, id, {
+          userId,
+          isSuperAdmin,
+          skipCacheInvalidation: true
+        });
       } else if (action === 'snooze') {
-        r = await snoozeAlert(teacherId, id, { untilDate, userId, isSuperAdmin });
+        r = await snoozeAlert(teacherId, id, {
+          untilDate,
+          userId,
+          isSuperAdmin,
+          skipCacheInvalidation: true
+        });
       }
       results.push({ id, ok: true, status: r?.status });
     } catch (err) {
       results.push({ id, ok: false, error: err.message });
     }
+  }
+  // Invalidación única para todo el lote (antes: una por alerta → hasta 100 SCAN).
+  if (results.some(r => r.ok)) {
+    await invalidateTeacherCache(teacherId);
   }
   return results;
 }

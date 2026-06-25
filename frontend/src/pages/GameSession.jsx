@@ -198,6 +198,8 @@ export default function GameSession() {
     isTimeout: feedbackIsTimeout,
     mascotMood,
     mascotMessage,
+    streak,
+    totalErrors,
   } = gameFeedback;
 
   // --- Timer hook (instanciado antes de callbacks para que setTimeLeft esté disponible) ---
@@ -992,11 +994,12 @@ export default function GameSession() {
     }
   }, [sessionIsMemory, gameState, memoryBoard, playId, emitBoardReady]);
 
-  // Sonido de victoria cuando la partida termina con buen resultado (>=2 estrellas)
+  // Sonido de victoria cuando la partida termina con buen resultado (>=3 estrellas, >=60%
+  // en la escala canónica de 5 niveles; mismo umbral que el confeti del game-over)
   useEffect(() => {
     if (gameState !== 'finished') return undefined;
     const percentage = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
-    if (calculateStars(percentage) >= 2) {
+    if (calculateStars(percentage) >= 3) {
       const timer = globalThis.setTimeout(() => playSuccess(), 600);
       return () => globalThis.clearTimeout(timer);
     }
@@ -1911,9 +1914,10 @@ export default function GameSession() {
         <footer className="relative z-10 px-3 py-1.5 sm:px-4 shrink-0">
           <CurrentPlayMetrics
             mode={mechanicMode}
-            score={score}
             correctAnswers={correctAnswers}
-            totalRounds={totalRounds}
+            totalErrors={totalErrors}
+            streak={streak}
+            attempts={memoryStats.attempts}
           />
         </footer>
       )}
