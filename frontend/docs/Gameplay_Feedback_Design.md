@@ -215,3 +215,47 @@ Implementación: métodos señal en `useGameFeedback` (`signalSequencePhase`, `s
 **Mirada ambiental.** `useAmbientGaze` desliza la pupila en moods de reposo (idle/thinking), baja frecuencia aleatorizada, pausada fuera de viewport y en reduced-motion.
 
 **Presencia ampliada.** Reusando la API de `CharacterMascot`: estados vacíos (slot `mascot` de `EmptyState`), Login/Register, errores (NotFound, `ErrorBoundary`, slot `mascot` de `ErrorState`) y previa de partida (`StepReview`).
+
+## Métricas en partida veraces y animación de puntos bidireccional (ADR-210)
+
+**Barra de métricas inferior (`CurrentPlayMetrics`) — un dato, una etiqueta, sin duplicar la cabecera.** La cabecera ya muestra puntuación (marcador) y progreso (Ronda X/N o Parejas X/Y + dots). El footer mostraba el mismo `correctAnswers` en dos pills y, en Secuencia, lo etiquetaba **"Ronda"** (de ahí que "Ronda" subiera con los aciertos: era la misma variable). Rediseño a tres métricas de rendimiento **distintas por mecánica**, con la etiqueta siempre coherente con su valor:
+
+| Mecánica | Pill 1 | Pill 2 | Pill 3 |
+|---|---|---|---|
+| Secuencia | Cartas correctas (`correctAnswers`) | Fallos (`totalErrors`) | Racha (`streak`) |
+| Asociación | Aciertos (`correctAnswers`) | Fallos (`totalErrors`) | Racha (`streak`) |
+| Memoria | Parejas (`correctAnswers`) | Intentos (`memoryStats.attempts`) | Fallos (`totalErrors`) |
+
+Se elimina el pill "Puntos" (lo lleva el marcador de la cabecera). `Fallos` = `totalErrors` agrega respuestas incorrectas + sin responder (timeout); el desglose preciso vive en el GameOver (Incorrectas / Sin responder).
+
+**Animación de puntos bidireccional (`ScoreDisplayCompact`).** El delta del marcador solo animaba sumas (`delta > 0`), así que una penalización bajaba la cifra **sin animación de resta**. Ahora se anima cualquier `delta ≠ 0`: acierto → verde, `+N`, flota hacia arriba; **penalización → rojo (`text-error-base`), `−N`, flota hacia abajo** (refuerza la pérdida). Se mantiene el clamp del marcador a 0 (QA 04/05) y se respeta `prefers-reduced-motion`. Coherencia: `MemoryBoard` muestra el badge flotante también en error (antes solo en acierto) y `FloatingPointsBadge` formatea el signo de resta de forma inequívoca (`−N`; sin número si `points === 0`, p. ej. timeout o sin penalización configurada).
+
+**Etiquetas de GameOver.** Pequeño ajuste de claridad: Secuencia "Incompletas" → "Parciales". Los tooltips siguen aportando la definición exacta. Además se elimina el **fallback legacy de 3 columnas** de `GameOverStatsAssociation` (rama `errors == null`): `normalizeFinalSummary` siempre produce un `errors` finito, así que esa rama era inalcanzable. El bloque de Asociación muestra siempre las 4 columnas (Incorrectas / Sin responder / T. medio / Tiempo).
+
+**Limpieza.** Se borra `FeedbackOverlay.jsx` (el antiguo overlay de feedback a pantalla completa, ya sustituido por el feedback en sitio de `ChallengeDisplay`/`MemoryBoard` + `useGameFeedback`): no se importaba ni renderizaba en ningún sitio (solo quedaba un `vi.mock` obsoleto, también retirado).
+
+## Otto — transiciones del rig sin hueco y ala de señalar (ADR-211)
+
+ADR-209 hizo la cara **persistente** (los slots ya no se desmontan), pero la calidad **en movimiento** seguía rota: tres defectos que se percibían como "los accesorios desaparecen al cambiar de mood". El test de persistencia (estructura) era ciego a esto — en jsdom el `exit` no completa, así que un slot puede pasar por opacidad ~0 en la app real y el test seguir en verde. Se diagnosticó con **muestreo de frames** (opacidad/alto por slot a ~60 fps) sobre un harness temporal.
+
+**1. Crossfade asimétrico (anti-hueco).** Los timings del crossfade de pico/alas/mejillas estaban **invertidos**: el entrante subía lento (`SLOT_FADE_IN` 0.2 s) y el saliente bajaba rápido (`SLOT_FADE_OUT` 0.14 s), así que al cruzarse el elemento más visible caía a ~0.45 de opacidad → parpadeo. Ahora **entrante rápido (≈0.12 s) / saliente lento (≈0.28 s)**: siempre hay una forma casi sólida presente (peor-caso ~0.66). Regla: en un cross-dissolve entre dos estados del MISMO rasgo, el objetivo es no-dip → enter-rápido/exit-lento (a diferencia de un elemento que simplemente entra o sale).
+
+**2. Morph de ojos en la familia redonda.** `open/wide/narrow` comparten estructura → sus **radios animan** (`EYE_MORPH`) sin pestañeo (la mayoría de transiciones en partida). El **parpadeo-swap se reserva** para `closedSmile` (happy) y `droopy` (sad), formas realmente distintas, donde además es un gesto de búho con carácter. Antes el ojo se cerraba a 1–6 px en cada cambio (leído como "ojos que desaparecen"); ahora se mantiene ~43–45 px salvo el pestañeo intencional de happy/sad.
+
+**3. Ala de señalar (recuperada de la hoja de modelo).** El estado `pointing` debía dibujar un **ala/brazo índigo extendido** hacia la flecha; el rig sólo tenía el ala de reposo y la flecha ámbar flotaba suelta (la queja recurrente "el ala que desaparece al señalar"). Ahora el brazo extendido + la flecha se dibujan juntos en el prop `arrow` (sobre el cuerpo, co-animados): Otto adelanta el ala y señala. Test de regresión estructural en `CharacterMascot.persistence.test.jsx` para que no vuelva a perderse.
+
+**Menor.** `propIn` (entrada de props) lleva `transform-box: fill-box` → los accesorios crecen desde su propio centro, no desde el origen del viewBox.
+
+## Otto como guía-narrador del onboarding (ADR-212)
+
+Antes la mascota en el onboarding (`OnboardingOverlay.jsx`) iba `absolute` en la esquina inferior izquierda → **tapaba "Atrás" y la nota**; solo aparecía en los pasos `modal` (no en los `spotlight`) → **intermitente**; y con `noBubble` + `pointing` era un **búho mudo señalando al vacío**. Rediseño a guía-narrador:
+
+- **`MascotGuide`** (componente compartido): Otto (`sm`) + bocadillo A SU LADO + mood. Lo usan los pasos modal y spotlight → Otto presente y consistente en TODO el tour. El bocadillo lo dibuja `MascotGuide` (no el interno de `CharacterMascot`, que ancla arriba). `aria-hidden`.
+- **Modal**: banda de cabecera (Otto + bocadillo / saltar) EN FLUJO → sin solape. Icono temático **pequeño** junto al título (el hero grande se retira; Otto es el ancla visual).
+- **Spotlight**: la cabecera-guía en el tooltip, `pointing` **orientado al elemento resaltado** (`flip` cuando el target queda a la izquierda; `thinking` si el tooltip cae debajo). El señalar por fin apunta a algo real.
+- **Voz**: `mascotLine` + `mascotMood` por paso (ambos tracks) en `onboardingTracks.js`; default derivado en `onboarding/mascotForStep.js` (paso 0 → `greeting`, último → `celebrating`, spotlight → `pointing`, resto modal → `thinking`).
+- **Gesto nuevo `greeting`** (saludo con el ala): mood de bienvenida (variante de ala `wave` animada). `happy` es "contento", no "hola".
+
+**Adenda 1 — Otto invisible en superficies `isFirstAppearance` + centrado.** Otto no se veía (solo el bocadillo) en login, registro y el **paso 1** del tour (las que pasan `isFirstAppearance`). Causa: el `motion.div` del cuerpo conflaba **entrada y bucle corporal en un solo `animate`**; el `initial` fija `{x:±60, opacity:0}` pero `bodyAnimation[bodyAnim]` (float/sway) no declara `x`/`opacity` → Framer las congela en el inicial → Otto invisible y a la izquierda. **Regla:** un `initial` con `opacity`/`x` exige que TODO `animate` posterior las declare, o se congelan. **Fix:** dos wrappers — externo = entrada (siempre resuelve a `{x:0, opacity:1}`), interno = bucle corporal (y/scale/rotate, nunca opacity). En la cabecera modal, además, Otto se **centra**: saltar `[X]` pasa a `absolute` (esquina sup-dcha) y `MascotGuide` gana modo `stacked` (`flex-col-reverse`: **bocadillo arriba, Otto debajo**, centrados, pico hacia abajo).
+
+**Adenda 2 — pulido de la mascota.** (1) **Pico del bocadillo siempre a la IZQUIERDA** (convención de cómic): en `stacked` pasó de centrado a `left-5`. (2) **El Otto del login SALUDA**: `idle`→`greeting` (ala `wave` + "¡Hola!"); `rotatingMessage` habilitado para `greeting`; `wave` con `repeatDelay:2` (periódico). (3) **Login/registro: Otto se asoma hacia el formulario** (se ancla al borde del hero del lado del form). (4) **El gesto de los pompones (`encouraging`) se lee como "alas extendidas sujetando los pompones"**: las DOS alas levantadas hacia arriba y hacia fuera —como el ala del saludo, pero ambas, mayormente fuera de la silueta del cuerpo para que se vean bien— con un pompón posado en cada PUNTA. **Nota:** los pompones son del mood **`encouraging`** (no `celebrating`, que usa estrellas). Validado en navegador real (jsdom no detecta el congelado de opacity).

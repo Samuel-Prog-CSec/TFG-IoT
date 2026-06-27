@@ -16,7 +16,7 @@
   <TimerBar />        // Solo maneja el tiempo
   <ScoreDisplay />    // Solo muestra puntuación
   <ChallengeDisplay /> // Solo muestra el desafío
-  <FeedbackOverlay /> // Solo muestra feedback
+  <CharacterMascot /> // Solo reacciona al juego
 </GameSession>
 ```
 

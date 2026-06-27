@@ -72,7 +72,7 @@ Componentes específicos de la mecánica de juego.
 | `ChallengeDisplay.jsx` | Muestra el desafío actual |
 | `TimerBar.jsx` | Barra de tiempo visual |
 | `ScoreDisplay.jsx` | Puntuación con estrellas |
-| `FeedbackOverlay.jsx` | Overlay de éxito/error |
+| `CurrentPlayMetrics.jsx` | Métricas de rendimiento en partida (footer) |
 | `GameOverScreen.jsx` | Pantalla de fin de juego |
 | `CharacterMascot.jsx` | Mascota animada |
 

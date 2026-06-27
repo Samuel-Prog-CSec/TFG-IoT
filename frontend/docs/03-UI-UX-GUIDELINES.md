@@ -40,6 +40,24 @@
 - **Fondo oscuro:** Reduce fatiga visual, contraste con contenido colorido
 - **Verde/Rojo semánticos:** Universalmente reconocidos para éxito/error
 
+### Fondo de ventana: lo pinta el layout, no las páginas (ADR-205)
+
+Invariante de fondo a sangre completa para evitar el "escalón de color" (el fondo
+se corta a la altura del contenido y por debajo asoma otro tono):
+
+- **El layout es el único que pinta el fondo de ventana.** `AppLayout` lo garantiza
+  en su raíz (`flex min-h-screen bg-background-base`, que crece con el contenido) +
+  la aurora `fixed inset-0`. `GameLayout` usa `game-bg` sobre `h-[100dvh]`.
+- **Las páginas embebidas en un layout son transparentes:** no declaran su propio
+  `bg-*` de página ni usan `min-h-full` para rellenar. Bajo `AppLayout` el scroll vive
+  en el `body` (PROP-100) y el `<Outlet>` se envuelve en un `motion.div` de altura
+  automática → un `min-height: 100%` (`min-h-full`) **no resuelve** y colapsa a la
+  altura del contenido, dejando ver el fondo del layout por debajo.
+- **Si una pantalla necesita atmósfera propia** (lienzo distinto, inmersión), se modela
+  como ruta *standalone* con su propio layout y unidades de **viewport**
+  (`min-h-screen` / `h-[100dvh]`), nunca con `min-height` porcentual bajo scroll de `body`
+  (así lo hacen Login, Registro, Privacidad y `GameSession`).
+
 ---
 
 ## Tipografía
@@ -125,6 +143,13 @@ box-shadow: 0 4px 12px rgba(0,0,0,0.2);
 transform: scale(0.98);
 ```
 
+### Sliders y rangos: el relleno SIEMPRE sigue al thumb (ADR-210)
+
+Cuando un `<input type="range">` pinta un relleno custom (gradiente inline), el porcentaje del relleno debe ser **exactamente** la fracción que el navegador usa para posicionar el thumb: `(value - min) / (max - min) · 100`. Usar otra fórmula (p. ej. `|value| / max`) hace que el relleno y el punto se muevan desacoplados.
+
+- Para un rango con semántica negativa (penalización), trabajar en **magnitud** (`min=0`, `value = |negativo|`) y guardar el negativo en `onChange`. Así "más a la derecha = más relleno" es intuitivo y el relleno coincide con el thumb. Helper: `getRangeFillPercent(value, min, max)` en `components/session/sessionHelpers.js`.
+- Si no se necesita relleno custom, el `accent-color` nativo ya rellena hasta el thumb correctamente (no reinventar).
+
 ---
 
 ## Animaciones
@@ -205,6 +230,10 @@ const container = {
 │      "¡Escanea la tarjeta!"        │
 └─────────────────────────────────────┘
 ```
+
+### Métricas de la partida: cada dato distinto y con etiqueta veraz (ADR-210)
+
+La cabecera lleva puntuación (marcador) y progreso (Ronda/Parejas). La barra inferior (`CurrentPlayMetrics`) **no repite** esos datos: muestra tres métricas de rendimiento por mecánica (aciertos / fallos / racha o intentos) y **la etiqueta describe siempre su valor exacto**. Regla: nunca etiquetar un contador con algo que no es (el caso original era "Ronda" mostrando los aciertos en Secuencia). El cambio de puntuación se anima en el marcador en ambos sentidos: `+N` verde hacia arriba al sumar, `−N` rojo hacia abajo al penalizar.
 
 ### Estados Visuales del Timer
 
