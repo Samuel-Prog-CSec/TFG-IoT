@@ -97,9 +97,9 @@ function GameOverStatsSequence({ summary }) {
       <div className="grid grid-cols-3 gap-2">
         <MetricPill
           tone="neutral"
-          label="Incompletas"
+          label="Parciales"
           value={partialRounds}
-          tooltip="Rondas con al menos un acierto pero sin completar la secuencia"
+          tooltip="Rondas con algún acierto pero sin completar la secuencia"
         />
         <MetricPill icon={Hourglass} tone="neutral" label="T. medio" value={avgTimeLabel} />
         <MetricPill icon={Clock3} tone="neutral" label="Tiempo total" value={totalTimeLabel} />

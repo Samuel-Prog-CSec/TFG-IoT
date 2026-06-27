@@ -145,9 +145,9 @@ const ChallengeDisplay = function ChallengeDisplay({
       transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
       className={cn(
         "relative flex flex-col items-center justify-center",
-        // Padding ajustado para que la tarjeta no domine la pantalla y deje
-        // espacio al fallback panel y a la mascota sin necesidad de scroll.
-        "p-4 sm:p-6",
+        // Padding vh-aware: se compacta en viewports de poca altura (720p) para
+        // que el reto + el panel táctil quepan SIN recorte (fit-to-viewport).
+        "p-[clamp(0.6rem,2.2vh,1.5rem)]",
         "rounded-3xl",
         `bg-gradient-to-br ${theme.bg}`,
         "border-2 transition-[border-color,box-shadow] duration-300",
@@ -232,7 +232,9 @@ const ChallengeDisplay = function ChallengeDisplay({
         {assetImageUrl && !imageError ? (
           <div
             className={cn(
-              "relative size-28 sm:size-40 lg:size-52 mx-auto mb-2 rounded-2xl overflow-hidden",
+              // Tamaño vh-aware: la imagen del reto encoge en viewports de poca
+              // altura para evitar recorte del contenido (fit-to-viewport).
+              "relative size-[clamp(4rem,13vh,12rem)] mx-auto mb-[clamp(0.2rem,0.9vh,0.5rem)] rounded-2xl overflow-hidden",
               // Marco tematizado: ring + shadow con color del tema
               `ring-2 ring-offset-2 ring-offset-transparent`,
               theme.border.replace('border-', 'ring-'),
@@ -287,7 +289,7 @@ const ChallengeDisplay = function ChallengeDisplay({
           </div>
         ) : (
           <motion.div
-            className="text-7xl sm:text-9xl lg:text-[10rem] mb-2 select-none filter drop-shadow-lg leading-none flex items-center justify-center"
+            className="text-[clamp(3.5rem,12vh,9rem)] mb-[clamp(0.25rem,1vh,0.5rem)] select-none filter drop-shadow-lg leading-none flex items-center justify-center"
             animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
               scale: [1, 1.1, 1],
               rotate: [0, 3, -3, 0]
@@ -321,7 +323,7 @@ const ChallengeDisplay = function ChallengeDisplay({
             animate={{ opacity: 1, y: 0 }}
             transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.2 }}
             className={cn(
-              "text-2xl sm:text-3xl lg:text-4xl font-bold font-display tracking-tight",
+              "text-[clamp(1.15rem,3.2vh,2.25rem)] font-bold font-display tracking-tight leading-tight",
               theme.text
             )}
           >

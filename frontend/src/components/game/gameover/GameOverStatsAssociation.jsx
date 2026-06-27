@@ -18,9 +18,10 @@ import { Link2, XCircle, Clock3, Hourglass, AlarmClock, Sparkles } from 'lucide-
 import MetricPill from '../../ui/MetricPill';
 
 function GameOverStatsAssociation({ summary, totalRounds, correctAnswers }) {
-  const errors = Number.isFinite(summary?.errors) ? summary.errors : null;
-  const unanswered =
-    errors != null ? Math.max(0, totalRounds - correctAnswers - errors) : null;
+  // `normalizeFinalSummary` siempre produce un `errors` finito (del backend o
+  // `totalAttempts - correctAnswers`); no existe caso sin errores que tratar.
+  const errors = Math.max(0, Number(summary?.errors) || 0);
+  const unanswered = Math.max(0, totalRounds - correctAnswers - errors);
   const avgTimeLabel = (() => {
     if (summary?.averageResponseTimeMs > 0) {
       return `${(summary.averageResponseTimeMs / 1000).toFixed(1)}s`;
@@ -173,25 +174,6 @@ function GameOverStatsAssociation({ summary, totalRounds, correctAnswers }) {
       {renderHeroValue()}
     </motion.div>
   ) : null;
-
-  if (errors == null) {
-    return (
-      <div className="space-y-[clamp(0.35rem,1.4vh,0.75rem)] mb-[clamp(0.5rem,2vh,2rem)]">
-        {heroBlock}
-        <div className="grid grid-cols-3 gap-2">
-          <MetricPill
-            icon={XCircle}
-            tone="neutral"
-            label="Incompletas"
-            value={Math.max(0, totalRounds - correctAnswers)}
-            tooltip="Rondas no completadas (incorrectas + sin responder)"
-          />
-          <MetricPill icon={Hourglass} tone="neutral" label="T. medio" value={avgTimeLabel} />
-          <MetricPill icon={Clock3} tone="neutral" label="Tiempo" value={totalTimeLabel} />
-        </div>
-      </div>
-    );
-  }
 
   return (
     <div className="space-y-[clamp(0.35rem,1.4vh,0.75rem)] mb-[clamp(0.5rem,2vh,2rem)]">

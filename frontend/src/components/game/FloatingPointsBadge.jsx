@@ -33,6 +33,24 @@ export default function FloatingPointsBadge({
 }) {
   const { shouldReduceMotion } = useReducedMotion();
   const styles = BADGE_STYLES[type];
+  const isSuccess = type === 'success';
+
+  // `points` llega del backend como `pointsAwarded`: positivo en acierto y
+  // negativo (config.penaltyPerError) en penalización. Es 0 cuando no hay
+  // penalización configurada o es un timeout: en ese caso NO mostramos número
+  // (un "0"/"−0" confunde) y dejamos solo el mensaje.
+  let pointsLabel = null;
+  if (isSuccess) {
+    pointsLabel = `+${points}`;
+  } else if (points < 0) {
+    pointsLabel = `−${Math.abs(points)}`;
+  }
+
+  // aria-label compuesto fuera del JSX para evitar ternarios/templates anidados.
+  const resultWord = isSuccess ? 'Correcto' : 'Incorrecto';
+  const pointsSpeechVerb = isSuccess ? 'Más' : 'Menos';
+  const pointsSpeech = pointsLabel ? `${pointsSpeechVerb} ${Math.abs(points)} puntos.` : '';
+  const ariaLabel = `${resultWord}. ${pointsSpeech} ${message}`.replace(/\s+/g, ' ').trim();
 
   return (
     <AnimatePresence>
@@ -40,7 +58,7 @@ export default function FloatingPointsBadge({
         <motion.div
           role="status"
           aria-live="assertive"
-          aria-label={`${type === 'success' ? 'Correcto' : 'Incorrecto'}. ${type === 'success' ? 'Más' : ''} ${points} puntos. ${message}`}
+          aria-label={ariaLabel}
           initial={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: 20, scale: 0.8 }}
           animate={shouldReduceMotion ? { opacity: 1 } : { opacity: 1, y: 0, scale: 1 }}
           exit={shouldReduceMotion ? { opacity: 0 } : {
@@ -62,9 +80,11 @@ export default function FloatingPointsBadge({
             className
           )}
         >
-          <span className={cn('font-bold text-lg font-display', styles.points)}>
-            {type === 'success' ? `+${points}` : points}
-          </span>
+          {pointsLabel && (
+            <span className={cn('font-bold text-lg font-display', styles.points)}>
+              {pointsLabel}
+            </span>
+          )}
           {message && (
             <span className={cn('text-sm font-medium', styles.text)}>
               {message}

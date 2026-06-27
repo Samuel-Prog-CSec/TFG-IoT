@@ -5,7 +5,7 @@
  */
 
 import { useState, useEffect, useMemo } from 'react';
-import { m as motion } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Heart, Sparkle } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -64,8 +64,6 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
     setPrevBoard(safeBoard.map(s => ({ slotIndex: s.slotIndex, isMatched: s.isMatched, isRevealed: s.isRevealed })));
   }, [board]); // eslint-disable-line react-hooks/exhaustive-deps
 
-  const isSuccess = feedbackState === 'success';
-
   const pairsFound = safeBoard.filter(s => s.isMatched).length / 2;
   const pairsTotal = total > 0 ? total / 2 : 0;
   const pairMarkers = useMemo(
@@ -122,16 +120,20 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
         </output>
       )}
 
-      {/* Badge flotante para acierto */}
-      {isSuccess && (
-        <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
-          <FloatingPointsBadge
-            type="success"
-            points={feedbackPoints}
-            message={feedbackMessage}
-          />
-        </div>
-      )}
+      {/* Badge flotante de puntos: acierto (verde, +N) y penalización por
+          pareja incorrecta (rojo, −N). Antes solo se mostraba en acierto
+          (`isSuccess`), por eso Memoria nunca enseñaba la resta de puntos. */}
+      <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
+        <AnimatePresence>
+          {feedbackState !== 'idle' && (
+            <FloatingPointsBadge
+              type={feedbackState}
+              points={feedbackPoints}
+              message={feedbackMessage}
+            />
+          )}
+        </AnimatePresence>
+      </div>
 
       {/*
         Grid ocupa el resto del alto disponible (flex-1 min-h-0). Las cards usan

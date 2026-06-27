@@ -42,10 +42,6 @@ vi.mock('../../components/game/ScoreDisplay', () => ({
   ScoreDisplayCompactMemo: () => <div data-testid="score">score</div>
 }));
 
-vi.mock('../../components/game/FeedbackOverlay', () => ({
-  default: () => <div data-testid="feedback">feedback</div>
-}));
-
 vi.mock('../../components/game/GameOverScreen', () => ({
   default: ({ score, summary }) => (
     <div data-testid="game-over">
@@ -308,7 +304,10 @@ describe('GameSession realtime gameplay', () => {
     });
 
     expect(await screen.findByText(/Encuentra:/i)).toBeInTheDocument();
-    expect(screen.getByText(/Puntos/i)).toBeInTheDocument();
+    // El marcador de puntos vive en la cabecera (ScoreDisplayCompact, mockeado
+    // aquí). El footer de métricas muestra ahora datos de rendimiento distintos
+    // y no redundantes: en Asociación, "Aciertos".
+    expect(screen.getByText(/Aciertos/i)).toBeInTheDocument();
   });
 
   it('renders memory-specific panel and pair progress from memory_turn_state', async () => {
