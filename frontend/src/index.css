@@ -1216,14 +1216,14 @@
 }
 
 /* ------------------------------------------------------------------
- * Slider custom para "penalización" (rango negativo [-N..0])
+ * Slider custom para "penalización"
  *
- * El accent-color nativo pinta desde min hacia value, lo que con un
- * rango negativo invierte la intuicion del profesor ("mas fill = mas
- * penalizacion"). `.penalty-range` usa appearance:none y un
- * linear-gradient explicito en `style` inline, para que el fill
- * corresponda con |value|/|min| desde la izquierda. Los estilos del
- * thumb aqui mantienen la firma rojo/error del resto de la UI.
+ * El input trabaja en MAGNITUD (0..5) y guarda el valor en negativo en
+ * el config. `.penalty-range` usa appearance:none y un linear-gradient
+ * explicito en `style` inline cuyo % lo calcula getRangeFillPercent
+ * (sessionHelpers). Asi el fill coincide EXACTO con el thumb y crece a
+ * la derecha ("mas a la derecha = mas penalizacion = mas relleno"). Los
+ * estilos del thumb mantienen la firma rojo/error del resto de la UI.
  * ------------------------------------------------------------------ */
 .penalty-range {
   -webkit-appearance: none;

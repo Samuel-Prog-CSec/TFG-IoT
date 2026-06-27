@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
-import { DIFFICULTY_VARIANT_STYLES } from './sessionHelpers';
+import { DIFFICULTY_VARIANT_STYLES, getRangeFillPercent } from './sessionHelpers';
 import { configShape } from './sessionPropTypes';
 
 const DIFFICULTIES = [
@@ -170,25 +170,25 @@ export default function StepMemoryRules({
               <input
                 id="memory-penalty-error"
                 type="range"
-                min={-5}
-                max={0}
+                // El slider trabaja en MAGNITUD (0..5) y guarda el valor en
+                // negativo. Con min=0 el thumb se posiciona en value/5 y el
+                // fill pintado a mano (getRangeFillPercent) coincide EXACTO
+                // con el thumb ("más a la derecha = más penalización = más
+                // relleno"). Antes el input iba en negativo (min=-5..0) y el
+                // fill |value|/5 quedaba invertido respecto al thumb.
+                min={0}
+                max={5}
                 step={1}
-                value={config.penaltyPerError}
-                aria-valuetext={`${config.penaltyPerError} puntos por pareja incorrecta`}
-                onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
+                value={Math.abs(config.penaltyPerError)}
+                aria-valuetext={config.penaltyPerError === 0 ? 'Sin penalización' : `${config.penaltyPerError} puntos por pareja incorrecta`}
+                onChange={(e) => onConfigChange('penaltyPerError', -Number.parseInt(e.target.value, 10))}
                 className="flex-1 penalty-range"
-                // El accent-color nativo pinta desde min hacia value. Con rango
-                // negativo eso deja la barra más llena cuanto menor es la
-                // penalización (valor cercano a 0), al revés de la intuición
-                // del profe ("más fill = más penalización"). Ocultamos el
-                // accent-color con transparent y pintamos un gradient
-                // explícito proporcional a |value| / 5 desde la izquierda.
                 style={{
                   accentColor: 'transparent',
                   background: `linear-gradient(to right, var(--color-error-base) 0%, var(--color-error-base) ${
-                    (Math.abs(config.penaltyPerError) / 5) * 100
+                    getRangeFillPercent(Math.abs(config.penaltyPerError), 0, 5)
                   }%, var(--color-background-elevated) ${
-                    (Math.abs(config.penaltyPerError) / 5) * 100
+                    getRangeFillPercent(Math.abs(config.penaltyPerError), 0, 5)
                   }%, var(--color-background-elevated) 100%)`
                 }}
               />

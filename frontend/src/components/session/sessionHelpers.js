@@ -58,6 +58,25 @@ export const getStepDescription = (stepId, mechanicKey) => {
   return WIZARD_STEPS.find(s => s.id === stepId)?.description || '';
 };
 
+/**
+ * Porcentaje de relleno (0-100) de un slider proporcional a la posicion del
+ * thumb: `(value - min) / (max - min) * 100`. Imprescindible para que el fill
+ * pintado a mano coincida EXACTAMENTE con donde el navegador coloca el thumb.
+ * El slider de penalizacion trabaja en magnitud (min=0), asi que "mas relleno
+ * = mas penalizacion" y el fill sigue al punto sin invertirse.
+ *
+ * @param {number} value
+ * @param {number} min
+ * @param {number} max
+ * @returns {number} porcentaje acotado a [0, 100]
+ */
+export const getRangeFillPercent = (value, min, max) => {
+  const span = max - min;
+  if (!Number.isFinite(span) || span === 0) return 0;
+  const pct = ((Number(value) - min) / span) * 100;
+  return Math.min(100, Math.max(0, pct));
+};
+
 // Configuraciones por defecto segun dificultad
 export const DIFFICULTY_PRESETS = {
   easy: {

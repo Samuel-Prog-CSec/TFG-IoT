@@ -19,7 +19,7 @@ import {
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import AssociationChallengeComposer from './AssociationChallengeComposer';
-import { DIFFICULTY_VARIANT_STYLES } from './sessionHelpers';
+import { DIFFICULTY_VARIANT_STYLES, getRangeFillPercent } from './sessionHelpers';
 import { configShape, cardMappingShape, challengePlanItemShape } from './sessionPropTypes';
 import { ASSOCIATION_LIMITS } from '../../constants/associationConfig';
 
@@ -204,22 +204,25 @@ export default function StepRules({
               <input
                 id="assoc-penalty-error"
                 type="range"
-                min={-5}
-                max={0}
-                value={config.penaltyPerError}
-                aria-valuetext={`${config.penaltyPerError} puntos por error`}
-                onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
+                // El slider trabaja en MAGNITUD (0..5) y guarda el valor en
+                // negativo. Con min=0 el thumb se posiciona en value/5 y el
+                // fill pintado a mano (getRangeFillPercent) coincide EXACTO
+                // con el thumb: "mas a la derecha = mas penalizacion = mas
+                // relleno". Antes el input iba en negativo (min=-5..0) y el
+                // fill |value|/5 quedaba invertido respecto al thumb.
+                min={0}
+                max={5}
+                step={1}
+                value={Math.abs(config.penaltyPerError)}
+                aria-valuetext={config.penaltyPerError === 0 ? 'Sin penalización' : `${config.penaltyPerError} puntos por error`}
+                onChange={(e) => onConfigChange('penaltyPerError', -Number.parseInt(e.target.value, 10))}
                 className="flex-1 penalty-range"
-                // Ver nota en StepMemoryRules.jsx: con rango negativo el fill
-                // nativo del accent-color va al reves de lo intuitivo.
-                // Ocultamos el accent-color con transparent y pintamos un
-                // gradient explicito proporcional a |value| / 5.
                 style={{
                   accentColor: 'transparent',
                   background: `linear-gradient(to right, var(--color-error-base) 0%, var(--color-error-base) ${
-                    (Math.abs(config.penaltyPerError) / 5) * 100
+                    getRangeFillPercent(Math.abs(config.penaltyPerError), 0, 5)
                   }%, var(--color-background-elevated) ${
-                    (Math.abs(config.penaltyPerError) / 5) * 100
+                    getRangeFillPercent(Math.abs(config.penaltyPerError), 0, 5)
                   }%, var(--color-background-elevated) 100%)`
                 }}
               />
