@@ -65,7 +65,7 @@ export function useSessionWizardData() {
         if (isAbortError(err)) {
           return;
         }
-        toast.error('Error al cargar datos', {
+        toast.error('No pudimos cargar los datos de la sesión', {
           description: extractErrorMessage(err)
         });
       } finally {

@@ -164,7 +164,7 @@ const MfaManagementPanel = ({ status, onChange }) => {
     setBusyAction('disable');
     try {
       await authAPI.mfaDisable(password);
-      toast.success('MFA deshabilitado. Vuelve a iniciar sesión.');
+      toast.success('Verificación en dos pasos desactivada. Vuelve a iniciar sesión.');
       // El backend ha revocado todas las sesiones del usuario — el próximo request
       // devolverá 401 y AuthContext redirigirá. Forzamos la redirección inmediata.
       // Mantenemos `busyAction` para que el botón siga mostrando "Deshabilitando…"
@@ -175,7 +175,7 @@ const MfaManagementPanel = ({ status, onChange }) => {
       // un error real, pero igualmente hay que liberar el botón. Cualquier otro
       // error muestra toast.
       if (err?.code !== 'MFA_CANCELLED') {
-        toast.error(extractErrorMessage(err) || 'No se pudo deshabilitar MFA');
+        toast.error(extractErrorMessage(err) || 'No se pudo desactivar la verificación en dos pasos');
       }
       setBusyAction(null);
     }
@@ -220,11 +220,11 @@ const MfaManagementPanel = ({ status, onChange }) => {
                 id="mfa-active-title"
                 className="text-xl font-semibold text-text-primary"
               >
-                MFA habilitado para tu cuenta
+                Verificación en dos pasos activada
               </h2>
               <p className="text-sm text-text-muted mt-1 max-w-md">
                 Las acciones críticas (eliminar usuarios, purgas RGPD, desbloquear cuentas) te
-                pedirán un código TOTP cuando entres a ejecutarlas.
+                pedirán un código de tu app cuando entres a ejecutarlas.
               </p>
             </div>
           </div>
@@ -259,7 +259,7 @@ const MfaManagementPanel = ({ status, onChange }) => {
             <AlertTriangle className="size-4 flex-shrink-0 mt-0.5 text-warning-base" aria-hidden />
             <span>
               {exhaustedBackup
-                ? 'Has consumido todos los códigos de respaldo. Sin ellos, si pierdes el dispositivo MFA no podrás acceder. Genera nuevos cuanto antes.'
+                ? 'Has consumido todos los códigos de respaldo. Sin ellos, si pierdes el móvil con la app no podrás acceder. Genera nuevos cuanto antes.'
                 : `Solo te quedan ${remaining} código${backupPlural} de respaldo. Te recomendamos regenerarlos.`}
             </span>
           </div>
@@ -279,7 +279,7 @@ const MfaManagementPanel = ({ status, onChange }) => {
           </div>
           <p className="text-sm text-text-muted">
             Genera 8 nuevos códigos de un solo uso. Los actuales quedarán invalidados al instante.
-            Te pediremos un código TOTP de tu app autenticadora para confirmar.
+            Te pediremos un código de tu app de autenticación para confirmar.
           </p>
           <ButtonPremium
             type="button"
@@ -306,11 +306,11 @@ const MfaManagementPanel = ({ status, onChange }) => {
             <div className="size-10 rounded-lg bg-error-base/15 border border-error-base/30 flex items-center justify-center">
               <ShieldOff className="size-5 text-error-base" aria-hidden />
             </div>
-            <h3 className="text-base font-semibold text-text-primary">Deshabilitar MFA</h3>
+            <h3 className="text-base font-semibold text-text-primary">Desactivar la verificación en dos pasos</h3>
           </div>
           <p className="text-sm text-text-muted">
-            Elimina el segundo factor de tu cuenta. Las acciones críticas dejarán de pedir TOTP y
-            tu sesión se cerrará automáticamente. Requiere contraseña + código MFA reciente.
+            Quita el segundo paso de seguridad de tu cuenta. Las acciones críticas dejarán de pedir
+            código y tu sesión se cerrará automáticamente. Requiere tu contraseña y un código reciente.
           </p>
 
           {!disableOpen ? (
@@ -324,7 +324,7 @@ const MfaManagementPanel = ({ status, onChange }) => {
               // card dark daba 3.87:1. red-300 (dark) + error-dark (light).
               className="self-start text-error-on-alpha hover:bg-error-base/10"
             >
-              <ShieldOff className="size-4" aria-hidden /> Quiero deshabilitar
+              <ShieldOff className="size-4" aria-hidden /> Quiero desactivarla
             </ButtonPremium>
           ) : (
             <form onSubmit={handleDisableSubmit} noValidate className="space-y-3">
@@ -380,11 +380,11 @@ const MfaManagementPanel = ({ status, onChange }) => {
                 >
                   {busyAction === 'disable' ? (
                     <>
-                      <Loader2 className="size-4 animate-spin" aria-hidden /> Deshabilitando…
+                      <Loader2 className="size-4 animate-spin" aria-hidden /> Desactivando…
                     </>
                   ) : (
                     <>
-                      <ShieldOff className="size-4" aria-hidden /> Deshabilitar
+                      <ShieldOff className="size-4" aria-hidden /> Desactivar
                     </>
                   )}
                 </ButtonPremium>
@@ -425,7 +425,7 @@ const MfaSetupWizard = ({ onCompleted }) => {
 
   const verifyCode = async () => {
     if (!/^\d{6}$/.test(code.trim())) {
-      toast.error('Introduce los 6 dígitos del código TOTP');
+      toast.error('Introduce los 6 dígitos del código');
       return;
     }
     setBusy(true);
@@ -434,9 +434,9 @@ const MfaSetupWizard = ({ onCompleted }) => {
       const data = res?.data?.data || res?.data;
       setBackupCodes(data?.backupCodes || []);
       setStep(Step.BACKUP);
-      toast.success('MFA habilitado');
+      toast.success('Verificación en dos pasos activada');
     } catch (err) {
-      toast.error(extractErrorMessage(err) || 'Código TOTP inválido');
+      toast.error(extractErrorMessage(err) || 'Código inválido');
     } finally {
       setBusy(false);
     }
@@ -445,7 +445,7 @@ const MfaSetupWizard = ({ onCompleted }) => {
   const downloadBackupCodes = () => {
     const codesList = backupCodes.map((c, i) => `${i + 1}. ${c}`).join('\n');
     const lines = [
-      'EduPlay RFID - Backup Codes MFA',
+      'EduPlay RFID - Códigos de respaldo',
       `Cuenta: ${setupData?.accountName || ''}`,
       `Generados: ${new Date().toISOString()}`,
       '',
@@ -469,7 +469,7 @@ const MfaSetupWizard = ({ onCompleted }) => {
           <h2 className="text-xl font-semibold mb-3 text-text-primary">Antes de empezar</h2>
           <ul className="space-y-2 text-text-muted mb-6 list-disc pl-5">
             <li>Necesitas una app de autenticación (Google Authenticator, Authy, 1Password…).</li>
-            <li>Tras habilitar MFA tu sesión se cerrará y deberás volver a iniciar sesión.</li>
+            <li>Tras activar la verificación en dos pasos tu sesión se cerrará y deberás volver a iniciar sesión.</li>
             <li>Recibirás 8 códigos de respaldo de un solo uso. Guárdalos en lugar seguro.</li>
           </ul>
           <ButtonPremium
@@ -515,7 +515,7 @@ const MfaSetupWizard = ({ onCompleted }) => {
                 onChange={e => setCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
                 placeholder="123456"
                 className="w-full px-4 py-3 rounded-lg border border-border-default bg-background-base text-text-primary text-center text-2xl tracking-widest font-mono"
-                aria-label="Código TOTP de verificación"
+                aria-label="Código de verificación"
               />
               <ButtonPremium
                 type="button"
@@ -530,7 +530,7 @@ const MfaSetupWizard = ({ onCompleted }) => {
                     <Loader2 className="size-4 animate-spin" aria-hidden /> Verificando…
                   </>
                 ) : (
-                  'Verificar y habilitar MFA'
+                  'Verificar y activar'
                 )}
               </ButtonPremium>
             </div>
@@ -577,7 +577,7 @@ const MfaSetupWizard = ({ onCompleted }) => {
             <div className="size-12 rounded-full bg-success-base/15 border border-success-base/30 flex items-center justify-center">
               <CheckCircle2 className="size-6 text-success-base" aria-hidden />
             </div>
-            <h2 className="text-xl font-semibold text-text-primary">MFA configurado correctamente</h2>
+            <h2 className="text-xl font-semibold text-text-primary">Verificación en dos pasos configurada</h2>
             <p className="text-text-muted max-w-md">
               Tu sesión se cerrará automáticamente. Vuelve a iniciar sesión para confirmar.
             </p>
@@ -604,7 +604,7 @@ const MfaSetupPage = () => {
   // useDocumentTitle: el resto de páginas admin actualizan el <title> via
   // este hook. MfaSetup quedaba como "EduPlay - Juegos Educativos RFID"
   // (auditoría 24/05/2026).
-  useDocumentTitle('Seguridad · MFA');
+  useDocumentTitle('Seguridad de la cuenta');
   const [status, setStatus] = useState(null); // null=loading, object=loaded
   const [error, setError] = useState(null);
   const [regeneratedCodes, setRegeneratedCodes] = useState(null);
@@ -619,7 +619,7 @@ const MfaSetupPage = () => {
       setError(null);
     } catch (err) {
       if (err?.code === 'ERR_CANCELED') return;
-      setError(extractErrorMessage(err) || 'No se pudo cargar el estado MFA');
+      setError(extractErrorMessage(err) || 'No se pudo cargar el estado de seguridad');
     }
   }, []);
 
@@ -642,16 +642,16 @@ const MfaSetupPage = () => {
   return (
     <AdminPageShell
       icon={ShieldCheck}
-      title="Seguridad · MFA"
-      description="El doble factor protege acciones críticas: eliminación de usuarios, purgas RGPD y desbloqueo de cuentas. Solo aplica a tu cuenta de dirección."
-      ariaLabel="Configuración de seguridad MFA"
+      title="Seguridad de la cuenta"
+      description="La verificación en dos pasos protege acciones críticas: eliminación de usuarios, purgas RGPD y desbloqueo de cuentas. Solo aplica a tu cuenta de dirección."
+      ariaLabel="Configuración de seguridad de la cuenta"
       maxWidth="max-w-3xl"
     >
 
       {status === null && !error && (
         <div className="flex items-center gap-3 p-6 rounded-2xl border border-border-default bg-background-elevated text-text-muted">
           <Loader2 className="size-5 animate-spin" aria-hidden />
-          <span>Cargando estado MFA…</span>
+          <span>Cargando estado de seguridad…</span>
         </div>
       )}
 
@@ -702,7 +702,7 @@ const RegeneratedCodesPanel = ({ codes, onDismiss }) => {
     const list = codes.map((c, i) => `${i + 1}. ${c}`).join('\n');
     const blob = new Blob(
       [
-        'EduPlay RFID - Backup Codes MFA (regenerados)',
+        'EduPlay RFID - Códigos de respaldo (regenerados)',
         `Generados: ${new Date().toISOString()}`,
         '',
         'IMPORTANTE: cada código se puede usar UNA SOLA VEZ.',

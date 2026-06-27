@@ -285,7 +285,7 @@ export default function ContextsPage() {
           );
           if (error) return (
             <ErrorState
-              title="Error al cargar contextos"
+              title="No pudimos cargar tus contextos"
               message={`${error} Pulsa Reintentar o recarga la página.`}
               onRetry={refetch}
               className="max-w-lg mx-auto mt-12"
@@ -563,7 +563,7 @@ function CreateContextModal({ onClose, onSuccess }) {
           description: 'Elige un identificador diferente.'
         });
       } else {
-        toast.error('Error al crear el contexto', { description: msg });
+        toast.error('No pudimos crear el contexto', { description: msg });
       }
     } finally {
       setIsSubmitting(false);

@@ -25,7 +25,7 @@ export default class ChartErrorBoundary extends Component {
       return (
         <div className="flex flex-col items-center justify-center p-8 text-center bg-background-elevated/40 rounded-2xl border border-border-subtle min-h-[200px]">
           <AlertTriangle size={32} className="text-error-on-alpha mb-3" />
-          <p className="text-text-primary font-medium mb-1">Error al renderizar este componente</p>
+          <p className="text-text-primary font-medium mb-1">No pudimos mostrar este gráfico</p>
           <p className="text-text-muted text-sm mb-4">Los datos pueden estar en un formato inesperado.</p>
           <ButtonPremium variant="secondary" size="sm" onClick={this.handleReset}>
             <RefreshCw size={14} className="mr-1.5" />

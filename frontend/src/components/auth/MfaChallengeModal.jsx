@@ -70,15 +70,15 @@ const MfaChallengeModal = () => {
       const data = res?.data?.data || res?.data;
       const mfaToken = data?.mfaToken;
       const expiresIn = data?.expiresIn || 300;
-      if (!mfaToken) throw new Error('Respuesta MFA inválida');
+      if (!mfaToken) throw new Error('Respuesta de verificación inválida');
       setMfaToken(mfaToken, expiresIn);
       globalThis.dispatchEvent(
         new CustomEvent('mfa:token-acquired', { detail: { expiresIn } })
       );
-      toast.success('Verificación MFA correcta');
+      toast.success('Verificación correcta');
       close(false);
     } catch (err) {
-      toast.error(extractErrorMessage(err) || 'Código MFA inválido');
+      toast.error(extractErrorMessage(err) || 'Código inválido');
       setSubmitting(false);
     }
   };
@@ -106,13 +106,13 @@ const MfaChallengeModal = () => {
             className="bg-background-elevated border border-border-default rounded-2xl shadow-xl max-w-md w-full p-6"
           >
             <h2 id="mfa-challenge-title" className="text-xl font-semibold text-text-primary mb-2">
-              Verificación MFA
+              Verificación en dos pasos
             </h2>
             <p id="mfa-challenge-description" className="text-sm text-text-muted mb-4">
-              Esta acción requiere doble factor.{' '}
+              Esta acción requiere un código de verificación.{' '}
               {useBackup
-                ? 'Introduce uno de tus backup codes (formato XXXX-XXXX-XXXX-XXXX).'
-                : 'Abre tu app autenticadora e introduce el código de 6 dígitos.'}
+                ? 'Introduce uno de tus códigos de respaldo (formato XXXX-XXXX-XXXX-XXXX).'
+                : 'Abre tu app de autenticación e introduce el código de 6 dígitos.'}
             </p>
             <form onSubmit={handleSubmit}>
               <InputPremium
@@ -125,7 +125,7 @@ const MfaChallengeModal = () => {
                 onChange={(e) => setCode(e.target.value)}
                 maxLength={useBackup ? 19 : 6}
                 inputClassName="text-center text-2xl tracking-widest font-mono"
-                aria-label="Código de verificación MFA"
+                aria-label="Código de verificación"
               />
               <div className="flex items-center justify-between mt-4 gap-3">
                 <button
@@ -137,7 +137,7 @@ const MfaChallengeModal = () => {
                     setTimeout(() => inputRef.current?.focus(), 50);
                   }}
                 >
-                  {useBackup ? '← Usar código TOTP' : 'Usar código de respaldo →'}
+                  {useBackup ? '← Usar código de la app' : 'Usar código de respaldo →'}
                 </button>
                 <div className="flex gap-2">
                   <ButtonPremium

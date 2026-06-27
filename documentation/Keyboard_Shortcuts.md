@@ -30,7 +30,7 @@ El listener inspecciona `event.target.closest('input, textarea, select, [content
 | `g` luego `m` | Mis Mazos | `/decks` |
 | `g` luego `a` | Mis Alumnos | `/analytics/students` |
 | `g` luego `c` | Contextos | `/contexts` |
-| `g` luego `i` | Insights | `/analytics/insights` |
+| `g` luego `n` | Análisis | `/analytics/insights` |
 
 ### Acciones
 

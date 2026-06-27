@@ -681,7 +681,7 @@ export default function SessionsPage() {
       }
       const message = extractErrorMessage(err);
       setError(message);
-      toast.error('Error al cargar sesiones', { description: message });
+      toast.error('No pudimos cargar tus sesiones', { description: message });
     } finally {
       if (!signal?.aborted) {
         setLoading(false);
@@ -969,7 +969,7 @@ export default function SessionsPage() {
 
         {error && (
           <ErrorState
-            title="Error al cargar sesiones"
+            title="No pudimos cargar tus sesiones"
             message={`${error} Pulsa Reintentar o recarga la página.`}
             onRetry={refetchSessions}
           />

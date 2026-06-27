@@ -51,8 +51,8 @@ const ALERT_TYPES = Object.freeze({
     requiresMechanic: null
   }),
   consistent_timeout: Object.freeze({
-    label: 'Timeouts consistentes',
-    description: 'Alta tasa de timeouts en las últimas partidas (≥30 %).',
+    label: 'Se queda sin tiempo a menudo',
+    description: 'El alumno se queda sin tiempo en muchas partidas (≥30 %).',
     thresholds: Object.freeze({ warning: 0.3 }),
     direction: 'negative',
     requiresMechanic: null
@@ -72,8 +72,8 @@ const ALERT_TYPES = Object.freeze({
     requiresMechanic: null
   }),
   engagement_drop: Object.freeze({
-    label: 'Caída de compromiso',
-    description: 'El engagement score del alumno cayó >25 % vs el periodo anterior.',
+    label: 'Caída de implicación',
+    description: 'La implicación del alumno cayó más de un 25 % respecto al periodo anterior.',
     thresholds: Object.freeze({ warning: 25 }),
     direction: 'negative',
     requiresMechanic: null

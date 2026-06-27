@@ -233,7 +233,7 @@ export default function CreateSession() {
       }, shouldReduceMotion ? 100 : 600);
 
     } catch (err) {
-      toast.error('Error al crear sesion', {
+      toast.error('No pudimos crear la sesión', {
         description: extractErrorMessage(err)
       });
       setIsSubmitting(false);
@@ -321,7 +321,15 @@ export default function CreateSession() {
   };
 
   return (
-    <div className="min-h-full bg-background-deep p-4 lg:p-8">
+    // El fondo de la app lo pinta SIEMPRE el layout (AppLayout: `bg-background-base`
+    // + aurora), garantizado a altura completa por el contenedor raíz `min-h-screen`.
+    // Las páginas embebidas en AppLayout NO deben pintar su propio fondo a sangre
+    // completa: `min-h-full` (min-height:100%) no resuelve contra el scroll del body
+    // —el `motion.div` con `key={pathname}` que envuelve el <Outlet> tiene altura
+    // automática—, así que el color colapsaba a la altura del contenido y por debajo
+    // asomaba el `background-base` del layout, creando un escalón de color visible.
+    // Página transparente = un único fondo continuo en toda la ventana (ADR-205).
+    <div className="p-4 lg:p-8">
       {/* Header */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}

@@ -275,7 +275,7 @@ describe('Dashboard — integracion analytics', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText('Error al cargar datos')).toBeInTheDocument();
+      expect(screen.getByText('No pudimos cargar tu panel')).toBeInTheDocument();
     });
 
     expect(screen.getByText(/No se pudieron cargar los datos del dashboard/)).toBeInTheDocument();
@@ -369,7 +369,7 @@ describe('Dashboard — integracion analytics', () => {
     expect(screen.getByText('Puntuación Media')).toBeInTheDocument();
     expect(screen.getByText('Partidas Hoy')).toBeInTheDocument();
     // No debe haber mensaje de error si solo fallan los secundarios
-    expect(screen.queryByText('Error al cargar datos')).not.toBeInTheDocument();
+    expect(screen.queryByText('No pudimos cargar tu panel')).not.toBeInTheDocument();
   });
 
   it('renderiza los graficos stub correctamente', async () => {

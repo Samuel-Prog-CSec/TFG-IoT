@@ -156,7 +156,7 @@ function buildChecklist(reportType, format) {
     return base;
   }
   // student
-  const base = ['KPIs individuales', 'Trayectoria de aprendizaje', 'Engagement'];
+  const base = ['KPIs individuales', 'Trayectoria de aprendizaje', 'Implicación'];
   if (format === 'detailed') {
     return [...base, 'Sesiones recientes', 'Mapa de tarjetas difíciles', 'Curvas de aprendizaje'];
   }

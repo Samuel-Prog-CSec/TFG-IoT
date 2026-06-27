@@ -126,7 +126,7 @@ export const NAV_ROUTES = [
   },
   {
     path: ROUTES.INSIGHTS,
-    label: 'Insights',
+    label: 'Análisis',
     icon: 'TrendingUp',
     dataTour: 'insights',
   },
@@ -206,7 +206,7 @@ export const ADMIN_NAV_ROUTES = [
   },
   {
     path: ROUTES.ADMIN_MFA_SETUP,
-    label: 'Seguridad (MFA)',
+    label: 'Seguridad de la cuenta',
     icon: 'KeyRound',
     dataTour: 'admin-mfa',
   },

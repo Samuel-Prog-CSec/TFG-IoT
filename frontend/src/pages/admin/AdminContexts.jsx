@@ -295,7 +295,7 @@ function renderContextsSection({
     return (
       <EmptyState
         icon={<AlertTriangle size={48} className="text-error-base" />}
-        title="Error al cargar contextos"
+        title="No pudimos cargar los contextos"
         description={error}
         action={
           <ButtonPremium variant="primary" onClick={loadContexts}>

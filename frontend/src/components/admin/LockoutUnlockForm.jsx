@@ -81,8 +81,8 @@ export default function LockoutUnlockForm() {
         <p className="text-sm text-text-secondary max-w-2xl">
           Las cuentas se bloquean automáticamente tras 5 intentos fallidos de
           login en 15 minutos (T-905). Usa este formulario para reactivarlas
-          manualmente. La acción requiere un código MFA reciente y se
-          registra en el audit log.
+          manualmente. La acción requiere un código de verificación reciente y se
+          registra en el historial de auditoría.
         </p>
       </header>
 
@@ -103,7 +103,7 @@ export default function LockoutUnlockForm() {
           <div className="flex items-center justify-between gap-3 pt-2">
             <span className="text-xs text-text-muted inline-flex items-center gap-1.5">
               <ShieldCheck size={14} aria-hidden="true" />
-              Te pediremos el código MFA al confirmar
+              Te pediremos el código de verificación al confirmar
             </span>
             <ButtonPremium
               type="submit"

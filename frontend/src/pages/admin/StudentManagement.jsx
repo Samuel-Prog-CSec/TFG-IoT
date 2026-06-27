@@ -510,7 +510,7 @@ export default function StudentManagement() {
     } catch (err) {
       if (!isAbortError(err)) {
         setError(extractErrorMessage(err));
-        toast.error('Error al cargar datos', {
+        toast.error('No pudimos cargar el alumnado', {
           description: 'Recarga la página o inténtalo de nuevo en unos segundos.'
         });
       }

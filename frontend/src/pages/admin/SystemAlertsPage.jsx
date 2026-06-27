@@ -88,7 +88,7 @@ export default function SystemAlertsPage() {
     <AdminPageShell
       icon={ShieldAlert}
       title="Alertas y avisos del centro"
-      description="Vigila el estado operativo (Redis, MongoDB, colas, seguridad, moderación y cumplimiento) y publica avisos para todo el profesorado desde un único panel."
+      description="Vigila el estado de la plataforma —rendimiento, seguridad, moderación y protección de datos— y publica avisos para todo el profesorado desde un único panel."
       ariaLabel="Alertas y avisos del centro"
       className="space-y-0"
     >

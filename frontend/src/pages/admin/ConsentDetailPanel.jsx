@@ -200,7 +200,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       setDetailedStudent(data.data ?? data);
     } catch (err) {
       if (err?.code === 'ERR_CANCELED') return;
-      toast.error('Error al cargar los datos del alumno', {
+      toast.error('No pudimos cargar los datos del alumno', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -256,7 +256,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       onConsentChanged?.();
       await fetchDetail(student.id);
     } catch (err) {
-      toast.error('Error al revocar el consentimiento', {
+      toast.error('No pudimos revocar el consentimiento', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -285,7 +285,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       onConsentChanged?.();
       await fetchDetail(student.id);
     } catch (err) {
-      toast.error('Error al re-otorgar el consentimiento', {
+      toast.error('No pudimos volver a otorgar el consentimiento', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -307,7 +307,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       downloadBlob(blob, `datos-alumno-${safeName}-${dateStr}.json`);
       toast.success('Datos exportados correctamente');
     } catch (err) {
-      toast.error('Error al exportar los datos', {
+      toast.error('No pudimos exportar los datos', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -339,7 +339,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       onConsentChanged?.();
       await fetchDetail(student.id);
     } catch (err) {
-      toast.error('Error al actualizar los propósitos', {
+      toast.error('No pudimos actualizar los propósitos', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -357,7 +357,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       onConsentChanged?.();
       onClose();
     } catch (err) {
-      toast.error('Error al eliminar los datos', {
+      toast.error('No pudimos eliminar los datos', {
         description: extractErrorMessage(err)
       });
     } finally {

@@ -64,26 +64,28 @@ export const SYSTEM_ALERT_TYPE_ICONS = {
   admin_approval_spike: ShieldCheck
 };
 
-/** Tipo → etiqueta corta en español. */
+// Tipo → etiqueta corta en español, en lenguaje claro y sin jerga técnica
+// (el detalle técnico vive en la descripción y en "Detalles técnicos" de la
+// tarjeta). Sincronizado con los `label` de backend/src/config/systemAlerts.js.
 export const SYSTEM_ALERT_TYPE_LABELS = {
-  redis_high_latency: 'Latencia Redis',
-  mongo_disconnected: 'MongoDB desconectado',
-  memory_pressure: 'Memoria al límite',
-  queue_backlog: 'Cola acumulada',
-  upstash_commands_quota: 'Comandos Upstash al límite',
-  atlas_storage_quota: 'Almacenamiento Atlas al límite',
-  rate_limit_store_fallback: 'Rate limit no distribuido',
-  in_memory_cache_low_hit: 'Caché LRU con bajo rendimiento',
-  account_lockout_spike: 'Bloqueos de cuenta',
-  auth_failed_spike: 'Fallos de login',
-  token_theft_detected: 'Token comprometido',
-  rfid_hmac_spike: 'Anomalía RFID',
-  pending_teachers_aging: 'Profesores pendientes',
+  redis_high_latency: 'El sistema responde con lentitud',
+  mongo_disconnected: 'La base de datos no responde',
+  memory_pressure: 'Memoria del servidor casi llena',
+  queue_backlog: 'Tareas en segundo plano acumuladas',
+  upstash_commands_quota: 'Cerca del límite del plan gratuito',
+  atlas_storage_quota: 'Almacenamiento casi lleno',
+  rate_limit_store_fallback: 'Protección frente a abusos reducida',
+  in_memory_cache_low_hit: 'Rendimiento de la caché bajo',
+  account_lockout_spike: 'Aumento de cuentas bloqueadas',
+  auth_failed_spike: 'Muchos intentos de acceso fallidos',
+  token_theft_detected: 'Posible acceso no autorizado',
+  rfid_hmac_spike: 'Actividad sospechosa en los lectores RFID',
+  pending_teachers_aging: 'Profesores esperando aprobación hace tiempo',
   inactive_teachers: 'Profesores inactivos',
   context_without_assets: 'Contexto sin contenido',
-  data_retention_lag: 'Retención de datos',
-  consent_withdrawal_spike: 'Retiradas de consentimiento',
-  admin_approval_spike: 'Pico de aprobaciones administrativas'
+  data_retention_lag: 'Limpieza periódica de datos retrasada',
+  consent_withdrawal_spike: 'Aumento de retiradas de consentimiento',
+  admin_approval_spike: 'Aumento inusual de aprobaciones o rechazos'
 };
 
 /** Subsistemas (filtro principal en la UI). */
@@ -104,7 +106,7 @@ export const SYSTEM_ALERT_SOURCES = [
  */
 export const SOURCE_STYLES = {
   redis: {
-    label: 'Redis',
+    label: 'Rendimiento',
     badge: 'bg-rose-500/10 text-rose-300 light:text-rose-700 border-rose-500/30'
   },
   // BUG-A11Y-SYSALERT-BADGES (QA Sprint 0): el proyecto usa `light:` custom
@@ -112,7 +114,7 @@ export const SOURCE_STYLES = {
   // existentes nunca aplicaban. Refactor: default = color luminoso (dark
   // mode), `light:` invierte a tono oscuro (AA sobre bg claro).
   mongo: {
-    label: 'MongoDB',
+    label: 'Base de datos',
     badge: 'bg-emerald-500/10 text-emerald-300 light:text-emerald-700 border-emerald-500/30'
   },
   memory: {
@@ -120,7 +122,7 @@ export const SOURCE_STYLES = {
     badge: 'bg-amber-500/10 text-amber-300 light:text-amber-800 border-amber-500/30'
   },
   queue: {
-    label: 'Colas',
+    label: 'Tareas',
     badge: 'bg-sky-500/10 text-sky-300 light:text-sky-700 border-sky-500/30'
   },
   auth: {
@@ -132,7 +134,7 @@ export const SOURCE_STYLES = {
     badge: 'bg-indigo-500/10 text-indigo-300 light:text-indigo-700 border-indigo-500/30'
   },
   compliance: {
-    label: 'Compliance',
+    label: 'Protección de datos',
     badge: 'bg-teal-500/10 text-teal-300 light:text-teal-700 border-teal-500/30'
   },
   admin: {

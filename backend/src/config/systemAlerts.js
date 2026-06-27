@@ -32,7 +32,7 @@
 const SYSTEM_ALERT_TYPES = Object.freeze({
   // ── Sistema / Operación ─────────────────────────────────────────────
   redis_high_latency: Object.freeze({
-    label: 'Latencia elevada en Redis',
+    label: 'El sistema responde con lentitud',
     description: 'Redis muestra latencias medias sostenidas por encima del umbral.',
     source: 'redis',
     thresholds: Object.freeze({ warningMs: 100, criticalMs: 500, sustainedSamples: 3 }),
@@ -40,7 +40,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'documentation/SECURITY.md#redis-latencia'
   }),
   mongo_disconnected: Object.freeze({
-    label: 'MongoDB desconectado',
+    label: 'La base de datos no responde',
     description: 'La conexión a MongoDB no está disponible.',
     source: 'mongo',
     thresholds: Object.freeze({ downSamples: 2 }),
@@ -48,7 +48,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'documentation/SECURITY.md#mongo-disconnect'
   }),
   memory_pressure: Object.freeze({
-    label: 'Memoria al límite',
+    label: 'Memoria del servidor casi llena',
     description: 'El heap del proceso supera el porcentaje configurado.',
     source: 'memory',
     thresholds: Object.freeze({ warningPct: 85, criticalPct: 95 }),
@@ -56,7 +56,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'backend/docs/Performance_Notes.md#memoria'
   }),
   queue_backlog: Object.freeze({
-    label: 'Cola con acumulación',
+    label: 'Tareas en segundo plano acumuladas',
     description: 'Una cola BullMQ acumula jobs pendientes o ha fallado recientemente.',
     source: 'queue',
     thresholds: Object.freeze({
@@ -74,7 +74,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
   // (Sentry, Supabase, Cloudflare) se revisan manualmente vía workflow
   // mensual; ver `documentation/Free_Tier_Budget.md` §5.
   upstash_commands_quota: Object.freeze({
-    label: 'Comandos Upstash cerca del límite diario',
+    label: 'Cerca del límite diario del plan gratuito',
     description:
       'La proyección lineal del consumo diario de comandos Redis supera el umbral del free tier.',
     source: 'redis',
@@ -89,7 +89,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'documentation/Runbook_Operacional.md#13b'
   }),
   atlas_storage_quota: Object.freeze({
-    label: 'Almacenamiento Atlas cerca del límite',
+    label: 'Almacenamiento casi lleno',
     description:
       'El uso de storage (data + index) en MongoDB Atlas M0 supera el umbral configurado.',
     source: 'mongo',
@@ -103,7 +103,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'documentation/Runbook_Operacional.md#13a'
   }),
   rate_limit_store_fallback: Object.freeze({
-    label: 'Rate limit no distribuido',
+    label: 'Protección frente a abusos reducida',
     description:
       'Algún rate limiter HTTP ha caído a MemoryStore por ausencia de Redis: el límite global ya no se comparte entre instancias.',
     source: 'redis',
@@ -112,7 +112,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'documentation/Runbook_Operacional.md#13b'
   }),
   in_memory_cache_low_hit: Object.freeze({
-    label: 'Hit ratio de caché en memoria bajo',
+    label: 'Rendimiento de la caché bajo',
     description:
       'El hit ratio agregado del cache LRU en memoria está por debajo del umbral sostenido durante varias muestras.',
     source: 'memory',
@@ -129,7 +129,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
 
   // ── Seguridad ───────────────────────────────────────────────────────
   account_lockout_spike: Object.freeze({
-    label: 'Pico de bloqueos de cuenta',
+    label: 'Aumento de cuentas bloqueadas',
     description: 'Varias cuentas se han bloqueado en la última hora por intentos fallidos.',
     source: 'auth',
     thresholds: Object.freeze({ warningPerHour: 5, criticalPerHour: 20 }),
@@ -137,7 +137,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'documentation/SECURITY.md#account-lockout'
   }),
   auth_failed_spike: Object.freeze({
-    label: 'Pico de fallos de login',
+    label: 'Muchos intentos de acceso fallidos',
     description: 'Tasa anormal de logins fallidos en la última hora.',
     source: 'auth',
     thresholds: Object.freeze({ warningPerHour: 50, criticalPerHour: 200 }),
@@ -145,7 +145,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'documentation/SECURITY.md#brute-force'
   }),
   token_theft_detected: Object.freeze({
-    label: 'Token comprometido detectado',
+    label: 'Posible acceso no autorizado',
     description: 'Reuso sospechoso de refresh token (posible robo de credenciales).',
     source: 'auth',
     thresholds: Object.freeze({ anyOccurrence: true }),
@@ -153,7 +153,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'documentation/SECURITY.md#token-theft'
   }),
   rfid_hmac_spike: Object.freeze({
-    label: 'Intentos anómalos RFID (HMAC/replay)',
+    label: 'Actividad sospechosa en los lectores RFID',
     description: 'Volumen elevado de firmas HMAC inválidas o intentos de replay en lecturas RFID.',
     source: 'auth',
     thresholds: Object.freeze({ warningPerHour: 10, criticalPerHour: 30 }),
@@ -163,7 +163,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
 
   // ── Moderación ──────────────────────────────────────────────────────
   pending_teachers_aging: Object.freeze({
-    label: 'Profesores pendientes envejecidos',
+    label: 'Profesores esperando aprobación hace tiempo',
     description: 'Hay profesores en espera de aprobación desde hace demasiado tiempo.',
     source: 'moderation',
     thresholds: Object.freeze({ warningHours: 48, criticalDays: 7 }),
@@ -189,7 +189,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
 
   // ── Compliance ──────────────────────────────────────────────────────
   data_retention_lag: Object.freeze({
-    label: 'Retención de datos retrasada',
+    label: 'Limpieza periódica de datos retrasada',
     description: 'El job de retención RGPD no ha completado en la ventana esperada.',
     source: 'compliance',
     thresholds: Object.freeze({ warningHours: 48, criticalDays: 7 }),
@@ -197,7 +197,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
     defaultRunbook: 'documentation/Proteccion_Datos_Menores.md#retencion'
   }),
   consent_withdrawal_spike: Object.freeze({
-    label: 'Pico de retiradas de consentimiento',
+    label: 'Aumento de retiradas de consentimiento',
     description: 'Volumen anómalo de retiradas de consentimiento parental en el último día.',
     source: 'compliance',
     thresholds: Object.freeze({ infoPerDay: 5, warningPerDay: 20 }),
@@ -207,7 +207,7 @@ const SYSTEM_ALERT_TYPES = Object.freeze({
 
   // ── Acciones administrativas ────────────────────────────────────────
   admin_approval_spike: Object.freeze({
-    label: 'Pico de aprobaciones/rechazos administrativos',
+    label: 'Aumento inusual de aprobaciones o rechazos',
     description:
       'Volumen anómalo de aprobaciones o rechazos de cuentas en la última hora. ' +
       'Una sesión de super_admin comprometida o un script automatizado podrían ' +

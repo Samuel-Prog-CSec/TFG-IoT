@@ -405,7 +405,7 @@ export default function DeckCreationWizard() {
       }, shouldReduceMotion ? 400 : 1500);
       
     } catch (err) {
-      toast.error('Error al crear mazo', {
+      toast.error('No pudimos crear el mazo', {
         description: extractErrorMessage(err)
       });
       setIsSubmitting(false);

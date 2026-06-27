@@ -322,7 +322,7 @@ describe('NarrativeCard', () => {
     render(<NarrativeCard interpretation={null} />);
     expect(
       screen.getByText(
-        'Se necesitan más partidas para generar insights.'
+        'Se necesitan más partidas para sacar conclusiones.'
       )
     ).toBeTruthy();
   });
@@ -331,7 +331,7 @@ describe('NarrativeCard', () => {
     render(<NarrativeCard interpretation={{}} />);
     expect(
       screen.getByText(
-        'Se necesitan más partidas para generar insights.'
+        'Se necesitan más partidas para sacar conclusiones.'
       )
     ).toBeTruthy();
   });
@@ -422,20 +422,20 @@ describe('EngagementRadar', () => {
   it('muestra estado vacio cuando engagement es null', () => {
     render(<EngagementRadar engagement={null} />);
     expect(
-      screen.getByText(/Sin datos de engagement aún/)
+      screen.getByText(/Sin datos de implicación aún/)
     ).toBeTruthy();
   });
 
   it('muestra estado vacio cuando no hay componentes', () => {
     render(<EngagementRadar engagement={{}} />);
     expect(
-      screen.getByText(/Sin datos de engagement aún/)
+      screen.getByText(/Sin datos de implicación aún/)
     ).toBeTruthy();
   });
 
-  it('renderiza el titulo "Engagement"', () => {
+  it('renderiza el titulo "Implicación"', () => {
     render(<EngagementRadar engagement={validEngagement} />);
-    expect(screen.getByText('Engagement')).toBeTruthy();
+    expect(screen.getByText('Implicación')).toBeTruthy();
   });
 
   it('muestra el score con la etiqueta RAG correcta (Alto para >= 60)', () => {

@@ -12,6 +12,15 @@ T-951 sustituye el modal informativo de 4 pasos previo (sólo para teacher, pers
 - **`'modal'`** — panel centrado a pantalla completa con icono Lucide, título y descripción larga. Usado para apertura, cierre y mensajes "narrativos" del tour.
 - **`'spotlight'`** — recorta visualmente un elemento real de la UI (referenciado por `data-tour="<key>"` en `AppLayout.jsx` y otros) con un agujero rectangular y un tooltip apuntador. Si el target no se encuentra, hay fallback automático a `'modal'`.
 
+## Mascota guía Otto (ADR-212)
+
+Otto es el **guía-narrador** del tour: presente en TODOS los pasos (modal y spotlight) en una banda de cabecera, con un bocadillo por paso y, en los spotlight, **señalando el elemento real resaltado** (se voltea hacia el target). Cada paso lleva dos campos opcionales:
+
+- **`mascotLine`** — frase corta del bocadillo de Otto (≤~32 car., cálida, DISTINTA de la descripción: anima/orienta, no la duplica).
+- **`mascotMood`** — mood del rig para ese paso. Si se omite, `onboarding/mascotForStep.js` lo **deriva**: paso 0 → `greeting` (saludo con el ala), último → `celebrating`, `spotlight` → `pointing`, resto modal → `thinking`.
+
+Las frases por paso de ambos tracks viven junto a cada paso en `onboardingTracks.js` (fuente de verdad) y en `Microcopy_Style_Guide.md` (voz/tono).
+
 ## `data-tour` keys (selectores estables)
 
 Todos los keys viven en `frontend/src/constants/routes.js` (campo `dataTour` de cada `NAV_ROUTES` y `ADMIN_NAV_ROUTES` item) y se propagan automáticamente al `NavItem` en `AppLayout.jsx`. Mantener los keys aquí por si se añaden tours futuros que apunten a CTAs no incluidos en la sidebar.
@@ -20,7 +29,7 @@ Todos los keys viven en `frontend/src/constants/routes.js` (campo `dataTour` de 
 |---|---|
 | `dashboard` | NavItem "Dashboard" |
 | `my-students` | NavItem "Mis Alumnos" |
-| `insights` | NavItem "Insights" |
+| `insights` | NavItem "Análisis" (selector `data-tour` interno sigue siendo `insights`) |
 | `sessions` | NavItem "Sesiones" |
 | `contexts` | NavItem "Contextos" |
 | `my-decks` | NavItem "Mis Mazos" |

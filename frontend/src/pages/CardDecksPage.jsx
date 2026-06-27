@@ -137,7 +137,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
 
 const renderDecksErrorState = ({ error, loadDecks }) => (
   <ErrorState
-    title="Error al cargar mazos"
+    title="No pudimos cargar tus mazos"
     message={`${error} Pulsa Reintentar o recarga la página.`}
     icon={<AlertCircle size={28} />}
     onRetry={() => loadDecks({ resetPage: true })}
@@ -293,7 +293,7 @@ export default function CardDecksPage() {
         return;
       }
       setError(extractErrorMessage(err));
-      toast.error('Error al cargar mazos', {
+      toast.error('No pudimos cargar tus mazos', {
         description: extractErrorMessage(err),
       });
     } finally {
@@ -427,7 +427,7 @@ export default function CardDecksPage() {
       setArchivingDeck(null);
       loadDecks({ resetPage: true });
     } catch (err) {
-      toast.error('Error al archivar', {
+      toast.error('No pudimos archivar el mazo', {
         description: extractErrorMessage(err),
       });
     } finally {

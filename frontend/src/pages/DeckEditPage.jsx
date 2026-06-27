@@ -182,7 +182,7 @@ export default function DeckEditPage() {
         return;
       }
       setError(extractErrorMessage(err));
-      toast.error('Error al cargar mazo', {
+      toast.error('No pudimos cargar el mazo', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -438,7 +438,7 @@ export default function DeckEditPage() {
       }));
       
     } catch (err) {
-      toast.error('Error al guardar', {
+      toast.error('No pudimos guardar los cambios', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -455,7 +455,7 @@ export default function DeckEditPage() {
       deleteModal.close();
       navigate(ROUTES.CARD_DECKS);
     } catch (err) {
-      toast.error('Error al archivar', {
+      toast.error('No pudimos archivar el mazo', {
         description: extractErrorMessage(err)
       });
     } finally {

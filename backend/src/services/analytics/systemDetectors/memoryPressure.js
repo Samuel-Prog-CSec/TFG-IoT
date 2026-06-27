@@ -40,7 +40,7 @@ class MemoryPressureDetector extends SystemAlertDetector {
         source: this.source,
         component: 'process:heap',
         title: cfg.label,
-        description: `Uso de heap al ${pct.toFixed(1)}% (umbral ${threshold}%).`,
+        description: `Uso de memoria al ${pct.toFixed(1)}% (umbral ${threshold}%).`,
         recommendation:
           severity === 'critical'
             ? 'Reinicia el proceso si es seguro. Investiga fugas (heap snapshot).'

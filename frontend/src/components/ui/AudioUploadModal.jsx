@@ -200,7 +200,7 @@ export default function AudioUploadModal({
       onSuccess();
     } catch (error) {
       const message = extractErrorMessage(error);
-      toast.error('Error al subir el audio', {
+      toast.error('No pudimos subir el audio', {
         description: message,
       });
     } finally {

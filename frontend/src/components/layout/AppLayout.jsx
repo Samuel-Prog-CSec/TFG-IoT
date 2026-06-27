@@ -153,7 +153,7 @@ export default function AppLayout() {
                 { key: 'g m', description: 'Ir a Mis Mazos', handler: () => navigate(ROUTES.CARD_DECKS) },
                 { key: 'g a', description: 'Ir a Mis Alumnos', handler: () => navigate(ROUTES.STUDENTS_ANALYTICS) },
                 { key: 'g c', description: 'Ir a Contextos', handler: () => navigate(ROUTES.CONTEXTS) },
-                { key: 'g i', description: 'Ir a Insights', handler: () => navigate(ROUTES.INSIGHTS) },
+                { key: 'g n', description: 'Ir a Análisis', handler: () => navigate(ROUTES.INSIGHTS) },
               ],
             },
             {
