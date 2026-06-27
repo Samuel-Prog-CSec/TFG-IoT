@@ -14,6 +14,7 @@ import {
   GraduationCap,
   ListOrdered,
   ShieldCheck,
+  History,
 } from "lucide-react";
 import { getMechanicTheme, MECHANIC_KEYS } from "../lib/mechanicTheme";
 import {
@@ -328,8 +329,8 @@ export default function StudentsAnalytics() {
         const message = (() => {
           if (status === 403) return "No tienes permisos para ver estos datos.";
           if (status >= 500)
-            return "Error del servidor. Intentalo de nuevo mas tarde.";
-          return "Error de conexion. Comprueba tu red e intenta de nuevo.";
+            return "El servidor no responde ahora mismo. Inténtalo de nuevo más tarde.";
+          return "No pudimos conectar. Comprueba tu red e inténtalo de nuevo.";
         })();
         setError(message);
       } finally {
@@ -572,8 +573,8 @@ export default function StudentsAnalytics() {
             {/* ─── Error state ────────────────────────────────────── */}
             {error ? (
               <ErrorState
-                title="Error al cargar datos"
-                message={`${error} Pulsa Reintentar o recarga la pagina.`}
+                title="No pudimos cargar tus alumnos"
+                message={`${error} Pulsa Reintentar o recarga la página.`}
                 onRetry={fetchData}
               />
             ) : null}
@@ -769,6 +770,24 @@ export default function StudentsAnalytics() {
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
                 aria-label="Tabla de alumnos"
               >
+                {/* OBS-8: declarar la ventana temporal. La tabla muestra
+                    métricas ACUMULADAS del historial completo (User.studentMetrics);
+                    el perfil individual usa los últimos 30 días. Etiquetarlo evita
+                    la confusión al comparar cifras entre ambas pantallas. */}
+                <p className="mb-3 flex items-start gap-2 text-xs text-text-muted">
+                  <History size={14} className="mt-0.5 shrink-0" aria-hidden="true" />
+                  <span>
+                    Métricas{" "}
+                    <strong className="font-semibold text-text-secondary">
+                      acumuladas de todo el historial
+                    </strong>{" "}
+                    del alumno. El perfil individual muestra los{" "}
+                    <strong className="font-semibold text-text-secondary">
+                      últimos 30 días
+                    </strong>
+                    .
+                  </span>
+                </p>
                 <GlassCard padding="none" className="overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full text-sm">

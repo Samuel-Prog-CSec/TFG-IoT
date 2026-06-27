@@ -54,9 +54,8 @@ import HeroStatCard from '../../components/dashboard/HeroStatCard';
 import GlassCard from '../../components/ui/GlassCard';
 import SelectPremium from '../../components/ui/SelectPremium';
 import ErrorState from '../../components/ui/ErrorState';
-import {
-  SkeletonStatCard,
-  SkeletonChart
+import SkeletonShimmer, {
+  SkeletonStatCard
 } from '../../components/ui/SkeletonShimmer';
 
 // ─────────────────────────────────────────────────────────────
@@ -277,10 +276,7 @@ function AlertsByTeacherCard({ byTeacher }) {
           return (
             <li key={t.teacherId || t.teacherName} className="space-y-1.5">
               <div className="flex items-center justify-between gap-3">
-                <span
-                  className="text-sm text-text-primary truncate cursor-help"
-                  title="Próximamente: filtrar alertas por profesor"
-                >
+                <span className="text-sm text-text-primary truncate">
                   {t.teacherName}
                 </span>
                 <span className="text-xs font-bold tabular-nums text-text-secondary flex-shrink-0">
@@ -400,7 +396,11 @@ function DimensionRankingCard({ title, icon: Icon, items, dimension }) {
                 <div
                   className="h-1.5 w-full overflow-hidden rounded-full bg-background-surface/40"
                   role="img"
-                  aria-label={`${item.totalPlays} partidas en ${name}`}
+                  aria-label={
+                    item.avgScore != null
+                      ? `${name}: ${item.totalPlays} partidas, rendimiento medio ${Math.round(item.avgScore)}%`
+                      : `${name}: ${item.totalPlays} partidas, sin datos de rendimiento`
+                  }
                 >
                   {/* aria-hidden en la banda interna: el contenedor lleva el
                       aria-label completo. Sin esto, aria-label sobre un <div>
@@ -453,15 +453,17 @@ function AdminDashboardSkeleton() {
           <SkeletonStatCard key={`sk-health-${i}`} />
         ))}
       </div>
-      {/* Fila 3 — análisis cruzado */}
+      {/* Filas 3-4 — cards de LISTA (mejores profesores, alertas por profesor,
+          ranking por dimensión): bloque de tarjeta, NO skeleton de gráfico —
+          esta página no tiene charts y el placeholder de línea ondulada con
+          ejes generaba un layout shift al resolverse. */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <SkeletonChart height={260} />
-        <SkeletonChart height={260} />
+        <SkeletonShimmer className="h-[260px] rounded-2xl" />
+        <SkeletonShimmer className="h-[260px] rounded-2xl" />
       </div>
-      {/* Fila 4 — análisis por dimensión */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        <SkeletonChart height={260} />
-        <SkeletonChart height={260} />
+        <SkeletonShimmer className="h-[260px] rounded-2xl" />
+        <SkeletonShimmer className="h-[260px] rounded-2xl" />
       </div>
     </div>
   );
@@ -693,7 +695,11 @@ export default function AdminDashboard() {
               <StatCard
                 title="Puntuación media"
                 value={
-                  data.activity?.avgScoreInRange != null
+                  // "—" si no hubo partidas en el periodo: el backend devuelve
+                  // siempre `avgScoreInRange` (0 sin partidas), así que sin esta
+                  // guarda se pintaría "0%" —que se lee como "el centro sacó 0%"—
+                  // en lugar de "sin datos". Coherente con "Partidas del periodo: 0".
+                  (data.activity?.totalPlaysInRange ?? 0) > 0 && data.activity?.avgScoreInRange != null
                     ? `${Math.round(data.activity.avgScoreInRange)}%`
                     : '—'
                 }

@@ -80,8 +80,10 @@ function EngagementRadar({ engagement }) {
   const score = engagement?.engagementScore;
   const rag = score != null ? getEngagementRAG(score) : null;
 
-  // Estado vacio: sin datos de componentes, o engagement nulo/cero
-  const isEmpty = chartData.length === 0 || !engagement || (!score && score !== undefined);
+  // Estado vacío: sin datos de componentes o engagement nulo. `score == null`
+  // (no `!score`): un engagement de EXACTAMENTE 0 es un dato válido (implicación
+  // muy baja), no "sin datos" — antes el 0 se trataba erróneamente como vacío.
+  const isEmpty = chartData.length === 0 || !engagement || score == null;
 
   // Estado "datos insuficientes":
   // (a) al menos 3 de 5 ejes en cero/null, o
@@ -99,7 +101,7 @@ function EngagementRadar({ engagement }) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
         <div className="flex items-center justify-between mb-4">
-          <h2 className="text-base font-semibold text-text-primary font-display">Engagement</h2>
+          <h2 className="text-base font-semibold text-text-primary font-display">Implicación</h2>
           {/* Pintamos el RAG aunque el radar sea degenerado: el profesor
               sigue necesitando saber si el score global es Alto/Medio/Bajo
               aunque el desglose por ejes no sea visualizable. */}
@@ -113,7 +115,7 @@ function EngagementRadar({ engagement }) {
           <p className="text-text-muted text-sm text-center">
             {hasInsufficientData
               ? 'Datos insuficientes para visualizar el desglose por ejes. Se necesitan más partidas distribuidas en el tiempo para calcular todas las métricas.'
-              : 'Sin datos de engagement aún. Se calculará cuando el alumno acumule más partidas.'}
+              : 'Sin datos de implicación aún. Se calculará cuando el alumno acumule más partidas.'}
           </p>
         </div>
       </GlassCard>
@@ -123,7 +125,7 @@ function EngagementRadar({ engagement }) {
   // Resumen accesible: score global + desglose por eje. Sustituye el
   // anuncio pobre del SVG ("group radar polygon").
   const accessibleSummary = (() => {
-    const parts = [`Engagement global: ${Math.round(score)} de 100`];
+    const parts = [`Implicación global: ${Math.round(score)} de 100`];
     if (rag) parts.push(`categoría ${rag.label}`);
     if (chartData.length > 0) {
       const desglose = chartData
@@ -142,10 +144,10 @@ function EngagementRadar({ engagement }) {
   return (
     <GlassCard variant="default" padding="none" className="p-5">
       <ThemedChartContainer
-        title="Engagement"
+        title="Implicación"
         summary={accessibleSummary}
         dataTable={accessibleDataTable}
-        dataTableCaption="Desglose del engagement por componente"
+        dataTableCaption="Desglose de la implicación por componente"
         headerExtra={
           rag ? (
             <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", rag.bg, rag.color)}>
@@ -176,7 +178,7 @@ function EngagementRadar({ engagement }) {
             />
             <Tooltip content={<CustomTooltip />} wrapperStyle={{ maxWidth: '90vw' }} />
             <Radar
-              name="Engagement"
+              name="Implicación"
               dataKey="value"
               stroke={chartColors.byMechanic.association.stroke}
               fill={chartColors.byMechanic.association.fill}

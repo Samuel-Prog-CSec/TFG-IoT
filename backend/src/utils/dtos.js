@@ -98,6 +98,7 @@ const mapGamePlayMetrics = metrics => {
     'maxSequenceLengthAchieved',
     'partialReproductions',
     'partialRounds',
+    'roundsPlayed',
     'averageReproductionTimeMs',
     'blockedCardsTotal',
     'hintsUsed'

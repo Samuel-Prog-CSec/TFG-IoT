@@ -442,6 +442,7 @@ function buildSequenceFinalSummary(playState) {
       maxSequenceLengthAchieved: 0,
       partialReproductions: 0,
       partialRounds: 0,
+      roundsPlayed: 0,
       averageReproductionTimeMs: 0,
       blockedCardsTotal: 0,
       hintsUsed: Number(playState?.strategyState?.hintsConsumed || 0)
@@ -502,6 +503,7 @@ function buildSequenceFinalSummary(playState) {
     maxSequenceLengthAchieved: maxLength,
     partialReproductions,
     partialRounds,
+    roundsPlayed: rounds.length,
     averageReproductionTimeMs,
     blockedCardsTotal,
     hintsUsed: Number(playState?.strategyState?.hintsConsumed || 0)

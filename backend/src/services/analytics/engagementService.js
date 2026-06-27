@@ -588,10 +588,16 @@ async function getStudentPlayPatterns(studentId, { timeRange = '30d' } = {}) {
               // Puntuación normalizada a % (score/maxScore×100), comparable entre mecánicas.
               avgScore: {
                 $avg: {
-                  $cond: [
-                    { $gt: ['$maxScore', 0] },
-                    { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
-                    0
+                  // Suelo a 0 (OBS-5): un score crudo negativo no debe dar % negativo.
+                  $max: [
+                    0,
+                    {
+                      $cond: [
+                        { $gt: ['$maxScore', 0] },
+                        { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
+                        0
+                      ]
+                    }
                   ]
                 }
               }

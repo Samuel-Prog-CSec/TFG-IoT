@@ -160,6 +160,27 @@ const getCookieValue = (name) => {
   return cookieValue ? decodeURIComponent(cookieValue) : null;
 };
 
+/**
+ * ¿Un 401 es recuperable vía refresh? Excluye el propio `/auth/refresh` (evita
+ * el refresh recursivo: un 401 del refresh dispararía otro refresh) y acepta
+ * los códigos de token expirado/ausente, o el mensaje en ES/EN por compat.
+ *
+ * @param {Object} data - cuerpo de la respuesta de error
+ * @param {Object} originalRequest - config de la petición original
+ * @returns {boolean}
+ */
+const is401Recoverable = (data, originalRequest) => {
+  if ((originalRequest.url || '').includes('/auth/refresh')) {
+    return false;
+  }
+  const errCode = data?.code;
+  return (
+    errCode === 'TOKEN_EXPIRED' ||
+    errCode === 'TOKEN_MISSING' ||
+    /expirado|expired/i.test(data?.message || '')
+  );
+};
+
 // ============================================
 // INTERCEPTOR DE REQUEST
 // ============================================
@@ -223,17 +244,13 @@ api.interceptors.response.use(
 
     // 401 - Token expirado o inválido
     if (status === 401 && !originalRequest._retry) {
-      // Códigos recuperables via refresh. El backend ahora anota `code`
-      // semántico; también aceptamos el mensaje en ES/EN por compatibilidad.
-      const errCode = data?.code;
-      const msg = data?.message || '';
-      const isRecoverable =
-        errCode === 'TOKEN_EXPIRED' ||
-        errCode === 'TOKEN_MISSING' ||
-        /expirado|expired/i.test(msg);
-      if (isRecoverable) {
+      // Recuperable via refresh (excluye el propio `/auth/refresh` para no
+      // recursar; ver `is401Recoverable`). La vía proactiva de AuthContext usa
+      // la instancia `api`, así que sus 401 también pasan por aquí.
+      if (is401Recoverable(data, originalRequest)) {
         return handleTokenRefresh(originalRequest);
       }
+      const errCode = data?.code;
 
       // T-905 B7: códigos MFA (TOTP/backup invalido o token MFA expirado/invalido)
       // NO son fallos de la sesión principal — el usuario solo se equivocó en el
@@ -365,6 +382,9 @@ async function handleTokenRefresh(originalRequest) {
       failedQueue.push({ resolve, reject });
     })
       .then((token) => {
+        // Marcar `_retry` también en las peticiones encoladas: si su reintento
+        // devolviera otro 401 no deben re-entrar al refresh (evita el bucle).
+        originalRequest._retry = true;
         originalRequest.headers.Authorization = `Bearer ${token}`;
         return api(originalRequest);
       })
@@ -438,7 +458,7 @@ async function handleNetworkError(error, originalRequest) {
 
   if (retryCount >= MAX_RETRIES) {
     captureException(new Error(`[API] Max retries (${MAX_RETRIES}) exceeded for ${originalRequest.url}`));
-    const networkError = new Error('Error de conexion. Por favor, verifica tu conexion a internet.');
+    const networkError = new Error('No pudimos conectar. Comprueba tu conexión a internet e inténtalo de nuevo.');
     networkError.isNetworkError = true;
     networkError.cause = error;
     throw networkError;
@@ -502,11 +522,16 @@ async function handleRateLimitError(error, originalRequest) {
   }
 
   const retryAfterSeconds = parseRetryAfter(error.response);
-  // Mínimo 2s, máximo 60s para no bloquear la UI indefinidamente
-  const waitMs = Math.min(
+  // Mínimo 2s, máximo 60s para no bloquear la UI indefinidamente.
+  const baseWaitMs = Math.min(
     Math.max((retryAfterSeconds || 2) * 1000, 2000),
     60000
   );
+  // Jitter (0-1s) sobre el backoff: si varias peticiones reciben 429 a la vez
+  // comparten el mismo `Retry-After` y, sin jitter, reintentarían TODAS en el
+  // mismo instante → otra ráfaga (thundering herd). El jitter las desincroniza.
+  // eslint-disable-next-line sonarjs/pseudo-random -- jitter de backoff, no es un uso de seguridad
+  const waitMs = baseWaitMs + Math.floor(Math.random() * 1000);
 
   if (import.meta.env.DEV) {
     console.warn(
@@ -609,10 +634,52 @@ export const authAPI = {
   changePassword: (data) => api.put('/auth/change-password', data),
 
   /**
-   * Refrescar access token
+   * Refrescar access token.
+   *
+   * Comparte el mutex `isRefreshing`/`failedQueue` con las vías reactiva
+   * (`handleTokenRefresh`) y proactiva-socket (`refreshAccessTokenProactive`).
+   * Antes usaba la instancia `api` (interceptada) y NO el mutex, así que un
+   * refresh proactivo de AuthContext podía correr en PARALELO a otro refresh →
+   * dos POST concurrentes sobre la cookie de refresh rotatoria → detección de
+   * reuso en backend → revocación de la familia de tokens → 401 + logout
+   * espurio (y consumo doble del rate-limit del refresh). Ahora, si ya hay un
+   * refresh en curso, espera a que termine y reutiliza su token (un único POST).
+   * Usa axios CRUDO para no pasar por el interceptor (evita refresh recursivo).
+   *
    * @returns {Promise} Respuesta con nuevos tokens
    */
-  refreshToken: () => api.post('/auth/refresh', {}),
+  refreshToken: async () => {
+    if (isRefreshing) {
+      const token = await new Promise((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      });
+      // Forma mínima que `extractData` (`response.data?.data || response.data`)
+      // desempaqueta a `{ accessToken }`. El `accessTokenExpiresIn` no viaja por
+      // la cola; el caller reprograma con el default de 15min (aceptable).
+      return { data: { data: { accessToken: token } } };
+    }
+    isRefreshing = true;
+    try {
+      const csrfToken = getCookieValue('csrfToken');
+      const response = await axios.post(
+        `${API_BASE_URL}/auth/refresh`,
+        {},
+        {
+          withCredentials: true,
+          headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
+        }
+      );
+      const newToken = response.data?.data?.accessToken;
+      setTokens(newToken);
+      processQueue(null, newToken);
+      return response;
+    } catch (err) {
+      processQueue(err, null);
+      throw err;
+    } finally {
+      isRefreshing = false;
+    }
+  },
 
   // ============================================
   // MFA TOTP (T-905 B7) — super_admin

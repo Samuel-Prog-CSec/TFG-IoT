@@ -224,7 +224,7 @@ export default function StudentProfile() {
   if (error && !summary) {
     return (
       <main className="page-container py-[var(--space-fluid-section)]">
-        <ErrorState title="Error al cargar perfil" message={error} onRetry={fetchData} />
+        <ErrorState title="No pudimos cargar el perfil" message={error} onRetry={fetchData} />
       </main>
     );
   }
@@ -296,6 +296,12 @@ export default function StudentProfile() {
     ? Math.round(((metrics.totalGamesPlayed - (metrics.totalAbandonedGames || 0)) / metrics.totalGamesPlayed) * 100)
     : 0;
 
+  // Sin datos → semáforo NEUTRO (gris), no verde/rojo. Un alumno sin partidas en
+  // el rango (o que nunca ha jugado) no debe leerse como "0% rojo" ni como
+  // "0.0s verde / tiempo perfecto": eso es AUSENCIA de dato, no rendimiento.
+  const hasRangedData = rangedTotalGames > 0;
+  const hasLifetimeGames = (metrics.totalGamesPlayed || 0) > 0;
+
   return (
     <motion.section
       {...(shouldReduceMotion ? {} : crossfadeVariants)}
@@ -319,9 +325,15 @@ export default function StudentProfile() {
           <div>
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-bold text-text-primary font-display">{student.name}</h1>
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${tierConfig.className}`} aria-label={`Nivel de rendimiento: ${tierConfig.label}`}>
-                {tierConfig.label}
-              </span>
+              {hasLifetimeGames ? (
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${tierConfig.className}`} aria-label={`Nivel de rendimiento: ${tierConfig.label}`}>
+                  {tierConfig.label}
+                </span>
+              ) : (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-border-subtle text-text-muted bg-background-surface/60" aria-label="Sin partidas registradas">
+                  Sin partidas
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3 mt-1">
               {student.classroom && <span className="text-sm text-text-muted">Aula: {student.classroom}</span>}
@@ -358,7 +370,7 @@ export default function StudentProfile() {
               label="Puntuación Media"
               value={Math.round(rangedScore)}
               suffix="%"
-              ragStatus={scoreToRAG(rangedScore)}
+              ragStatus={hasRangedData ? scoreToRAG(rangedScore) : 'gray'}
               comparison={classComparison.averageScore != null ? `vs clase: ${Math.round(classComparison.averageScore)}%` : null}
               comparisonPositive={rangedScore > (classComparison.averageScore || 0)}
             />
@@ -369,7 +381,7 @@ export default function StudentProfile() {
               label="Tasa de Acierto"
               value={accuracyRate}
               suffix="%"
-              ragStatus={scoreToRAG(accuracyRate)}
+              ragStatus={hasRangedData ? scoreToRAG(accuracyRate) : 'gray'}
               comparison={classComparison.accuracy != null ? `vs clase: ${Math.round(classComparison.accuracy)}%` : null}
               comparisonPositive={accuracyRate > (classComparison.accuracy || 0)}
             />
@@ -381,6 +393,7 @@ export default function StudentProfile() {
               value={(rangedResponseTime / 1000).toFixed(1)}
               suffix="s"
               ragStatus={(() => {
+                if (!hasRangedData) return 'gray';
                 if (rangedResponseTime <= 4000) return 'green';
                 if (rangedResponseTime <= 8000) return 'amber';
                 return 'red';
@@ -422,6 +435,7 @@ export default function StudentProfile() {
               value={completionRate}
               suffix="%"
               ragStatus={(() => {
+                if (!hasLifetimeGames) return 'gray';
                 if (completionRate >= 85) return 'green';
                 if (completionRate >= 60) return 'amber';
                 return 'red';

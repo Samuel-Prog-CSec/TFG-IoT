@@ -19,6 +19,26 @@ const GameSession = require('../src/models/GameSession');
 const User = require('../src/models/User');
 const logger = require('../src/utils/logger');
 
+/**
+ * PRNG determinista (mulberry32) sembrado por una semilla entera. El seeder
+ * produce SIEMPRE los mismos datos para la misma semilla → QA y tests
+ * reproducibles, capturas que no cambian entre `seed:reset`. Sustituye a
+ * `Math.random()` en la generación de partidas (antes cada siembra daba
+ * métricas distintas: "alumno con N partidas" variaba, los charts cambiaban).
+ *
+ * @param {number} seed - semilla entera (p. ej. derivada de alumno+partida)
+ * @returns {() => number} función que devuelve un float en [0, 1)
+ */
+function makeRng(seed) {
+  let state = seed >>> 0;
+  return function next() {
+    state = (state + 0x6d2b79f5) | 0;
+    let t = Math.imul(state ^ (state >>> 15), 1 | state);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
 // ══════════════════════════════════════════════════════════════════════
 // Perfiles de estudiante con soporte para evolución temporal
 // ══════════════════════════════════════════════════════════════════════
@@ -122,11 +142,18 @@ function getProfileConfig(profile, gameNumber, round, numberOfRounds) {
   return { successProb, timeoutProb, avgSpeed };
 }
 
-function resolveRoundResult({ random, successProb, timeoutProb, finalSpeed, config }) {
+function resolveRoundResult({
+  random,
+  successProb,
+  timeoutProb,
+  finalSpeed,
+  config,
+  pointsWeight = 1
+}) {
   if (random < successProb) {
     return {
       eventType: 'correct',
-      pointsAwarded: config.pointsPerCorrect,
+      pointsAwarded: config.pointsPerCorrect * pointsWeight,
       timeElapsed: Math.min(finalSpeed, config.timeLimit * 1000),
       counters: { correctAttempts: 1, errorAttempts: 0, timeoutAttempts: 0 }
     };
@@ -238,7 +265,9 @@ function generatePlayEvents(
   profile,
   gameNumber,
   willAbandon,
-  isMemory
+  isMemory,
+  rng,
+  roundPointWeights
 ) {
   const events = [];
   let score = 0;
@@ -246,10 +275,14 @@ function generatePlayEvents(
   let errorAttempts = 0;
   let timeoutAttempts = 0;
   const responseTimes = [];
+  // Resultado por ronda (tipo de evento, peso/longitud, valor, tiempo). Es la
+  // ÚNICA fuente de verdad: las sub-métricas por mecánica se DERIVAN de aquí (no
+  // se re-simulan), así cuadran exactamente con el score/aciertos de cabecera.
+  const roundOutcomes = [];
 
   // Si abandona, jugar solo una parte de las rondas
   const roundsToPlay = willAbandon
-    ? Math.max(1, Math.floor(numberOfRounds * (0.3 + Math.random() * 0.4)))
+    ? Math.max(1, Math.floor(numberOfRounds * (0.3 + rng() * 0.4)))
     : numberOfRounds;
 
   const jitter = (numberOfRounds * 7919 + gameNumber * 1237) % 60000;
@@ -265,20 +298,27 @@ function generatePlayEvents(
       numberOfRounds
     );
 
-    const random = Math.random();
-    const speedJitter = Math.random() * 2000 - 1000;
+    const random = rng();
+    const speedJitter = rng() * 2000 - 1000;
     const finalSpeed = Math.max(1000, avgSpeed + speedJitter);
 
     const mappingIndex = (round - 1) % cardMappings.length;
     const expectedMapping = cardMappings[mappingIndex];
     const errorMapping = cardMappings[(mappingIndex + 1) % cardMappings.length] || expectedMapping;
 
+    // Peso de puntos por ronda: en Secuencia una ronda correcta vale
+    // `length × pointsPerCorrect` (el runtime puntúa por carta de la secuencia y
+    // `maxScore` es Σ length × points). Sin el peso, una partida perfecta de
+    // Secuencia sumaba solo `numberOfRounds × points` ≈ 20% de su maxScore →
+    // "le cuesta Secuencia" sistémico falso en todos los analytics.
+    const pointsWeight = roundPointWeights ? roundPointWeights[round - 1] || 1 : 1;
     const roundResult = resolveRoundResult({
       random,
       successProb,
       timeoutProb,
       finalSpeed,
-      config
+      config,
+      pointsWeight
     });
 
     const { eventType, pointsAwarded, timeElapsed } = roundResult;
@@ -288,6 +328,12 @@ function generatePlayEvents(
 
     score += pointsAwarded;
     responseTimes.push(timeElapsed);
+    roundOutcomes.push({
+      eventType,
+      weight: pointsWeight,
+      value: expectedMapping.assignedValue,
+      timeElapsed
+    });
 
     events.push(
       ...buildRoundEvents({
@@ -319,59 +365,67 @@ function generatePlayEvents(
       averageResponseTime,
       completionTime: 0 // Se recalcula con timestamps reales en generateGamePlaysData
     },
-    roundsPlayed: roundsToPlay
+    roundsPlayed: roundsToPlay,
+    roundOutcomes
   };
 }
 
 /**
- * Deriva métricas específicas de la mecánica Memoria (ADR-A/B). Genera un
- * objeto plano que se persiste en `GamePlay.metrics.memory` para que los
- * highlight cards y el GameOver del cierre tengan datos realistas.
+ * Deriva las métricas de Memoria (`GamePlay.metrics.memory`) DESDE los
+ * resultados de ronda de la propia partida (no re-simula): cada ronda correcta
+ * es un grupo emparejado, así `groupsMatched` cuadra con los aciertos de
+ * cabecera y varía por alumno (los outcomes ya están sembrados por alumno).
  */
-function deriveMemoryMetricsFromProfile({ profile, session, gameNumber, willAbandon }) {
+function deriveMemoryMetricsFromProfile({ roundOutcomes, session }) {
   const totalCards = Array.isArray(session.boardLayout) ? session.boardLayout.length : 0;
   const groupSize = Number(session.mechanicId?.rules?.behavior?.matchingGroupSize) || 2;
   const totalGroups = totalCards > 0 ? Math.floor(totalCards / groupSize) : 0;
 
-  // Probabilidad de completar grupos basada en perfil + progresión.
-  const progression = Math.min(gameNumber * profile.improvementPerGame, 0.3);
-  const completionRate = Math.max(0.2, Math.min(1, profile.baseSuccessProb + progression));
-  // Si abandona, juega solo una fracción de los grupos.
-  const completed = willAbandon
-    ? Math.floor(totalGroups * 0.3)
-    : Math.floor(totalGroups * completionRate);
+  let groupsMatched = 0;
+  let peakStreak = 0;
+  let currentStreak = 0;
+  let attemptsToFirstMatch = null;
+  const matchTimes = [];
 
-  // Mejor racha: 70% del completado en perfiles altos, 40% en struggling.
-  const streakRatio = profile.baseSuccessProb > 0.8 ? 0.7 : 0.4;
-  const peakStreak = Math.max(1, Math.round(completed * streakRatio));
+  roundOutcomes.forEach((outcome, idx) => {
+    if (outcome.eventType === 'correct') {
+      groupsMatched += 1;
+      currentStreak += 1;
+      peakStreak = Math.max(peakStreak, currentStreak);
+      matchTimes.push(outcome.timeElapsed);
+      if (attemptsToFirstMatch === null) {
+        attemptsToFirstMatch = idx + 1;
+      }
+    } else {
+      currentStreak = 0;
+    }
+  });
 
-  // Tiempo medio por grupo: avgSpeed × fatiga moderada.
-  const averageMatchTimeMs = Math.round(profile.avgSpeed * 1.15);
-
-  // Primer match: alumnos con baseSuccessProb alto lo pillan en el 1er-2º
-  // intento; struggling tarda 4-6.
-  const attemptsToFirstMatch =
-    completed > 0 ? Math.max(1, Math.round((1 - profile.baseSuccessProb) * 6) + 1) : null;
+  // No puede haber más grupos emparejados que grupos en el tablero.
+  if (totalGroups > 0) {
+    groupsMatched = Math.min(groupsMatched, totalGroups);
+  }
+  const averageMatchTimeMs =
+    matchTimes.length > 0
+      ? Math.round(matchTimes.reduce((a, b) => a + b, 0) / matchTimes.length)
+      : 0;
 
   return {
-    groupsMatched: completed,
-    peakStreak: completed > 0 ? peakStreak : 0,
-    averageMatchTimeMs: completed > 0 ? averageMatchTimeMs : 0,
+    groupsMatched,
+    peakStreak: groupsMatched > 0 ? Math.max(1, peakStreak) : 0,
+    averageMatchTimeMs,
     attemptsToFirstMatch,
     groupSize
   };
 }
 
 /**
- * Deriva métricas específicas de la mecánica Asociación (ADR-A/B). El mapa
- * `byValueAccuracy` se construye con los `assignedValue` reales del mazo
- * para que el GameOver y el `categoryDominance` aparezcan creíbles.
+ * Deriva las métricas de Asociación (`GamePlay.metrics.association`) DESDE los
+ * resultados de ronda de la propia partida (no re-simula): `byValueAccuracy` se
+ * construye con el valor real de cada ronda y su acierto/fallo, así cuadra
+ * exactamente con los aciertos de cabecera y varía por alumno.
  */
-function deriveAssociationMetricsFromProfile({ profile, session, roundsPlayed, willAbandon }) {
-  const mappings = Array.isArray(session.cardMappings) ? session.cardMappings : [];
-  const progression = Math.min((profile.improvementPerGame || 0) * 5, 0.2);
-  const successRate = Math.max(0.2, Math.min(0.98, profile.baseSuccessProb + progression));
-
+function deriveAssociationMetricsFromProfile({ roundOutcomes }) {
   const byValueAccuracy = {};
   let peakStreak = 0;
   let currentStreak = 0;
@@ -379,35 +433,30 @@ function deriveAssociationMetricsFromProfile({ profile, session, roundsPlayed, w
   let slowestCorrectMs = null;
   let correctCount = 0;
 
-  // Distribuye `roundsPlayed` rondas entre los mappings de forma cíclica
-  // (el plan de Asociación elige por roundNumber).
-  const rounds = willAbandon ? Math.floor(roundsPlayed * 0.6) : roundsPlayed;
-  for (let i = 0; i < rounds && mappings.length > 0; i += 1) {
-    const mapping = mappings[i % mappings.length];
-    const value = mapping?.assignedValue || `__unknown_${i}__`;
+  roundOutcomes.forEach((outcome, idx) => {
+    const value = outcome.value || `__unknown_${idx}__`;
     if (!byValueAccuracy[value]) {
       byValueAccuracy[value] = { correct: 0, total: 0 };
     }
     byValueAccuracy[value].total += 1;
 
-    // Pseudo-aleatoriedad determinista (round * mapping hash).
-    const seed = ((i + 1) * 7919 + value.length * 31) % 1000;
-    const isCorrect = seed / 1000 < successRate;
-
-    if (isCorrect) {
+    if (outcome.eventType === 'correct') {
       byValueAccuracy[value].correct += 1;
       correctCount += 1;
       currentStreak += 1;
       peakStreak = Math.max(peakStreak, currentStreak);
-      const elapsedMs = Math.round(profile.avgSpeed * (0.7 + (seed % 60) / 100));
       quickestCorrectMs =
-        quickestCorrectMs === null ? elapsedMs : Math.min(quickestCorrectMs, elapsedMs);
+        quickestCorrectMs === null
+          ? outcome.timeElapsed
+          : Math.min(quickestCorrectMs, outcome.timeElapsed);
       slowestCorrectMs =
-        slowestCorrectMs === null ? elapsedMs : Math.max(slowestCorrectMs, elapsedMs);
+        slowestCorrectMs === null
+          ? outcome.timeElapsed
+          : Math.max(slowestCorrectMs, outcome.timeElapsed);
     } else {
       currentStreak = 0;
     }
-  }
+  });
 
   // categoryDominance: el slug con mejor ratio (correct/total) entre los
   // que tienen total >= 1. Idéntico al builder runtime.
@@ -443,45 +492,52 @@ function deriveAssociationMetricsFromProfile({ profile, session, roundsPlayed, w
  * No es una simulación exacta del flujo runtime — es suficiente para que
  * los analytics (`bySequence`, charts) muestren datos realistas.
  */
-function deriveSequenceMetricsFromProfile({ profile, session, roundsPlayed, willAbandon }) {
+function deriveSequenceMetricsFromProfile({ roundOutcomes, session, willAbandon }) {
   const plan = Array.isArray(session.sequencePlan) ? session.sequencePlan : [];
-  const playedRounds = Math.min(roundsPlayed, plan.length);
-  const successRate = Math.max(0, Math.min(1, profile?.successRate ?? 0.7));
-  const speedFactor = Number(profile?.speedFactor || 1);
+  const playedRounds = roundOutcomes.length;
 
   let sequencesCompleted = 0;
   let sequencesBlocked = 0;
   let sequencesTimedOut = 0;
   let maxLength = 0;
   let partialReproductions = 0;
+  let partialRounds = 0;
   let blockedCardsTotal = 0;
   let totalDuration = 0;
   let hintsUsed = 0;
 
-  for (let i = 0; i < playedRounds; i += 1) {
-    const round = plan[i];
-    const len = Number(round?.length) || 3;
-    const seedHash = (i + 1) * 7919 + len * 31;
-    const random = (seedHash % 100) / 100;
-
-    if (random < successRate) {
+  // Deriva cada ronda del MISMO resultado que produjo el score de cabecera:
+  // `weight` es la longitud de la secuencia de esa ronda (puntuación por carta).
+  roundOutcomes.forEach(outcome => {
+    const len = Number(outcome.weight) || 3;
+    let correctThisRound = 0;
+    if (outcome.eventType === 'correct') {
       sequencesCompleted += 1;
-      partialReproductions += len;
+      correctThisRound = len;
       maxLength = Math.max(maxLength, len);
-    } else if (random < successRate + (1 - successRate) * 0.6) {
+    } else if (outcome.eventType === 'error') {
       sequencesBlocked += 1;
-      partialReproductions += Math.floor(len * 0.5);
+      correctThisRound = Math.floor(len * 0.5);
       blockedCardsTotal += Math.max(1, Math.floor(len * 0.3));
     } else {
       sequencesTimedOut += 1;
-      partialReproductions += Math.floor(len * 0.2);
+      correctThisRound = Math.floor(len * 0.2);
     }
 
-    if ((session.difficulty || 'medium') === 'easy') {
-      hintsUsed += sequencesBlocked + sequencesTimedOut;
+    partialReproductions += correctThisRound;
+    // Ronda parcial: acertó alguna carta pero no completó la secuencia. Es el
+    // numerador correcto del detector `sequence_order_errors` (ronda, no carta).
+    if (correctThisRound > 0 && correctThisRound < len) {
+      partialRounds += 1;
     }
 
-    totalDuration += Math.round(1500 * len * (1 / speedFactor));
+    totalDuration += outcome.timeElapsed;
+  });
+
+  // Pistas (modeladas solo en 'easy'): una por cada ronda no completada. Se
+  // calcula UNA vez (antes se acumulaba el total acumulado cada ronda → sobreconteo).
+  if ((session.difficulty || 'medium') === 'easy') {
+    hintsUsed = sequencesBlocked + sequencesTimedOut;
   }
 
   if (willAbandon) {
@@ -494,6 +550,8 @@ function deriveSequenceMetricsFromProfile({ profile, session, roundsPlayed, will
     sequencesTimedOut,
     maxSequenceLengthAchieved: maxLength,
     partialReproductions,
+    partialRounds,
+    roundsPlayed: playedRounds,
     averageReproductionTimeMs: playedRounds > 0 ? Math.round(totalDuration / playedRounds) : 0,
     blockedCardsTotal,
     hintsUsed
@@ -601,8 +659,20 @@ function generateGamePlaysData(sessions, students) {
       // Inferir Secuencia desde la presencia de sequencePlan (T-921 fase G).
       const isSequence = Array.isArray(session.sequencePlan) && session.sequencePlan.length > 0;
 
+      // PRNG determinista sembrado por (alumno, partida): toda la partida
+      // (abandono, resultados de ronda, jitter, sub-métricas) deriva de esta
+      // semilla → reproducible entre `seed:reset` y distinta por alumno/partida.
+      const seedBase = (index + 1) * 100003 + (i + 1) * 7919;
+      const rng = makeRng(seedBase);
+
+      // Pesos de puntos por ronda: en Secuencia, cada ronda vale su `length`
+      // (puntuación por carta); el resto de mecánicas usan 1 (por ronda).
+      const roundPointWeights = isSequence
+        ? session.sequencePlan.map(r => Number(r?.length) || 1)
+        : null;
+
       // Decidir si abandona (según perfil)
-      const willAbandon = Math.random() < profile.abandonProbability;
+      const willAbandon = rng() < profile.abandonProbability;
 
       const playData = generatePlayEvents(
         numberOfRounds,
@@ -611,7 +681,9 @@ function generateGamePlaysData(sessions, students) {
         profile,
         i,
         willAbandon,
-        isMemory
+        isMemory,
+        rng,
+        roundPointWeights
       );
 
       // Calcular timestamp: distribuir partidas del alumno a lo largo del tiempo
@@ -676,28 +748,22 @@ function generateGamePlaysData(sessions, students) {
       // cuando es relevante" que aplican los DTOs.
       const sequenceMetrics = isSequence
         ? deriveSequenceMetricsFromProfile({
-            profile,
+            roundOutcomes: playData.roundOutcomes,
             session,
-            roundsPlayed: playData.roundsPlayed,
             willAbandon
           })
         : null;
       const memoryMetrics = isMemory
         ? deriveMemoryMetricsFromProfile({
-            profile,
-            session,
-            gameNumber: i,
-            willAbandon
+            roundOutcomes: playData.roundOutcomes,
+            session
           })
         : null;
       // Asociación se infiere por exclusión: ni boardLayout ni sequencePlan.
       const isAssociation = !isMemory && !isSequence;
       const associationMetrics = isAssociation
         ? deriveAssociationMetricsFromProfile({
-            profile,
-            session,
-            roundsPlayed: playData.roundsPlayed,
-            willAbandon
+            roundOutcomes: playData.roundOutcomes
           })
         : null;
 
@@ -748,6 +814,7 @@ function aggregateStudentMetrics(gamePlays) {
     const entry = metricsByStudent.get(studentId) || {
       totalGamesPlayed: 0,
       totalScore: 0,
+      totalScorePercent: 0,
       bestScore: 0,
       totalCorrectAnswers: 0,
       totalErrors: 0,
@@ -766,6 +833,12 @@ function aggregateStudentMetrics(gamePlays) {
       // Las partidas completadas contribuyen a todas las métricas de rendimiento
       entry.totalGamesPlayed += 1;
       entry.totalScore += play.score;
+      // `averageScore` es un PORCENTAJE (score/maxScore×100), no puntos crudos:
+      // así lo define el modelo (`User.updateStudentMetrics`) y lo consume TODA
+      // la app (tiers, "alumnos en riesgo", "Mis Alumnos"). Como `maxScore` varía
+      // por mecánica, promediar puntos crudos era incomparable y podía superar
+      // 100%. `totalScore`/`bestScore` se mantienen crudos (eso sí es correcto).
+      entry.totalScorePercent += play.maxScore > 0 ? (play.score / play.maxScore) * 100 : 0;
       entry.bestScore = Math.max(entry.bestScore, play.score);
       entry.totalCorrectAnswers += play.metrics.correctAttempts;
       entry.totalErrors += play.metrics.errorAttempts;
@@ -793,14 +866,18 @@ function aggregateStudentMetrics(gamePlays) {
 }
 
 async function recalculateSessionStatusesFromSeededPlays() {
-  const resolveSessionStatus = counters => {
+  const resolveSessionStatus = (counters, currentStatus) => {
     if (counters.activeOrPausedPlays > 0) {
       return 'active';
     }
     if (counters.totalPlays > 0) {
       return 'completed';
     }
-    return 'created';
+    // Sin partidas: NO degradar una sesión sembrada como 'completed' (se diseñó
+    // así, con timestamps, para alimentar las tendencias de "últimos 7 días");
+    // degradarla a 'created' le borraba `startedAt`/`endedAt`. Solo las que ya
+    // estaban en 'created' se mantienen 'created'.
+    return currentStatus === 'completed' ? 'completed' : 'created';
   };
 
   const applySessionStatus = (session, nextStatus) => {
@@ -836,7 +913,7 @@ async function recalculateSessionStatusesFromSeededPlays() {
       })
     ]);
 
-    const nextStatus = resolveSessionStatus({ totalPlays, activeOrPausedPlays });
+    const nextStatus = resolveSessionStatus({ totalPlays, activeOrPausedPlays }, session.status);
 
     if (session.status === nextStatus) {
       continue;
@@ -871,7 +948,7 @@ async function seedGamePlays(sessions, students) {
 
     metricsByStudent.forEach((metrics, studentId) => {
       const averageScore = metrics.totalGamesPlayed
-        ? Math.round(metrics.totalScore / metrics.totalGamesPlayed)
+        ? Math.round(metrics.totalScorePercent / metrics.totalGamesPlayed)
         : 0;
       const averageResponseTime = metrics.totalResponses
         ? Math.round(metrics.totalResponseTime / metrics.totalResponses)

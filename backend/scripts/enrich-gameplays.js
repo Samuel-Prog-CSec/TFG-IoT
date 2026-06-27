@@ -28,6 +28,7 @@ const User = require('../src/models/User');
 require('../src/models/GameMechanic');
 require('../src/models/GameContext');
 const logger = require('../src/utils/logger');
+const { computeMaxScore } = require('../src/services/gamePlayScoring');
 
 // Las funciones derive del seeder principal son privadas (no exportadas).
 // Las re-implementamos aquí en compacto para no acoplar el script al
@@ -373,8 +374,9 @@ function generatePlay({ student, session, profile, daysAgo, perStudentIndex }) {
   const lastEventTime = built.events[built.events.length - 1].timestamp.getTime();
   const completedAt = new Date(lastEventTime + 1000);
 
-  const pointsPerCorrect = Number(session.config?.pointsPerCorrect) || 10;
-  const maxScore = Math.max(1, numberOfRounds * pointsPerCorrect);
+  // maxScore POR MECÁNICA (igual que runtime/seeder); antes usaba rondas ×
+  // puntos para todas, corrompiendo Memoria/Secuencia al normalizar score/maxScore.
+  const maxScore = computeMaxScore(session);
 
   const baseMetrics = {
     ...built.metrics,

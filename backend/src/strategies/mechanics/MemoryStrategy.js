@@ -154,15 +154,22 @@ class MemoryStrategy extends BaseMechanicStrategy {
     const matched = new Set(strategyState.matchedUids || []);
     const selected = new Set(strategyState.selectedUids || []);
 
-    return (strategyState.boardLayout || []).map(slot => ({
-      slotIndex: slot.slotIndex,
-      uid: slot.uid,
-      assignedValue: slot.assignedValue,
-      isMatched: matched.has(slot.uid),
-      isSelected: selected.has(slot.uid),
-      isRevealed: revealed.has(slot.uid) || matched.has(slot.uid),
-      displayData: revealed.has(slot.uid) || matched.has(slot.uid) ? slot.displayData : null
-    }));
+    return (strategyState.boardLayout || []).map(slot => {
+      // Una carta es "visible" solo si está revelada o ya emparejada. Mientras
+      // esté boca abajo, ni `assignedValue` ni `displayData` deben serializarse:
+      // viajarían en el payload `memory_board` y la respuesta sería
+      // inspeccionable (DOM/red) antes de voltear la carta — fuga del reto.
+      const isVisible = revealed.has(slot.uid) || matched.has(slot.uid);
+      return {
+        slotIndex: slot.slotIndex,
+        uid: slot.uid,
+        assignedValue: isVisible ? slot.assignedValue : null,
+        isMatched: matched.has(slot.uid),
+        isSelected: selected.has(slot.uid),
+        isRevealed: isVisible,
+        displayData: isVisible ? slot.displayData : null
+      };
+    });
   }
 
   isCompleted(strategyState) {

@@ -184,7 +184,7 @@ const sessionTemplates = [
   },
   // ─── Semana 4-5 (hace ~28-35 días) ───
   {
-    contextKey: 'numbers-1-6',
+    contextKey: 'numbers-1-15',
     mechanicName: 'association',
     config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -5 },
     status: 'completed',
@@ -227,7 +227,7 @@ const sessionTemplates = [
   },
   // ─── Semana 2 (hace ~10-14 días) ───
   {
-    contextKey: 'numbers-1-6',
+    contextKey: 'numbers-1-15',
     mechanicName: 'association',
     config: { numberOfRounds: 6, timeLimit: 20, pointsPerCorrect: 15, penaltyPerError: -5 },
     status: 'completed',
@@ -270,7 +270,7 @@ const sessionTemplates = [
   },
   // ─── Sesiones pendientes (para testing de estados) ───
   {
-    contextKey: 'numbers-1-6',
+    contextKey: 'numbers-1-15',
     mechanicName: 'association',
     config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -5 },
     status: 'created',
@@ -301,7 +301,7 @@ const sessionTemplates = [
     daysAgo: 14
   },
   {
-    contextKey: 'numbers-1-6',
+    contextKey: 'numbers-1-15',
     mechanicName: 'sequence',
     difficulty: 'hard',
     config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -4 },
@@ -470,6 +470,23 @@ async function seedSessions(users, mechanics, contexts, decks) {
 
     // Insertar todas las sesiones
     const sessions = await GameSession.create(allSessions);
+
+    // El pre('save') del modelo recalcula `difficulty` por `numberOfCards` al
+    // crear (isNew), pisando el override explícito de los templates (todos los
+    // mazos tienen 6 cartas → todas acabarían en 'medium'). El controller real
+    // lo arregla con un 2º save; aquí reaplicamos la difficulty del template vía
+    // `updateOne` (sin hook). `create(array)` preserva el orden, así que
+    // `sessions[idx]` ↔ `allSessions[idx]`.
+    const difficultyFixes = allSessions
+      .map((data, idx) => ({ id: sessions[idx]._id, difficulty: data.difficulty }))
+      .filter(fix => fix.difficulty);
+    if (difficultyFixes.length > 0) {
+      await Promise.all(
+        difficultyFixes.map(fix =>
+          GameSession.updateOne({ _id: fix.id }, { difficulty: fix.difficulty })
+        )
+      );
+    }
 
     // Estadisticas por estado
     const byStatus = sessions.reduce((acc, s) => {

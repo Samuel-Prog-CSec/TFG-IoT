@@ -44,7 +44,7 @@ const SEED_KEYS_BY_CONTEXT = {
   'geography-europe': ['spain', 'france', 'italy', 'germany', 'portugal', 'greece'],
   'animals-farm': ['cow', 'pig', 'chicken', 'horse', 'duck', 'cat'],
   'colors-basic': ['red', 'blue', 'green', 'yellow', 'orange', 'purple'],
-  'numbers-1-6': ['one', 'two', 'three', 'four', 'five', 'six'],
+  'numbers-1-15': ['one', 'two', 'three', 'four', 'five', 'six'],
   'shapes-basic': ['circle', 'square', 'triangle', 'star', 'heart', 'diamond']
 };
 

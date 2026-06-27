@@ -11,11 +11,13 @@ import GlassCard from '../ui/GlassCard';
 function SequenceHighlightCard({ summary }) {
   if (!summary) return null;
 
+  // `?? 0`: si el backend omite alguna métrica de la fila, mostramos "0" en vez
+  // de una celda en blanco (la hero métrica ya lo hacía con `|| 0`).
   const rows = [
-    { Icon: CheckCircle2, label: 'Completas', value: summary.sequencesCompleted, tone: 'text-success-base' },
-    { Icon: XCircle, label: 'Bloqueadas', value: summary.sequencesBlocked, tone: 'text-error-base' },
-    { Icon: Clock3, label: 'Sin tiempo', value: summary.sequencesTimedOut, tone: 'text-accent-amber' },
-    { Icon: Sparkles, label: 'Pistas usadas', value: summary.hintsUsed, tone: 'text-brand-base' }
+    { Icon: CheckCircle2, label: 'Completas', value: summary.sequencesCompleted ?? 0, tone: 'text-success-base' },
+    { Icon: XCircle, label: 'Bloqueadas', value: summary.sequencesBlocked ?? 0, tone: 'text-error-base' },
+    { Icon: Clock3, label: 'Sin tiempo', value: summary.sequencesTimedOut ?? 0, tone: 'text-accent-amber' },
+    { Icon: Sparkles, label: 'Pistas usadas', value: summary.hintsUsed ?? 0, tone: 'text-brand-base' }
   ];
 
   return (

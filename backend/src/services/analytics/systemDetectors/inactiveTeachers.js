@@ -33,7 +33,14 @@ class InactiveTeachersDetector extends SystemAlertDetector {
         {
           role: 'teacher',
           accountStatus: 'approved',
-          $or: [{ lastLoginAt: { $lte: infoCutoff } }, { lastLoginAt: { $exists: false } }]
+          // Si nunca hizo login (`lastLoginAt` ausente) la antigüedad se mide por
+          // `createdAt`: solo cuenta como inactivo cuando además la cuenta lleva
+          // creada más del umbral info — una cuenta recién creada no es "inactiva
+          // hace >90 días", simplemente aún no ha entrado (OBS-9, QA 2026-06-27).
+          $or: [
+            { lastLoginAt: { $lte: infoCutoff } },
+            { lastLoginAt: { $exists: false }, createdAt: { $lte: infoCutoff } }
+          ]
         },
         { select: 'name email lastLoginAt createdAt', lean: true }
       );
@@ -42,9 +49,10 @@ class InactiveTeachersDetector extends SystemAlertDetector {
         return [];
       }
 
-      const warningTeachers = teachers.filter(
-        t => !t.lastLoginAt || new Date(t.lastLoginAt) <= warningCutoff
-      );
+      // Misma regla en el filtro de severidad: la fecha de referencia es el
+      // último login o, si nunca entró, la creación de la cuenta (OBS-9).
+      const inactiveSince = t => new Date(t.lastLoginAt || t.createdAt);
+      const warningTeachers = teachers.filter(t => inactiveSince(t) <= warningCutoff);
 
       const severity = warningTeachers.length > 0 ? 'warning' : 'info';
       const list = severity === 'warning' ? warningTeachers : teachers;

@@ -5,7 +5,6 @@ import ChartSection from './ChartSection';
 import EmptyState from '../ui/EmptyState';
 import SelectPremium from '../ui/SelectPremium';
 import { formatDate } from '../../lib/utils';
-import { useChartMotion } from '../analytics/ChartsTheme';
 import ThemedChartContainer, {
   buildTrendSummary,
   buildTrendDataTable,
@@ -59,7 +58,6 @@ function StudentProgressChart({
   // omitimos el selector interno para evitar duplicar el control
   // ("Ultimos 7 dias" mostrado dos veces — bug PROP-37 / fix PROP-43).
   const sectionPeriodChange = omitPeriodSelector ? undefined : onPeriodChange;
-  const motion = useChartMotion();
 
   // Vista (Por alumno / Por mecánica). La media del aula ya es la única línea
   // del chart (ver render); el toggle "Media del aula" se retiró al eliminar la
@@ -220,7 +218,7 @@ function StudentProgressChart({
                   dot={{ r: 3, fill: 'var(--color-brand-base)', stroke: 'var(--color-background-elevated)', strokeWidth: 2 }}
                   activeDot={{ r: 6, fill: 'var(--color-brand-light)', stroke: 'var(--color-background-elevated)', strokeWidth: 2 }}
                   connectNulls={false}
-                  {...motion(1)}
+                  isAnimationActive={false}
                 />
               </AreaChart>
             </ResponsiveContainer>

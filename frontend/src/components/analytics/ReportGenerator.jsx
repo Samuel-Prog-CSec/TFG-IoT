@@ -94,10 +94,11 @@ function resolveAverageScoreValue(kpis) {
 }
 
 function resolveCompletionRateValue(kpis) {
+  // Solo `completionRate` real. Antes caía a `classEngagementScore` cuando
+  // faltaba, pintando la implicación (engagement) bajo la etiqueta "Tasa
+  // Completado" — son magnitudes distintas. Si no hay tasa de completado,
+  // devolvemos null → la KPI muestra "—" en vez de un valor de otra métrica.
   if (kpis.completionRate != null) return Math.round(kpis.completionRate);
-  if (kpis.totalStudents && kpis.classEngagementScore != null) {
-    return Math.round(kpis.classEngagementScore);
-  }
   return null;
 }
 
@@ -611,7 +612,7 @@ function ReportGenerator({
     } catch (err) {
       if (isAbortError(err)) return;
       captureException(err);
-      setError('Error al generar el informe. Intenta de nuevo.');
+      setError('No pudimos generar el informe. Inténtalo de nuevo.');
     } finally {
       if (!controller.signal.aborted) {
         setGenerating(false);

@@ -619,7 +619,20 @@ const enrichMetric = (kpiKey, value, context = {}) => {
  * puntuación que la UI muestre como % o que se compare cross-mecánica (ADR-201).
  */
 const SCORE_PERCENT_EXPR = {
-  $cond: [{ $gt: ['$maxScore', 0] }, { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] }, 0]
+  // Suelo a 0 (OBS-5): un `score` crudo puede quedar negativo en BD si una
+  // partida en curso acumuló penalizaciones vía `$inc` (que salta el clamp
+  // `min:0` del modelo, aplicado solo en `.save()`). El % normalizado nunca debe
+  // ser negativo ni arrastrar las medias por debajo de 0.
+  $max: [
+    0,
+    {
+      $cond: [
+        { $gt: ['$maxScore', 0] },
+        { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
+        0
+      ]
+    }
+  ]
 };
 
 module.exports = {

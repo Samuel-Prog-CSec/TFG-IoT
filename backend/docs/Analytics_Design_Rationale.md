@@ -234,7 +234,7 @@ Los profesores **no tienen tiempo** de revisar gráficos a diario para cada alum
 | `mastery_milestone` | ≥80% accuracy sostenido en ≥5 partidas en un contexto | info (positiva) | Hito celebratorio por contexto temático. Dedup nivel detector por `data.contextId` (no encaja en el unique index BD) |
 | `mechanic_specific_struggle` | Gap ≥30 puntos entre mecánica fuerte y débil, débil <50, ≥3 partidas en cada mecánica | warning | Lectura pedagógica única en el proyecto. Sugiere intervención específica por mecánica |
 | `sequence_stagnation` | `maxSequenceLengthAchieved` no supera el mismo valor en 5 partidas Secuencia | warning | T-923 lo dejó pendiente "post-T-941". Identifica techo cognitivo en Secuencia |
-| `sequence_order_errors` | `partialReproductions / totalAttempts ≥ 0.4` en últimas partidas Secuencia | warning | T-923 lo dejó pendiente "post-T-941". Distingue problema de orden vs memoria pura |
+| `sequence_order_errors` | `partialRounds / roundsPlayed ≥ 0.4` (clamp ≤1) en últimas partidas Secuencia | warning | T-923 lo dejó pendiente "post-T-941". Distingue problema de orden vs memoria pura. **ADR-217:** antes dividía `partialReproductions / totalAttempts` (cartas ÷ intentos), magnitudes incompatibles que daban %>100 imposibles (p.ej. 384%) |
 
 Todos los umbrales viven en `backend/src/config/alerts.js` (única fuente de verdad). Aplicables por env vars para tuning sin redeploy.
 
@@ -601,7 +601,9 @@ La tercera mecánica añade KPIs propios que no encajan en el esquema común de 
 | `sequencesBlocked` | int | Rondas con al menos una carta bloqueada por fallos. |
 | `sequencesTimedOut` | int | Rondas que no se completaron a tiempo. |
 | `maxSequenceLengthAchieved` | int | Longitud máxima reproducida correctamente. **Mejor indicador de la "memoria de trabajo" del alumno.** |
-| `partialReproductions` | int | Cartas correctas acumuladas antes del primer fallo en cada ronda. |
+| `partialReproductions` | int | Cartas correctas acumuladas en cada ronda (histórico/compat con datos antiguos). |
+| `partialRounds` | int | Rondas con ≥1 acierto pero sin completar la secuencia. Numerador del detector `sequence_order_errors` (ADR-217). |
+| `roundsPlayed` | int | Total de rondas jugadas en la partida. Denominador del detector `sequence_order_errors` (ADR-217). |
 | `averageReproductionTimeMs` | int | Tiempo medio de la fase reproducing (no incluye memorización). |
 | `blockedCardsTotal` | int | Total de cartas bloqueadas por fallos en la partida. |
 | `hintsUsed` | int | Pistas entregadas (sólo aplica en dificultad easy). |

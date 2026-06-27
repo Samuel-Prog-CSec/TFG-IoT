@@ -43,7 +43,6 @@
 import { useMemo } from 'react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
-import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 /**
  * Paletas de color por mecánica de juego. Coherentes con
@@ -399,42 +398,36 @@ export function getRAGPatternFill(score) {
 }
 
 /**
- * Duración base de la animación de entrada de Recharts. Match con la
- * familia "Move" del sistema de motion (200-300ms ease-out) — sin caer en
- * el "demo bouncy" típico de dashboards genéricos. Cada serie escalonada
- * suma 80ms (`animationBegin = seriesIndex * 80`) para que las líneas
- * múltiples no entren a la vez.
- */
-const CHART_ANIMATION_BASE_MS = 700;
-const CHART_ANIMATION_STAGGER_MS = 80;
-
-/**
- * Hook que devuelve los flags de animación coherentes con la preferencia
- * de motion del usuario (T-952 Fase 0.A). Aplica en cualquier chart
- * Recharts (LineChart, BarChart, RadarChart, AreaChart, PieChart, …):
+ * Hook que devuelve los flags de animación de entrada para cualquier chart
+ * Recharts (LineChart, BarChart, RadarChart, AreaChart, …):
  *
  *   const motion = useChartMotion();
  *   <Line {...motion(0)} />
- *   <Line {...motion(1)} /> // segunda serie entra 80ms después
+ *   <Bar {...motion()} />
  *
- * En `prefers-reduced-motion: reduce` o cuando el usuario haya pulsado
- * el toggle de Animaciones del sidebar, los charts pintan en su estado
- * final SIN animación (Recharts respeta `isAnimationActive={false}`).
+ * IMPORTANTE — animaciones DESACTIVADAS globalmente. El motor de animación de
+ * Recharts 3.x (`react-smooth`) es incompatible con la reconciliación de React
+ * 19: al intercambiar los datos de un chart YA MONTADO (cambio de filtro, rango
+ * o ventana → update in-place, sin desmontar) revienta con
+ * `NotFoundError: removeChild` sobre los nodos `<Text>` de ejes/leyenda. Como
+ * prácticamente todos los charts de analytics se actualizan así (filtros de
+ * Dashboard/Análisis, selector de rango del perfil de alumno, selector de
+ * ventana de Secuencia), se desactiva la animación en TODOS (no solo en
+ * `prefers-reduced-motion`): pintan directamente en su estado final.
+ *
+ * El hook se mantiene como ÚNICO punto de control y se sigue invocando con
+ * `{...motion(i)}` en cada serie, de modo que cuando `react-smooth` soporte
+ * React 19 baste reintroducir aquí la rama animada (escalonando
+ * `animationBegin` por `seriesIndex` y respetando `useReducedMotion`) para
+ * re-animar todos los charts a la vez, sin tocar cada componente.
  *
  * @returns {(seriesIndex?: number) => { isAnimationActive: boolean, animationDuration: number, animationBegin: number }}
  */
 export function useChartMotion() {
-  const { shouldReduceMotion } = useReducedMotion();
-  return useMemo(() => {
-    if (shouldReduceMotion) {
-      return () => ({ isAnimationActive: false, animationDuration: 0, animationBegin: 0 });
-    }
-    return (seriesIndex = 0) => ({
-      isAnimationActive: true,
-      animationDuration: CHART_ANIMATION_BASE_MS,
-      animationBegin: Math.max(0, seriesIndex) * CHART_ANIMATION_STAGGER_MS,
-    });
-  }, [shouldReduceMotion]);
+  return useMemo(
+    () => () => ({ isAnimationActive: false, animationDuration: 0, animationBegin: 0 }),
+    [],
+  );
 }
 
 export default ChartsThemeDefs;

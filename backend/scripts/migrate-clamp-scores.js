@@ -7,7 +7,9 @@
  *  1. Recorre todas las GamePlays sin maxScore establecido (legacy) y lo
  *     calcula a partir de su sesion (numberOfRounds * pointsPerCorrect).
  *  2. Para cada GamePlay con score > maxScore, lo clampa al maximo.
- *  3. Idempotente: si score <= maxScore, no toca el documento.
+ *  3. Para cada GamePlay con score < 0 (OBS-5: penalizaciones acumuladas via
+ *     $inc en partidas en curso que saltaron el clamp min:0), lo sube a 0.
+ *  4. Idempotente: si 0 <= score <= maxScore, no toca el documento.
  *
  * Uso:
  *   npm run migrate:clamp-scores            # aplica cambios
@@ -19,6 +21,7 @@ const { connectDB, disconnectDB } = require('../src/config/database');
 const GamePlay = require('../src/models/GamePlay');
 const GameSession = require('../src/models/GameSession');
 const logger = require('../src/utils/logger');
+const { computeMaxScore } = require('../src/services/gamePlayScoring');
 
 dotenv.config();
 
@@ -33,13 +36,19 @@ const migrate = async () => {
     logger.info(`[migrate-clamp-scores] Iniciando (${isDryRun ? 'DRY-RUN' : 'aplicar cambios'})`);
 
     // Cargar sessions en memoria para evitar N+1 queries
-    const sessions = await GameSession.find({}, { _id: 1, config: 1 }).lean();
+    // Proyección con los campos que `computeMaxScore` necesita por mecánica
+    // (boardLayout para Memoria, sequencePlan para Secuencia).
+    const sessions = await GameSession.find(
+      {},
+      { _id: 1, config: 1, mechanicType: 1, boardLayout: 1, sequencePlan: 1 }
+    ).lean();
     const sessionById = new Map(sessions.map(s => [s._id.toString(), s]));
 
     const plays = await GamePlay.find({}, { _id: 1, sessionId: 1, score: 1, maxScore: 1 }).lean();
 
     let needMaxScore = 0;
     let needClamp = 0;
+    let needClampNeg = 0;
     let alreadyValid = 0;
     let missingSession = 0;
 
@@ -50,9 +59,11 @@ const migrate = async () => {
       if (!session) {
         missingSession += 1;
       } else {
-        const rounds = Number(session.config?.numberOfRounds) || 1;
-        const points = Number(session.config?.pointsPerCorrect) || 10;
-        const computedMax = Math.max(1, rounds * points);
+        // maxScore POR MECÁNICA (Secuencia = Σ longitudes × puntos; Memoria =
+        // parejas × puntos; Asociación = rondas × puntos), igual que el runtime
+        // y el seeder. Antes usaba la fórmula de Asociación para TODAS, lo que
+        // sobrescribía con un techo erróneo el maxScore de Memoria/Secuencia.
+        const computedMax = computeMaxScore(session);
 
         const update = {};
         if (typeof play.maxScore !== 'number' || play.maxScore < 1) {
@@ -64,6 +75,10 @@ const migrate = async () => {
         if (typeof play.score === 'number' && play.score > effectiveMax) {
           update.score = effectiveMax;
           needClamp += 1;
+        } else if (typeof play.score === 'number' && play.score < 0) {
+          // OBS-5: score crudo negativo (penalizaciones $inc sin clamp) → suelo a 0.
+          update.score = 0;
+          needClampNeg += 1;
         }
 
         if (Object.keys(update).length === 0) {
@@ -85,6 +100,7 @@ const migrate = async () => {
       missingSession,
       backfilledMaxScore: needMaxScore,
       clampedScore: needClamp,
+      clampedNegativeScore: needClampNeg,
       pendingOps: ops.length
     };
 

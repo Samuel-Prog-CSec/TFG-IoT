@@ -30,7 +30,19 @@ const REPORT_AGGREGATE_TIMEOUT_MS = 7000;
  * Se usa en TODOS los promedios de puntuación que la UI muestra como "%".
  */
 const SCORE_PERCENT_EXPR = {
-  $cond: [{ $gt: ['$maxScore', 0] }, { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] }, 0]
+  // Suelo a 0 (OBS-5): el `score` crudo puede quedar negativo en BD (penalizaciones
+  // acumuladas vía `$inc` en partidas en curso, que saltan el clamp `min:0` del
+  // modelo). El % normalizado nunca debe ser negativo ni arrastrar medias a la baja.
+  $max: [
+    0,
+    {
+      $cond: [
+        { $gt: ['$maxScore', 0] },
+        { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
+        0
+      ]
+    }
+  ]
 };
 
 /**
@@ -922,10 +934,16 @@ async function getStudentsTiersByMechanic(studentIds = []) {
         playerId: 1,
         mechanicName: '$mechanic.name',
         accuracyPct: {
-          $cond: [
-            { $gt: ['$maxScore', 0] },
-            { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
-            0
+          // Suelo a 0 (OBS-5): nunca mostrar % negativo por un score crudo negativo.
+          $max: [
+            0,
+            {
+              $cond: [
+                { $gt: ['$maxScore', 0] },
+                { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
+                0
+              ]
+            }
           ]
         }
       }
@@ -1320,9 +1338,17 @@ async function getClassroomTrends(teacherId, timeRange = '7d', { contextId, mech
     'studentMetrics.averageScore': { $lt: 50, $gt: 0 }
   });
 
+  // Un baseline del periodo anterior solo es comparable si tuvo suficientes
+  // partidas; con muy pocas (o ninguna) el % "vs semana pasada" se dispara a
+  // valores engañosos (+1900%, +153%...). Por debajo del mínimo no ofrecemos
+  // comparación: `previous` queda null y el frontend pinta "—". (DASH-2)
+  const MIN_BASELINE_GAMES = 3;
+  const hasBaseline = (prev.totalGames || 0) >= MIN_BASELINE_GAMES;
+  const withBaseline = value => (hasBaseline ? value : null);
+
   const calcChange = (current, previous) => {
-    if (!previous || previous === 0) {
-      return { change: current || 0, changePercent: 0 };
+    if (!hasBaseline || !previous || previous === 0) {
+      return { change: current || 0, changePercent: null };
     }
     const change = (current || 0) - previous;
     const changePercent = Math.round((change / previous) * 100 * 10) / 10;
@@ -1350,7 +1376,7 @@ async function getClassroomTrends(teacherId, timeRange = '7d', { contextId, mech
         name: 'averageScore',
         label: 'Puntuación media',
         current: Math.round((curr.avgScore || 0) * 10) / 10,
-        previous: Math.round((prev.avgScore || 0) * 10) / 10,
+        previous: withBaseline(Math.round((prev.avgScore || 0) * 10) / 10),
         ...calcChange(curr.avgScore, prev.avgScore)
       },
       {
@@ -1365,21 +1391,21 @@ async function getClassroomTrends(teacherId, timeRange = '7d', { contextId, mech
         name: 'totalGames',
         label: 'Total partidas',
         current: curr.totalGames || 0,
-        previous: prev.totalGames || 0,
+        previous: withBaseline(prev.totalGames || 0),
         ...calcChange(curr.totalGames, prev.totalGames)
       },
       {
         name: 'averageAccuracy',
         label: 'Precisión media',
         current: currAccuracy,
-        previous: prevAccuracy,
+        previous: withBaseline(prevAccuracy),
         ...calcChange(currAccuracy, prevAccuracy)
       },
       {
         name: 'averageResponseTime',
         label: 'Tiempo medio de respuesta (ms)',
         current: Math.round(curr.avgResponseTime || 0),
-        previous: Math.round(prev.avgResponseTime || 0),
+        previous: withBaseline(Math.round(prev.avgResponseTime || 0)),
         ...calcChange(curr.avgResponseTime, prev.avgResponseTime)
       }
     ],

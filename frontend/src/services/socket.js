@@ -6,7 +6,7 @@
  */
 
 import { io } from 'socket.io-client';
-import { getAccessToken, refreshAccessTokenProactive, AUTH_EVENTS } from './api';
+import { getAccessToken, AUTH_EVENTS } from './api';
 
 // ============================================
 // CONFIGURACIÓN
@@ -25,17 +25,6 @@ const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
  * que `RFID_MODE_IDLE_TIMEOUT_MS` (5 min en backend).
  */
 const RFID_HEARTBEAT_INTERVAL_MS = 60_000;
-/**
- * B.8 (pre-v1.0.0): refresh JWT proactivo. El access token expira a los
- * 15min (configurable via VITE_JWT_ACCESS_LIFETIME_MS, alineado con
- * JWT_EXPIRES_IN backend). Programamos el refresh 1 min antes para evitar
- * desautorizado silencioso en partidas largas.
- */
-const JWT_ACCESS_LIFETIME_MS = Number.parseInt(
-  import.meta.env.VITE_JWT_ACCESS_LIFETIME_MS,
-  10
-) || 15 * 60 * 1000;
-const PROACTIVE_REFRESH_LEAD_MS = 60_000; // 1 minuto antes del expiry
 const IS_DEV = import.meta.env.DEV;
 
 const socketLog = (level, ...args) => {
@@ -157,34 +146,21 @@ class SocketService {
   }
 
   /**
-   * B.8 (pre-v1.0.0): arranca el timer de refresh proactivo (idempotente).
-   * Se llama tras cada `connect` exitoso del socket de sistema. Cancela el
-   * timer previo si existía para que reconexiones no acumulen timers.
+   * Refresco proactivo del socket — DESACTIVADO (consolidación de cadenas).
+   *
+   * `AuthContext.scheduleTokenRefresh` es ahora el ÚNICO refresco proactivo:
+   * refresca con un lead mayor (≈5 min vs el 1 min de aquí) y propaga el token
+   * nuevo al socket vía `socketService.updateAuth`, de modo que el socket
+   * siempre tiene un token fresco para el siguiente handshake de reconexión.
+   * El refresco proactivo propio del socket era redundante — un segundo POST
+   * `/auth/refresh` por ciclo de token, desincronizado del de AuthContext y
+   * consumiendo cuota del rate-limit del refresh. El path reactivo (interceptor
+   * 401) sigue siendo el fallback si algo fallara. Se conserva el método como
+   * no-op para no tocar los puntos de llamada de connect/disconnect.
    * @private
    */
   _scheduleProactiveRefresh() {
-    if (this._proactiveRefreshTimerId) {
-      clearTimeout(this._proactiveRefreshTimerId);
-    }
-    const delayMs = Math.max(30_000, JWT_ACCESS_LIFETIME_MS - PROACTIVE_REFRESH_LEAD_MS);
-    this._proactiveRefreshTimerId = setTimeout(() => {
-      // Sólo refrescar si seguimos conectados — si el usuario ya hizo
-      // logout/navegó fuera, no tiene sentido tocar el backend.
-      if (!this.isConnected) {
-        return;
-      }
-      refreshAccessTokenProactive()
-        .then(() => {
-          // Reprogramar el siguiente refresh — la cadena se mantiene viva
-          // mientras el socket esté conectado.
-          this._scheduleProactiveRefresh();
-          return undefined;
-        })
-        .catch(() => {
-          // Si el refresh proactivo falla, el path reactivo (interceptor
-          // 401) recuperará al próximo request HTTP. No re-programamos.
-        });
-    }, delayMs);
+    // Intencionalmente vacío — ver doc arriba.
   }
 
   /**

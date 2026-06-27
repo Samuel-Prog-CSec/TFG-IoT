@@ -76,11 +76,15 @@ services:
     build:
       context: ./backend
       target: development
-    # T-931 (pre-v1.0.0): añadir volumen montado en dev para que el worker
-    # recargue los cambios del módulo `materializedAnalyticsService` y del
-    # nuevo `analyticsReconcileWorker` sin requerir rebuild.
+    # T-931 (pre-v1.0.0): volumen montado en dev + nodemon (`worker:dev`) para que
+    # el worker recargue los cambios de detectores/servicios sin rebuild ni
+    # restart manual. Sin el `command` con nodemon heredaba `node worker.js` del
+    # base y NO recargaba: un cambio en un detector solo surtía efecto tras
+    # `docker restart rfid-games-worker` — confusión real en QA 2026-06-27 (las
+    # alertas de un detector recién corregido seguían usando el código viejo).
     volumes:
       - ./backend:/app
       - /app/node_modules
     environment:
       - NODE_ENV=development
+    command: npm run worker:dev

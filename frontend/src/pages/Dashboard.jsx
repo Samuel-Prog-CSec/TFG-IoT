@@ -25,6 +25,7 @@ import StudentsList from '../components/dashboard/StudentsList';
 import SkeletonShimmer, { SkeletonCard, SkeletonStatCard, SkeletonChart } from '../components/ui/SkeletonShimmer';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import ChartErrorBoundary from '../components/common/ChartErrorBoundary';
 
 // T-907 Fase B: charts y heatmaps pesados (Recharts/canvas) se cargan via lazy
 // con Suspense para que KPIs, alertas y header del Dashboard se rendericen
@@ -359,7 +360,7 @@ export default function Dashboard() {
 
             {error ? (
               <ErrorState
-                title="Error al cargar datos"
+                title="No pudimos cargar tu panel"
                 message={`${error} Pulsa Reintentar o recarga la página.`}
                 onRetry={fetchData}
               />
@@ -575,19 +576,23 @@ export default function Dashboard() {
               <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
                 <div className="xl:col-span-2 flex flex-col gap-6 lg:gap-8">
                   <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                    <Suspense fallback={<SkeletonChart height={320} />}>
-                      <StudentProgressChart
-                        data={progressData}
-                        period={timeRange}
-                        onPeriodChange={(val) => setCohortMode(val)}
-                        omitPeriodSelector
-                      />
-                    </Suspense>
+                    <ChartErrorBoundary>
+                      <Suspense fallback={<SkeletonChart height={320} />}>
+                        <StudentProgressChart
+                          data={progressData}
+                          period={timeRange}
+                          onPeriodChange={(val) => setCohortMode(val)}
+                          omitPeriodSelector
+                        />
+                      </Suspense>
+                    </ChartErrorBoundary>
                   </motion.div>
                   <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                    <Suspense fallback={<SkeletonChart height={280} />}>
-                      <ClassroomOverview summary={summary} distribution={distributionData} />
-                    </Suspense>
+                    <ChartErrorBoundary>
+                      <Suspense fallback={<SkeletonChart height={280} />}>
+                        <ClassroomOverview summary={summary} distribution={distributionData} />
+                      </Suspense>
+                    </ChartErrorBoundary>
                   </motion.div>
                   <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
                     {/* QA 2026-05-30: el mapa de dificultad es una comparación

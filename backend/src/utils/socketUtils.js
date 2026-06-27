@@ -30,26 +30,50 @@ const DISCONNECT_GRACE_MS = 300;
  * @param {string} userId
  * @param {string} reason
  */
-const disconnectUserSockets = (io, userId, reason) => {
+const disconnectUserSockets = async (io, userId, reason) => {
   if (!io) {
     return;
   }
 
   const room = `user_${userId}`;
+
+  // Snapshot de los sockets ACTUALES de la room ANTES de esperar el grace
+  // (OBS-2). En el login, esta función se llama al crear la sesión nueva —
+  // ANTES de que el cliente reciba la respuesta y conecte su socket nuevo. Si
+  // re-consultáramos la room dentro del setTimeout (comportamiento anterior),
+  // el socket recién conectado —que entra en `user_<id>` dentro de la ventana
+  // de 300ms— caería en la redada y se auto-expulsaría (churn
+  // connect→disconnect→reconnect). Con el snapshot, en un login fresco la
+  // lista está vacía y no se desconecta a nadie; solo se expulsan los sockets
+  // del dispositivo ANTERIOR (los que ya estaban). `fetchSockets()` es async y
+  // cubre todas las instancias vía el adapter de Redis.
+  let staleSockets = [];
+  try {
+    staleSockets = await io.in(room).fetchSockets();
+  } catch (error) {
+    logger.warn('disconnectUserSockets: error al obtener sockets de la room', {
+      userId,
+      reason,
+      message: error.message
+    });
+  }
+
   io.to(room).emit('session_invalidated', {
     reason,
     timestamp: Date.now()
   });
 
   setTimeout(() => {
-    try {
-      io.to(room).disconnectSockets(true);
-    } catch (error) {
-      logger.warn('disconnectUserSockets: error al cerrar sockets de la room', {
-        userId,
-        reason,
-        message: error.message
-      });
+    for (const socket of staleSockets) {
+      try {
+        socket.disconnect(true);
+      } catch (error) {
+        logger.warn('disconnectUserSockets: error al cerrar socket', {
+          userId,
+          reason,
+          message: error.message
+        });
+      }
     }
   }, DISCONNECT_GRACE_MS);
 };

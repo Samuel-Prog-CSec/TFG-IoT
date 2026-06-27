@@ -5,10 +5,12 @@
  * falla el ORDEN de la secuencia con alta frecuencia. Indica un problema
  * cognitivo de secuenciación distinto al de memoria pura.
  *
- * Métrica utilizada: `metrics.partialReproductions` (campo poblado por
- * la mecánica Secuencia). Una "partial reproduction" significa que el
- * alumno completó la secuencia con cartas correctas pero en orden
- * incorrecto o incompleto.
+ * Métrica utilizada: `metrics.partialRounds / metrics.roundsPlayed` (campos
+ * poblados por la mecánica Secuencia). Una "ronda parcial" es una ronda en la
+ * que el alumno acierta algunas cartas pero no completa la secuencia (orden
+ * incorrecto o incompleto). El ratio queda acotado a ≤100%: antes se dividía
+ * `partialReproductions` (cartas correctas TOTALES) entre intentos, lo que
+ * producía porcentajes imposibles >100% (p.ej. 384%).
  *
  * @module services/analytics/detectors/sequenceOrderErrors
  */
@@ -42,7 +44,7 @@ class SequenceOrderErrorsDetector extends AlertDetector {
           playerId: { $in: studentIds },
           status: 'completed',
           completedAt: { $gte: getStartDate('90d') },
-          'metrics.partialReproductions': { $exists: true, $gte: 0 }
+          'metrics.roundsPlayed': { $exists: true, $gt: 0 }
         }
       },
       {
@@ -62,15 +64,15 @@ class SequenceOrderErrorsDetector extends AlertDetector {
       {
         $group: {
           _id: '$playerId',
-          partials: { $push: '$metrics.partialReproductions' },
-          attempts: { $push: '$metrics.totalAttempts' },
+          partials: { $push: '$metrics.partialRounds' },
+          rounds: { $push: '$metrics.roundsPlayed' },
           lastCompletedAt: { $max: '$completedAt' }
         }
       },
       {
         $project: {
           recentPartials: { $slice: ['$partials', 5] },
-          recentAttempts: { $slice: ['$attempts', 5] },
+          recentRounds: { $slice: ['$rounds', 5] },
           lastCompletedAt: 1
         }
       }
@@ -87,12 +89,14 @@ class SequenceOrderErrorsDetector extends AlertDetector {
       }
 
       const totalPartials = r.recentPartials.reduce((a, b) => a + (b || 0), 0);
-      const totalAttempts = r.recentAttempts.reduce((a, b) => a + (b || 0), 0);
-      if (totalAttempts === 0) {
+      const totalRounds = r.recentRounds.reduce((a, b) => a + (b || 0), 0);
+      if (totalRounds === 0) {
         continue;
       }
 
-      const ratio = totalPartials / totalAttempts;
+      // partialRounds ≤ roundsPlayed por construcción; el clamp ≤1 es defensa
+      // ante datos históricos/seed inconsistentes (evita porcentajes >100%).
+      const ratio = Math.min(1, totalPartials / totalRounds);
       if (ratio < partialRatio) {
         continue;
       }
@@ -114,7 +118,7 @@ class SequenceOrderErrorsDetector extends AlertDetector {
           partialRatio: Math.round(ratio * 100 * 10) / 10,
           gamesAnalyzed: r.recentPartials.length,
           totalPartials,
-          totalAttempts
+          totalRounds
         }
       });
     }

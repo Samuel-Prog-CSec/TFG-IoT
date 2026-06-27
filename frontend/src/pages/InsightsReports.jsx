@@ -110,7 +110,11 @@ function LearningCurvesSection({ data, loading }) {
         const name = curve.name || curve.contextName || curve.mechanicName || 'Curva';
         const points = curve.dataPoints || curve.points || [];
         if (points[i]) {
-          point[name] = points[i].avgScore ?? points[i].averageScore ?? points[i].score ?? null;
+          // Clamp [0,100]: el YAxis ya acota visualmente, pero sin esto el
+          // tooltip podría mostrar ">100%" si el backend enviara un score crudo
+          // (TrajectoryChart clampa por el mismo motivo).
+          const raw = points[i].avgScore ?? points[i].averageScore ?? points[i].score ?? null;
+          point[name] = raw == null ? null : Math.max(0, Math.min(100, raw));
         }
       }
       result.push(point);
@@ -278,7 +282,7 @@ function LearningCurvesSection({ data, loading }) {
  * Cada tab carga sus propios datos al activarse.
  */
 export default function InsightsReports() {
-  useDocumentTitle('Insights y Reportes');
+  useDocumentTitle('Análisis e informes');
   const { shouldReduceMotion } = useReducedMotion();
 
   const [activeTab, setActiveTab] = useState('effectiveness');
@@ -362,13 +366,13 @@ export default function InsightsReports() {
           setCrossData(crossResult.value);
         } else if (!isAbortError(crossResult.error)) {
           captureException(crossResult.error);
-          setCrossError('No se pudo cargar el análisis cruzado.');
+          setCrossError('No pudimos cargar el análisis cruzado. Vuelve a intentarlo.');
           setCrossData(null);
         }
       } catch (err) {
         if (isAbortError(err)) return;
         captureException(err);
-        setEffectivenessError('No se pudieron cargar los datos de efectividad.');
+        setEffectivenessError('No pudimos cargar la efectividad del contenido. Vuelve a intentarlo.');
       } finally {
         if (!controller.signal.aborted) {
           setEffectivenessLoading(false);
@@ -408,7 +412,7 @@ export default function InsightsReports() {
       } catch (err) {
         if (isAbortError(err)) return;
         captureException(err);
-        setAlertsError('No se pudieron cargar las alertas.');
+        setAlertsError('No pudimos cargar las alertas. Vuelve a intentarlo.');
       } finally {
         if (!controller.signal.aborted) {
           setAlertsLoading(false);
@@ -494,7 +498,7 @@ export default function InsightsReports() {
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
       className="page-container py-[var(--space-fluid-section)] space-y-6"
-      aria-label="Insights y Reportes"
+      aria-label="Análisis e informes"
     >
       <ChartErrorBoundary>
       {/* Header — eyebrow + título con icono signature aligned con resto de
@@ -506,7 +510,7 @@ export default function InsightsReports() {
             <Activity size={24} aria-hidden="true" />
           </div>
           <div>
-            <p className="text-micro uppercase tracking-[0.18em] text-brand-base font-bold mb-0.5">Insights</p>
+            <p className="text-micro uppercase tracking-[0.18em] text-brand-base font-bold mb-0.5">Análisis</p>
             <h1 className="text-2xl sm:text-3xl font-bold text-text-primary font-display leading-tight">
               Análisis e informes
             </h1>
@@ -526,7 +530,7 @@ export default function InsightsReports() {
       {/* Tab navigation — BUG-A11Y-INSIGHTS-TABS-A (QA Sprint 0 post-v0.5.0):
           fondo sólido (background-elevated) para que el texto del tab no caiga
           sobre la aurora púrpura del AppLayout (lo cual rompía contraste). */}
-      <div className="flex items-center gap-1 border-b border-border-subtle bg-background-elevated/95 backdrop-blur-sm rounded-t-lg px-2" role="tablist" aria-label="Secciones de insights">
+      <div className="flex items-center gap-1 border-b border-border-subtle bg-background-elevated/95 backdrop-blur-sm rounded-t-lg px-2" role="tablist" aria-label="Secciones de análisis">
         {TABS.map((tab) => {
           const isActive = activeTab === tab.id;
           const TabIcon = tab.icon;
@@ -676,7 +680,7 @@ function EffectivenessTabContent({
   shouldReduceMotion,
 }) {
   if (error) {
-    return <ErrorState title="Error al cargar datos" message={error} onRetry={onRetry} />;
+    return <ErrorState title="No pudimos cargar el análisis" message={error} onRetry={onRetry} />;
   }
 
   if (loading && !effectivenessData) {
@@ -816,7 +820,7 @@ function AlertsTabContent({ initialAlerts, loading: initialLoading, error, onRet
   }, [statusFilter, fetchForStatus]);
 
   if (error) {
-    return <ErrorState title="Error al cargar alertas" message={error} onRetry={onRetry} />;
+    return <ErrorState title="No pudimos cargar las alertas" message={error} onRetry={onRetry} />;
   }
 
   return (
@@ -922,7 +926,7 @@ function ReportsTabContent({ shouldReduceMotion }) {
       } catch (err) {
         if (isAbortError(err)) return;
         captureException(err);
-        setRecentError('No se pudieron cargar los informes recientes.');
+        setRecentError('No pudimos cargar los informes recientes. Vuelve a intentarlo.');
       } finally {
         if (!recController.signal.aborted) setRecentLoading(false);
       }

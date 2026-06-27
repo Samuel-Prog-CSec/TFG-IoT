@@ -212,7 +212,10 @@ const getActivityAggregate = async startDate => {
 const getContentAggregate = async () => {
   const [totalDecks, totalSessions, activeSessions, totalContexts, totalMechanics] =
     await Promise.all([
-      cardDeckRepository.count({}),
+      // "Mazos publicados" = solo activos: los archivados están retirados y no
+      // deben contar como publicados (el resto del proyecto filtra igual por
+      // `status: 'active'`, p.ej. el límite de mazos activos por profesor).
+      cardDeckRepository.count({ status: 'active' }),
       gameSessionRepository.count({}),
       gameSessionRepository.count({ status: 'active' }),
       gameContextRepository.count({}),

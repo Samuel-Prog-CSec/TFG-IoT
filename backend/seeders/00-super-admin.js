@@ -14,6 +14,15 @@ const SUPER_ADMIN_PASSWORD = process.env.SUPER_ADMIN_PASSWORD || 'Admin1234!';
 
 async function seedSuperAdmin() {
   try {
+    // Defensa en profundidad: en producción nunca usar el fallback de password
+    // débil. (El flujo de prod real —Koyeb `start:prod`— no siembra, pero
+    // blindamos por si alguien ejecutara el seeder con NODE_ENV=production.)
+    if (process.env.NODE_ENV === 'production' && !process.env.SUPER_ADMIN_PASSWORD) {
+      throw new Error(
+        'SUPER_ADMIN_PASSWORD es obligatorio en producción; no se usa el fallback de desarrollo'
+      );
+    }
+
     const existing = await User.findOne({ email: SUPER_ADMIN_EMAIL });
 
     if (existing) {

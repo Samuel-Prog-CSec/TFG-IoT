@@ -120,17 +120,39 @@ describe('Detectores que cruzan game_mechanics — filtran por mechanic.name (re
     const session = await createSessionFor(teacher, deck, mechanic, context, {
       mechanicType: 'sequence'
     });
-    // 3 partidas con 3 reproducciones parciales sobre 5 intentos → ratio 0.6 > 0.4.
+    // 3 partidas con 3 rondas parciales sobre 5 rondas → ratio 0.6 > 0.4.
     await seedPlays({
       session,
       playerId: student._id,
       count: 3,
-      metrics: { partialReproductions: 3, totalAttempts: 5 }
+      metrics: { partialRounds: 3, roundsPlayed: 5 }
     });
 
     const findings = await sequenceOrderErrors.run({ students: [student] });
     expect(findings).toHaveLength(1);
     expect(findings[0].type).toBe('sequence_order_errors');
+  });
+
+  it('sequence_order_errors acota el ratio a ≤100% usando rondas, no cartas (ALERT-1)', async () => {
+    const mechanic = await createMechanic({ name: 'sequence', displayName: 'Secuencia' });
+    const session = await createSessionFor(teacher, deck, mechanic, context, {
+      mechanicType: 'sequence'
+    });
+    // 3 partidas de 5 rondas, 2 con reproducción parcial (orden incorrecto).
+    // `partialReproductions` (cartas correctas totales = 15) NO es el numerador:
+    // daría 15/5 = 300%, imposible. El ratio correcto es partialRounds/roundsPlayed
+    // = 2/5 = 40%.
+    await seedPlays({
+      session,
+      playerId: student._id,
+      count: 3,
+      metrics: { partialReproductions: 15, partialRounds: 2, roundsPlayed: 5 }
+    });
+
+    const findings = await sequenceOrderErrors.run({ students: [student] });
+    expect(findings).toHaveLength(1);
+    expect(findings[0].data.partialRatio).toBeLessThanOrEqual(100);
+    expect(findings[0].data.partialRatio).toBe(40);
   });
 
   it('mechanic_specific_struggle cruza mecánicas por name (domina Memoria, falla Secuencia)', async () => {

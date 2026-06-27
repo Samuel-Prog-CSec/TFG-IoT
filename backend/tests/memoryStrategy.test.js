@@ -197,4 +197,44 @@ describe('MemoryStrategy', () => {
       expect(() => strategy.recordScanResult({ isCorrect: true })).not.toThrow();
     });
   });
+
+  describe('buildBoardForClient no filtra la respuesta (MEM-1)', () => {
+    it('no expone assignedValue de cartas boca abajo (no reveladas ni emparejadas)', () => {
+      const strategy = new MemoryStrategy();
+      const sessionDoc = buildSessionDoc();
+      const state = strategy.initialize({ sessionDoc });
+
+      const board = strategy.buildBoardForClient(state);
+
+      // Recién iniciada la partida ninguna carta está revelada: el valor real
+      // ("A"/"B") NO debe viajar en el payload — sería una fuga inspeccionable.
+      board.forEach(slot => {
+        expect(slot.isRevealed).toBe(false);
+        expect(slot.assignedValue ?? null).toBeNull();
+        expect(slot.displayData).toBeNull();
+      });
+    });
+
+    it('sí expone assignedValue de una carta revelada', () => {
+      const strategy = new MemoryStrategy();
+      const sessionDoc = buildSessionDoc();
+      const state = strategy.initialize({ sessionDoc });
+
+      strategy.processScan({
+        scannedCard: { uid: 'AA000001', assignedValue: 'A' },
+        sessionDoc,
+        strategyState: state
+      });
+
+      const board = strategy.buildBoardForClient(state);
+      const revealed = board.find(s => s.uid === 'AA000001');
+      expect(revealed.isRevealed).toBe(true);
+      expect(revealed.assignedValue).toBe('A');
+
+      // La carta no seleccionada sigue boca abajo y sin filtrar su valor.
+      const hidden = board.find(s => s.uid === 'AA000002');
+      expect(hidden.isRevealed).toBe(false);
+      expect(hidden.assignedValue ?? null).toBeNull();
+    });
+  });
 });

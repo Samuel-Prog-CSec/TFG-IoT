@@ -123,7 +123,7 @@ async function run() {
     process.exit(1);
   }
 
-  const mongoUri = process.env.MONGO_URI || 'mongodb://mongo:27017/rfid-games';
+  const mongoUri = process.env.MONGO_URI || 'mongodb://mongo:27017/rfid_games_db';
   await mongoose.connect(mongoUri);
   logger.info(`[seed-bulk] Conectado a ${mongoUri}`);
 
@@ -184,9 +184,21 @@ async function run() {
       };
     });
 
-    // insertMany con `ordered: false` para que un duplicate name no rompa el batch.
-    const result = await User.insertMany(docs, { ordered: false, rawResult: false });
-    logger.info(`[seed-bulk] Insertados ${result.length} students bulk.`);
+    // create() en bucle (NO insertMany) para que corra el hook pre('save') que
+    // valida el consentimiento parental obligatorio (RGPD Art. 8). insertMany lo
+    // SALTA — hoy el `consent` va inline y es correcto, pero sin esta garantía un
+    // cambio futuro podría crear menores sin consentimiento sin que nada lo
+    // impidiera. (Script de dev manual; el coste de N creates es asumible.)
+    let insertedCount = 0;
+    for (const doc of docs) {
+      try {
+        await User.create(doc);
+        insertedCount += 1;
+      } catch (docErr) {
+        logger.warn(`[seed-bulk] Student saltado (${docErr.message})`);
+      }
+    }
+    logger.info(`[seed-bulk] Insertados ${insertedCount} students bulk.`);
   } catch (err) {
     // BulkWriteError con writeErrors detallados — los registramos sin fallar
     // el script completo para que la mayoría se inserten.

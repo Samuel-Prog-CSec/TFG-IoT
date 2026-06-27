@@ -1,7 +1,6 @@
 import { memo } from 'react';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import PropTypes from 'prop-types';
-import { useChartMotion } from '../analytics/ChartsTheme';
 
 /**
  * Gráfico de distribución de rendimiento (Histograma)
@@ -9,7 +8,6 @@ import { useChartMotion } from '../analytics/ChartsTheme';
  * Ayuda a identificar outliers (estudiantes con dificultades o excelencia).
  */
 function DistributionChart({ data }) {
-  const motion = useChartMotion();
   return (
     <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
       <BarChart data={data} barSize={40} margin={{ top: 10, right: 10, left: -20, bottom: 0 }}>
@@ -40,7 +38,11 @@ function DistributionChart({ data }) {
           labelStyle={{ color: 'var(--color-text-muted)', fontWeight: 500, marginBottom: '8px' }}
           formatter={(value) => [`${value} Estudiantes`, 'Cantidad']}
         />
-        <Bar dataKey="count" radius={[6, 6, 0, 0]} {...motion()}>
+        {/* isAnimationActive=false (OBS-4): la animación de `react-smooth` (Recharts 3.x)
+            es incompatible con la reconciliación de React 19 y crashea con
+            `NotFoundError: removeChild` en <Text> al actualizar los datos in-place al
+            cambiar de filtro. Sin la animación el histograma es estable. */}
+        <Bar dataKey="count" radius={[6, 6, 0, 0]} isAnimationActive={false}>
           {data.map((entry) => (
             <Cell
               key={`cell-${entry.range}`}
