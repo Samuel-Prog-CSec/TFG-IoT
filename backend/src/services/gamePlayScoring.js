@@ -94,8 +94,18 @@ function computeMaxScore(session) {
       return Math.max(1, rounds * points);
     case MECHANIC_TYPES.MEMORY: {
       const board = Array.isArray(session.boardLayout) ? session.boardLayout : [];
-      const pairs = Math.max(1, Math.floor(board.length / MEMORY_GROUP_SIZE));
-      return Math.max(1, pairs * points);
+      // El nº de grupos depende de `matchingGroupSize` (la estrategia usa
+      // `Math.max(2, …)`). Hardcodear ÷2 sobreestimaba `maxScore` con tríos
+      // (groupSize=3): una partida perfecta de tríos nunca llegaba al 100%
+      // (techo real ⌊N/3⌋·pts, no ⌊N/2⌋·pts). Latente hoy (seeder usa 2), pero
+      // la estrategia y el board ya soportan ≥3. Si `mechanicId` no está poblado,
+      // cae a 2.
+      const groupSize = Math.max(
+        MEMORY_GROUP_SIZE,
+        Number(session.mechanicId?.rules?.behavior?.matchingGroupSize) || MEMORY_GROUP_SIZE
+      );
+      const groups = Math.max(1, Math.floor(board.length / groupSize));
+      return Math.max(1, groups * points);
     }
     default:
       return Math.max(1, rounds * points);

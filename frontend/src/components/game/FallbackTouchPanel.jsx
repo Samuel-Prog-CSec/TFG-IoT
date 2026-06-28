@@ -50,9 +50,13 @@ export default function FallbackTouchPanel({
   // encuentre el concepto de forma predecible bajo presión de tiempo.
   // Sólo afecta al panel táctil de fallback; el flujo con sensor RFID
   // mantiene su orden original (el alumno escanea físicamente).
+  // Mostrar TODAS las cartas del mazo (sin recortar a 12): si la carta objetivo
+  // de la ronda quedaba más allá de la 12ª en orden alfabético, en modo táctil
+  // (sin sensor) el alumno NO podía responderla → ronda imposible de ganar. El
+  // mazo admite hasta 20 cartas y el grid cuadrado adaptativo ya escala el
+  // tamaño de carta al área disponible.
   const visibleCards = (Array.isArray(cards) ? [...cards] : [])
-    .sort((a, b) => getSortKey(a).localeCompare(getSortKey(b), 'es'))
-    .slice(0, 12);
+    .sort((a, b) => getSortKey(a).localeCompare(getSortKey(b), 'es'));
 
   // PROP-79: feedback "procesando" entre tap y validation_result. Confirma
   // visualmente al jugador que su tap se ha registrado, evitando la sensación

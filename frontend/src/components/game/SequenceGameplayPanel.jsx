@@ -116,6 +116,11 @@ function SequenceGameplayPanel({
       {/* Board: región flex-1 (reparto equilibrado del alto con el panel táctil
           cuando aparece). Con min-h-0 puede encoger sin recortar las cartas. */}
       <div className="w-full flex-1 min-h-0 flex flex-col items-center justify-center">
+        {/* Tablero SOLO visualización (huecos ocultos en orden). El input táctil
+            va EXCLUSIVAMENTE por FallbackTouchPanelSequence, que está barajado:
+            si el tablero fuese tappable, sus cartas se renderizan EN ORDEN de la
+            secuencia y el alumno podría reproducirla de izquierda a derecha sin
+            memorizar, filtrando la respuesta. Por eso no recibe onCardTap. */}
         <SequenceBoard
           sequence={sequence}
           length={length}
@@ -129,7 +134,7 @@ function SequenceGameplayPanel({
           reduceMotion={shouldReduceMotion}
           isCollecting={isCollecting}
           overlayDurationMs={overlayDurationMs}
-          onCardTap={!rfidConnected && phase === SEQUENCE_PHASES.REPRODUCING ? handleCardTap : null}
+          onCardTap={null}
         />
       </div>
 

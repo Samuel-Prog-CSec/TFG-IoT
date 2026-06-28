@@ -109,15 +109,22 @@ export function useGameFeedback({
     const isTimeoutResult = Boolean(payload?.timeout);
     const previousStreak = streakRef.current;
 
-    // Update streak
-    if (isCorrect) {
-      streakRef.current += 1;
-      setStreak(streakRef.current);
-    } else {
-      streakRef.current = 0;
-      setStreak(0);
-      totalErrorsRef.current += 1;
-      setTotalErrors(totalErrorsRef.current);
+    // Update streak / errores — EXCEPTO en Memoria. El backend emite por pareja
+    // TANTO `validation_result` (este path) COMO `memory_turn_state`
+    // (`signalMemoryResult`); sin este guard ambos incrementaban racha/errores
+    // → el footer "Fallos" mostraba el DOBLE de los fallos reales y la mascota
+    // escalaba a la mitad de aciertos. En Memoria `signalMemoryResult` es el
+    // dueño único de racha/errores/mascota.
+    if (!isMemoryMode) {
+      if (isCorrect) {
+        streakRef.current += 1;
+        setStreak(streakRef.current);
+      } else {
+        streakRef.current = 0;
+        setStreak(0);
+        totalErrorsRef.current += 1;
+        setTotalErrors(totalErrorsRef.current);
+      }
     }
 
     // Select contextual message
@@ -143,6 +150,14 @@ export function useGameFeedback({
     setFeedbackPoints(points);
     setFeedbackMessage(message);
     setIsTimeout(isTimeoutResult);
+
+    // En Memoria, `signalMemoryResult` (disparado por `memory_turn_state`) es el
+    // dueño único de la mascota (mood/frase) y de la micro-celebración por
+    // pareja. Cortamos aquí para no duplicarlas (el backend emite ambos eventos
+    // por pareja) y dejamos sólo el feedback de tablero ya fijado arriba.
+    if (isMemoryMode) {
+      return { isCorrect, points, message };
+    }
 
     // ADR-D + T-953 Fase 2.5: mood + frase de la mascota se calculan
     // a partir del diccionario por mecánica con cinco grados de
@@ -261,9 +276,11 @@ export function useGameFeedback({
   // escriben mood + frase contextual del diccionario.
 
   // Memoria: el backend emite `memory_turn_state` con phase `match`/`mismatch`
-  // (NO `validation_result`), así que `processValidationResult` no corría y Otto
-  // NO reaccionaba a las parejas (mood/frase mudos en juego; sólo hablaba en
-  // roundStart/idleNudge). Esta señal reacciona SÓLO la mascota (mood + frase +
+  // ADEMÁS de `validation_result` por pareja (la suposición previa de que NO
+  // emitía `validation_result` era falsa y causaba doble conteo). Por eso
+  // `signalMemoryResult` es el dueño ÚNICO en Memoria de racha, errores y de la
+  // reacción de Otto; `processValidationResult` se corta antes vía `isMemoryMode`.
+  // Esta señal mueve SÓLO la mascota (mood + frase +
   // racha + micro-celebración) y NO toca el feedback de tablero de Memoria
   // (`memoryFeedbackActive`/`feedbackState`, que GameSession gestiona por fases)
   // ni dispara el confetti de Asociación. Reusa la misma escalera expresiva que

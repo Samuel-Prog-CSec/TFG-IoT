@@ -53,18 +53,23 @@ function GameOverScreen({
   onGoHome,
 }) {
   const { shouldReduceMotion } = useReducedMotion();
-  // Cálculo del porcentaje sensible a la mecánica:
-  //  - Secuencia: `correctAnswers` son cartas individuales acertadas, no
-  //    rondas; usar ese ratio inflaba estrellas (3⭐ "¡Secuencia perfecta!"
-  //    con 0 rondas completas y 3 perdidas — QA 04/05 BUG-S7). Para Secuencia
-  //    medimos % de rondas completadas (`sequencesCompleted / totalRounds`).
-  //  - Memoria/Asociación: comportamiento histórico (`correctAnswers / totalRounds`).
+  // % canónico de estrellas = score / maxScore, IDÉNTICO al badge de puntuación
+  // de abajo y a la base que usa el backend (`scorePercentToStars`, umbrales
+  // 90/75/60/40) para la notificación al docente y las analíticas. Antes las
+  // estrellas se calculaban por accuracy (`correctAnswers / totalRounds`) o, en
+  // Secuencia, por `sequencesCompleted / totalRounds`: divergían del badge y del
+  // backend (p.ej. 3⭐ junto a un badge "52%", y 2★ en la notificación del
+  // docente). Con penalización por error (`penaltyPerError` por defecto −2) el
+  // score ≠ aciertos·puntos en cualquier partida con fallos, así que la
+  // divergencia era el caso común. `score`/`maxScore` ya vienen clampados del
+  // backend (`finalScore` post-`complete()`), así que el % queda en [0, 100].
   const percentage = (() => {
-    if (totalRounds <= 0) return 0;
-    if (summary?.mode === 'sequence') {
-      const completed = Number(summary?.sequencesCompleted || 0);
-      return (completed / totalRounds) * 100;
+    const maxScore = Number(summary?.maxScore || 0);
+    if (maxScore > 0) {
+      return (Number(score) / maxScore) * 100;
     }
+    // Fallback defensivo si no llega `maxScore`: accuracy por rondas.
+    if (totalRounds <= 0) return 0;
     return (correctAnswers / totalRounds) * 100;
   })();
   const stars = calculateStars(percentage);
@@ -418,20 +423,23 @@ function GameOverScreen({
           </motion.div>
 
           {/* Hero metric superior: en Asociación es "Correctas / Total" de
-              rondas; en Memoria es "Parejas / Total". En Secuencia mostramos
-              el contador de cartas acertadas frente al total acumulado de la
-              partida — el detalle por tipo de evento se muestra abajo en
-              GameOverStatsSequence. */}
+              rondas; en Memoria es "Parejas / Total". En Secuencia es
+              "Secuencias / Total" de rondas — antes mostraba `correctAnswers`
+              (cartas individuales acertadas) sobre `totalRounds` (rondas),
+              mezclando unidades y pudiendo renderizar p.ej. "7 / 3"; el detalle
+              por carta está abajo en GameOverStatsSequence. */}
           <dl className="grid grid-cols-2 gap-[clamp(0.5rem,1.5vh,1rem)] mb-[clamp(0.4rem,2vh,1.5rem)]">
             <div className={cn('rounded-xl p-[clamp(0.55rem,1.7vh,1rem)] border', heroCardTheme.bg, heroCardTheme.border)}>
               <dt className="text-xs text-text-muted order-2">
                 {(() => {
                   if (summary?.mode === 'memory') return 'Parejas';
-                  if (summary?.mode === 'sequence') return 'Cartas acertadas';
+                  if (summary?.mode === 'sequence') return 'Secuencias';
                   return 'Correctas';
                 })()}
               </dt>
-              <dd className={cn('text-[clamp(1.1rem,2.6vh,1.5rem)] font-bold font-display leading-tight', heroCardTheme.value)}>{correctAnswers}</dd>
+              <dd className={cn('text-[clamp(1.1rem,2.6vh,1.5rem)] font-bold font-display leading-tight', heroCardTheme.value)}>
+                {summary?.mode === 'sequence' ? Number(summary?.sequencesCompleted || 0) : correctAnswers}
+              </dd>
             </div>
             <div className="bg-background-surface/30 rounded-xl p-[clamp(0.55rem,1.7vh,1rem)] border border-border-subtle">
               <dt className="text-xs text-text-muted order-2">Total</dt>

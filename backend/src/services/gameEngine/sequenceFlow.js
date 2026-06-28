@@ -69,6 +69,9 @@ function startSequenceMemorizingPhase(engine, playId) {
 
   playState.strategyState.phase = SEQUENCE_PHASE[0]; // 'memorizing'
   playState.awaitingResponse = false;
+  // Reset del guard de idempotencia: empieza una ronda nueva, que podrá
+  // finalizarse exactamente una vez (ver finalizeSequenceRound).
+  playState._sequenceRoundFinalizing = false;
   playState.sequencePhaseStartedAt = Date.now();
   playState.sequencePhaseRemainingMs = durationMs;
 
@@ -144,14 +147,48 @@ function resumeMemorizingPhase(engine, playId) {
     return;
   }
 
-  const remaining = Number(playState.sequencePhaseRemainingMs);
-  if (!Number.isFinite(remaining) || remaining <= 0) {
+  let remaining = Number(playState.sequencePhaseRemainingMs);
+  // Defensa (C#6): si la memorización nunca llegó a arrancar (p.ej. pausa antes
+  // de board_ready) `sequencePhaseRemainingMs` es undefined → NaN. Caemos a la
+  // duración COMPLETA, NO a reproducing inmediato (que se saltaba la
+  // memorización y mostraba el tablero sin que el alumno viera la secuencia).
+  if (!Number.isFinite(remaining)) {
+    remaining = getMemorizingDurationMs(playState);
+  }
+  if (remaining <= 0) {
     enterSequenceReproducingPhase(engine, playId);
     return;
   }
 
   playState.sequencePhaseStartedAt = Date.now();
   scheduleMemorizingTransition(engine, playId, remaining);
+}
+
+/**
+ * Reanuda la fase de feedback inter-ronda tras una pausa. Si la partida se
+ * pausó durante los `FEEDBACK_PAUSE_MS` posteriores a cerrar una ronda
+ * (fase 'completed'), `clearPlayTimers` canceló el `nextRoundTimer` y antes
+ * NUNCA se reprogramaba: la partida quedaba colgada sin avanzar a la siguiente
+ * ronda ni a `endPlay` (los scans se rechazaban como 'not_reproducing'). Aquí
+ * lo reprogramamos para que el avance entre rondas continúe al reanudar.
+ *
+ * @param {Object} engine - Instancia GameEngine.
+ * @param {string} playId
+ */
+function resumeFeedbackPhase(engine, playId) {
+  const playState = engine.activePlays.get(playId);
+  if (!playState || playState.mechanicName !== 'sequence') {
+    return;
+  }
+  if (playState.strategyState?.phase !== SEQUENCE_PHASE[2]) {
+    return; // 'completed'
+  }
+  if (playState.nextRoundTimer) {
+    clearTimeout(playState.nextRoundTimer);
+  }
+  playState.nextRoundTimer = setTimeout(() => {
+    advanceSequence(engine, playId);
+  }, FEEDBACK_PAUSE_MS);
 }
 
 /**
@@ -175,6 +212,9 @@ function enterSequenceReproducingPhase(engine, playId) {
   playState.mechanicStrategy.enterReproducingPhase(playState.strategyState);
   playState.awaitingResponse = true;
   playState.roundStartTime = Date.now();
+  // Ancla del tiempo de respuesta por carta (se reinicia cada ronda; la 1ª carta
+  // se mide desde aquí, las siguientes como delta entre scans).
+  playState.lastSequenceScanAt = playState.roundStartTime;
   playState.remainingTimeMs = null;
   playState.roundElapsedBeforePauseMs = 0;
 
@@ -275,20 +315,45 @@ async function _processSequenceScanImpl(engine, playId, playState, scannedCardMa
   // discrepancia in-game≠final (BUG-SEQUENCE-SCORE-1, auditoría 24/05/2026).
   const points = Number(result.points || 0);
   const eventType = result.type === 'correct' ? 'correct' : 'error';
+  // Tiempo de respuesta POR CARTA (delta desde la carta anterior de la ronda),
+  // no acumulado desde el inicio: con `roundStartTime` fijo por ronda, la carta N
+  // incluía el tiempo de las N-1 previas → `averageResponseTime` inflado ~(L+1)/2
+  // en el KPI cross-mecánica del docente (Asociación/Memoria ya miden por carta).
+  // Anclamos a `lastSequenceScanAt` (init = roundStartTime al entrar a reproducing)
+  // y lo avanzamos en cada scan.
+  const scanAt = Date.now();
+  const anchor = playState.lastSequenceScanAt || playState.roundStartTime || scanAt;
+  playState.lastSequenceScanAt = scanAt;
   await playState.playDoc.addEventAtomic({
     eventType,
     cardUid: scannedCardMapping.uid,
     expectedValue: result.expectedUid || null,
     actualValue: scannedCardMapping.assignedValue,
     pointsAwarded: points,
-    timeElapsed: playState.roundStartTime ? Date.now() - playState.roundStartTime : 0,
+    timeElapsed: Math.max(0, scanAt - anchor),
     roundNumber: playState.playDoc.currentRound
   });
-  // Clamp a ≥0 en memoria para que el HUD nunca muestre negativos tras una
-  // racha de penalizaciones. No re-suma `points` (eso ya lo hizo
-  // addEventAtomic). El pre-validate hook aplica el mismo clamp en BD al
-  // guardar, así in-game y final quedan siempre alineados.
-  playState.playDoc.score = Math.max(0, Number(playState.playDoc.score || 0));
+  // NO reclampamos `playState.playDoc.score` en memoria aquí. El antiguo
+  // `Math.max(0, …)` NO se persistía nunca: `addEventAtomic` cierra el path de
+  // `score` con `$__reset()`, así que el valor flooreado en memoria (≥0)
+  // divergía del `$inc` CRUDO de BD (que sí puede bajar de 0 y quedaba como
+  // score persistido por debajo del mostrado/analytics; podía incluso ser
+  // negativo). Dejando el score en memoria = suma cruda (igual que Memoria y
+  // Asociación, que no tienen floor por paso), el HUD lo clampa SOLO para
+  // mostrar (ScoreDisplay) y el `pre('validate')` del modelo lo clampa a
+  // [0, maxScore] al guardar (única autoridad), de modo que in-game, game_over
+  // y el valor persistido quedan SIEMPRE alineados.
+
+  // Si un timeout finalizó la ronda DURANTE el await de addEventAtomic (carrera
+  // scan-vs-timeout al filo del límite), la ronda ya está cerrada: el score de
+  // esta carta ya se aplicó (la posición se evaluó síncronamente en processScan),
+  // pero NO emitimos el `sequence_card_result` (llegaría DESPUÉS del
+  // `sequence_round_result`, fuera de orden) ni re-abrimos `awaitingResponse`
+  // sobre una ronda completada. (`finalizeSequenceRound` es idempotente; aquí
+  // cortamos antes para no emitir eventos obsoletos.)
+  if (playState._sequenceRoundFinalizing) {
+    return;
+  }
 
   engine.io.to(`play_${playId}`).emit('sequence_card_result', {
     playId,
@@ -354,6 +419,20 @@ async function finalizeSequenceRound(engine, playId, { timedOut }) {
     return;
   }
 
+  // Idempotencia (carrera scan-al-filo-del-timeout): tanto el scan que completa
+  // la secuencia como el `roundTimer` pueden invocar finalizeSequenceRound para
+  // la MISMA ronda (a diferencia de Asociación/Memoria, las rutas de timer de
+  // Secuencia no pasan por el lock de partida). Sin este guard,
+  // `recordRoundCompletion` empuja la ronda DOS veces a `roundResults` → infla
+  // sequencesCompleted/roundsPlayed/partialReproductions y emite dos
+  // `sequence_round_result` (glitch visual). El flag (síncrono, antes de
+  // cualquier await) se resetea al arrancar la memorización de la siguiente
+  // ronda en `startSequenceMemorizingPhase`.
+  if (playState._sequenceRoundFinalizing) {
+    return;
+  }
+  playState._sequenceRoundFinalizing = true;
+
   if (playState.roundTimer) {
     clearTimeout(playState.roundTimer);
     playState.roundTimer = null;
@@ -382,6 +461,25 @@ async function finalizeSequenceRound(engine, playId, { timedOut }) {
     // evento y dispara reacciones distintas según `completed`/`timedOut`.
     mechanicType: 'sequence'
   });
+
+  // Contabilizar cada carta NO reproducida como un timeout en
+  // `metrics.timeoutAttempts`, para que Secuencia alimente esa métrica genérica
+  // igual que Memoria/Asociación (antes sólo emitía `round_end` y dejaba
+  // `timeoutAttempts` en 0 aunque la ronda expirase, subalimentando
+  // `updateStudentMetrics` y las analíticas). Es coherente con la granularidad
+  // por carta de los eventos correct/error de Secuencia; `timeElapsed:0` los
+  // excluye además del promedio de tiempo de respuesta. El `sequencesTimedOut`
+  // específico se calcula aparte en el summary (sobre los resultados de ronda),
+  // así que no hay doble conteo.
+  for (const timedUid of timedOutUids) {
+    await playState.playDoc.addEventAtomic({
+      eventType: 'timeout',
+      cardUid: timedUid,
+      pointsAwarded: 0,
+      timeElapsed: 0,
+      roundNumber: summary.roundNumber
+    });
+  }
 
   await playState.playDoc.addEventAtomic({
     eventType: 'round_end',
@@ -518,5 +616,6 @@ module.exports = {
   finalizeSequenceRound,
   buildSequenceFinalSummary,
   pauseMemorizingPhase,
-  resumeMemorizingPhase
+  resumeMemorizingPhase,
+  resumeFeedbackPhase
 };

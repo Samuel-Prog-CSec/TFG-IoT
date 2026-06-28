@@ -42,6 +42,18 @@ describe('computeMaxScore — techo de puntuación por mecánica', () => {
       expect(computeMaxScore(session)).toBe(60); // 6 parejas × 10
     });
 
+    it('Memoria con matchingGroupSize=3 (tríos) = ⌊N/3⌋ × puntos (regresión B-H2/ADR-222)', () => {
+      const session = {
+        mechanicType: 'memory',
+        ...cfg(1, 10),
+        boardLayout: board(6),
+        mechanicId: { rules: { behavior: { matchingGroupSize: 3 } } }
+      };
+      // 6 cartas / 3 = 2 grupos × 10 = 20. El bug hardcodeaba ÷2 → 30, techo
+      // inalcanzable (una partida perfecta de tríos solo llegaba a 20/30 = 67%).
+      expect(computeMaxScore(session)).toBe(20);
+    });
+
     it('Secuencia = Σ longitud × puntos', () => {
       const session = {
         mechanicType: 'sequence',

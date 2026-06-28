@@ -190,6 +190,19 @@ class MemoryStrategy extends BaseMechanicStrategy {
       : [];
     const groupSize = Number(strategyState.matchingGroupSize) || 2;
 
+    // Si YA hay un grupo COMPLETO seleccionado pendiente de ocultar (un fallo cuyo
+    // timer transitorio de ocultado aún no disparó), ignorar nuevos scans. Sin
+    // esto, un scan rápido durante esa ventana (el sensor físico no respeta el
+    // gating de la UI) empujaba una 3ª carta y se evaluaba como "grupo de 3" →
+    // fallo + penalización espurios. El grupo pendiente se ocultará por su
+    // transient timer (o vía `_concealPendingMismatchOnResume` al reanudar).
+    if (selected.length >= groupSize) {
+      return {
+        type: 'ignored',
+        board: this.buildBoardForClient(strategyState)
+      };
+    }
+
     if (matched.has(scannedCard.uid)) {
       return {
         type: 'ignored',

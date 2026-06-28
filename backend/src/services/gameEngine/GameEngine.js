@@ -545,16 +545,36 @@ class GameEngine {
             await sessionDoc.populate({ path: 'mechanicId', select: 'name rules' });
           }
           const mechanicName = sessionDoc.mechanicId?.name || null;
-          if (!mechanicName) {
-            throw new Error('No se pudo resolver el nombre de la mecánica de juego.');
-          }
+          try {
+            if (!mechanicName) {
+              throw new Error('No se pudo resolver el nombre de la mecánica de juego.');
+            }
 
-          // Validar boardLayout para sesiones de memoria antes de construir el estado
-          ensureMemoryBoardLayoutIsComplete({
-            mechanic: sessionDoc.mechanicId,
-            boardLayout: sessionDoc.boardLayout,
-            cardMappings: sessionDoc.cardMappings
-          });
+            // Validar boardLayout para sesiones de memoria antes de construir el estado
+            ensureMemoryBoardLayoutIsComplete({
+              mechanic: sessionDoc.mechanicId,
+              boardLayout: sessionDoc.boardLayout,
+              cardMappings: sessionDoc.cardMappings
+            });
+          } catch (validationErr) {
+            // Las tarjetas YA están reservadas (cardUidToPlayId + Redis). Si esta
+            // validación tardía falla, hay que LIBERARLAS: si no, quedan marcadas
+            // "en uso" para SIEMPRE en `cardUidToPlayId` (Map en memoria sin TTL) y
+            // ninguna partida futura con esas tarjetas podrá arrancar hasta
+            // reiniciar el servidor. (La rama de Secuencia de abajo ya liberaba en
+            // su propio fallo; estas dos rutas —mecánica sin nombre, board de
+            // Memoria incompleto— no lo hacían: fuga confirmada en auditoría
+            // 2026-06-28.)
+            await this._releaseReservedCards(playId, sessionDoc.cardMappings);
+            logger.error(`Error validando ${playId} tras reservar tarjetas; reserva liberada`, {
+              playId,
+              err: validationErr?.message
+            });
+            this.io.to(`play_${playId}`).emit('error', {
+              message: 'No se pudo iniciar la partida (configuración inválida). Avisa al docente.'
+            });
+            return;
+          }
 
           // Validar sequencePlan para sesiones Secuencia antes de iniciar.
           if (mechanicName === 'sequence') {
@@ -610,6 +630,14 @@ class GameEngine {
             playState.playDurationMs = playDurationMs;
             playState.awaitingBoardReady = true;
             // El timer se inicia cuando el frontend confirma que el tablero es visible (board_ready)
+          } else if (playState.mechanicName === 'sequence') {
+            // La memorización de Secuencia debe arrancar cuando el alumno pulsa
+            // EMPEZAR (board_ready), NO en el bootstrap. Sin este gate, la
+            // pantalla pre-inicio "¡Hora de Jugar!" consumía el tiempo de
+            // memorización de la ronda 1 (el timer de displaySeconds corría antes
+            // de que el alumno pudiera ver la secuencia). Memoria ya usa el mismo
+            // mecanismo; aquí lo extendemos a Secuencia (F-03).
+            playState.awaitingBoardReady = true;
           }
 
           // 4. Almacenar el estado en memoria
@@ -633,6 +661,35 @@ class GameEngine {
           await this.sendNextRound(playId);
         }) // fin executeWithPlayLock
     ); // fin Sentry.startSpan
+  }
+
+  /**
+   * Libera la reserva de tarjetas (memoria `cardUidToPlayId` + reserva
+   * distribuida en Redis) y saca el play de `activePlays`. Best-effort: se usa
+   * cuando `startPlay` falla DESPUÉS de reservar, para que las tarjetas no queden
+   * marcadas "en uso" para siempre (el `Map cardUidToPlayId` no tiene TTL, a
+   * diferencia de la reserva en Redis que sí caduca a los ~90s).
+   *
+   * @private
+   * @param {string} playId
+   * @param {Array} cardMappings
+   */
+  async _releaseReservedCards(playId, cardMappings) {
+    const uids = Array.isArray(cardMappings) ? cardMappings.map(m => m.uid) : [];
+    try {
+      await this.releaseDistributedCardMappings(playId, uids);
+    } catch (releaseErr) {
+      logger.warn('Fallo liberando la reserva distribuida tras error de startPlay', {
+        playId,
+        err: releaseErr?.message
+      });
+    }
+    for (const uid of uids) {
+      if (this.cardUidToPlayId.get(uid) === playId) {
+        this.cardUidToPlayId.delete(uid);
+      }
+    }
+    this.activePlays.delete(playId);
   }
 
   /**
@@ -698,26 +755,13 @@ class GameEngine {
       `Finalizando partida ${playId}${abandoned ? ' (abandonada por inactividad)' : ''}...`
     );
 
-    // 1. Limpiar timers pendientes. Sequence añade un timer extra para la fase
-    //    `memorizing` que sin esta limpieza quedaba huérfano: al disparar tras
-    //    `_endPlayInternal`, intentaba avanzar el `playState` que ya estaba
-    //    desmontado y dejaba logs `playState no encontrado` ruidosos.
-    if (playState.roundTimer) {
-      clearTimeout(playState.roundTimer);
-      playState.roundTimer = null;
-    }
-    if (playState.nextRoundTimer) {
-      clearTimeout(playState.nextRoundTimer);
-      playState.nextRoundTimer = null;
-    }
-    if (playState.playTimer) {
-      clearTimeout(playState.playTimer);
-      playState.playTimer = null;
-    }
-    if (playState.sequenceMemorizingTimer) {
-      clearTimeout(playState.sequenceMemorizingTimer);
-      playState.sequenceMemorizingTimer = null;
-    }
+    // 1. Limpiar TODOS los timers pendientes (round/next/play/memorizing Y los
+    //    transitorios). Antes se limpiaban a mano todos MENOS los
+    //    `transientTimers` (timer de ocultado de un fallo de Memoria), que
+    //    sobrevivía a `_endPlayInternal` ~1.2s: su callback es inocuo
+    //    (`activePlays.get` → null), pero quedaba como timer huérfano sosteniendo
+    //    el closure. `clearPlayTimers` los limpia todos de forma consistente.
+    this.clearPlayTimers(playState);
 
     // 2. Guardar el estado final en la BD
     const playDuration = Date.now() - playState.createdAt;
@@ -789,6 +833,12 @@ class GameEngine {
           if (player.hasConsentFor('performance_analytics')) {
             await player.updateStudentMetrics({
               score: playState.playDoc.score,
+              // SIN `maxScore`, updateStudentMetrics calcula scorePercent=0 para
+              // TODA partida real (endPlay es el path principal), arrastrando el
+              // `studentMetrics.averageScore` de cada alumno hacia 0% (todos
+              // "en riesgo"). Los paths hermanos (completePlay HTTP y la
+              // materialización Redis) sí lo pasan; aquí faltaba.
+              maxScore: playState.playDoc.maxScore,
               correctAttempts: playState.playDoc.metrics.correctAttempts,
               errorAttempts: playState.playDoc.metrics.errorAttempts,
               timeoutAttempts: playState.playDoc.metrics.timeoutAttempts,
@@ -1340,6 +1390,15 @@ class GameEngine {
         displayData: challenge.displayData
       };
 
+      // F-03: en la ronda 1 esperamos a board_ready (EMPEZAR) para arrancar la
+      // memorización, de modo que el alumno reciba los segundos completos. El
+      // challenge ya está preparado; `confirmBoardReady` disparará la fase de
+      // memorización. Las rondas 2+ (con `awaitingBoardReady` ya en false, porque
+      // el alumno ya está jugando) arrancan de inmediato como hasta ahora.
+      if (playState.awaitingBoardReady) {
+        return;
+      }
+
       sequenceFlow.startSequenceMemorizingPhase(this, playId);
       return;
     }
@@ -1612,8 +1671,18 @@ class GameEngine {
       this.metrics.scansSavedByGracePeriod++;
     }
 
-    // 1. Validar la respuesta
-    const isCorrect = scannedCard.uid === currentChallenge.uid;
+    // 1. Validar la respuesta POR VALOR (`assignedValue`), no por UID. En
+    // Asociación el reto es un CONCEPTO ("encuentra el perro"): cualquier carta
+    // cuyo valor coincida es correcta. Validar por UID marcaba ERROR la "otra"
+    // carta del mismo valor en mazos con valores duplicados (creables por el
+    // flujo normal del wizard — p. ej. el mazo seed "Formas Memoria" usado en una
+    // sesión de Asociación) — exactamente el síntoma de BUG-FALLBACK-1. En mazos
+    // de valores únicos (el caso normal) valor≡uid, así que es no-op. El resto del
+    // flujo (eventos `expectedValue`/`actualValue`, `byValueAccuracy`) ya razona
+    // por valor; esto alinea la corrección con la analítica.
+    const isCorrect =
+      Boolean(scannedCard.assignedValue) &&
+      scannedCard.assignedValue === currentChallenge.assignedValue;
 
     // Logging defensivo (QA 2026-05-14): cuando un scan se marca como error
     // queremos saber el par scannedUid vs expectedUid y la fuente para
@@ -1759,6 +1828,15 @@ class GameEngine {
       playState.awaitingResponse = false;
       playState.roundTimer = null; // El timer ya se disparó
       const { playDoc, sessionDoc, currentChallenge } = playState;
+
+      // Un timeout rompe la racha igual que un error. Sin esto, `recordScanResult`
+      // (que sí resetea la racha en error) no se invocaba en el path de timeout, y
+      // `peakStreak`/"Mejor racha" de Asociación sobrevivía a las rondas no
+      // respondidas, inflando el resumen final (acierto, acierto, timeout,
+      // acierto, acierto → racha 4 que el alumno nunca encadenó).
+      if (typeof playState.mechanicStrategy?.recordTimeout === 'function') {
+        playState.mechanicStrategy.recordTimeout(playState.strategyState);
+      }
 
       // 2. Crear el evento 'timeout' (sin puntos)
       const eventData = {
@@ -2025,7 +2103,33 @@ class GameEngine {
    */
   async confirmBoardReady(playId) {
     const playState = this.activePlays.get(playId);
-    if (!playState || !this.isMemoryPlay(playState) || !playState.awaitingBoardReady) {
+    if (!playState || !playState.awaitingBoardReady) {
+      return;
+    }
+
+    // Si la partida se pausó en la ventana entre "entrar a playing" y confirmar
+    // board_ready, NO arrancamos el timer ahora: quedaría corriendo con la
+    // partida pausada y, al reanudar, no se re-armaría (remainingTime es null) →
+    // partida sin timeout. Marcamos que board_ready llegó durante la pausa para
+    // re-arrancarlo al reanudar (`resumePlayInternal`), con el alumno ya viendo
+    // el tablero. `awaitingBoardReady` se mantiene true.
+    if (playState.paused || playState.playDoc?.status === 'paused') {
+      playState._boardReadyDuringPause = true;
+      return;
+    }
+
+    // Secuencia (F-03): arrancar la memorización de la ronda 1 AHORA que el
+    // alumno ha pulsado EMPEZAR y ve el tablero — no en el bootstrap. Así recibe
+    // los segundos completos de memorización. El challenge ya quedó preparado en
+    // `sendNextRound`.
+    if (this.isSequencePlay(playState)) {
+      playState.awaitingBoardReady = false;
+      sequenceFlow.startSequenceMemorizingPhase(this, playId);
+      logger.info('Memorización de Secuencia iniciada tras board_ready', { playId });
+      return;
+    }
+
+    if (!this.isMemoryPlay(playState)) {
       return;
     }
 
@@ -2046,6 +2150,60 @@ class GameEngine {
       playId,
       durationMs: playState.playDurationMs
     });
+  }
+
+  /**
+   * Reanuda la fase correcta de una partida de Secuencia tras una pausa, según
+   * `strategyState.phase`:
+   *  - `memorizing`: reprograma la transición de memorización con lo restante.
+   *  - `reproducing`: rearma el `roundTimer` con el tiempo restante (+ grace).
+   *  - `completed`: reprograma el avance entre rondas — sin esto la partida
+   *    quedaba colgada en 'completed' (scans rechazados como 'not_reproducing' y
+   *    la última ronda sin llegar a `endPlay`).
+   *
+   * @private
+   * @param {string} playId
+   * @param {Object} playState
+   * @param {number|null} remainingTimeMs
+   */
+  _resumeSequencePhaseOnResume(playId, playState, remainingTimeMs) {
+    const phase = playState.strategyState?.phase;
+    if (phase === 'memorizing') {
+      sequenceFlow.resumeMemorizingPhase(this, playId);
+    } else if (
+      phase === 'reproducing' &&
+      typeof remainingTimeMs === 'number' &&
+      remainingTimeMs > 0
+    ) {
+      playState.roundTimer = setTimeout(() => {
+        sequenceFlow.handleSequenceRoundTimeout(this, playId);
+      }, remainingTimeMs + ROUND_GRACE_PERIOD_MS);
+    } else if (phase === 'completed') {
+      sequenceFlow.resumeFeedbackPhase(this, playId);
+    }
+  }
+
+  /**
+   * Tras reanudar una partida de Memoria, oculta un posible grupo NO resuelto
+   * (mismatch) cuyo timer transitorio de ocultado se canceló al pausar. Sin
+   * esto las cartas no emparejadas quedaban boca arriba y el siguiente toque se
+   * evaluaba como un grupo de 3 (fallo espurio). Un acierto vacía `selectedUids`
+   * al instante, así que `length >= groupSize` solo ocurre en un fallo pendiente
+   * de ocultar; el primer flip de una pareja deja length 1 y no se toca.
+   *
+   * @private
+   * @param {Object} playState
+   */
+  _concealPendingMismatchOnResume(playState) {
+    const groupSize =
+      Number(playState.sessionDoc?.mechanicId?.rules?.behavior?.matchingGroupSize) || 2;
+    const pendingSelection = playState.strategyState?.selectedUids || [];
+    if (
+      pendingSelection.length >= groupSize &&
+      typeof playState.mechanicStrategy?.concealSelected === 'function'
+    ) {
+      playState.mechanicStrategy.concealSelected(playState.strategyState, pendingSelection);
+    }
   }
 
   /**
@@ -2104,6 +2262,14 @@ class GameEngine {
           playState.pausedDuringFeedback = false;
           playState.awaitingResponse = !wasPausedDuringFeedback;
 
+          // Capturamos si board_ready seguía PENDIENTE antes de reanudar (el
+          // re-trigger de `_boardReadyDuringPause` de abajo llama a
+          // confirmBoardReady, que pone awaitingBoardReady=false). Sirve para que
+          // el bloque de resume de Secuencia NO reanude la memorización cuando
+          // ésta NUNCA arrancó (board_ready diferido por pausa): de eso se encarga
+          // el re-trigger. Sin esto habría un doble `scheduleMemorizingTransition`.
+          const wasAwaitingBoardReady = Boolean(playState.awaitingBoardReady);
+
           if (
             this.isMemoryPlay(playState) &&
             typeof remainingTimeMs === 'number' &&
@@ -2111,6 +2277,15 @@ class GameEngine {
           ) {
             playState.playEndsAt = Date.now() + remainingTimeMs;
             this.scheduleMemoryPlayTimeout(playId, playState, remainingTimeMs);
+          }
+
+          // Si board_ready llegó DURANTE la pausa, se aplazó (confirmBoardReady no
+          // arranca timers en pausa). Ya reanudada (paused=false), lo re-disparamos
+          // para arrancar el timer con el alumno viendo el tablero — si no, la
+          // partida quedaba sin timeout. `awaitingBoardReady` sigue true.
+          if (playState._boardReadyDuringPause && playState.awaitingBoardReady) {
+            playState._boardReadyDuringPause = false;
+            await this.confirmBoardReady(playId);
           }
 
           // Persistir en BD
@@ -2133,6 +2308,7 @@ class GameEngine {
           }
 
           if (this.isMemoryPlay(playState)) {
+            this._concealPendingMismatchOnResume(playState);
             this.emitMemoryTurnState(playId, playState, { phase: 'resumed' });
           }
 
@@ -2152,21 +2328,14 @@ class GameEngine {
             }, remainingTimeMs + ROUND_GRACE_PERIOD_MS);
           }
 
-          // Secuencia: si pausamos en memorizing, reanudamos esa fase con el
-          // tiempo restante; si pausamos en reproducing, rearmamos el roundTimer.
-          if (this.isSequencePlay(playState)) {
-            const phase = playState.strategyState?.phase;
-            if (phase === 'memorizing') {
-              sequenceFlow.resumeMemorizingPhase(this, playId);
-            } else if (
-              phase === 'reproducing' &&
-              typeof remainingTimeMs === 'number' &&
-              remainingTimeMs > 0
-            ) {
-              playState.roundTimer = setTimeout(() => {
-                sequenceFlow.handleSequenceRoundTimeout(this, playId);
-              }, remainingTimeMs + ROUND_GRACE_PERIOD_MS);
-            }
+          // Secuencia: reanuda la fase correcta (memorizing / reproducing /
+          // completed) según `strategyState.phase`. SOLO si la fase ya había
+          // arrancado (board_ready confirmado): si board_ready estaba pendiente,
+          // la memorización nunca empezó y la reanuda el re-trigger de
+          // `_boardReadyDuringPause` (o board_ready post-resume) — evitamos así un
+          // doble scheduleMemorizingTransition y el caso NaN→reproducing.
+          if (this.isSequencePlay(playState) && !wasAwaitingBoardReady) {
+            this._resumeSequencePhaseOnResume(playId, playState, remainingTimeMs);
           }
 
           // Si la pausa ocurrió durante el delay entre rondas, avanzar a la siguiente

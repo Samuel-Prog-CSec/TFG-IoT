@@ -28,6 +28,8 @@ const SOCKET_ERROR_MESSAGES = {
   RFID_SENSOR_NOT_CONNECTED: 'El sensor RFID no está conectado. Conéctalo para continuar.',
   RFID_SENSOR_STALE: 'El sensor no responde. Comprueba que esté encendido.',
   RFID_DISABLED: 'El servicio RFID está desactivado por configuración del servidor.',
+  RFID_CLIENT_CLOCK_SKEW:
+    'La fecha y hora de este equipo están desincronizadas. Ajusta el reloj del ordenador (o sincronízalo por internet) para poder escanear tarjetas.',
   PLAY_NOT_ACTIVE: 'La partida ha terminado o fue interrumpida.',
   ROUND_BLOCKED: 'Espera un momento antes de pasar la siguiente tarjeta.',
   RFID_SOCKET_NOT_ACTIVE: 'El juego se abrió en otra ventana. Cierra las demás para continuar.',
@@ -70,16 +72,18 @@ const SCAN_IGNORED_TOAST_LEVEL = {
 const SCAN_RESPONSE_TIMEOUT_MS = 3000;
 
 // PROP-90 / ADR-090: cooldown de dedupe local diferenciado por fuente del scan.
-// El sensor hardware necesita 1200-1300ms para protegerse del chattering del
-// RC522, pero los taps táctiles deben permitir secuencias rápidas. Backend
-// espeja la misma política en `socketRateLimits.rfidDedupeConfig`.
+// El sensor hardware necesita ~1200ms para protegerse del chattering del RC522,
+// pero los taps táctiles deben permitir secuencias rápidas. Alineado con la
+// política del backend (`socketRateLimits.rfidDedupeConfig` = 1200ms para las
+// fuentes hardware): antes el cliente usaba 1300ms y era 100ms MÁS estricto,
+// descartando scans rápidos (1200–1300ms) que el backend sí habría aceptado.
 const DEDUPE_MS_BY_SOURCE = {
-  web_serial_hardware: 1300,
-  web_serial: 1300,
+  web_serial_hardware: 1200,
+  web_serial: 1200,
   touch_fallback: 250,
   touch_memory_flip: 250
 };
-const DEFAULT_DEDUPE_MS = 1300;
+const DEFAULT_DEDUPE_MS = 1200;
 
 const REALTIME_STATUS_COPY = {
   connected: { label: 'Juego listo', announcement: 'El juego está conectado.' },
@@ -598,9 +602,26 @@ export function useGameSocket({
       }
     };
 
+    // El socket de /game puede reconectar de forma independiente al de sistema
+    // (son conexiones io() separadas). Al hacerlo cambia su socket.id y el
+    // backend ya limpió el modo RFID gameplay del socket anterior, por lo que
+    // hay que re-emitir JOIN_PLAY para re-registrarlo; de lo contrario los
+    // escaneos del sensor y los taps del fallback táctil se rechazan con
+    // "El lector no está listo". Tras re-unirnos, resincronizamos el estado.
+    const handleGameSocketReconnected = () => {
+      const currentPlayId = playIdRef.current;
+      if (!currentPlayId || gameStateRef.current === 'finished') {
+        return;
+      }
+      socketService.sendGameCommand(GAME_EVENTS.JOIN_PLAY, { playId: currentPlayId });
+      socketService.requestPlayStateSync(currentPlayId);
+    };
+
     window.addEventListener('socket_reconnected', handleSocketReconnected);
+    window.addEventListener('game_socket_reconnected', handleGameSocketReconnected);
     return () => {
       window.removeEventListener('socket_reconnected', handleSocketReconnected);
+      window.removeEventListener('game_socket_reconnected', handleGameSocketReconnected);
     };
   }, []);
 

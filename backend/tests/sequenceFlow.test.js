@@ -125,6 +125,31 @@ describe('sequenceFlow.processSequenceScan', () => {
     jest.clearAllTimers();
   });
 
+  it('timeElapsed por carta es el DELTA desde la carta anterior, no acumulado desde el inicio de ronda (regresión averageResponseTime/ADR-222)', async () => {
+    const { engine, playState } = buildEnvironment();
+    sequenceFlow.startSequenceMemorizingPhase(engine, 'play-1');
+    jest.advanceTimersByTime(3000); // entra a reproducing → roundStartTime = ahora
+
+    jest.advanceTimersByTime(100);
+    await sequenceFlow.processSequenceScan(engine, 'play-1', playState, {
+      uid: 'UID01',
+      assignedValue: 'Value-UID01'
+    });
+
+    jest.advanceTimersByTime(150);
+    await sequenceFlow.processSequenceScan(engine, 'play-1', playState, {
+      uid: 'UID02',
+      assignedValue: 'Value-UID02'
+    });
+
+    const calls = playState.playDoc.addEventAtomic.mock.calls;
+    // 1ª carta: 100ms desde el inicio de reproducing.
+    expect(calls[0][0].timeElapsed).toBe(100);
+    // 2ª carta: 150ms (delta entre scans), NO 250ms (acumulado desde el inicio) —
+    // ese acumulado era el bug que inflaba averageResponseTime ~(L+1)/2.
+    expect(calls[1][0].timeElapsed).toBe(150);
+  });
+
   it('emite sequence_card_result en scan correcto', async () => {
     const { engine, playState, emit } = buildEnvironment();
     sequenceFlow.startSequenceMemorizingPhase(engine, 'play-1');

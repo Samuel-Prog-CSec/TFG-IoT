@@ -29,9 +29,12 @@ function getSortKey(card) {
 function FallbackTouchPanelSequence({ cards, onSelectCard, cursor = 0, sequenceLength = 0 }) {
   const lastTapRef = useRef(0);
 
+  // Mostrar TODAS las cartas del mazo (sin recortar a 12): una carta de la
+  // secuencia que ordenase alfabéticamente más allá de la 12ª quedaba
+  // intocable en el panel táctil → ronda imposible en modo sin sensor. El mazo
+  // admite hasta 20 cartas y el grid cuadrado adaptativo escala el tamaño.
   const visibleCards = (Array.isArray(cards) ? [...cards] : [])
-    .sort((a, b) => getSortKey(a).localeCompare(getSortKey(b), 'es'))
-    .slice(0, 12);
+    .sort((a, b) => getSortKey(a).localeCompare(getSortKey(b), 'es'));
 
   // Columnas adaptativas por aspect-ratio (ADR-207 addendum) — ver
   // FallbackTouchPanel de Asociación. Maximiza el lado de carta para la región

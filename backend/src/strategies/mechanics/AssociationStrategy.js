@@ -70,6 +70,21 @@ class AssociationStrategy extends BaseMechanicStrategy {
     }
   }
 
+  /**
+   * Un timeout (ronda agotada sin respuesta) rompe la racha igual que un error.
+   * NO cuenta en `byValueAccuracy` (no es una respuesta del alumno). Sin esto,
+   * `handleTimeout` no tocaba este bookkeeping y `peakStreak` sobrevivía a las
+   * rondas no respondidas → "Mejor racha" inflada (p.ej. acierto, acierto,
+   * timeout, acierto, acierto → peakStreak 4 sin haber encadenado 4 reales).
+   *
+   * @param {Object} strategyState
+   */
+  recordTimeout(strategyState) {
+    if (strategyState) {
+      strategyState.currentStreak = 0;
+    }
+  }
+
   resolvePlannedChallenge({ sessionDoc, playDoc }) {
     const roundNumber = Number(playDoc?.currentRound || 0);
     if (!Number.isFinite(roundNumber) || roundNumber < 1) {

@@ -64,6 +64,37 @@ function getPlayState(engine, playId) {
     };
   }
 
+  // Secuencia: NO filtrar la respuesta. El `displayData` del challenge conserva
+  // `sequence` (la secuencia ordenada COMPLETA = la respuesta a reproducir) también
+  // en reproducing —nunca se limpia al cambiar de fase—, así que viajaba en el
+  // payload `play_state`/`play_state_sync` y era inspeccionable en red/DOM aunque
+  // el panel no la pintara. En reproducing la redactamos (solo `length`).
+  if (
+    playState.mechanicName === 'sequence' &&
+    playState.strategyState?.phase === 'reproducing' &&
+    Array.isArray(snapshot.currentChallenge?.displayData?.sequence)
+  ) {
+    const dd = snapshot.currentChallenge.displayData;
+    snapshot.currentChallenge = {
+      ...snapshot.currentChallenge,
+      displayData: { ...dd, sequence: undefined, length: dd.length ?? dd.sequence.length }
+    };
+  }
+
+  // Secuencia: estado intra-ronda (fase/cursor/cardStatuses, respuesta redactada)
+  // para que el cliente REHIDRATE el tablero tras una recarga (F5)/reconexión. Sin
+  // esto Memoria/Asociación se recuperaban pero Secuencia quedaba en blanco el
+  // resto de la ronda mientras el backend seguía contando.
+  if (
+    playState.mechanicName === 'sequence' &&
+    typeof playState.mechanicStrategy?.buildClientRehydrationState === 'function'
+  ) {
+    snapshot.sequenceState = playState.mechanicStrategy.buildClientRehydrationState(
+      playState.strategyState,
+      playState.playDoc.currentRound
+    );
+  }
+
   return snapshot;
 }
 

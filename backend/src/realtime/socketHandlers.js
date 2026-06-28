@@ -354,6 +354,13 @@ const refreshRfidModeActivity = (userId, socketId) => {
     return;
   }
   const state = rfidModeByUserId.get(userId);
+  // Solo el socket DUEÑO actual refresca la actividad (invariante anti-hijack,
+  // con test de regresión). La ventana de reconexión de /game donde el socket.id
+  // cambia ya la cubre F-01: `game_socket_reconnected` re-emite JOIN_PLAY, que
+  // hace takeover del modo y actualiza `state.socketId` al socket nuevo, de modo
+  // que los heartbeats posteriores vuelven a casar. (Auditoría 2026-06-28:
+  // refrescar por userId rompía el invariante anti-hijack y la ventana real es
+  // despreciable; revertido.)
   if (state?.socketId !== socketId) {
     return;
   }
@@ -1145,6 +1152,27 @@ const isRfidClientSourceEnabled = socket => {
   return false;
 };
 
+// Mapea el primer issue de validación del payload RFID a {code, reason, message}
+// de cara al usuario. El desfase de reloj (issue con path `timestamp`, ±30s)
+// recibe trato propio: es la causa más común y opaca — si el equipo tiene la hora
+// mal, TODOS los scans fallan, y el mensaje Zod ("timestamp fuera de ventana…") no
+// le dice al docente qué hacer. Le damos un código y un mensaje accionable.
+const mapRfidPayloadError = firstError => {
+  if (firstError?.path?.[0] === 'timestamp') {
+    return {
+      code: 'RFID_CLIENT_CLOCK_SKEW',
+      reason: 'CLIENT_CLOCK_SKEW',
+      message:
+        'La fecha y hora de este equipo están desincronizadas. Ajusta el reloj del ordenador (o sincronízalo por internet) para poder escanear tarjetas.'
+    };
+  }
+  return {
+    code: 'VALIDATION_ERROR',
+    reason: 'ZOD_VALIDATION_ERROR',
+    message: firstError?.message || 'Payload RFID inválido'
+  };
+};
+
 const parseRfidClientPayload = (socket, data) => {
   const parsed = rfidClientEventSchema.safeParse(data || {});
   if (parsed.success) {
@@ -1152,13 +1180,11 @@ const parseRfidClientPayload = (socket, data) => {
   }
 
   const firstError = parsed.error.issues?.[0];
-  socket.emit('error', {
-    code: 'VALIDATION_ERROR',
-    message: firstError?.message || 'Payload RFID inválido'
-  });
+  const mapped = mapRfidPayloadError(firstError);
+  socket.emit('error', { code: mapped.code, message: mapped.message });
   logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
     eventName: 'rfid_scan_from_client',
-    reason: 'ZOD_VALIDATION_ERROR',
+    reason: mapped.reason,
     details: parsed.error.issues
   });
   return null;
@@ -1976,6 +2002,8 @@ module.exports = {
   refreshRfidModeActivity,
   resetRfidModeTimersForTests,
   peekRfidModeStateForTests,
+  // Mapeo de errores de payload RFID a código/mensaje de usuario (testeable).
+  mapRfidPayloadError,
   // ADR-077: aplicación de cambios remotos vía pub/sub.
   applyRemoteRfidModeChange
 };

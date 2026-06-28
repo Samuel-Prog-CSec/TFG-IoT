@@ -127,6 +127,13 @@ class SocketService {
      */
     this.pendingGameListeners = [];
     this._wasConnected = false;
+    /**
+     * Igual que `_wasConnected` pero para el socket de /game. Al ser una
+     * conexión io() independiente, puede reconectar por su cuenta; este flag
+     * distingue la PRIMERA conexión de una RECONEXIÓN para, en esta última,
+     * re-registrar el modo RFID gameplay (ver `_connectNamespace`).
+     */
+    this._wasGameConnected = false;
     /** Timer del heartbeat de modo RFID (refresca watchdog del backend). */
     this._rfidHeartbeatTimerId = null;
     /**
@@ -377,6 +384,21 @@ class SocketService {
         } else {
           // Reasegurar heartbeat tras reconexión.
           this._startRfidHeartbeat();
+
+          // El socket de /game es una conexión io() independiente del de
+          // sistema: puede caerse y reconectar (con un socket.id nuevo) sin que
+          // el de sistema lo haga. Al desconectar el socket viejo, el backend
+          // limpia su modo RFID gameplay (clearRfidModeState); el socket nuevo
+          // debe re-emitir JOIN_PLAY para re-registrarlo. Sin esto, tras la
+          // reconexión los escaneos del sensor y los taps del fallback táctil se
+          // rechazan con RFID_MODE_INVALID ("El lector no está listo") hasta
+          // recargar la página. Avisamos con un evento global que useGameSocket
+          // escucha para re-unirse a la partida activa.
+          if (this._wasGameConnected) {
+            socketLog('warn', `${tag} Reconectado tras desconexión`);
+            window.dispatchEvent(new CustomEvent('game_socket_reconnected'));
+          }
+          this._wasGameConnected = true;
         }
       });
 
@@ -470,6 +492,7 @@ class SocketService {
 
     this.isConnected = false;
     this._wasConnected = false;
+    this._wasGameConnected = false;
     this._connectPromise = null;
   }
 

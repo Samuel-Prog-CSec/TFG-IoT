@@ -150,6 +150,67 @@ class SequenceStrategy extends BaseMechanicStrategy {
   }
 
   /**
+   * Construye el estado intra-ronda para REHIDRATAR el cliente tras una
+   * reconexión/recarga (F5). Sin esto, `getPlayState` no llevaba el estado de
+   * Secuencia (fase/cursor/cardStatuses) y el tablero quedaba EN BLANCO el resto
+   * de la ronda mientras el backend seguía contando.
+   *
+   * REDACTA la respuesta: en `reproducing`, las posiciones AÚN NO resueltas
+   * (>= cursor) viajan vacías (su uid/valor revelaría el orden — el alumno
+   * conoce los mappings por el panel táctil); solo las posiciones ya resueltas
+   * (< cursor) llevan su uid, necesario para casar `cardStatuses`, que el cliente
+   * indexa por uid. En `memorizing` la secuencia sí viaja completa (el alumno la
+   * está memorizando). Los VALORES se omiten siempre en reproducing.
+   *
+   * @param {object} strategyState
+   * @param {number} currentRound
+   * @returns {object|null}
+   */
+  buildClientRehydrationState(strategyState, currentRound) {
+    if (!strategyState) {
+      return null;
+    }
+    const phase = strategyState.phase || SEQUENCE_PHASE[0];
+    const expected = Array.isArray(strategyState.expectedSequence)
+      ? strategyState.expectedSequence
+      : [];
+    const length = expected.length;
+    const cursor = Number(strategyState.cursor || 0);
+    const isMemorizing = phase === SEQUENCE_PHASE[0];
+
+    // cardStatuses indexado por uid (como en el cliente) de las posiciones ya
+    // resueltas (< cursor): 'blocked' si se bloqueó, 'correct' en otro caso.
+    const blockedUids = new Set(strategyState.blocked || []);
+    const cardStatuses = {};
+    for (let i = 0; i < cursor && i < length; i += 1) {
+      const uid = expected[i]?.uid;
+      if (uid) {
+        cardStatuses[uid] = blockedUids.has(uid) ? 'blocked' : 'correct';
+      }
+    }
+
+    const sequence = expected.map((item, i) => {
+      if (isMemorizing) {
+        return cloneSequenceItem(item);
+      }
+      // reproducing: solo el uid de las resueltas (para el color); el resto vacío.
+      return i < cursor
+        ? { uid: item.uid, assignedValue: null, displayData: {} }
+        : { uid: null, assignedValue: null, displayData: {} };
+    });
+
+    return {
+      phase,
+      roundNumber: Number(currentRound) || 1,
+      length,
+      cursor,
+      displaySeconds: Number(strategyState.displaySeconds) || 3,
+      cardStatuses,
+      sequence
+    };
+  }
+
+  /**
    * Procesa un escaneo en la fase reproducing.
    *
    * @returns {object} Resultado uno de:

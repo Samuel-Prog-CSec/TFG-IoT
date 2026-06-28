@@ -90,6 +90,59 @@ describe('SequenceStrategy', () => {
     });
   });
 
+  describe('buildClientRehydrationState — rehidratación intra-ronda tras F5 (ADR-222 C#2)', () => {
+    const setupReproducing = (correctScans = 1) => {
+      const sessionDoc = buildSession();
+      const state = strategy.initialize({ sessionDoc });
+      strategy.selectChallenge({
+        playDoc: { currentRound: 1 },
+        sessionDoc,
+        playState: { strategyState: state }
+      });
+      strategy.enterReproducingPhase(state);
+      const seq = buildSequence();
+      for (let i = 0; i < correctScans; i += 1) {
+        strategy.processScan({
+          scannedCard: { uid: seq[i].uid },
+          sessionDoc,
+          strategyState: state
+        });
+      }
+      return state;
+    };
+
+    it('en reproducing REDACTA las posiciones no resueltas (no filtra la respuesta) y conserva el uid de las resueltas', () => {
+      const state = setupReproducing(1); // 1 carta correcta → cursor=1
+      const rehydration = strategy.buildClientRehydrationState(state, 1);
+
+      expect(rehydration.phase).toBe('reproducing');
+      expect(rehydration.cursor).toBe(1);
+      expect(rehydration.length).toBe(3);
+      // Posición resuelta (0): lleva uid (para casar cardStatuses), valor redactado.
+      expect(rehydration.sequence[0].uid).toBe('AA000001');
+      expect(rehydration.sequence[0].assignedValue).toBeNull();
+      // Posiciones NO resueltas (1,2 = la respuesta): uid y valor NULOS — no filtran.
+      expect(rehydration.sequence[1].uid).toBeNull();
+      expect(rehydration.sequence[2].uid).toBeNull();
+      expect(rehydration.sequence[1].assignedValue).toBeNull();
+      // cardStatuses indexado por uid (como en el cliente) de las resueltas.
+      expect(rehydration.cardStatuses).toEqual({ AA000001: 'correct' });
+    });
+
+    it('en memorizing envía la secuencia COMPLETA (el alumno la está memorizando)', () => {
+      const sessionDoc = buildSession();
+      const state = strategy.initialize({ sessionDoc });
+      strategy.selectChallenge({
+        playDoc: { currentRound: 1 },
+        sessionDoc,
+        playState: { strategyState: state }
+      });
+      const rehydration = strategy.buildClientRehydrationState(state, 1);
+      expect(rehydration.phase).toBe('memorizing');
+      expect(rehydration.sequence.map(c => c.uid)).toEqual(['AA000001', 'AA000002', 'AA000003']);
+    });
+  });
+
   describe('selectChallenge', () => {
     it('devuelve la secuencia de la ronda actual con phase memorizing', () => {
       const sessionDoc = buildSession();

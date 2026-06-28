@@ -116,6 +116,37 @@ describe('MemoryStrategy', () => {
     expect(board.find(slot => slot.uid === 'AA000003')?.isRevealed).toBe(false);
   });
 
+  it('ignora un scan mientras hay un fallo pendiente de ocultar (no evalúa "grupo de 3") — regresión A-C2/ADR-222', () => {
+    const strategy = new MemoryStrategy();
+    const sessionDoc = buildSessionDoc();
+    const strategyState = strategy.initialize({ sessionDoc });
+
+    // Provocar un fallo: selectedUids = [A, C], grupo completo aún SIN ocultar.
+    strategy.processScan({
+      scannedCard: { uid: 'AA000001', assignedValue: 'A' },
+      sessionDoc,
+      strategyState
+    });
+    const mismatch = strategy.processScan({
+      scannedCard: { uid: 'AA000003', assignedValue: 'B' },
+      sessionDoc,
+      strategyState
+    });
+    expect(mismatch.isCorrect).toBe(false);
+    expect(strategyState.selectedUids).toEqual(['AA000001', 'AA000003']);
+
+    // Un 3er scan ANTES del concealSelected (sensor físico rápido, no respeta el
+    // gating de la UI) debe IGNORARSE. Sin el fix empujaba una 3ª carta → evaluaba
+    // "grupo de 3" como fallo + penalización espurios.
+    const thirdScan = strategy.processScan({
+      scannedCard: { uid: 'AA000004', assignedValue: 'B' },
+      sessionDoc,
+      strategyState
+    });
+    expect(thirdScan.type).toBe('ignored');
+    expect(strategyState.selectedUids).toEqual(['AA000001', 'AA000003']);
+  });
+
   describe('recordScanResult bookkeeping (ADR-A/B)', () => {
     it('initialize siembra los contadores running de finalSummary', () => {
       const strategy = new MemoryStrategy();

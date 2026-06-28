@@ -246,6 +246,16 @@ ADR-209 hizo la cara **persistente** (los slots ya no se desmontan), pero la cal
 
 **Menor.** `propIn` (entrada de props) lleva `transform-box: fill-box` → los accesorios crecen desde su propio centro, no desde el origen del viewBox.
 
+## Integridad del feedback de partida (ADR-221)
+
+Auditoría de las tres mecánicas; correcciones del feedback en juego:
+
+- **"Fallos" contaba el DOBLE en Memoria.** El backend emite por pareja TANTO `validation_result` COMO `memory_turn_state`; el frontend incrementaba racha/errores en AMBOS caminos (`processValidationResult` y `signalMemoryResult`) sobre los mismos refs → el footer "Fallos" mostraba el doble y la mascota escalaba a la mitad de aciertos. En Memoria, `signalMemoryResult` es ahora el dueño ÚNICO de racha/errores/mascota; `processValidationResult` se corta tras fijar el feedback de tablero. (El comentario que afirmaba que Memoria NO emite `validation_result` era falso y causaba el doble conteo.)
+- **Estrellas ≠ badge ≠ backend.** Las estrellas del GameOver se calculaban por accuracy (`correctAnswers/totalRounds`), divergiendo del badge de puntuación y del backend (`score/maxScore`); con penalización por error podían aparecer 3⭐ junto a un badge "52%". Se unifican a `score/maxScore` (estrellas, badge, sonido de victoria y notificación al docente: un único número).
+- **Hero del GameOver con unidades mezcladas en Secuencia.** Mostraba `correctAnswers` (cartas) sobre `totalRounds` (rondas) → "7 / 3". Ahora "Secuencias / Total" de rondas.
+
+Ver ADR-221 para el resto del pase (fuga del orden en el tablero táctil de Secuencia, paneles táctiles sin recorte a 12 cartas, reanudaciones de Secuencia/Memoria, anuncios de lector de pantalla por mecánica).
+
 ## Otto como guía-narrador del onboarding (ADR-212)
 
 Antes la mascota en el onboarding (`OnboardingOverlay.jsx`) iba `absolute` en la esquina inferior izquierda → **tapaba "Atrás" y la nota**; solo aparecía en los pasos `modal` (no en los `spotlight`) → **intermitente**; y con `noBubble` + `pointing` era un **búho mudo señalando al vacío**. Rediseño a guía-narrador:

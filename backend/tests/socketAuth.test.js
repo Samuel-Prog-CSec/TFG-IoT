@@ -369,7 +369,10 @@ describe('Socket.IO auth & ownership', () => {
     });
 
     const errorPayload = await waitForEvent(socket, 'error');
-    expect(errorPayload).toEqual(expect.objectContaining({ code: 'VALIDATION_ERROR' }));
+    // ADR-222: el desfase de reloj (timestamp fuera de ±30s) recibe un código
+    // propio en vez del genérico VALIDATION_ERROR, con mensaje accionable.
+    expect(errorPayload).toEqual(expect.objectContaining({ code: 'RFID_CLIENT_CLOCK_SKEW' }));
+    expect(errorPayload.message).toMatch(/reloj/i);
 
     socket.disconnect();
   });

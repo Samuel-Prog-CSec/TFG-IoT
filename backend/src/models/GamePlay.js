@@ -342,8 +342,16 @@ gamePlaySchema.methods.complete = function () {
   this.completedAt = new Date();
   this.metrics.completionTime = this.completedAt - this.startedAt;
 
-  // Calcular el tiempo medio de respuesta a partir de los eventos
-  const responseTimes = this.events.filter(e => e.timeElapsed).map(e => e.timeElapsed);
+  // Calcular el tiempo medio de respuesta SOLO sobre eventos de respuesta real
+  // (acierto/error). Antes promediaba cualquier evento con `timeElapsed`,
+  // mezclando el `round_end` de Secuencia (duración de la ronda ENTERA, ~60s),
+  // el `card_scanned` de la 1ª carta de Memoria, y el `timeout` de Asociación
+  // (= límite de tiempo completo). Eso inflaba/distorsionaba el KPI "T. medio de
+  // respuesta" y las métricas del alumno. Un timeout no es una respuesta.
+  const ANSWER_EVENT_TYPES = new Set(['correct', 'error']);
+  const responseTimes = this.events
+    .filter(e => ANSWER_EVENT_TYPES.has(e.eventType) && e.timeElapsed)
+    .map(e => e.timeElapsed);
 
   // Evitar división por cero
   if (responseTimes.length > 0) {

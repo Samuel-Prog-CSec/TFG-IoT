@@ -42,7 +42,10 @@ function GameOverStatsSequence({ summary }) {
 
   return (
     <div className="space-y-[clamp(0.35rem,1.4vh,0.75rem)] mb-[clamp(0.5rem,2vh,2rem)]">
-      {/* Hero metric: mejor longitud alcanzada */}
+      {/* Hero metric: más cartas correctas en una ronda (`maxSequenceLengthAchieved`).
+          NO es una "racha consecutiva": el cursor de Secuencia avanza tras una carta
+          bloqueada sin reiniciar, así que cuenta los aciertos de la ronda aunque haya
+          un bloqueo en medio. Etiquetado en consecuencia (no "racha"/"seguidas"). */}
       <motion.div
         initial={{ opacity: 0, y: 8 }}
         animate={{ opacity: 1, y: 0 }}
@@ -53,8 +56,8 @@ function GameOverStatsSequence({ summary }) {
             <ListOrdered size={20} className="text-accent-amber" />
           </div>
           <div className="text-left">
-            <p className="text-xs uppercase tracking-wider text-text-muted">Mejor racha</p>
-            <p className="text-sm text-text-secondary">Cartas correctas seguidas en una ronda</p>
+            <p className="text-xs uppercase tracking-wider text-text-muted">Mejor ronda</p>
+            <p className="text-sm text-text-secondary">Cartas correctas en tu mejor ronda</p>
           </div>
         </div>
         <p className="text-3xl font-bold font-display text-accent-amber tabular-nums">{maxLength}</p>

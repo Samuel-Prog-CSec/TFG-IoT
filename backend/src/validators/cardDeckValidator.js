@@ -28,7 +28,11 @@ const cardDeckMappingSchema = cardMappingSchema;
  * - Un mazo pertenece a un profesor (createdBy se infiere del JWT, por eso es opcional aquí)
  * - Un mazo se asocia a un contexto (contextId)
  * - Debe contener entre 2 y 20 cardMappings
- * - No puede repetir el mismo UID ni el mismo assignedValue dentro del mazo
+ * - No puede repetir el mismo UID. El `assignedValue` SÍ puede repetirse: Memoria
+ *   usa parejas (dos cartas con el mismo valor) y la corrección de Asociación
+ *   valida por valor (no por UID), así que los valores duplicados se manejan
+ *   correctamente en ambas mecánicas. (La unicidad de `assignedValue` NO se exige
+ *   ni aquí ni en el controlador; el comentario anterior la afirmaba en falso.)
  */
 const createCardDeckSchema = z
   .object({

@@ -53,6 +53,33 @@ const FLOAT_DELAY_NONE = { animationDelay: '0s' };
 // puras por separado. Los imports están al inicio del fichero.
 
 /**
+ * Reconstruye el `sequenceState` del frontend a partir del snapshot de
+ * `play_state_sync` para rehidratar el tablero de Secuencia tras F5/reconexión.
+ * Pura (sin hooks) → fuera del componente para no inflar la complejidad de
+ * `handlePlayState`. La respuesta ya viene REDACTADA del backend.
+ *
+ * @param {object|null} ss - `payload.sequenceState`
+ * @returns {object|null}
+ */
+function buildSequenceStateFromSnapshot(ss) {
+  if (!ss || typeof ss !== 'object') {
+    return null;
+  }
+  return {
+    sequence: Array.isArray(ss.sequence) ? ss.sequence : [],
+    length: Number(ss.length || 0),
+    phase: ss.phase || 'memorizing',
+    cursor: Number(ss.cursor || 0),
+    cardStatuses: ss.cardStatuses && typeof ss.cardStatuses === 'object' ? ss.cardStatuses : {},
+    highlightIndex: null,
+    displaySeconds: Number(ss.displaySeconds || 3),
+    roundNumber: Number(ss.roundNumber || 1),
+    hint: null,
+    isCollecting: false
+  };
+}
+
+/**
  * Pantalla principal de juego para niños de 4-8 años.
  * Diseño colorido, amigable y sin texto complejo.
  */
@@ -291,7 +318,20 @@ export default function GameSession() {
       }
       clearAnnouncedThresholds();
 
-      setSrAnnouncement(`Ronda ${currentRound}: respuesta ${isCorrect ? 'correcta' : 'incorrecta'}. Puntuación: ${newScore}.`);
+      // Sin "Ronda X" aquí: el handler se registra una vez y el `currentRound`
+      // del closure quedaba congelado en 1 (el lector anunciaba siempre "Ronda
+      // 1"); además en Memoria el nº derivado de intentos podía superar el total
+      // de parejas. El número de ronda ya se anuncia al iniciarla
+      // (handleNewRound). Frase por mecánica vía `socketSessionRef` (ref, fresco):
+      const isMemoryResult = socketSessionRef.current?.mechanic?.name === 'memory';
+      const subject = isMemoryResult ? 'Pareja' : 'Respuesta';
+      let resultWord;
+      if (isMemoryResult) {
+        resultWord = isCorrect ? 'encontrada' : 'incorrecta';
+      } else {
+        resultWord = isCorrect ? 'correcta' : 'incorrecta';
+      }
+      setSrAnnouncement(`${subject} ${resultWord}. Puntuación: ${newScore}.`);
 
       scheduleFeedbackClear(
         Number.isFinite(feedbackDelayMs) && feedbackDelayMs > 0 ? feedbackDelayMs : 1400
@@ -417,6 +457,25 @@ export default function GameSession() {
         matchedCount: Number(payload.memoryState.matchedCount || 0),
         totalCards: Number(payload.memoryState.totalCards || 0)
       });
+      // Tras reconexión / recarga de página (play_state_sync) hay que RE-ARMAR el
+      // timer de Memoria aquí: si no, `useGameTimer` lo deja CONGELADO (la barra
+      // sincroniza el valor pero no decrementa) hasta que el alumno levanta la
+      // primera carta. El arranque inicial lo arma `handleMemoryTurnState`, pero
+      // el path de resync no pasaba por ahí.
+      if (Number.isFinite(payload?.remainingTimeMs) && payload.remainingTimeMs > 0) {
+        setMemoryTimerArmed(true);
+      }
+    }
+
+    // Secuencia: rehidratar el tablero intra-ronda tras F5/reconexión. Sin esto el
+    // `sequenceState` volvía a su inicial vacío al remontar y el tablero quedaba EN
+    // BLANCO el resto de la ronda. La respuesta viene REDACTADA del backend. El
+    // backend dirige la transición de fase por su propio schedule, así que el
+    // cliente se re-sincroniza al recibir el siguiente `sequence_phase_*`. (Lógica
+    // de reconstrucción en `buildSequenceStateFromSnapshot`, fuera del componente.)
+    const rehydratedSequence = buildSequenceStateFromSnapshot(payload?.sequenceState);
+    if (rehydratedSequence) {
+      setSequenceState(rehydratedSequence);
     }
   }, [normalizeChallenge, setTimeLeft, dispatch]);
 
@@ -980,31 +1039,48 @@ export default function GameSession() {
     }
   }, [feedbackState]);
 
-  // Confirmar que el tablero de memoria está visible para iniciar el timer
+  // Resetear la señal de board_ready en cada nueva partida (cambio de playId),
+  // para que la memorización (Secuencia) / el timer (Memoria) vuelvan a arrancar
+  // al pulsar EMPEZAR en la siguiente partida.
   useEffect(() => {
-    if (
-      sessionIsMemory &&
-      gameState === 'playing' &&
-      memoryBoard.length > 0 &&
-      playId &&
-      !boardReadyEmittedRef.current
-    ) {
+    boardReadyEmittedRef.current = false;
+  }, [playId]);
+
+  // Confirmar que el tablero está visible para que el backend arranque su timer:
+  // - Memoria: cuando el tablero (memoryBoard) ya está renderizado.
+  // - Secuencia (F-03): al pulsar EMPEZAR (gameState='playing'). Así el backend
+  //   arranca la memorización de la ronda 1 SOLO entonces y el alumno recibe los
+  //   segundos completos — antes la pantalla pre-inicio "¡Hora de Jugar!"
+  //   consumía ese tiempo (el timer corría desde el bootstrap).
+  useEffect(() => {
+    if (gameState !== 'playing' || !playId || boardReadyEmittedRef.current) {
+      return;
+    }
+    if (sessionIsMemory && memoryBoard.length === 0) {
+      return;
+    }
+    if (sessionIsMemory || sessionIsSequence) {
       boardReadyEmittedRef.current = true;
       emitBoardReady();
     }
-  }, [sessionIsMemory, gameState, memoryBoard, playId, emitBoardReady]);
+  }, [sessionIsMemory, sessionIsSequence, gameState, memoryBoard, playId, emitBoardReady]);
 
-  // Sonido de victoria cuando la partida termina con buen resultado (>=3 estrellas, >=60%
-  // en la escala canónica de 5 niveles; mismo umbral que el confeti del game-over)
+  // Sonido de victoria cuando la partida termina con buen resultado (>=3 estrellas
+  // en la escala canónica de 5 niveles; mismo umbral y MISMA base que las estrellas
+  // del GameOver). El % se calcula sobre `score / maxScore`, NO sobre accuracy
+  // (correctas/rondas): con penalización por error ambos divergen y antes el chime
+  // de victoria sonaba incluso en partidas que el GameOver puntúa con 1-2 estrellas
+  // (en Secuencia, accuracy por cartas daba casi siempre ≥90% → 5★ espurias).
   useEffect(() => {
     if (gameState !== 'finished') return undefined;
-    const percentage = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
+    const maxScore = Number(playSummary?.maxScore || 0);
+    const percentage = maxScore > 0 ? (Number(score) / maxScore) * 100 : 0;
     if (calculateStars(percentage) >= 3) {
       const timer = globalThis.setTimeout(() => playSuccess(), 600);
       return () => globalThis.clearTimeout(timer);
     }
     return undefined;
-  }, [gameState, correctAnswers, totalRounds, playSuccess]);
+  }, [gameState, score, playSummary, playSuccess]);
 
   // Gestión de foco en pausa
   useEffect(() => {
@@ -1092,7 +1168,11 @@ export default function GameSession() {
 
   const handleFallbackCardScan = useCallback(
     card => {
-      if (gameState !== 'playing') return;
+      // No emitir fuera de turno: tras un timeout SIN tap el panel táctil queda
+      // habilitado durante el hueco de feedback entre rondas (isAwaitingResponse
+      // false), y un tap ahí provocaba un scan que el backend respondía con
+      // `not_awaiting` → toast "Escaneo fuera de turno" confuso. Cortamos aquí.
+      if (gameState !== 'playing' || !isAwaitingResponse) return;
 
       const sensorId = session?.sensorId || 'touch_fallback_sensor';
       const sent = emitFallbackScan(card, sensorId);
@@ -1104,7 +1184,25 @@ export default function GameSession() {
 
       setSrAnnouncement(`Carta ${card?.assignedValue || card?.uid} seleccionada.`);
     },
-    [gameState, session?.sensorId, emitFallbackScan]
+    [gameState, isAwaitingResponse, session?.sensorId, emitFallbackScan]
+  );
+
+  // Secuencia usa su propio gating (el panel táctil solo se monta en fase
+  // reproducing y el backend ignora scans fuera de fase), por lo que NO aplica el
+  // guard de `isAwaitingResponse` de Asociación. Pero sí necesita el feedback de
+  // error en fallo de envío (paridad con Asociación/Memoria: antes un tap con el
+  // socket caído se perdía en silencio) y el anuncio para lector de pantalla.
+  const handleSequenceCardTap = useCallback(
+    card => {
+      const sensorId = session?.sensorId || 'touch_fallback_sensor';
+      const sent = emitFallbackScan(card, sensorId);
+      if (sent === false) {
+        toast.error('No se pudo enviar la respuesta. Comprueba la conexión.');
+        return;
+      }
+      setSrAnnouncement(`Carta ${card?.assignedValue || card?.uid} seleccionada.`);
+    },
+    [session?.sensorId, emitFallbackScan]
   );
 
   const handleMemoryCardTap = useCallback(
@@ -1112,7 +1210,13 @@ export default function GameSession() {
       if (gameState !== 'playing' || !slot?.uid) return;
       setHasTappedBoardOnce(true);
       const sensorId = session?.sensorId || 'touch_fallback_sensor';
-      emitMemoryCardTap(slot, sensorId);
+      const sent = emitMemoryCardTap(slot, sensorId);
+      // Paridad con el panel táctil de Asociación: si el socket está caído el tap
+      // se descarta (no se encola), y Memoria lo IGNORABA en silencio → el alumno
+      // no se enteraba de que su toque se perdió (aulas con WiFi inestable).
+      if (sent === false) {
+        toast.error('No se pudo enviar la respuesta. Comprueba la conexión.');
+      }
     },
     [gameState, session?.sensorId, emitMemoryCardTap]
   );
@@ -1718,7 +1822,7 @@ export default function GameSession() {
                           rfidConnected={rfidConnected}
                           soundEnabled={soundEnabled}
                           sequenceState={sequenceState}
-                          onCardTap={emitFallbackScan}
+                          onCardTap={handleSequenceCardTap}
                         />
                       );
                     }
