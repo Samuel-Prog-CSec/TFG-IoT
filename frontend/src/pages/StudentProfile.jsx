@@ -108,14 +108,21 @@ export default function StudentProfile() {
         if (controller.signal.aborted) return;
         setSummary(summaryData);
 
-        // Fetches secundarios en paralelo (no bloqueantes si fallan)
+        // Fetches secundarios en paralelo (no bloqueantes si fallan). Un fallo real
+        // (no abort) degrada a null → "sin datos", PERO se reporta a Sentry: antes
+        // `.catch(()=>null)` lo tragaba, indistinguible de "alumno sin datos" e
+        // invisible para diagnóstico (un 500 de trayectoria parecía un alumno vacío).
+        const swallowSecondary = e => {
+          if (!isAbortError(e)) captureException(e);
+          return null;
+        };
         const [trajectoryData, engagementData] = await Promise.all([
           analyticsService.getStudentTrajectory(
             studentId, { timeRange, granularity: 'daily' }, { signal: controller.signal }
-          ).catch(() => null),
+          ).catch(swallowSecondary),
           analyticsService.getStudentEngagement(
             studentId, { timeRange }, { signal: controller.signal }
-          ).catch(() => null),
+          ).catch(swallowSecondary),
         ]);
 
         if (controller.signal.aborted) return;

@@ -751,6 +751,21 @@ class GameEngine {
    */
   // eslint-disable-next-line sonarjs/cognitive-complexity, sonarjs/cyclomatic-complexity -- finalización de partida (game_over): orquestación stateful; refactor diferido por riesgo de regresión en gameplay
   async _endPlayInternal(playId, playState, { abandoned }) {
+    // Guard de reentrancia SÍNCRONO (antes de cualquier await): entre el
+    // `activePlays.get` de endPlay() y el `activePlays.delete` final hay una
+    // ventana async amplia. Dos llamadas concurrentes — p. ej. la finalización
+    // normal por último scan y `cleanupAbandonedPlays` (cron, sin lock), o un
+    // finalize por scan solapado con uno por timeout de ronda — pasaban ambas el
+    // guard de endPlay() y finalizaban DOS veces: doble `updateStudentMetrics`
+    // (corrompe `averageScore` por su media móvil incremental), doble `game_over`
+    // y doble escritura en leaderboards. Como JS es monohilo, marcar el flag de
+    // forma síncrona (sin await intermedio) hace que la segunda llamada lo vea.
+    if (playState._ending) {
+      logger.warn(`endPlay reentrante ignorado para ${playId} (ya en finalización)`);
+      return;
+    }
+    playState._ending = true;
+
     logger.info(
       `Finalizando partida ${playId}${abandoned ? ' (abandonada por inactividad)' : ''}...`
     );
@@ -929,6 +944,9 @@ class GameEngine {
       // 0 barridos) — descartada por ahora: el keyspace real es pequeño (~100
       // keys ⇒ ~4 iteraciones por endPlay) y el refactor tocaría ~26 call-sites
       // de `cacheGet`, con su propio riesgo de staleness si alguno se omite.
+      // Re-evaluado en ADR-223 (auditoría 2026-06-30): se MANTIENE esta decisión.
+      // Revisitar el índice inverso solo si el keyspace Redis crece mucho (≳1-2k
+      // keys) o si el detector `upstashCommandsQuota` reporta presión de comandos.
       const invalidationTeacherId = playState.sessionDoc?.createdBy;
       const invalidationStudentId = playState.playDoc.playerId;
       const cacheInvalidations = [

@@ -37,8 +37,8 @@ const GeneratedReportSchema = new mongoose.Schema(
     teacherId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: [true, 'El docente propietario es obligatorio'],
-      index: true
+      required: [true, 'El docente propietario es obligatorio']
+      // index monocampo eliminado: prefijo de { teacherId, generatedAt }
     },
     studentId: {
       type: mongoose.Schema.Types.ObjectId,

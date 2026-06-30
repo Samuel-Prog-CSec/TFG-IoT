@@ -631,7 +631,9 @@ export default function SessionDetail() {
                 +{session.config?.pointsPerCorrect}
               </ConfigCell>
               <ConfigCell tone="cyan" icon={<RotateCcw size={15} className="text-accent-cyan" />} label={isMemorySession ? 'Parejas' : 'Rondas'}>
-                {session.config?.numberOfRounds}
+                {isMemorySession
+                  ? Math.floor((session.boardLayout?.length || session.config?.numberOfCards || 0) / 2)
+                  : session.config?.numberOfRounds}
               </ConfigCell>
               <ConfigCell tone="error" icon={<Minus size={15} className="text-error-base" />} label="Penalización por error">
                 {session.config?.penaltyPerError}

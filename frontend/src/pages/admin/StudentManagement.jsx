@@ -33,6 +33,7 @@ import SelectPremium from '../../components/ui/SelectPremium';
 import GlassCard from '../../components/ui/GlassCard';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
+import ErrorState from '../../components/ui/ErrorState';
 import { EmptyStudentsIllustration } from '../../components/ui/illustrations';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Tooltip from '../../components/ui/Tooltip';
@@ -448,7 +449,7 @@ export default function StudentManagement() {
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [, setError] = useState(null);
+  const [error, setError] = useState(null);
   // BUG-STUDENTS-CREATE-A (QA Sprint 0 post-v0.5.0): antes era `const [, setIsModalOpen]`
   // descartando el state value y además el componente `CreateStudentModal` ni siquiera
   // estaba montado en el JSX. Resultado: el botón "Nuevo Alumno" no abría nada.
@@ -851,6 +852,17 @@ export default function StudentManagement() {
                 </div>
               </GlassCard>
             </motion.div>
+          );
+          if (error) return (
+            // BUG-STUDENTS-ERROR (auditoría 2026-06-30): antes el valor de `error`
+            // se descartaba y un fallo de red caía al empty-state "Sin alumnos…",
+            // engañando al director (parecía un centro sin alumnos). Ahora se
+            // muestra ErrorState con reintento (paridad con ApprovalPanel/AdminContexts).
+            <ErrorState
+              key="error"
+              message={error}
+              onRetry={() => fetchStudents()}
+            />
           );
           if (students.length === 0) return (
             <EmptyState

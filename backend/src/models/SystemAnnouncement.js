@@ -43,7 +43,7 @@ const SystemAnnouncementSchema = new mongoose.Schema(
     publishedAt: { type: Date, default: Date.now, index: true },
     expiresAt: { type: Date, default: null },
 
-    active: { type: Boolean, default: true, index: true },
+    active: { type: Boolean, default: true }, // index monocampo eliminado: prefijo de { active, audience, publishedAt }
     archivedAt: { type: Date, default: null },
     archivedBy: { type: mongoose.Schema.Types.ObjectId, ref: 'User', default: null },
 

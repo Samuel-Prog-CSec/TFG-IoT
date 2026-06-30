@@ -178,8 +178,8 @@ router.get(
  */
 router.post(
   '/',
-  createResourceRateLimiter,
   authenticate,
+  createResourceRateLimiter,
   requireRole('teacher'),
   validateQuery(emptyObjectSchema),
   validateBody(createCardDeckSchema),
@@ -194,8 +194,8 @@ router.post(
  */
 router.put(
   '/:id',
-  createResourceRateLimiter,
   authenticate,
+  createResourceRateLimiter,
   requireRole('teacher'),
   validateParams(cardDeckParamsSchema),
   validateQuery(emptyObjectSchema),
@@ -230,8 +230,8 @@ router.put(
  */
 router.delete(
   '/:id',
-  createResourceRateLimiter,
   authenticate,
+  createResourceRateLimiter,
   requireRole('teacher'),
   validateParams(cardDeckParamsSchema),
   validateQuery(emptyObjectSchema),

@@ -60,14 +60,14 @@ const SystemAlertSchema = new mongoose.Schema(
     status: {
       type: String,
       enum: SYSTEM_ALERT_STATUSES,
-      default: 'active',
-      index: true
+      default: 'active'
+      // index monocampo eliminado: prefijo de { status, pinned, severity, detectedAt }
     },
     source: {
       type: String,
       enum: SYSTEM_ALERT_SOURCES,
-      required: true,
-      index: true
+      required: true
+      // index monocampo eliminado: prefijo de { source, status }
     },
     component: { type: String, maxlength: 80, default: null },
 

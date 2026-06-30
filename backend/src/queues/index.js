@@ -26,11 +26,15 @@ const KEY_PREFIX = process.env.REDIS_KEY_PREFIX || 'rfid-games:';
 /** Conexión Redis dedicada para BullMQ. No reutilizar getRedis() — requiere flags distintos. */
 const buildBullConnection = () => {
   const url = new URL(REDIS_URL);
+  // Mismo motivo que en config/redis.js: con esquema `rediss://` (Upstash) hay
+  // que propagar `tls` explícitamente o el handshake falla / el tráfico va en claro.
+  const useTls = url.protocol === 'rediss:';
   return {
     host: url.hostname || 'localhost',
     port: Number.parseInt(url.port, 10) || 6379,
     password: url.password || process.env.REDIS_PASSWORD || undefined,
     db: Number.parseInt(process.env.REDIS_DB, 10) || 0,
+    ...(useTls ? { tls: { servername: url.hostname } } : {}),
     maxRetriesPerRequest: null,
     enableReadyCheck: false
   };

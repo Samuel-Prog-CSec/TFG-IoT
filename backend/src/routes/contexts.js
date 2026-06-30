@@ -244,8 +244,8 @@ router.get(
  */
 router.post(
   '/',
-  createResourceRateLimiter, // Rate limiting para prevenir spam
   authenticate,
+  createResourceRateLimiter, // Rate limiting para prevenir spam (keyed por usuario)
   requireRole('super_admin'),
   validateQuery(emptyObjectSchema),
   validateBody(createGameContextSchema),

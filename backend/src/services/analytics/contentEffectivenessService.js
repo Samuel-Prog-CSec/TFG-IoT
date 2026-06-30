@@ -394,13 +394,31 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
       }
     },
     { $unwind: { path: '$context', preserveNullAndEmptyArrays: true } },
-    { $unwind: '$events' },
+    // Proyectar ANTES del $unwind de events: sin esto, el doc de sesión completo
+    // (cardMappings[≤30], boardLayout, sequencePlan, config) se replicaba a través
+    // de cada uno de los ≤500 eventos de la partida → amplificación de bytes
+    // inter-stage que puede superar el límite de 100MB/stage de Atlas M0. Además
+    // pre-filtramos los eventos a los de respuesta con carta, reduciendo el array
+    // antes de desenrollarlo (mismo patrón que getCardAnalysis en sessionAnalysisService).
     {
-      $match: {
-        'events.eventType': { $in: ['correct', 'error', 'timeout'] },
-        'events.cardUid': { $ne: null }
+      $project: {
+        playerId: 1,
+        contextName: '$context.name',
+        events: {
+          $filter: {
+            input: '$events',
+            as: 'e',
+            cond: {
+              $and: [
+                { $in: ['$$e.eventType', ['correct', 'error', 'timeout']] },
+                { $ne: ['$$e.cardUid', null] }
+              ]
+            }
+          }
+        }
       }
     },
+    { $unwind: '$events' },
     {
       $group: {
         _id: '$events.cardUid',
@@ -412,7 +430,7 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
           $sum: { $cond: [{ $eq: ['$events.eventType', 'timeout'] }, 1, 0] }
         },
         uniqueStudents: { $addToSet: '$playerId' },
-        contextName: { $first: '$context.name' },
+        contextName: { $first: '$contextName' },
         sampleExpectedValue: { $first: '$events.expectedValue' }
       }
     },

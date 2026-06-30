@@ -811,7 +811,7 @@ async function bulkAction(
       results.push({ id, ok: false, error: err.message });
     }
   }
-  // Invalidación única para todo el lote (antes: una por alerta → hasta 100 SCAN).
+  // Invalidación única para el lote completo (antes: una por alerta → hasta 100 SCAN).
   if (results.some(r => r.ok)) {
     await invalidateTeacherCache(teacherId);
   }

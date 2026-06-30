@@ -617,11 +617,9 @@ userSchema.set('toJSON', {
   }
 });
 
-/**
- * Índice para filtrar usuarios por rol.
- * Útil para listar todos los profesores o todos los alumnos.
- */
-userSchema.index({ role: 1 });
+// Índice monocampo { role: 1 } ELIMINADO: es prefijo exacto de
+// { role: 1, profile.classroom: 1 } y { role: 1, accountStatus: 1 }, que ya
+// sirven las consultas por rol. Drop: `npm run migrate:drop-redundant-indexes`.
 
 /**
  * Índice para filtrar usuarios por estado.
@@ -635,11 +633,9 @@ userSchema.index({ status: 1 });
  */
 userSchema.index({ role: 1, 'profile.classroom': 1 });
 
-/**
- * Índice para búsqueda de alumnos por profesor creador.
- * Permite a un profesor ver todos sus alumnos.
- */
-userSchema.index({ createdBy: 1 });
+// Índice monocampo { createdBy: 1 } ELIMINADO: es prefijo exacto de
+// { createdBy: 1, role: 1 } (abajo), que ya cubre la búsqueda de alumnos por
+// profesor. Drop: `npm run migrate:drop-redundant-indexes`.
 
 /**
  * Índice compuesto para analytics de clase: estudiantes de un profesor por rol.

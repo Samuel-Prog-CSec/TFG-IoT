@@ -156,23 +156,36 @@ const getRedisConfig = () => {
   // Parsear URL para extraer componentes
   const url = new URL(redisUrl);
 
+  // El esquema `rediss://` exige TLS (Upstash escucha TLS en 6379). ioredis solo
+  // activa TLS automáticamente si se le pasa la CADENA `rediss://...`; al pasarle
+  // un objeto de opciones (como aquí) el esquema se pierde y conecta en claro, de
+  // modo que el handshake contra Upstash falla. Propagar `tls` explícitamente.
+  const useTls = url.protocol === 'rediss:';
+
   return {
     host: url.hostname || 'localhost',
     port: Number.parseInt(url.port, 10) || 6379,
     password: url.password || process.env.REDIS_PASSWORD || undefined,
     db: Number.parseInt(process.env.REDIS_DB, 10) || 0,
     keyPrefix: KEY_PREFIX,
+    ...(useTls ? { tls: { servername: url.hostname } } : {}),
 
-    // Configuración de reconexión
+    // Reconexión: NUNCA abandonar. El `return null` previo tras 10 intentos dejaba
+    // el cliente muerto hasta reiniciar el proceso; en Upstash (idle-timeouts,
+    // failover, jitter de red) un blip >11s dejaba el backend sin Redis y, como
+    // los rate-limiters de login son fail-closed, bloqueaba TODOS los logins.
     retryStrategy: times => {
-      if (times > 10) {
-        logger.error('Redis: Máximo de reintentos alcanzado, abandonando conexión');
-        return null; // Dejar de reintentar
+      const delay = Math.min(times * 200, 3000); // Máx 3s entre reintentos
+      if (times === 1 || times % 10 === 0) {
+        logger.warn(`Redis: reintentando conexión (intento ${times}, espera ${delay}ms)`);
       }
-      const delay = Math.min(times * 200, 3000); // Max 3 segundos entre reintentos
-      logger.warn(`Redis: Reintentando conexión en ${delay}ms (intento ${times})`);
       return delay;
     },
+
+    // Forzar reconexión ante errores que ioredis no resuelve solo: READONLY tras
+    // un failover de Upstash (la réplica promovida llega read-only un instante) o
+    // un socket reseteado.
+    reconnectOnError: err => /READONLY|ECONNRESET/i.test(err?.message || ''),
 
     // Timeouts
     connectTimeout: 10000, // 10 segundos para conectar

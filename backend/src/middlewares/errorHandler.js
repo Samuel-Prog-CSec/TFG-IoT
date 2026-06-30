@@ -10,6 +10,26 @@ const { AppError } = require('../utils/errors');
 const logger = require('../utils/logger');
 
 /**
+ * Mensaje seguro para el cliente. No filtrar el mensaje crudo de errores
+ * inesperados (5xx no operacionales) en producción: puede revelar internals
+ * (rutas, nombres de campo, detalles del driver Mongo/Redis). El mensaje real ya
+ * queda en los logs. Los errores operacionales (AppError) y los 4xx tipados
+ * llevan un mensaje intencional y seguro.
+ *
+ * @param {number} statusCode
+ * @param {boolean} isOperational
+ * @param {string} message
+ * @returns {string}
+ */
+const resolveClientMessage = (statusCode, isOperational, message) => {
+  const isUnexpectedServerError = statusCode >= 500 && !isOperational;
+  if (isUnexpectedServerError && process.env.NODE_ENV === 'production') {
+    return 'Error interno del servidor';
+  }
+  return message;
+};
+
+/**
  * Middleware de manejo de errores centralizado.
  * Debe ser el ÚLTIMO middleware en server.js.
  *
@@ -112,7 +132,7 @@ const errorHandler = (err, req, res, _next) => {
   // --- Respuesta al cliente ---
   res.status(statusCode).json({
     success: false,
-    message,
+    message: resolveClientMessage(statusCode, err.isOperational, message),
     ...(code && { code }),
     ...(errors && errors.length > 0 && { errors }),
     ...(data && { data }),

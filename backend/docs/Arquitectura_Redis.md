@@ -1443,3 +1443,11 @@ Esto confirma que las 3 conexiones Redis por instancia (principal de datos + pub
 Cierre de dos keys que crecían sin cota (riesgo en Upstash free-tier 256 MB):
 - **`student:metrics:<id>` (Hash, T-931)**: las escrituras `HINCRBY`/`HSET` de cada `endPlay` no fijaban EXPIRE → una key viva indefinidamente por cada alumno que jugara alguna vez. Se añade `EXPIRE` 90 d (`STUDENT_METRICS_TTL_SECONDS`) en la escritura en vivo y el mismo TTL en el `HSET` del reconciliador nocturno, que así renueva la ventana de los alumnos activos; los inactivos caen solos (Mongo es la fuente de verdad y el Hash es caché reconstruible).
 - **`system:meta:lastRetentionRun`**: el worker de retención usaba `set` sin TTL → `setWithTTL` 30 d. Se refresca a diario; solo expira si el job deja de correr, que es justo lo que el detector `data_retention_lag` debe señalar (lee null → lag).
+
+## Conexión Upstash: TLS, reconexión y adapter (2026-06-30, ADR-223)
+
+Endurecimiento de la conexión Redis de cara al despliegue en **Upstash** (Redis serverless, TLS obligatorio en el puerto 6379):
+
+- **TLS para `rediss://`.** `getRedisConfig()` (y `buildBullConnection()` de BullMQ) construían un objeto de opciones a partir de la URL parseada, perdiendo el esquema → ioredis **no** activaba TLS (solo lo hace si se le pasa la *cadena* `rediss://`, no un objeto). Contra Upstash el handshake fallaría o el tráfico viajaría en claro. Fix: si `url.protocol === 'rediss:'`, propagar `tls: { servername: url.hostname }`.
+- **Reconexión resiliente.** `retryStrategy` abandonaba la conexión para siempre tras ~11s (`return null`); ante un blip/idle-timeout/failover de Upstash el backend quedaba sin Redis hasta reiniciar y, como los rate-limiters de login son *fail-closed*, **bloqueaba todos los logins**. Ahora reintenta indefinidamente con backoff cap (3s) + `reconnectOnError` (READONLY/ECONNRESET de failover).
+- **Socket.IO Redis adapter tras flag `SOCKET_ADAPTER_ENABLED` (off por defecto).** En single-instance (invariante `scale=1`) el adapter publicaba en Redis cada broadcast de sala sin consumidor = coste puro de comandos. Activar solo con `scale>1`.

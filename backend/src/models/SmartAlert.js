@@ -48,8 +48,8 @@ const SmartAlertSchema = new mongoose.Schema(
     teacherId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
-      index: true
+      required: true
+      // index monocampo eliminado: prefijo de { teacherId, status, pinned, detectedAt }
     },
     studentId: {
       type: mongoose.Schema.Types.ObjectId,

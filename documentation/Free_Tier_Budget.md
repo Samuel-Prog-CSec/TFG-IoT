@@ -443,6 +443,17 @@ La sesión de performance pre-v1.0.0 redujo el consumo proyectado:
 
 ---
 
+## Actualización 2026-06-30 (ADR-223) — endurecimiento de consumo Upstash
+
+Decisiones de la auditoría de mantenimiento que reducen el consumo del free-tier de Upstash y fijan el modelo de despliegue:
+
+- **Invariante `scale=1` para el servicio de juego (`api-*`).** El motor es *stateful en memoria*; un rework HA (estado+timers a Redis) dispararía el nº de comandos muy por encima del free-tier (10k/día). Multi-instancia no aporta a la escala objetivo del TFG. **No habilitar `scale>1` sin migrar antes a un Redis de pago.**
+- **Adapter Socket.IO tras flag `SOCKET_ADAPTER_ENABLED` (off por defecto).** En single-instance evitaba un `PUBLISH` por cada broadcast de sala (sin consumidor) = coste puro. Activar solo al escalar.
+- **10 índices monocampo redundantes eliminados** (migración `migrate:drop-redundant-indexes`, 79→69 índices): menos write-amplification y storage de índice en Atlas M0 (512MB).
+- **Pendiente (ALTO):** la invalidación de caché analytics por `endPlay` hace `SCAN` del keyspace completo (3× por partida) → sustituir por índice inverso (`SMEMBERS`+`DEL`). Ver ADR-223.
+
+---
+
 *Documento mantenido por Samuel Blanchart Pérez. Actualizar cada vez
 que cambien las cuotas free tier de algún proveedor o cuando se añada o
 elimine un servicio del stack.*

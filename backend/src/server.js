@@ -435,16 +435,23 @@ const startServer = async () => {
       // al boot y el rate-limit distribuido queda inutilizado).
       initRateLimiters();
 
-      // Configurar Socket.IO Redis adapter para escalabilidad horizontal
+      // Socket.IO Redis adapter — SOLO con escalado horizontal real (multi-instancia).
+      // El servicio de juego opera en single-instance (invariante operativo, ver
+      // Architecture_Decisions y Free_Tier_Budget): es stateful en memoria y, a la
+      // escala objetivo, multi-instancia ni aporta ni es compatible con Upstash
+      // free-tier. Con el adapter activo en single-instance, CADA broadcast de sala
+      // (new_round, validation_result, game_over...) emite un PUBLISH a Redis que
+      // nadie consume → coste puro de comandos (free-tier 10k/día). Por eso queda
+      // OFF por defecto; al escalar a >1 instancia, poner SOCKET_ADAPTER_ENABLED=true.
       try {
         const { isRedisConnected, getRedis } = require('./config/redis');
-        if (isRedisConnected()) {
+        if (process.env.SOCKET_ADAPTER_ENABLED === 'true' && isRedisConnected()) {
           const { createAdapter } = require('@socket.io/redis-adapter');
           const redisClient = getRedis();
           const pubClient = redisClient.duplicate();
           const subClient = redisClient.duplicate();
           io.adapter(createAdapter(pubClient, subClient));
-          logger.info('Socket.IO Redis adapter configurado para escalabilidad horizontal');
+          logger.info('Socket.IO Redis adapter configurado (escalado horizontal habilitado)');
         }
       } catch (adapterError) {
         logger.warn(

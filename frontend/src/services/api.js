@@ -551,11 +551,24 @@ async function handleRateLimitError(error, originalRequest) {
 // ============================================
 
 /**
- * Extrae datos de una respuesta exitosa de la API
+ * Extrae datos de una respuesta exitosa de la API.
+ *
+ * Las respuestas de dominio van envueltas por responseHelper como
+ * `{ success, data, ... }`. Devolvemos SIEMPRE `body.data` cuando el envelope
+ * existe — incluso si es `null`/`0`/`false`/`''` (payload falsy pero válido).
+ * El `|| body` previo colapsaba esos casos al envelope completo, que es truthy,
+ * haciendo creer al consumidor que había datos y leyendo campos `undefined`.
+ *
  * @param {Object} response - Respuesta de axios
- * @returns {Object} Datos de la respuesta
+ * @returns {*} Datos de la respuesta (payload desempaquetado o cuerpo crudo)
  */
-export const extractData = (response) => response.data?.data || response.data;
+export const extractData = (response) => {
+  const body = response?.data;
+  if (body && typeof body === 'object' && 'data' in body) {
+    return body.data;
+  }
+  return body;
+};
 
 /**
  * Extrae mensaje de error de una respuesta de la API

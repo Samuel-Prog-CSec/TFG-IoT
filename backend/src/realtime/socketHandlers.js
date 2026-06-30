@@ -180,8 +180,7 @@ const resetConnectionCountsForTests = () => {
   socketIdsByUserId.clear();
 };
 let socketServerRef = null;
-/** Referencia al namespace /game para emitir eventos de gameplay (reservado para uso interno futuro). */
-// eslint-disable-next-line no-unused-vars -- referencia almacenada para uso interno por funciones del módulo
+/** Referencia al namespace /game para emitir a sockets de gameplay por su id. */
 let gameNspRef = null;
 /** C.5 (pre-v1.0.0): ref al GameEngine para liberar play:init locks en disconnect. */
 let gameEngineRef = null;
@@ -775,9 +774,16 @@ const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
   const modeChangedAt = Date.now();
 
   if (current?.socketId && current.socketId !== socketId) {
-    socketServerRef?.to(current.socketId).emit('error', {
-      code: 'RFID_MODE_TAKEN_OVER',
-      message: 'Otro cliente tomó el control del modo RFID para este usuario'
+    // El socketId puede ser del namespace raíz o de /game (los takeovers de
+    // gameplay vienen de Join/ResumePlay, que corren en /game). Un socket.id es
+    // por-namespace: `io.to(id)` en el namespace equivocado no entrega nada — el
+    // bug previo emitía solo en raíz y el aviso de takeover se perdía. Emitir en
+    // AMBOS namespaces garantiza la entrega sea cual sea el origen del socket.
+    [socketServerRef, gameNspRef].forEach(nsp => {
+      nsp?.to(current.socketId).emit('error', {
+        code: 'RFID_MODE_TAKEN_OVER',
+        message: 'Otro cliente tomó el control del modo RFID para este usuario'
+      });
     });
   }
 

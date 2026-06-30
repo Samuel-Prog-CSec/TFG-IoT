@@ -47,8 +47,8 @@ const NotificationSchema = new mongoose.Schema(
     userId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'User',
-      required: true,
-      index: true
+      required: true
+      // index monocampo eliminado: prefijo de { userId, createdAt } y { userId, read, createdAt }
     },
     type: {
       type: String,

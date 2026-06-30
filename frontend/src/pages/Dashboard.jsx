@@ -366,6 +366,25 @@ export default function Dashboard() {
               />
             ) : null}
 
+            {/* k-anonimidad: en aulas pequeñas el endpoint de alumnos suprime los
+                perfiles individuales (protección de datos de menores) y solo
+                devuelve métricas agregadas. Sin este aviso, los widgets de alumnos
+                quedaban vacíos y los KPIs mostraban cifras → parecía un panel roto.
+                Aditivo: solo se renderiza cuando aggregatedOnly (nunca en aulas
+                normales como la de Carlos). */}
+            {studentsData?.aggregatedOnly ? (
+              <div className="bg-background-elevated/50 border border-border-default px-4 py-3 rounded-xl text-sm">
+                <p className="font-semibold text-text-primary">Datos agregados por privacidad</p>
+                <p className="text-text-muted mt-0.5">
+                  {studentsData.reason
+                    || 'Tu aula es pequeña; por protección de datos de menores (k-anonimidad) se omiten los perfiles individuales.'}
+                  {studentsData.aggregatedMetrics
+                    ? ` Media del grupo: ${studentsData.aggregatedMetrics.averageScore}% · ${studentsData.aggregatedMetrics.totalGames} partidas.`
+                    : ''}
+                </p>
+              </div>
+            ) : null}
+
             {/* BI Principle: Jerarquía Visual - KPIs Arriba */}
             <motion.section
               variants={listContainerVariants(0.03)}

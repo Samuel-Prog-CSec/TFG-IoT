@@ -403,16 +403,11 @@ gamePlaySchema.pre('validate', function () {
  */
 gamePlaySchema.index({ sessionId: 1, playerId: 1, status: 1 });
 
-/**
- * Índice para listar todas las partidas de un jugador.
- * Útil para ver el historial de partidas de un estudiante.
- */
-gamePlaySchema.index({ playerId: 1 });
-
-/**
- * Índice para listar todas las partidas de una sesión (Dashboard del profesor).
- */
-gamePlaySchema.index({ sessionId: 1 });
+// Índices monocampo { playerId: 1 } y { sessionId: 1 } ELIMINADOS: son prefijo
+// exacto de los compuestos de abajo ({ playerId, status, completedAt } y
+// { sessionId, playerId, status }), que ya sirven esas consultas. Mantenerlos solo
+// añadía coste de escritura (gameplays se escribe por cada evento RFID) y storage
+// en Atlas M0 (512MB). Drop en BD existente: `npm run migrate:drop-redundant-indexes`.
 
 /**
  * Índice compuesto para analytics: historial de un jugador ordenado por fecha.

@@ -137,8 +137,12 @@ router.get(
  */
 router.post(
   '/',
-  createResourceRateLimiter, // Rate limit específico para creación
+  // authenticate ANTES del rate limiter de creación: su keyGenerator
+  // (userOrIpKeyGenerator) necesita req.user para keyear por usuario. Si el limiter
+  // corre primero, req.user no existe → cae a IP y varios docentes tras el NAT del
+  // colegio comparten cuota (429 falsos). Aplica a sessions/decks/contexts/users.
   authenticate,
+  createResourceRateLimiter, // Rate limit de creación (keyed por usuario)
   requireRole('teacher'),
   validateQuery(emptyObjectSchema),
   validateBody(createGameSessionSchema),
@@ -224,8 +228,8 @@ router.post(
  */
 router.post(
   '/:id/clone',
-  createResourceRateLimiter,
   authenticate,
+  createResourceRateLimiter,
   requireRole('teacher'),
   validateParams(cloneSessionParamsSchema),
   validateQuery(emptyObjectSchema),

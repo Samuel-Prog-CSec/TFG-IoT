@@ -28,6 +28,8 @@
     "migrate:score-percent": "node scripts/migrate-score-percent.js",
     "migrate:score-percent:dry-run": "node scripts/migrate-score-percent.js --dry-run",
     "migrate:leaderboard-percent": "node scripts/migrate-leaderboard-percent.js",
+    "migrate:drop-redundant-indexes": "node scripts/migrate-drop-redundant-indexes.js",
+    "migrate:drop-redundant-indexes:dry-run": "node scripts/migrate-drop-redundant-indexes.js --dry-run",
     "data:audit": "node scripts/dataAudit.js",
     "data:retention": "node scripts/dataRetention.js",
     "data:retention:dry-run": "node scripts/dataRetention.js --dry-run",

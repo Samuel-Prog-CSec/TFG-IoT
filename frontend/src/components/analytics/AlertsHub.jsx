@@ -259,9 +259,14 @@ function AlertsHub({
 
   // Estado local (necesario para optimistic updates de useAlertActions)
   const [localAlerts, setLocalAlerts] = useState(alerts);
-  // Re-sincronizar con prop cuando cambia desde fuera
-  if (localAlerts !== alerts && alerts !== EMPTY_ALERTS) {
-     
+  // Re-sincronizar SOLO cuando el prop cambia desde fuera (nuevos datos del
+  // padre), no cuando el estado local diverge por una mutación optimista.
+  // Comparar `localAlerts !== alerts` revertía la mutación optimista en el render
+  // siguiente: descartar/resolver/posponer "rebotaban" y la card seguía visible
+  // pese al toast (en "descartar con deshacer" permanecía los 5s).
+  const [prevAlerts, setPrevAlerts] = useState(alerts);
+  if (alerts !== prevAlerts) {
+    setPrevAlerts(alerts);
     setLocalAlerts(alerts);
   }
 

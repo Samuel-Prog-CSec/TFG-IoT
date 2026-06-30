@@ -156,7 +156,11 @@ export default function ContextDetailPage() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchContext is not memoized; only re-run when contextId changes
   }, [contextId]);
 
-  if (loading) {
+  // El skeleton de página completa solo debe aparecer en la carga INICIAL
+  // (context aún null). En refrescos tras mutación (borrar/subir asset) `loading`
+  // vuelve a true pero ya hay datos: mantenemos el contenido para evitar un flash
+  // brusco y la pérdida de scroll.
+  if (loading && !context) {
     return (
       <div className="page-container py-[var(--space-fluid-section)]">
         <div>
@@ -534,6 +538,14 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
   const fileInputRef = useRef(null);
+
+  // Libera el object URL del preview al cambiar o al desmontar el modal: cada
+  // selección creaba un blob (hasta 8MB) que nunca se revocaba → fuga de memoria
+  // por cada imagen elegida en una sesión de subida de assets.
+  useEffect(() => {
+    if (!preview) return undefined;
+    return () => URL.revokeObjectURL(preview);
+  }, [preview]);
 
   // A11y del modal (paridad con ConfirmationModal): role/aria, Escape, focus-trap
   // por Tab, foco inicial al dropzone, restauración de foco y bloqueo de scroll.

@@ -178,6 +178,16 @@ export function useGameSocket({
   const gameStateRef = useRef('waiting');
   const pendingScanTimeoutRef = useRef(null);
 
+  // Ref a los últimos callbacks de gameplay. Los listeners de socket se registran
+  // UNA sola vez (el efecto depende solo de [sessionId, retryKey]), pero estos
+  // callbacks se recrean en cada render del padre (cierran sobre currentRound,
+  // totalRounds, isMemoryMode...). Sin este ref, los `wrapped*` invocaban SIEMPRE
+  // la versión del primer render: en Memoria reactivaba la lógica de Asociación
+  // (doble conteo de fallos/racha) y los mensajes de "última ronda"/presión de
+  // tiempo salían mal. Mismo patrón que useKeyboardShortcuts/useRefetchOnFocus.
+  const gameplayCallbacksRef = useRef(null);
+  gameplayCallbacksRef.current = { onNewRound, onValidationResult, onMemoryTurnState, onGameOver };
+
   const RETRY_COOLDOWN_MS = 5000;
 
   // Sincronizar refs con valores actuales (el componente padre actualiza gameState)
@@ -334,10 +344,10 @@ export function useGameSocket({
     // (NEW_ROUND o VALIDATION_RESULT): el hint "Espera un momento entre
     // intentos" persistía visualmente aunque el turno se hubiera completado
     // correctamente (detectado en QA 2026-04-23).
-    const wrappedOnNewRound = data => { cancelPendingScanTimeout(); setRealtimeError(null); onNewRound(data); };
-    const wrappedOnValidationResult = data => { cancelPendingScanTimeout(); setRealtimeError(null); onValidationResult(data); };
-    const wrappedOnMemoryTurnState = data => { cancelPendingScanTimeout(); onMemoryTurnState(data); };
-    const wrappedOnGameOver = data => { cancelPendingScanTimeout(); onGameOver(data); };
+    const wrappedOnNewRound = data => { cancelPendingScanTimeout(); setRealtimeError(null); gameplayCallbacksRef.current.onNewRound(data); };
+    const wrappedOnValidationResult = data => { cancelPendingScanTimeout(); setRealtimeError(null); gameplayCallbacksRef.current.onValidationResult(data); };
+    const wrappedOnMemoryTurnState = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onMemoryTurnState(data); };
+    const wrappedOnGameOver = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onGameOver(data); };
 
     const onScanIgnored = payload => {
       cancelPendingScanTimeout();

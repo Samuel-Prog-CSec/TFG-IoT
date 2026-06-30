@@ -123,16 +123,20 @@ function StudentsList({ students }) {
             const tierBadge = getTierBadge(student.tier);
             const podium = PODIUM_STYLES[index];
             const PodiumIcon = podium?.icon;
+            // El endpoint /classroom/students entrega el id del alumno en `id`
+            // (analyticsService: id = _id.toString()). Mantener _id/studentId como
+            // fallback defensivo evita navegar a /students/undefined si la fuente cambia.
+            const studentId = student.id || student._id || student.studentId;
             return (
               <motion.div
-                key={student.studentId || student._id || index}
+                key={studentId || index}
                 variants={staggerItem}
                 whileHover={{ x: 4 }}
-                onClick={() => navigate(`/students/${student.studentId || student._id}`)}
+                onClick={() => navigate(`/students/${studentId}`)}
                 className="flex items-center justify-between p-3 rounded-xl transition-colors duration-200 group cursor-pointer hover:bg-background-surface/40 focus:outline-none focus:ring-1 focus:ring-brand-base/40 focus:bg-background-surface/20"
                 role="listitem"
                 tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/students/${student.studentId || student._id}`); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/students/${studentId}`); }}
                 aria-label={`${student.name}, puntuación ${Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}, posición ${index + 1}`}
               >
                 <div className="flex items-center gap-3">
@@ -236,6 +240,7 @@ function StudentsList({ students }) {
 
 StudentsList.propTypes = {
   students: PropTypes.arrayOf(PropTypes.shape({
+    id: PropTypes.string,
     studentId: PropTypes.string,
     _id: PropTypes.string,
     name: PropTypes.string.isRequired,

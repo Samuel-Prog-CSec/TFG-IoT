@@ -320,7 +320,13 @@ export default function StudentsAnalytics() {
 
         setStudents(studentsData);
         setSummary(summaryData);
-        setDistribution(distributionData);
+        // El endpoint /classroom/distribution devuelve { distribution: [...], totalStudents }.
+        // Hay que desempaquetar el array (igual que Dashboard.jsx); guardar el objeto
+        // crudo dejaba el gate `distribution?.length > 0` siempre en falso → la card
+        // de distribución no se renderizaba nunca.
+        setDistribution(
+          Array.isArray(distributionData) ? distributionData : distributionData?.distribution ?? null,
+        );
         setError(null);
       } catch (err) {
         if (isAbortError(err)) return;

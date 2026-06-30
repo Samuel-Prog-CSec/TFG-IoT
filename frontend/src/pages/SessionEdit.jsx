@@ -6,6 +6,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import { useNavigate, useParams } from 'react-router-dom';
 import { m as motion } from 'framer-motion';
 import { Save, Map as MapIcon, AlertTriangle, ArrowLeft, FileQuestion } from 'lucide-react';
@@ -28,6 +29,8 @@ import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import useInlineSuccess from '../hooks/useInlineSuccess';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
+import { ASSOCIATION_LIMITS } from '../constants/associationConfig';
+import { SEQUENCE_LIMITS } from '../constants/sequenceConfig';
 
 const statusToBadge = (status) => {
   switch (status) {
@@ -43,6 +46,51 @@ const statusToBadge = (status) => {
 };
 
 const normalizeMechanicName = value => (value || '').toString().trim().toLowerCase();
+
+// Rango y etiqueta del campo "tiempo" según la mecánica (deben coincidir con los
+// step-rules del asistente). Asociación/Secuencia son tiempo POR RONDA; Memoria
+// es tiempo TOTAL de partida y admite hasta 300s. Con el rango fijo de Asociación
+// (3–60) una sesión de Memoria con timeLimit>60 quedaba en estado :invalid e
+// imposible de editar (la etiqueta "por ronda" además era incorrecta).
+const MEMORY_TIME_LIMITS = { min: 10, max: 300 };
+const getTimeFieldConfig = mechanicName => {
+  if (mechanicName === 'memory') {
+    return { min: MEMORY_TIME_LIMITS.min, max: MEMORY_TIME_LIMITS.max, label: 'Tiempo total (seg)' };
+  }
+  if (mechanicName === 'sequence') {
+    return {
+      min: SEQUENCE_LIMITS.minTimeLimit,
+      max: SEQUENCE_LIMITS.maxTimeLimit,
+      label: 'Tiempo por ronda (seg)'
+    };
+  }
+  return {
+    min: ASSOCIATION_LIMITS.minTimeLimit,
+    max: ASSOCIATION_LIMITS.maxTimeLimit,
+    label: 'Tiempo por ronda (seg)'
+  };
+};
+
+// Aviso para sesiones no-Asociación: el mazo/tablero/secuencias se gestionan en
+// el asistente (este editor no los regenera). Extraído como componente para
+// mantener baja la complejidad ciclomática del editor.
+function NonAssociationEditNotice({ isMemory }) {
+  return (
+    <GlassCard className="p-4 border border-border-default" contentClassName="flex items-start gap-3">
+      <AlertTriangle size={18} className="text-warning-base mt-0.5 shrink-0" />
+      <p className="text-sm text-text-muted">
+        En sesiones de {isMemory ? 'Memoria' : 'Secuencia'} solo puedes ajustar tiempo, puntos y
+        penalización. Para cambiar el mazo{isMemory ? ' o el tablero' : ', las rondas o las secuencias'},
+        recrea la sesión desde el asistente: así se regeneran correctamente
+        {isMemory ? ' el tablero' : ' las secuencias'}.
+      </p>
+    </GlassCard>
+  );
+}
+
+NonAssociationEditNotice.propTypes = {
+  isMemory: PropTypes.bool
+};
 
 const toDeckCards = mappings =>
   Array.isArray(mappings)
@@ -221,9 +269,17 @@ export default function SessionEdit() {
 
   const statusInfo = statusToBadge(session?.status);
   const canEdit = session?.status === 'created';
-  const isAssociationSession = normalizeMechanicName(session?.mechanic?.name) === 'association';
-  const isMemorySession = normalizeMechanicName(session?.mechanic?.name) === 'memory';
+  const mechanicName = normalizeMechanicName(session?.mechanic?.name);
+  const isAssociationSession = mechanicName === 'association';
+  const isMemorySession = mechanicName === 'memory';
+  const isSequenceSession = mechanicName === 'sequence';
   const hasMemoryBoardConfigured = Array.isArray(session?.boardLayout) && session.boardLayout.length > 0;
+  const timeFieldConfig = getTimeFieldConfig(mechanicName);
+  // El mazo y las rondas determinan los planes persistidos (boardLayout de
+  // Memoria, sequencePlan de Secuencia) que este editor NO regenera. Cambiarlos
+  // aquí dejaría la partida apuntando a cartas inexistentes, así que solo
+  // Asociación permite editar mazo/rondas; el resto se recrea desde el asistente.
+  const canEditStructure = canEdit && isAssociationSession;
 
   useEffect(() => {
     if (!isAssociationSession) {
@@ -416,6 +472,10 @@ export default function SessionEdit() {
           </GlassCard>
         )}
 
+        {canEdit && !isAssociationSession && (
+          <NonAssociationEditNotice isMemory={isMemorySession} />
+        )}
+
         <GlassCard className="p-6 space-y-6">
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
             <SelectPremium
@@ -424,7 +484,7 @@ export default function SessionEdit() {
               value={deckId}
               onChange={setDeckId}
               placeholder="Selecciona un mazo"
-              disabled={!canEdit}
+              disabled={!canEditStructure}
             />
             <InputPremium
               label="Número de tarjetas"
@@ -474,22 +534,25 @@ export default function SessionEdit() {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {!isMemorySession && (
+              <InputPremium
+                label="Rondas"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={20}
+                value={numberOfRounds}
+                onChange={(e) => setNumberOfRounds(e.target.value)}
+                disabled={!canEditStructure}
+                hint={isSequenceSession ? 'Se ajusta al recrear la sesión en el asistente' : undefined}
+              />
+            )}
             <InputPremium
-              label="Rondas"
+              label={timeFieldConfig.label}
               type="number"
               inputMode="numeric"
-              min={1}
-              max={20}
-              value={numberOfRounds}
-              onChange={(e) => setNumberOfRounds(e.target.value)}
-              disabled={!canEdit}
-            />
-            <InputPremium
-              label="Tiempo por ronda (seg)"
-              type="number"
-              inputMode="numeric"
-              min={3}
-              max={60}
+              min={timeFieldConfig.min}
+              max={timeFieldConfig.max}
               value={timeLimit}
               onChange={(e) => setTimeLimit(e.target.value)}
               disabled={!canEdit}
@@ -501,7 +564,8 @@ export default function SessionEdit() {
               label="Puntos por acierto"
               type="number"
               inputMode="numeric"
-              min={1}
+              min={5}
+              max={15}
               value={pointsPerCorrect}
               onChange={(e) => setPointsPerCorrect(e.target.value)}
               disabled={!canEdit}
@@ -510,7 +574,8 @@ export default function SessionEdit() {
               label="Penalización"
               type="number"
               inputMode="numeric"
-              max={-1}
+              min={-5}
+              max={0}
               value={penaltyPerError}
               onChange={(e) => setPenaltyPerError(e.target.value)}
               disabled={!canEdit}

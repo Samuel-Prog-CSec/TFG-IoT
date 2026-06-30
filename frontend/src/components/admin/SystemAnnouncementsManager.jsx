@@ -312,15 +312,15 @@ export default function SystemAnnouncementsManager() {
       )}
 
       <ConfirmationModal
-        isOpen={!!archiveTarget}
+        open={!!archiveTarget}
         title="Archivar aviso"
-        message={
+        description={
           archiveTarget
             ? `¿Quieres archivar "${archiveTarget.title}"? Los profesores dejarán de verlo de inmediato.`
             : ''
         }
-        confirmLabel="Archivar"
-        cancelLabel="Cancelar"
+        confirmText="Archivar"
+        cancelText="Cancelar"
         variant="archive"
         onConfirm={handleArchive}
         onClose={() => setArchiveTarget(null)}

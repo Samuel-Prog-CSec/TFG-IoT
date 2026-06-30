@@ -199,6 +199,17 @@ SessionPlayStats.propTypes = {
   })
 };
 
+// Valor de "Rondas" (genérico) o "Parejas" (Memoria). En Memoria no hay rondas:
+// las parejas se derivan de las cartas del tablero (boardLayout o numberOfCards)
+// entre 2; usar config.numberOfRounds (≈5 por defecto) mostraba un dato falso.
+const getRoundsOrPairsValue = (session, isMemoryMechanic) => {
+  if (!isMemoryMechanic) return session.config?.numberOfRounds;
+  const boardCards = Array.isArray(session.boardLayout) && session.boardLayout.length
+    ? session.boardLayout.length
+    : (session.config?.numberOfCards || session.cardMappingsCount || 0);
+  return Math.floor(boardCards / 2);
+};
+
 const SessionCard = memo(function SessionCard({
   session,
   cloneLoading,
@@ -227,6 +238,7 @@ const SessionCard = memo(function SessionCard({
   // para no confundir al profesor cuando revisa sesiones guardadas.
   const isMemoryMechanic = String(session.mechanic?.name || '').toLowerCase() === 'memory';
   const roundsOrPairsLabel = isMemoryMechanic ? 'Parejas' : 'Rondas';
+  const roundsOrPairsValue = getRoundsOrPairsValue(session, isMemoryMechanic);
   const contextLabel = session.context?.name || 'Contexto';
   const sessionId = getId(session);
   const canEdit = session.status === 'created';
@@ -324,7 +336,7 @@ const SessionCard = memo(function SessionCard({
             </div>
             <div>
               <p className="text-text-muted">{roundsOrPairsLabel}</p>
-              <p className="text-text-primary font-semibold font-display">{session.config?.numberOfRounds}</p>
+              <p className="text-text-primary font-semibold font-display">{roundsOrPairsValue}</p>
             </div>
           </div>
           <div className="bg-warning-base/5 rounded-lg p-3 flex items-center gap-3">
@@ -701,6 +713,10 @@ export default function SessionsPage() {
 
   useEffect(() => {
     sessionsAbortRef.current?.abort();
+    // Abortar también un "Cargar más" en vuelo: si la página siguiente del filtro
+    // anterior resuelve tras el reset, su setSessions(prev => [...prev, ...items])
+    // contamina la lista con sesiones que no cumplen el filtro activo.
+    loadMoreAbortRef.current?.abort();
     const controller = new AbortController();
     sessionsAbortRef.current = controller;
     loadSessions({ reset: true, signal: controller.signal });
@@ -710,6 +726,7 @@ export default function SessionsPage() {
 
   const refetchSessions = useCallback(() => {
     sessionsAbortRef.current?.abort();
+    loadMoreAbortRef.current?.abort();
     const controller = new AbortController();
     sessionsAbortRef.current = controller;
     loadSessions({ reset: true, signal: controller.signal });
