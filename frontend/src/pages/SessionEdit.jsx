@@ -9,7 +9,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate, useParams } from 'react-router-dom';
 import { m as motion } from 'framer-motion';
-import { Save, Map as MapIcon, AlertTriangle, ArrowLeft, FileQuestion } from 'lucide-react';
+import { Save, Map as MapIcon, AlertTriangle, ArrowLeft, FileQuestion, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
@@ -23,6 +23,7 @@ import Breadcrumb from '../components/ui/Breadcrumb';
 import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import EmptyState from '../components/ui/EmptyState';
+import ErrorState from '../components/ui/ErrorState';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -130,6 +131,57 @@ const buildAssociationPlanByRounds = ({ currentPlan, cards, numberOfRounds }) =>
   });
 };
 
+/**
+ * (D2) Fallback de carga de la sesión: distingue un fallo de red/servidor
+ * (reintentable) de un 404 real. Extraído a un componente propio para no inflar
+ * la complejidad ciclomática de SessionEdit.
+ */
+function SessionEditLoadFallback({ error, onRetry, onBack }) {
+  if (error && !error.isNotFound && !error.isForbidden) {
+    return (
+      <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+        <ErrorState
+          title="No pudimos cargar la sesión"
+          message={error.message || 'Hubo un problema al cargar la sesión. Inténtalo de nuevo.'}
+          onRetry={onRetry}
+        />
+      </div>
+    );
+  }
+  // 403 (sin permiso) y 404 (no existe): estado calmado con salida y SIN
+  // reintento; icono y texto distinguen ambos casos.
+  const forbidden = Boolean(error?.isForbidden);
+  return (
+    <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+      <EmptyState
+        title={forbidden ? 'Sin acceso' : 'Sesión no encontrada'}
+        description={
+          forbidden
+            ? 'No tienes permiso para editar esta sesión. Solo puedes editar las sesiones que has creado.'
+            : 'La sesión solicitada no existe o no está disponible.'
+        }
+        icon={forbidden ? <Lock size={28} /> : <FileQuestion size={28} />}
+        action={(
+          <ButtonPremium variant="secondary" onClick={onBack}>
+            <ArrowLeft size={16} />
+            Volver a sesiones
+          </ButtonPremium>
+        )}
+      />
+    </div>
+  );
+}
+
+SessionEditLoadFallback.propTypes = {
+  error: PropTypes.shape({
+    isNotFound: PropTypes.bool,
+    isForbidden: PropTypes.bool,
+    message: PropTypes.string
+  }),
+  onRetry: PropTypes.func.isRequired,
+  onBack: PropTypes.func.isRequired
+};
+
 export default function SessionEdit() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
@@ -139,6 +191,8 @@ export default function SessionEdit() {
   const saveBadge = useInlineSuccess();
 
   const [session, setSession] = useState(null);
+  // (D2) 404 real vs fallo de red/servidor (reintentable).
+  const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [decks, setDecks] = useState([]);
@@ -172,6 +226,7 @@ export default function SessionEdit() {
       const response = await sessionsAPI.getSessionById(sessionId, signal ? { signal } : {});
       const data = extractData(response);
       setSession(data);
+      setError(null);
       setDeckId(data.deckId || data.deck?.id || '');
       setNumberOfRounds(String(data.config?.numberOfRounds ?? ''));
       setTimeLimit(String(data.config?.timeLimit ?? ''));
@@ -191,8 +246,10 @@ export default function SessionEdit() {
       if (isAbortError(err)) {
         return;
       }
-      toast.error('No se pudo cargar la sesión', {
-        description: extractErrorMessage(err)
+      setError({
+        isNotFound: err?.response?.status === 404,
+        isForbidden: err?.response?.status === 403,
+        message: extractErrorMessage(err)
       });
     } finally {
       if (!signal?.aborted) {
@@ -389,19 +446,11 @@ export default function SessionEdit() {
 
   if (!session) {
     return (
-      <div className="p-6 lg:p-8 max-w-5xl mx-auto">
-        <EmptyState
-          title="Sesión no encontrada"
-          description="La sesión solicitada no existe o no está disponible."
-          icon={<FileQuestion size={28} />}
-          action={(
-            <ButtonPremium variant="secondary" onClick={() => navigate(ROUTES.SESSIONS)}>
-              <ArrowLeft size={16} />
-              Volver a sesiones
-            </ButtonPremium>
-          )}
-        />
-      </div>
+      <SessionEditLoadFallback
+        error={error}
+        onRetry={() => loadSession()}
+        onBack={() => navigate(ROUTES.SESSIONS)}
+      />
     );
   }
 

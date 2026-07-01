@@ -348,8 +348,8 @@ router.patch(
  *     summary: Borrado efectivo de un estudiante (RGPD Art. 17)
  *     description: |
  *       Operación destructiva irreversible reservada al super_admin. Requiere MFA reciente
- *       (T-905 B7) y un motivo justificado. Elimina datos personales, GamePlays y
- *       referencias asociadas. Auditado en el log de seguridad.
+ *       (T-905 B7). Elimina datos personales, GamePlays y referencias asociadas.
+ *       Auditado en el log de seguridad.
  *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
  *     parameters:
  *       - in: path
@@ -362,10 +362,12 @@ router.patch(
  *         application/json:
  *           schema:
  *             type: object
- *             required: [reason, confirmation]
+ *             required: [confirmDeletion]
  *             properties:
- *               reason: { type: string, description: 'Motivo de la supresión (auditable)' }
- *               confirmation: { type: string, description: 'Texto literal "DELETE" para confirmar' }
+ *               confirmDeletion:
+ *                 type: boolean
+ *                 enum: [true]
+ *                 description: 'Debe ser exactamente `true`. El validador es strict: cualquier otra propiedad se rechaza con 400.'
  *     responses:
  *       204: { description: Estudiante eliminado por completo }
  *       400: { $ref: '#/components/responses/ValidationError' }

@@ -10,6 +10,26 @@
 const redisService = require('../services/redisService');
 const logger = require('./logger').child({ component: 'cacheHelper' });
 const { recordCacheLayerOutcome } = require('./runtimeMetrics');
+const { mechanicCache, contextCache } = require('./inMemoryCache');
+
+/**
+ * (B3) L1 en memoria del proceso para namespaces de baja cardinalidad y muy
+ * pocas escrituras. Estas instancias LRU (TTL 60s, ver inMemoryCache.js) estaban
+ * definidas pero `cacheGet` nunca las consultaba: cada lectura de mecánicas o
+ * contextos golpeaba Redis aunque el mismo proceso ya tuviera el valor. Al
+ * leerlas como L1 antes de Redis ahorramos un GET a Upstash por lectura (se
+ * ejecutan en casi cada carga de dashboard / crear-sesión) bajo el free-tier.
+ *
+ * Consistencia: TTL corto (60s) + limpieza explícita de L1 en las funciones de
+ * invalidación (cacheInvalidate / *Namespace / *Pattern) y en el invalidador de
+ * contextos. Las mecánicas son de solo lectura vía API (no hay create/update/delete),
+ * así que su L1 nunca necesita invalidarse.
+ * @type {Record<string, import('./inMemoryCache').InMemoryCache>}
+ */
+const L1_BY_NAMESPACE = {
+  'cache:mechanic': mechanicCache,
+  'cache:context': contextCache
+};
 
 /**
  * TTLs por defecto para cada tipo de cache (en segundos).
@@ -68,8 +88,19 @@ const inFlight = new Map();
  */
 const cacheGet = async (namespace, key, fetchFn, ttlSeconds) => {
   const baseTtl = ttlSeconds || DEFAULT_TTLS[namespace.replace('cache:', '')] || 300;
+  const l1 = L1_BY_NAMESPACE[namespace];
 
-  // Intentar obtener del cache
+  // (B3) L1 en memoria: si el mismo proceso ya tiene el valor fresco (TTL 60s),
+  // se sirve sin tocar Redis. Ahorra un GET Upstash por lectura de mecánica/contexto.
+  if (l1) {
+    const l1Value = l1.get(key);
+    if (l1Value !== undefined) {
+      recordCacheLayerOutcome(namespace, 'hit');
+      return l1Value;
+    }
+  }
+
+  // Intentar obtener del cache Redis
   const cached = await redisService.get(namespace, key);
 
   if (cached !== null) {
@@ -78,6 +109,10 @@ const cacheGet = async (namespace, key, fetchFn, ttlSeconds) => {
       const parsed = JSON.parse(cached);
       // B.1: hit/miss para diagnosticar eficacia del cache por namespace.
       recordCacheLayerOutcome(namespace, 'hit');
+      // Poblar L1 para servir las siguientes lecturas del mismo proceso sin Redis.
+      if (l1) {
+        l1.set(key, parsed);
+      }
       return parsed;
     } catch {
       // Si el valor cacheado no es JSON válido, ignorar y refetch
@@ -100,7 +135,12 @@ const cacheGet = async (namespace, key, fetchFn, ttlSeconds) => {
     // Fetch desde la fuente original
     const data = await fetchFn();
 
-    // Guardar en cache (fire-and-forget, no bloquea la respuesta).
+    // Poblar L1 (síncrono) para que la siguiente lectura del proceso lo sirva.
+    if (l1) {
+      l1.set(key, data);
+    }
+
+    // Guardar en cache Redis (fire-and-forget, no bloquea la respuesta).
     // B.2: jitter ±10% sobre el TTL para evitar invalidaciones en bloque.
     const jitteredTtl = withTtlJitter(baseTtl);
     redisService.setWithTTL(namespace, key, JSON.stringify(data), jitteredTtl).catch(err => {
@@ -123,6 +163,12 @@ const cacheGet = async (namespace, key, fetchFn, ttlSeconds) => {
  */
 const cacheInvalidate = async (namespace, key) => {
   logger.debug('Cache INVALIDATE', { namespace, key });
+  // (B3) Limpiar también la L1 en memoria para que el mismo proceso no siga
+  // sirviendo el valor viejo hasta el TTL de 60s tras una mutación.
+  const l1 = L1_BY_NAMESPACE[namespace];
+  if (l1) {
+    l1.delete(key);
+  }
   return redisService.del(namespace, key);
 };
 
@@ -135,6 +181,12 @@ const cacheInvalidate = async (namespace, key) => {
  */
 const cacheInvalidateNamespace = async namespace => {
   logger.debug('Cache INVALIDATE namespace', { namespace });
+  // (B3) Vaciar la L1 del namespace: no podemos saber qué claves cachea, así que
+  // limpiamos entera (LRU pequeña, coste despreciable).
+  const l1 = L1_BY_NAMESPACE[namespace];
+  if (l1) {
+    l1.clear();
+  }
   try {
     const deletedCount = await redisService.flushNamespace(namespace);
     logger.info('Cache namespace invalidado', { namespace, deletedCount });
@@ -159,6 +211,12 @@ const cacheInvalidateNamespace = async namespace => {
  */
 const cacheInvalidatePattern = async (namespace, pattern) => {
   logger.debug('Cache INVALIDATE pattern', { namespace, pattern });
+  // (B3) La L1 no soporta match por patrón; ante una invalidación selectiva de
+  // Redis vaciamos la L1 entera del namespace (segura por su tamaño reducido).
+  const l1 = L1_BY_NAMESPACE[namespace];
+  if (l1) {
+    l1.clear();
+  }
   try {
     const fullKeys = await redisService.scanByNamespace(namespace, pattern);
     if (!fullKeys.length) {

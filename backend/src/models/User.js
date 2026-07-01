@@ -461,7 +461,7 @@ userSchema.methods.updateLastLogin = function () {
  *   averageResponseTime: 3500
  * });
  */
-userSchema.methods.updateStudentMetrics = function (playResults) {
+userSchema.methods.updateStudentMetrics = function (playResults, options = {}) {
   if (this.role !== 'student') {
     throw new Error('Solo los alumnos tienen métricas de juego');
   }
@@ -520,7 +520,10 @@ userSchema.methods.updateStudentMetrics = function (playResults) {
     }
   }
 
-  return this.save();
+  // `options` permite pasar `{ session }` cuando el caller envuelve esta
+  // escritura en una transacción (H1: completePlay atómico). Por defecto `{}`
+  // → comportamiento idéntico al previo (endPlay y demás callers no cambian).
+  return this.save(options);
 };
 
 /**

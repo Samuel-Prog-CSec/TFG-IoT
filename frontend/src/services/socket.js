@@ -336,6 +336,20 @@ class SocketService {
         }
         this.pendingGameListeners = [];
       }
+      // (F1) Al REUTILIZAR un socket existente (reconexión vía connect() explícito,
+      // p. ej. remount de GameSession con WiFi inestable), sus handlers internos
+      // previos siguen enganchados. Registrar de nuevo los de abajo sin quitarlos
+      // acumulaba N handlers 'connect'/'disconnect'/'connect_error' → N eventos
+      // 'game_socket_reconnected', N JOIN_PLAY + N requestPlayStateSync (que chocan
+      // con el rate-limit) y N toasts. Los quitamos antes de re-registrar; NO afecta
+      // a los listeners de usuario (van por otros eventos vía on()/onGame()).
+      sock.off('connect');
+      sock.off('connect_error');
+      sock.off('disconnect');
+      if (isSystem) {
+        sock.off(SYSTEM_EVENTS.SESSION_INVALIDATED);
+      }
+
       let timeoutId = null;
       let isResolved = false;
 

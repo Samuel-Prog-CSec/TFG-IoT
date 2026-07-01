@@ -3,6 +3,9 @@
 > [!NOTE]
 > Para una explicación operacional end-to-end de actores, ownership, modos y errores esperados en runtime RFID, ver [RFID_Runtime_Flows.md](RFID_Runtime_Flows.md).
 
+> [!NOTE]
+> **Endurecimiento ADR-224 (01-07-2026).** (F1) En el cliente (`services/socket.js`), al reutilizar un socket ya creado vía `connect()` explícito se hace `off()` de los handlers internos (`connect`/`disconnect`/`connect_error`/`SESSION_INVALIDATED`) ANTES de re-registrarlos: sin esto, cada reconexión acumulaba un listener más → N `JOIN_PLAY` + N `requestPlayStateSync` (chocando con el rate-limit) + N toasts duplicados. (F3) El evento `rfid_mode_heartbeat` pasa a registrarse a través de `socketRateLimiter.wrap` como el resto de eventos (el cliente lo emite cada 60 s, muy por debajo del límite por defecto de 10/s), cerrando un evento sin acotar. (B1, coste Upstash) El `PUBLISH`/`SUBSCRIBE` de `rfid-mode-changes` se auto-gatea tras `SOCKET_ADAPTER_ENABLED` (`config/scaling.js`): en single-instance no hay otro consumidor, así que era coste puro de comandos.
+
 ## Índice
 
 1. [Estado Actual](#1-estado-actual)

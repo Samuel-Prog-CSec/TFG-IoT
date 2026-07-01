@@ -186,7 +186,18 @@ export function useGameSocket({
   // (doble conteo de fallos/racha) y los mensajes de "última ronda"/presión de
   // tiempo salían mal. Mismo patrón que useKeyboardShortcuts/useRefetchOnFocus.
   const gameplayCallbacksRef = useRef(null);
-  gameplayCallbacksRef.current = { onNewRound, onValidationResult, onMemoryTurnState, onGameOver };
+  // (F2) Incluir TAMBIÉN los callbacks de Secuencia: antes se omitían del ref, así
+  // que sus listeners invocaban la versión del primer render (closures obsoletas de
+  // currentRound/totalRounds) durante toda la partida — mensajes de ronda/última
+  // ronda incorrectos en Secuencia.
+  gameplayCallbacksRef.current = {
+    onNewRound,
+    onValidationResult,
+    onMemoryTurnState,
+    onGameOver,
+    onSequenceCardResult,
+    onSequenceRoundResult
+  };
 
   const RETRY_COOLDOWN_MS = 5000;
 
@@ -348,6 +359,10 @@ export function useGameSocket({
     const wrappedOnValidationResult = data => { cancelPendingScanTimeout(); setRealtimeError(null); gameplayCallbacksRef.current.onValidationResult(data); };
     const wrappedOnMemoryTurnState = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onMemoryTurnState(data); };
     const wrappedOnGameOver = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onGameOver(data); };
+    // (F2) Wrappers de Secuencia vía ref (igual que los de arriba): resuelven la
+    // versión ACTUAL del callback en cada evento, no la del primer render.
+    const wrappedOnSequenceCardResult = data => { gameplayCallbacksRef.current.onSequenceCardResult?.(data); };
+    const wrappedOnSequenceRoundResult = data => { gameplayCallbacksRef.current.onSequenceRoundResult?.(data); };
 
     const onScanIgnored = payload => {
       cancelPendingScanTimeout();
@@ -471,10 +486,10 @@ export function useGameSocket({
           socketService.onGame(GAME_EVENTS.SEQUENCE_PHASE_REPRODUCING, onSequencePhaseReproducing);
         }
         if (typeof onSequenceCardResult === 'function') {
-          socketService.onGame(GAME_EVENTS.SEQUENCE_CARD_RESULT, onSequenceCardResult);
+          socketService.onGame(GAME_EVENTS.SEQUENCE_CARD_RESULT, wrappedOnSequenceCardResult);
         }
         if (typeof onSequenceRoundResult === 'function') {
-          socketService.onGame(GAME_EVENTS.SEQUENCE_ROUND_RESULT, onSequenceRoundResult);
+          socketService.onGame(GAME_EVENTS.SEQUENCE_ROUND_RESULT, wrappedOnSequenceRoundResult);
         }
         socketService.on(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
         socketService.on(SOCKET_EVENTS.CONNECT, onSocketConnect);
@@ -580,10 +595,10 @@ export function useGameSocket({
         socketService.offGame(GAME_EVENTS.SEQUENCE_PHASE_REPRODUCING, onSequencePhaseReproducing);
       }
       if (typeof onSequenceCardResult === 'function') {
-        socketService.offGame(GAME_EVENTS.SEQUENCE_CARD_RESULT, onSequenceCardResult);
+        socketService.offGame(GAME_EVENTS.SEQUENCE_CARD_RESULT, wrappedOnSequenceCardResult);
       }
       if (typeof onSequenceRoundResult === 'function') {
-        socketService.offGame(GAME_EVENTS.SEQUENCE_ROUND_RESULT, onSequenceRoundResult);
+        socketService.offGame(GAME_EVENTS.SEQUENCE_ROUND_RESULT, wrappedOnSequenceRoundResult);
       }
       // Limpiar listener de scan local y timeout pendiente
       webSerialService.off('scan', handleLocalScan);

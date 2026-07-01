@@ -13,7 +13,7 @@ const {
   buildAssociationFallbackPlan,
   validateAssociationChallengePlanAgainstMappings,
   repairAssociationChallengePlanAgainstMappings
-} = require('../src/controllers/helpers/sessionValidationHelpers');
+} = require('../src/services/helpers/sessionValidationHelpers');
 const { createTestCardMappings } = require('./helpers/testFixtures');
 
 // --- Helpers ---

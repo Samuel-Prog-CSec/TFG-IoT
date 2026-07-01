@@ -21,6 +21,7 @@
 
 const { getRedis } = require('../config/redis');
 const { RFID_MODE_PUBSUB_CHANNEL, applyRemoteRfidModeChange } = require('./socketHandlers');
+const { isMultiInstanceEnabled } = require('../config/scaling');
 const logger = require('../utils/logger').child({ component: 'rfidModeSubscriber' });
 
 let subscriberClient = null;
@@ -29,9 +30,18 @@ const ownInstanceId = process.env.HOSTNAME || 'unknown';
 /**
  * Arranca el subscriber. Idempotente: si ya está activo no hace nada.
  *
+ * En single-instance (invariante scale=1) no hay otras instancias que publiquen
+ * en el canal, así que el subscriber sería una conexión SUBSCRIBE permanentemente
+ * ociosa contra el límite de conexiones de Upstash free-tier. Solo se activa con
+ * escalado horizontal (ver config/scaling.js), en paralelo con el publisher de
+ * persistRfidModeToRedis y el adapter Socket.IO.
+ *
  * @returns {Promise<void>}
  */
 const startRfidModeSubscriber = async () => {
+  if (!isMultiInstanceEnabled()) {
+    return;
+  }
   if (subscriberClient) {
     return;
   }

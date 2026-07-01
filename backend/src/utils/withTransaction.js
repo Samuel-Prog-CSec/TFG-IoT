@@ -43,6 +43,12 @@ const isTransactionNotSupportedError = error => {
   return (
     msg.includes('Transaction numbers are only allowed on a replica set') ||
     msg.includes('Transactions are not supported') ||
+    // Un mongod STANDALONE (algunos tests / entornos locales sin replica set)
+    // rechaza la escritura transaccional con este mensaje en vez del de "replica
+    // set". Ambos significan lo mismo: este deployment no soporta transacciones,
+    // así que hay que degradar a ejecución sin sesión. En producción (Atlas replica
+    // set) nunca se dispara, así que la atomicidad real se mantiene allí.
+    msg.includes('does not support retryable writes') ||
     (error?.codeName === 'IllegalOperation' && /transaction/i.test(msg))
   );
 };

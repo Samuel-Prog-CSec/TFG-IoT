@@ -11,7 +11,12 @@ const userRepository = require('../repositories/userRepository');
 const { recalculateSessionStatusFromPlays } = require('./sessionStatusService');
 const notificationService = require('./notificationService');
 const { computeMaxScore } = require('./gamePlayScoring');
-const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const {
+  NotFoundError,
+  ValidationError,
+  ForbiddenError,
+  ConflictError
+} = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'gamePlayService' });
 
 /**
@@ -141,15 +146,27 @@ async function createPlay({ sessionId, playerId, creatorId, creatorRole }) {
   // `gamePlayScoring.js`, testeada en aislamiento (ADR-193).
   const maxScore = computeMaxScore(session);
 
-  // Crear partida
-  const play = await gamePlayRepository.create({
-    sessionId,
-    playerId,
-    status: 'in-progress',
-    score: 0,
-    maxScore,
-    currentRound: 1
-  });
+  // Crear partida. El findOne de validatePlayer ya descartó una partida activa
+  // previa, pero es un check TOCTOU: ante dos POST concurrentes (doble clic,
+  // reintento por 429/timeout) el índice único parcial `uniq_active_play_per_session_player`
+  // (A2) es la garantía atómica. Traducimos el error 11000 a un ValidationError
+  // de dominio para que el segundo request reciba un mensaje claro en vez de un 500.
+  let play;
+  try {
+    play = await gamePlayRepository.create({
+      sessionId,
+      playerId,
+      status: 'in-progress',
+      score: 0,
+      maxScore,
+      currentRound: 1
+    });
+  } catch (err) {
+    if (err?.code === 11000) {
+      throw new ConflictError('El jugador ya tiene una partida activa en esta sesión');
+    }
+    throw err;
+  }
 
   // Populate para respuesta completa (RGPD data minimization: solo campos necesarios del perfil)
   await play.populate([
@@ -235,7 +252,8 @@ async function completePlay(playId) {
     // `playerId` NO se popula: solo necesitábamos su `_id`, que YA es el propio
     // `play.playerId` (ObjectId del ref). El populate con `select:'_id'` materializaba
     // un documento {_id} inútil (un round-trip y un wrap sin valor).
-    populate: [{ path: 'sessionId', select: 'config' }]
+    // `name`/`createdBy` (A1): la notificación play_completed al docente los usa.
+    populate: [{ path: 'sessionId', select: 'config name createdBy' }]
   });
 
   if (!play) {
@@ -280,12 +298,10 @@ async function completePlay(playId) {
     });
   }
 
-  // Calcular rating
-  const rating = calculateRating(
-    play.score,
-    play.sessionId.config.pointsPerCorrect,
-    play.sessionId.config.numberOfRounds
-  );
+  // Calcular rating (A4): usar el maxScore PERSISTIDO (computeMaxScore, correcto
+  // por mecánica), no pointsPerCorrect×rondas — esa fórmula plana daba estrellas
+  // erróneas en Secuencia/Memoria (cuyo techo no es lineal en las rondas).
+  const rating = calculateRating(play.score, play.maxScore);
 
   logger.info('Partida completada via service', {
     playId: play._id,
@@ -298,9 +314,18 @@ async function completePlay(playId) {
 
   // Notificación al docente que creó la sesión (T-955 trigger: play_completed).
   // Tono conversacional (Microcopy_Style_Guide). El microcopy y los 3 niveles
-  // de praise dependen del porcentaje de aciertos canónico (90/70/50 — mismo
-  // umbral que calculateStars del frontend, lib/utils.js).
-  await notifyTeacherPlayCompleted(play).catch(err => {
+  // de praise dependen del porcentaje de aciertos canónico (mismo umbral que
+  // calculateStars del frontend, lib/utils.js).
+  await notifyTeacherPlayCompleted({
+    teacherId: play.sessionId?.createdBy,
+    studentName: player?.name,
+    studentId: play.playerId,
+    sessionName: play.sessionId?.name,
+    sessionId: play.sessionId?._id,
+    score: play.score,
+    maxScore: play.maxScore,
+    playId: play._id
+  }).catch(err => {
     // notify() ya captura sus propios errores; este catch es defensa por si
     // fallara el cálculo de microcopy. Nunca debe bloquear el flujo.
     logger.warn('Trigger notify play_completed ignorado por error', {
@@ -310,6 +335,43 @@ async function completePlay(playId) {
   });
 
   return { play, rating };
+}
+
+/**
+ * (I5) Marca una partida en curso como abandonada y recalcula el estado de la
+ * sesión. Extraído del controller para que `abandonPlay` delegue la lógica de
+ * dominio igual que `completePlay` (controllers delgados). La limpieza del motor
+ * de juego (timers/Redis) permanece en el controller porque necesita `req.app`.
+ *
+ * @param {string} playId
+ * @returns {Promise<Object>} La partida abandonada.
+ * @throws {NotFoundError} Si la partida no existe.
+ * @throws {ValidationError} Si la partida ya no está en progreso.
+ */
+async function abandonPlay(playId) {
+  const play = await gamePlayRepository.findById(playId);
+
+  if (!play) {
+    throw new NotFoundError('Partida');
+  }
+
+  if (!play.isInProgress()) {
+    throw new ValidationError('La partida ya no está en progreso');
+  }
+
+  play.status = 'abandoned';
+  play.completedAt = new Date();
+  await play.save();
+
+  await recalculateSessionStatusFromPlays(play.sessionId);
+
+  logger.info('Partida abandonada via service', {
+    playId: play._id,
+    playerId: play.playerId,
+    abandonedAt: play.completedAt
+  });
+
+  return play;
 }
 
 /**
@@ -338,17 +400,20 @@ function scorePercentToStars(percentage) {
 }
 
 /**
- * Calcula el número de estrellas (1-5) a partir de score/maxScore.
+ * Calcula el número de estrellas (1-5) a partir de score y el maxScore PERSISTIDO.
+ *
+ * (A4) Usa `maxScore` directamente (el techo real por mecánica que calcula
+ * `computeMaxScore` y se guarda en la partida), NO `pointsPerCorrect × rondas`:
+ * esa fórmula plana solo es correcta para Asociación; en Secuencia/Memoria el
+ * techo no es lineal en las rondas, así que daba estrellas erróneas.
  *
  * @param {number} score
- * @param {number} pointsPerCorrect
- * @param {number} rounds
+ * @param {number} maxScore - Techo teórico persistido en la partida.
  * @returns {number} 1..5
  */
-function calculateStarsServerSide(score, pointsPerCorrect, rounds) {
-  const safeRounds = Number.isInteger(rounds) && rounds > 0 ? rounds : 1;
-  const maxScore = (pointsPerCorrect || 10) * safeRounds;
-  const percentage = maxScore > 0 ? (Number(score) / maxScore) * 100 : 0;
+function starsFromScore(score, maxScore) {
+  const max = Number(maxScore) || 0;
+  const percentage = max > 0 ? (Number(score) / max) * 100 : 0;
   return scorePercentToStars(percentage);
 }
 
@@ -421,36 +486,51 @@ async function notifyStudentAtRiskIfTransition(playerId, prevAverage) {
  * Dispara la notificación `play_completed` al docente que creó la sesión.
  * No bloquea el flujo de dominio (errores ignorados por notify()).
  *
- * @param {object} play - GamePlay populado con playerId y sessionId.
+ * (A1) Recibe primitivos en vez de un documento Mongoose para que la llamen
+ * TANTO `completePlay` (endpoint HTTP) COMO `GameEngine.endPlay` (el flujo real
+ * de juego, que antes no notificaba nada — la feature estaba muerta en producción).
+ *
+ * @param {object} args
+ * @param {string|object} args.teacherId - Docente destinatario (dueño de la sesión).
+ * @param {string} [args.studentName]
+ * @param {string|object} [args.studentId]
+ * @param {string} [args.sessionName]
+ * @param {string|object} args.sessionId
+ * @param {number} args.score
+ * @param {number} args.maxScore - Techo persistido (A4: estrellas correctas por mecánica).
+ * @param {string|object} [args.playId]
  * @returns {Promise<void>}
  */
-async function notifyTeacherPlayCompleted(play) {
-  const teacherId = play?.sessionId?.createdBy?.toString?.();
-  if (!teacherId) {
+async function notifyTeacherPlayCompleted({
+  teacherId,
+  studentName,
+  studentId,
+  sessionName,
+  sessionId,
+  score,
+  maxScore,
+  playId
+}) {
+  const teacher = teacherId?.toString?.() || (teacherId ? String(teacherId) : null);
+  if (!teacher || !sessionId) {
     return;
   }
-  const studentName = play.playerId?.name || 'Un alumno';
-  const sessionName = play.sessionId?.name || 'una sesión';
-  const stars = calculateStarsServerSide(
-    play.score,
-    play.sessionId.config?.pointsPerCorrect,
-    play.sessionId.config?.numberOfRounds
-  );
+  const stars = starsFromScore(score, maxScore);
   const praise = getPraiseForStars(stars);
   const starsLabel = stars === 1 ? '1 estrella' : `${stars} estrellas`;
 
   await notificationService.notify({
-    userId: teacherId,
+    userId: teacher,
     type: 'play_completed',
     priority: 'info',
-    title: `${studentName} ha completado una partida`,
-    body: `${sessionName} · ${starsLabel} · ${praise}`,
-    link: `/sessions/${play.sessionId._id}`,
+    title: `${studentName || 'Un alumno'} ha completado una partida`,
+    body: `${sessionName || 'una sesión'} · ${starsLabel} · ${praise}`,
+    link: `/sessions/${sessionId.toString?.() || sessionId}`,
     metadata: {
-      playId: play._id.toString(),
-      sessionId: play.sessionId._id.toString(),
-      studentId: play.playerId._id.toString(),
-      score: play.score,
+      playId: playId ? playId.toString?.() || String(playId) : undefined,
+      sessionId: sessionId.toString?.() || String(sessionId),
+      studentId: studentId ? studentId.toString?.() || String(studentId) : undefined,
+      score,
       stars
     }
   });
@@ -462,15 +542,11 @@ async function notifyTeacherPlayCompleted(play) {
  * así que ambos coinciden siempre.
  *
  * @param {number} score - Puntuación final
- * @param {number} maxPointsPerRound - Puntos máximos por ronda
- * @param {number} rounds - Número de rondas
+ * @param {number} maxScore - Techo teórico PERSISTIDO de la partida (A4).
  * @returns {string} Rating en estrellas (⭐ a ⭐⭐⭐⭐⭐)
  */
-function calculateRating(score, maxPointsPerRound, rounds) {
-  const safeRounds = Number.isInteger(rounds) && rounds > 0 ? rounds : 1;
-  const maxScore = (maxPointsPerRound || 10) * safeRounds;
-  const percentage = maxScore > 0 ? (score / maxScore) * 100 : 0;
-  return '⭐'.repeat(scorePercentToStars(percentage));
+function calculateRating(score, maxScore) {
+  return '⭐'.repeat(starsFromScore(score, maxScore));
 }
 
 /**
@@ -621,10 +697,15 @@ module.exports = {
   createPlay,
   addEventToPlay,
   completePlay,
+  abandonPlay,
   getPlayerStats,
   getPlayStatsBySessionIds,
   countActivePlays,
   validateGameSession,
   validatePlayer,
-  calculateRating
+  calculateRating,
+  // A1: expuestas para que GameEngine.endPlay (flujo real de juego) dispare las
+  // notificaciones al docente, que antes solo vivían en el endpoint HTTP huérfano.
+  notifyTeacherPlayCompleted,
+  notifyStudentAtRiskIfTransition
 };

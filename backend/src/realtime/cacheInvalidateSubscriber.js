@@ -28,6 +28,7 @@
 
 const { getRedis } = require('../config/redis');
 const { authUserCache, mechanicCache, contextCache } = require('../utils/inMemoryCache');
+const { isMultiInstanceEnabled } = require('../config/scaling');
 const logger = require('../utils/logger').child({ component: 'cacheInvalidateSubscriber' });
 
 /**
@@ -78,6 +79,12 @@ const resolveLocalCache = namespace => {
  * @returns {Promise<void>}
  */
 const publishInvalidate = async (namespace, key) => {
+  // Single-instance: la invalidación del LRU local ya la hizo el caller
+  // in-process; publicar en el canal solo cuesta un comando Upstash que nadie
+  // consume. Solo se paga con escalado horizontal (ver config/scaling.js).
+  if (!isMultiInstanceEnabled()) {
+    return;
+  }
   const client = getRedis();
   if (!client) {
     return;
@@ -105,6 +112,12 @@ const publishInvalidate = async (namespace, key) => {
  * @returns {Promise<void>}
  */
 const startCacheInvalidateSubscriber = async () => {
+  // Single-instance no requiere este subscriber (el TTL local + invalidación
+  // in-process bastan); evitar una conexión SUBSCRIBE ociosa contra el límite
+  // de conexiones de Upstash free-tier. Solo con escalado horizontal.
+  if (!isMultiInstanceEnabled()) {
+    return;
+  }
   if (subscriberClient) {
     return;
   }

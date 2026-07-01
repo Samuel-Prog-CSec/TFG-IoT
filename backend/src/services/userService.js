@@ -6,7 +6,6 @@
  */
 
 const userRepository = require('../repositories/userRepository');
-const gamePlayRepository = require('../repositories/gamePlayRepository');
 const {
   NotFoundError,
   ValidationError,
@@ -416,24 +415,37 @@ async function hardDeleteStudent(studentId, requestingUser) {
     throw new ForbiddenError('No tienes permiso para eliminar los datos de este estudiante');
   }
 
-  // 1. Eliminar todos los GamePlays del estudiante
-  const deletedPlays = await gamePlayRepository.deleteMany({ playerId: studentId });
-
-  // 1b. Cascada Art. 17: purgar copias de identificadores/PII del alumno que viven
-  // FUERA de User+GamePlay y que, sin esto, quedaban huérfanas y re-identificables
-  // tras el borrado. GeneratedReport persiste nombre/aula/edad en su payload (TTL
+  // (H3) Los borrados cross-colección (GamePlay + GeneratedReport + SmartAlert +
+  // User) DEBEN ser ATÓMICOS. Sin transacción, un fallo intermedio dejaba PII del
+  // alumno huérfana y re-identificable en las colecciones no borradas — una
+  // supresión PARCIAL que viola el derecho al olvido (Art. 17 RGPD). `withTransaction`
+  // degrada con gracia a ejecución sin sesión en Mongo standalone (algunos tests) y
+  // es transaccional en replica set (Atlas M0 / Docker compose). Los deletes son
+  // idempotentes, por lo que un reintento por WriteConflict es seguro.
+  //
+  // Cascada Art. 17: GeneratedReport persiste nombre/aula/edad en su payload (TTL
   // 30d) y SmartAlert referencia al alumno (studentId + pseudoId). Notification NO
   // se incluye: su `userId` es el docente destinatario (el alumno no recibe
   // notificaciones) y cualquier referencia al alumno iría en `metadata` sin índice.
   const GeneratedReport = require('../models/GeneratedReport');
   const SmartAlert = require('../models/SmartAlert');
-  const [deletedReports, deletedAlerts] = await Promise.all([
-    GeneratedReport.deleteMany({ studentId }),
-    SmartAlert.deleteMany({ studentId })
-  ]);
+  const GamePlay = require('../models/GamePlay');
+  const User = require('../models/User');
+  const { withTransaction } = require('../utils/withTransaction');
 
-  // 2. Eliminar el documento User
-  await userRepository.deleteById(studentId);
+  let deletedPlays;
+  let deletedReports;
+  let deletedAlerts;
+  await withTransaction(async session => {
+    // IMPORTANTE: dentro de una transacción las operaciones sobre la MISMA sesión
+    // deben ejecutarse SECUENCIALMENTE (MongoDB no admite operaciones concurrentes
+    // sobre una sesión transaccional). Por eso NO se usa Promise.all aquí — el
+    // coste secuencial de 4 deletes es irrelevante frente a la atomicidad.
+    deletedPlays = await GamePlay.deleteMany({ playerId: studentId }, { session });
+    deletedReports = await GeneratedReport.deleteMany({ studentId }, { session });
+    deletedAlerts = await SmartAlert.deleteMany({ studentId }, { session });
+    await User.findOneAndDelete({ _id: studentId }, { session });
+  });
 
   // 3. T-931 (pre-v1.0.0): purgar materialización Redis del alumno
   // (Hash `student:metrics:*` + entradas en leaderboards). Fire-and-forget

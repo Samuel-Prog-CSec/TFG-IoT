@@ -18,6 +18,7 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import ErrorState from '../components/ui/ErrorState';
 import Tooltip from '../components/ui/Tooltip';
 import SkeletonShimmer from '../components/ui/SkeletonShimmer';
 
@@ -42,6 +43,9 @@ export default function BoardSetup() {
   
   // Game Data
   const [session, setSession] = useState(null);
+  // (D4) Error de carga: sin esto, un fallo dejaba `session=null` y se pintaba
+  // un tablero vacío e inservible (0 huecos) sin explicación ni reintento.
+  const [error, setError] = useState(null);
   const [availableCards, setAvailableCards] = useState([]); // All cards in session
   const [availableStudents, setAvailableStudents] = useState([]);
 
@@ -84,16 +88,21 @@ export default function BoardSetup() {
                             throw new Error('No se encontró la sesión para configurar el tablero');
                         }
 
-                                                const sessionResponse = await sessionsAPI.getSessionById(sessionId, signal ? { signal } : {});
+                        // (E5) Sesión y alumnos son independientes (el teacherId
+                        // sale de `user`, no de la sesión) → cargarlos en paralelo
+                        // evita el round-trip encadenado.
+                        const teacherId = getId(user);
+                        const requestOptions = signal ? { signal } : {};
+                        const [sessionResponse, studentsResponse] = await Promise.all([
+                            sessionsAPI.getSessionById(sessionId, requestOptions),
+                            teacherId
+                                ? usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, requestOptions)
+                                : Promise.resolve({ data: { data: [] } })
+                        ]);
                         const currentSession = extractData(sessionResponse);
 
                         setSession(currentSession);
-
-                        const teacherId = getId(user);
-                        const requestOptions = signal ? { signal } : {};
-                        const studentsResponse = teacherId
-                            ? await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, requestOptions)
-                            : { data: { data: [] } };
+                        setError(null);
 
                         const students = extractData(studentsResponse) || [];
 
@@ -142,6 +151,9 @@ export default function BoardSetup() {
                             return;
                         }
                         captureException(e);
+                        // (D4) Persistir el error para que el render muestre un ErrorState
+                        // con reintento en vez de un tablero vacío (0 huecos) sin explicación.
+                        setError(extractErrorMessage(e) || 'No pudimos cargar la configuración del tablero');
                         toast.error(extractErrorMessage(e));
         } finally {
             if (!signal?.aborted) {
@@ -331,6 +343,31 @@ export default function BoardSetup() {
                 <SkeletonShimmer key={key} className="size-32" />
               ))}
             </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // (D4) Sin sesión cargada (fallo de red, 404, o entrada sin sessionId): mostrar
+  // un ErrorState con reintento y salida, no un tablero vacío e inservible.
+  if (!session) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center p-6 bg-background-base">
+        <div className="max-w-md w-full">
+          <ErrorState
+            title="No pudimos preparar el tablero"
+            message={
+              typeof error === 'string' && error
+                ? error
+                : 'La sesión no está disponible. Vuelve a Sesiones e inténtalo de nuevo.'
+            }
+            onRetry={() => init()}
+          />
+          <div className="mt-4 flex justify-center">
+            <ButtonPremium variant="ghost" onClick={() => navigate(ROUTES.SESSIONS)}>
+              Volver a sesiones
+            </ButtonPremium>
           </div>
         </div>
       </div>

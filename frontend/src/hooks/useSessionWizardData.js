@@ -36,6 +36,10 @@ export function useSessionWizardData() {
   const [loadingDecks, setLoadingDecks] = useState(true);
   const [loadingMechanics, setLoadingMechanics] = useState(true);
   const [currentSensorId, setCurrentSensorId] = useState(null);
+  // (D1) Estado de error persistente: sin él, un fallo de carga solo emitía un
+  // toast transitorio y el paso "Elegir mazo" mostraba "No tienes mazos creados"
+  // (empujando a crear un mazo duplicado). Con esto el paso puede ofrecer reintento.
+  const [error, setError] = useState(null);
 
   const dataAbortRef = useRef(null);
 
@@ -61,10 +65,12 @@ export function useSessionWizardData() {
 
         setDecks(decksData);
         setMechanics(orderedMechanics);
+        setError(null);
       } catch (err) {
         if (isAbortError(err)) {
           return;
         }
+        setError(extractErrorMessage(err) || 'No pudimos cargar los datos de la sesión');
         toast.error('No pudimos cargar los datos de la sesión', {
           description: extractErrorMessage(err)
         });
@@ -99,6 +105,7 @@ export function useSessionWizardData() {
     loadingDecks,
     loadingMechanics,
     currentSensorId,
+    error,
     loadData
   };
 }

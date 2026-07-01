@@ -94,12 +94,19 @@ export default function AudioMiniPlayer({
     audio.addEventListener('error', onError);
 
     return () => {
-      audio.pause();
-      audio.src = '';
+      // (C3) Quitar los listeners ANTES de liberar, para no capturar el evento
+      // 'error' de la descarga de limpieza.
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onError);
+      audio.pause();
+      // NO usar `audio.src = ''`: el navegador lo resuelve contra la URL base del
+      // documento (SPA) e intenta cargarla → petición HTTP espuria + un MediaError
+      // en consola en CADA cambio de ronda/URL o desmontaje. removeAttribute('src')
+      // + load() libera el buffer sin disparar ninguna carga.
+      audio.removeAttribute('src');
+      audio.load();
       audioRef.current = null;
     };
   }, [audioUrl]);

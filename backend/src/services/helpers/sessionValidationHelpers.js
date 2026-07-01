@@ -1,7 +1,10 @@
 /**
  * @fileoverview Funciones helper de validación y normalización para sesiones de juego.
- * Extraídas de gameSessionController.js para mejorar la mantenibilidad.
- * @module controllers/helpers/sessionValidationHelpers
+ * (I4) Movidas de controllers/helpers/ a services/helpers/: son lógica de DOMINIO
+ * que consumen tanto el controller como los services (gameSessionService, GameEngine);
+ * tenerlas bajo controllers/ obligaba a los services a importar hacia arriba
+ * (inversión de capas). Solo dependen de utils.
+ * @module services/helpers/sessionValidationHelpers
  */
 
 const { ValidationError } = require('../../utils/errors');

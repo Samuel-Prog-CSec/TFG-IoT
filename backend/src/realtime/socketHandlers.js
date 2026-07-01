@@ -21,6 +21,7 @@ const { getRedis, onReconnect: onRedisReconnect } = require('../config/redis');
 // B.3 (pre-v1.0.0): pipeline para coalescer setex/del + publish en una
 // única RTT a Upstash en persistRfidModeToRedis.
 const redisService = require('../services/redisService');
+const { isMultiInstanceEnabled } = require('../config/scaling');
 const Sentry = require('@sentry/node');
 const logger = require('../utils/logger').child({ component: 'socketHandlers' });
 const { authEventBus } = require('../utils/authEvents');
@@ -675,19 +676,25 @@ const persistRfidModeToRedis = (userId, state) => {
   // `setex` como dentro del mensaje pub/sub. Antes había dos `JSON.stringify`
   // del mismo objeto en cada transición RFID (≥4/sesión × N sesiones activas
   // × M instancias cluster); en hot path eso suma latencia y CPU evitable.
-  // Construimos el envelope pubsub a mano para embeber `stateJson` literal
-  // sin re-serializar — `userId` y `HOSTNAME` se stringifican una vez con
-  // `JSON.stringify` para escapar comillas correctamente.
   const stateJson = state === null || state === undefined ? 'null' : JSON.stringify(state);
-  const hostnameJson = JSON.stringify(process.env.HOSTNAME || 'unknown');
-  const userIdJson = JSON.stringify(userId);
-  const message = `{"userId":${userIdJson},"state":${stateJson},"from":${hostnameJson},"at":${Date.now()}}`;
+
+  // El `setex`/`del` persiste el estado (sirve para recovery tras reinicio) y
+  // se ejecuta SIEMPRE. El `publish` en el canal rfid-mode-changes solo tiene
+  // consumidor con >1 instancia del backend; en single-instance (invariante
+  // scale=1, ver config/scaling.js) el propio proceso recibe y descarta el
+  // mensaje → coste puro de comandos Upstash. Por eso se gatea igual que el
+  // adapter Socket.IO. Construimos el envelope pubsub a mano para embeber
+  // `stateJson` literal sin re-serializar solo cuando hace falta.
+  const multiInstance = isMultiInstanceEnabled();
+  let message = null;
+  if (multiInstance) {
+    const hostnameJson = JSON.stringify(process.env.HOSTNAME || 'unknown');
+    const userIdJson = JSON.stringify(userId);
+    message = `{"userId":${userIdJson},"state":${stateJson},"from":${hostnameJson},"at":${Date.now()}}`;
+  }
 
   // B.3 (pre-v1.0.0): unimos `setex`/`del` + `publish` en un único pipeline
-  // para ahorrar 1 round-trip por transición RFID. Sin esto cada cambio
-  // costaba 2 RTT a Upstash (uno por escritura, otro por publish); con
-  // pipeline pasa a 1. En cluster típico con ~4 transiciones/sesión × 30
-  // sesiones/día son ~120 round-trips ahorrados.
+  // para ahorrar 1 round-trip por transición RFID cuando el publish aplica.
   redisService
     .runPipeline(p => {
       if (state) {
@@ -695,17 +702,22 @@ const persistRfidModeToRedis = (userId, state) => {
       } else {
         p.del(`${REDIS_RFID_MODE_PREFIX}${userId}`);
       }
-      p.publish(RFID_MODE_PUBSUB_CHANNEL, message);
+      if (multiInstance) {
+        p.publish(RFID_MODE_PUBSUB_CHANNEL, message);
+      }
     }, 'ws')
     .catch(err => {
       // B.4: si el pipeline falla, encolar la invalidación para
       // reintentar al reconnect. Sin esto, las otras instancias del
       // cluster quedaban con cache stale hasta el TTL del modo (60min).
+      // Solo aplica con pub/sub activo (multi-instancia).
       logger.warn('Error al persistir cambio RFID mode (pipeline) — encolando para retry', {
         userId,
         error: err.message
       });
-      enqueuePendingInvalidation(RFID_MODE_PUBSUB_CHANNEL, message);
+      if (multiInstance) {
+        enqueuePendingInvalidation(RFID_MODE_PUBSUB_CHANNEL, message);
+      }
     });
 };
 
@@ -1795,11 +1807,16 @@ const registerSocketHandlers = ({
     // Heartbeat ligero del modo RFID: refresca el watchdog para evitar
     // que un modo activo se libere por timeout durante períodos de
     // inactividad legítima (p. ej. profesor leyendo la pantalla del alumno).
-    // No requiere rate limiting porque el cliente lo emite cada 60 s y la
-    // operación es sólo una actualización en memoria.
-    socket.on('rfid_mode_heartbeat', () => {
-      refreshRfidModeActivity(socket.data?.userId, socket.id);
-    });
+    // (F3) Se envuelve en el rate limiter igual que el resto de eventos: el
+    // cliente lo emite cada 60 s (muy por debajo del límite por defecto de 10/s),
+    // así que no afecta al tráfico legítimo, pero deja de ser un evento SIN acotar
+    // que un cliente malicioso/defectuoso pudiera spamear sin límite.
+    socket.on(
+      'rfid_mode_heartbeat',
+      socketRateLimiter.wrap(socket, 'rfid_mode_heartbeat', () => {
+        refreshRfidModeActivity(socket.data?.userId, socket.id);
+      })
+    );
 
     socket.on('disconnect', () => {
       // Limpiar estado RFID: el modo se registró con el socketId de /game,

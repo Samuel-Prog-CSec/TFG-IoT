@@ -11,7 +11,6 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
-  GraduationCap,
   ListOrdered,
   ShieldCheck,
   History,
@@ -37,6 +36,7 @@ import GlassCard from "../components/ui/GlassCard";
 import ButtonPremium from "../components/ui/ButtonPremium";
 import SelectPremium from "../components/ui/SelectPremium";
 import ErrorState from "../components/ui/ErrorState";
+import EmptyStudentsIllustration from "../components/ui/illustrations/EmptyStudentsIllustration";
 import DistributionChart from "../components/dashboard/DistributionChart";
 import SkeletonShimmer, {
   SkeletonStatCard,
@@ -586,7 +586,10 @@ export default function StudentsAnalytics() {
             ) : null}
 
             {/* ─── Summary KPIs ───────────────────────────────────── */}
-            {!error && (
+            {/* (D3) Ocultar los KPIs cuando no hay alumnos: pintarlos a cero
+                ("Promedio 0%", "En riesgo 0"…) encima del empty-state se lee como
+                métricas reales y confunde a un docente recién dado de alta. */}
+            {!error && totalStudents > 0 && (
               <motion.section
                 variants={listContainerVariants(0.03)}
                 initial={shouldReduceMotion ? false : "hidden"}
@@ -1061,12 +1064,14 @@ function StudentRow({ student, navigate }) {
 function EmptyState({ shouldReduceMotion }) {
   return (
     <GlassCard className="text-center py-16">
+      {/* (D3) Ilustración dedicada (coherente con el panel admin) en vez del
+          icono genérico GraduationCap. */}
       <motion.div
-        initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
+        initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.85 }}
         animate={{ opacity: 1, scale: 1 }}
-        className="mx-auto mb-6 flex size-20 items-center justify-center rounded-2xl bg-brand-base/10 text-brand-base"
+        className="mx-auto mb-6 flex items-center justify-center"
       >
-        <GraduationCap size={40} aria-hidden="true" />
+        <EmptyStudentsIllustration size={180} />
       </motion.div>
       <motion.p
         initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}

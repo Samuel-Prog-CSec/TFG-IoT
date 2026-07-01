@@ -59,10 +59,29 @@ function cohortToTimeRange(cohortMode) {
   return cohortMode;
 }
 
+// (E2) Iconos de los KPI cards hoisteados a constantes de módulo: son JSX estático
+// sin props/estado. Pasarlos inline (`icon={<Trophy .../>}`) creaba un elemento nuevo
+// en cada render → anulaba el `memo` de StatCard/HeroStatCard (las 9 cards se
+// re-renderizaban con cada render del Dashboard). Ver rendering-hoist-jsx.
+const KPI_ICON_CLASS = 'text-white drop-shadow-sm';
+const ICON_RISK = <AlertTriangle className={KPI_ICON_CLASS} size={26} aria-hidden="true" />;
+const ICON_SCORE = <Trophy className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_GAMES_TODAY = <Gamepad2 className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_GAMES = <Users className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_ACTIVE = <UserCheck className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_ACCURACY = <Target className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_TIME = <Clock className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_COMPLETION = <CheckCircle2 className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+
 // eslint-disable-next-line sonarjs/cyclomatic-complexity, sonarjs/cognitive-complexity -- dashboard principal con multiples widgets, filtros y estados de carga
 export default function Dashboard() {
   const { isSuperAdmin } = useAuth();
   const navigate = useNavigate();
+  // (E2) Handlers de navegación estables (useCallback) para no anular el memo de
+  // las KPI cards con una arrow nueva por render.
+  const goToStudents = useCallback(() => navigate('/analytics/students'), [navigate]);
+  const goToSessions = useCallback(() => navigate('/sessions'), [navigate]);
+  const goToInsights = useCallback(() => navigate('/analytics/insights'), [navigate]);
   useDocumentTitle('Dashboard');
   const { shouldReduceMotion } = useReducedMotion();
   // T-942 Fase E.1: cohortMode incluye opciones nuevas "mes actual" y
@@ -414,11 +433,11 @@ export default function Dashboard() {
                       : 'Ningún alumno necesita apoyo ahora mismo'}
                     trend={getTrend('studentsInRisk')}
                     periodLabel={periodLabel}
-                    icon={<AlertTriangle className="text-white drop-shadow-sm" size={26} aria-hidden="true" />}
+                    icon={ICON_RISK}
                     tone={(summary?.studentsInRisk || 0) > 0 ? 'warning' : 'success'}
                     ctaLabel="Ver alumnos"
                     higherIsBetter={false}
-                    onClick={() => navigate('/analytics/students')}
+                    onClick={goToStudents}
                   />
                 </motion.li>
 
@@ -428,10 +447,10 @@ export default function Dashboard() {
                     value={`${summary?.averageScore || 0}%`}
                     trend={getTrend('averageScore')}
                     periodLabel={periodLabel}
-                    icon={<Trophy className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_SCORE}
                     color="bg-gradient-to-br from-success-base to-success-dark"
                     compact
-                    onClick={() => navigate('/analytics/students')}
+                    onClick={goToStudents}
                   />
                 </motion.li>
 
@@ -441,10 +460,10 @@ export default function Dashboard() {
                     value={summary?.gamesToday || 0}
                     trend={getTrend('gamesToday')}
                     periodLabel={periodLabel}
-                    icon={<Gamepad2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_GAMES_TODAY}
                     color="bg-gradient-to-br from-brand-base to-accent-indigo"
                     compact
-                    onClick={() => navigate('/sessions')}
+                    onClick={goToSessions}
                   />
                 </motion.li>
 
@@ -454,10 +473,10 @@ export default function Dashboard() {
                     value={summary?.totalGames || 0}
                     trend={getTrend('totalGames')}
                     periodLabel={periodLabel}
-                    icon={<Users className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_GAMES}
                     color="bg-gradient-to-br from-info-base to-accent-cyan"
                     compact
-                    onClick={() => navigate('/sessions')}
+                    onClick={goToSessions}
                   />
                 </motion.li>
 
@@ -467,10 +486,10 @@ export default function Dashboard() {
                     value={`${activeStudentsCount}/${totalStudents}`}
                     trend=""
                     periodLabel="últimos 7 días"
-                    icon={<UserCheck className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_ACTIVE}
                     color="bg-gradient-to-br from-brand-base to-accent-pink"
                     compact
-                    onClick={() => navigate('/analytics/students')}
+                    onClick={goToStudents}
                   />
                 </motion.li>
               </ul>
@@ -485,10 +504,10 @@ export default function Dashboard() {
                     value={`${getKPIValue('averageAccuracy') ?? summary?.averageAccuracy ?? 0}%`}
                     trend={getTrend('averageAccuracy')}
                     periodLabel={periodLabel}
-                    icon={<Target className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_ACCURACY}
                     color="bg-gradient-to-br from-accent-cyan to-info-base"
                     compact
-                    onClick={() => navigate('/analytics/insights')}
+                    onClick={goToInsights}
                   />
                 </motion.li>
 
@@ -498,11 +517,11 @@ export default function Dashboard() {
                     value={`${Math.round((getKPIValue('averageResponseTime') ?? summary?.averageResponseTime ?? 0) / 100) / 10}s`}
                     trend={getTrend('averageResponseTime')}
                     periodLabel={periodLabel}
-                    icon={<Clock className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_TIME}
                     color="bg-gradient-to-br from-accent-orange to-warning-base"
                     higherIsBetter={false}
                     compact
-                    onClick={() => navigate('/analytics/insights')}
+                    onClick={goToInsights}
                   />
                 </motion.li>
 
@@ -517,10 +536,10 @@ export default function Dashboard() {
                     value={Number.isFinite(summary?.completionRate) ? `${summary.completionRate}%` : '—'}
                     trend=""
                     periodLabel="partidas completadas"
-                    icon={<CheckCircle2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_COMPLETION}
                     color="bg-gradient-to-br from-success-dark to-success-base"
                     compact
-                    onClick={() => navigate('/sessions')}
+                    onClick={goToSessions}
                   />
                 </motion.li>
               </ul>

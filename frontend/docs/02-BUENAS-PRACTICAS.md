@@ -418,3 +418,52 @@ const same2 = sameId(a, b);
 ```
 
 **Excepción:** no aplica a campos semánticos propios (`studentId`, `contextId`, `uid`, `sensorId`, `playerId`), que identifican por otro criterio y se leen explícitamente.
+
+---
+
+## Mantenimiento (ADR-224) — Distinguir "error" de "sin datos" y no anular `memo`
+
+### Estados de error vs. vacío (patrón consistente)
+
+Una pantalla que carga datos NO debe presentar un fallo de red/servidor como si fuera un "no encontrado" o un "no tienes nada": el usuario no técnico se queda sin acción y sin entender qué pasó. Regla aplicada en `SessionDetail`, `SessionEdit`, `CardDeckDetailPage`, `ContextDetailPage`, `StudentsAnalytics`, `BoardSetup` y el asistente de creación de sesión:
+
+```jsx
+// El estado de error distingue TRES casos, no dos.
+catch (err) {
+  setError({
+    isNotFound: err?.response?.status === 404,   // no existe → EmptyState "no encontrado"
+    isForbidden: err?.response?.status === 403,  // sin permiso → estado "Sin acceso"
+    message: extractErrorMessage(err)
+  });
+}
+
+// Render:
+// - Error transitorio (red/5xx) → ErrorState CON reintento.
+// - 403 → "Sin acceso" (icono candado, acción "Volver", SIN reintento: reintentar no da permiso).
+// - 404 → "no encontrado" (acción "Volver").
+if (error && !error.isNotFound && !error.isForbidden) {
+  return <ErrorState message={error.message} onRetry={load} />;
+}
+const forbidden = Boolean(error?.isForbidden);
+return <EmptyState title={forbidden ? 'Sin acceso' : 'No encontrado'} icon={forbidden ? <Lock/> : <NotFoundIcon/>} action={<VolverButton/>} />;
+```
+
+- Un `.catch(() => null)` que colapsa el error a "sin datos" oculta 500s en diagnóstico: si el fetch es secundario, degradar a `null` PERO reportar a Sentry (`captureException`) salvo abort.
+- Si una función de render supera el umbral de complejidad ciclomática al añadir la rama de error, extraer el fallback a un sub-componente con `propTypes` (p. ej. `SessionEditLoadFallback`).
+
+### No anular `React.memo` con props inline
+
+`icon={<Icon/>}` y `onClick={() => nav()}` crean una referencia nueva por render → un componente `memo` (StatCard, HeroStatCard, CrossMatrix) se re-renderiza igualmente. Hoistear el JSX estático a constantes de módulo (`rendering-hoist-jsx`) y estabilizar los handlers con `useCallback`:
+
+```jsx
+// Módulo (fuera del componente): elemento estable entre renders.
+const ICON_SCORE = <Trophy size={24} aria-hidden="true" />;
+
+function Dashboard() {
+  const goToStudents = useCallback(() => navigate('/analytics/students'), [navigate]);
+  return <StatCard icon={ICON_SCORE} onClick={goToStudents} .../>;
+}
+```
+
+- Componentes que se renderizan bajo un timer (p. ej. el panel táctil de fallback bajo el tick de partida) deben ir `memo` + `useMemo` en sus cálculos (`sort`, filtros) atados a las deps reales.
+- Fetches independientes que dependen de las mismas entradas van en `Promise.all`, no en cascada (evita waterfalls en `StudentProfile`, `BoardSetup`).

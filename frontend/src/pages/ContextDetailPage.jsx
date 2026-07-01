@@ -12,7 +12,8 @@ import {
   AlertTriangle,
   Trash2,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Lock
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -23,6 +24,7 @@ import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioMiniPlayer from '../components/ui/AudioMiniPlayer';
 import AudioUploadModal from '../components/ui/AudioUploadModal';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
+import ErrorState from '../components/ui/ErrorState';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import StatusBadge from '../components/ui/StatusBadge';
 import { cn } from '../lib/utils';
@@ -83,7 +85,13 @@ export default function ContextDetailPage() {
       setContext(data);
     } catch (err) {
       if (err?.code === 'ERR_CANCELED') return;
-      setError(extractErrorMessage(err));
+      // (D5) Distinguir 404 (contexto inexistente) y 403 (sin permiso) de un fallo
+      // de red/servidor (reintentable) en vez de un "Error" crudo sin reintento.
+      setError({
+        isNotFound: err?.response?.status === 404,
+        isForbidden: err?.response?.status === 403,
+        message: extractErrorMessage(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -178,16 +186,40 @@ export default function ContextDetailPage() {
   }
 
   if (error || !context) {
+    // (D5) Fallo de red/servidor (no 404 ni 403): ErrorState con reintento. Un 404
+    // (no existe) o un 403 (sin permiso) muestran un estado calmado con salida y
+    // sin reintento; icono y texto distinguen ambos casos.
+    const isRetriable = error && !error.isNotFound && !error.isForbidden;
+    const forbidden = Boolean(error?.isForbidden);
     return (
       <div className="page-container py-[var(--space-fluid-section)] flex items-center justify-center">
-        <GlassCard className="p-8 text-center max-w-md">
-          <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
-          <p className="text-text-muted mb-6">{error || 'Contexto no encontrado'}</p>
-          <ButtonPremium onClick={() => navigate(ROUTES.CONTEXTS)}>
-            Volver a Contextos
-          </ButtonPremium>
-        </GlassCard>
+        {isRetriable ? (
+          <ErrorState
+            title="No pudimos cargar el contexto"
+            message={error.message || 'Hubo un problema al cargar el contexto. Inténtalo de nuevo.'}
+            onRetry={() => fetchContext()}
+            className="max-w-md"
+          />
+        ) : (
+          <GlassCard className="p-8 text-center max-w-md">
+            {forbidden ? (
+              <Lock size={48} className="text-error-base mx-auto mb-4" />
+            ) : (
+              <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
+            )}
+            <h2 className="text-xl font-semibold text-text-primary mb-2">
+              {forbidden ? 'Sin acceso' : 'Contexto no encontrado'}
+            </h2>
+            <p className="text-text-muted mb-6">
+              {forbidden
+                ? 'No tienes permiso para ver este contexto.'
+                : error?.message || 'El contexto solicitado no existe o no está disponible.'}
+            </p>
+            <ButtonPremium onClick={() => navigate(ROUTES.CONTEXTS)}>
+              Volver a Contextos
+            </ButtonPremium>
+          </GlassCard>
+        )}
       </div>
     );
   }

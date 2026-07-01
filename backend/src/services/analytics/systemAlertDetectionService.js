@@ -117,7 +117,15 @@ async function buildContext(now) {
   const usage = process.memoryUsage();
   const heapUsedMB = Math.round(usage.heapUsed / 1024 / 1024);
   const heapTotalMB = Math.round(usage.heapTotal / 1024 / 1024);
-  const percentUsed = usage.heapTotal > 0 ? (usage.heapUsed / usage.heapTotal) * 100 : 0;
+  const rssMB = Math.round(usage.rss / 1024 / 1024);
+  // (A5) La presión de memoria REAL frente al límite del contenedor se mide con
+  // RSS / límite, NO con heapUsed/heapTotal. Este último ronda 85-95% por diseño
+  // en Node (V8 mantiene heapTotal apenas por encima de heapUsed y lo crece de
+  // forma perezosa), así que disparaba alertas de memoria crítica/aviso de forma
+  // PERPETUA (falso positivo → alert-fatigue que tapa señales reales). MEMORY_LIMIT_MB
+  // refleja la RAM del contenedor de despliegue (Koyeb free ≈ 512 MB).
+  const memoryLimitMB = Number.parseInt(process.env.MEMORY_LIMIT_MB, 10) || 512;
+  const percentUsed = memoryLimitMB > 0 ? (rssMB / memoryLimitMB) * 100 : 0;
 
   // Lazy require para evitar dependencias circulares
   let queues = {};
@@ -175,6 +183,8 @@ async function buildContext(now) {
       memory: {
         heapUsedMB,
         heapTotalMB,
+        rssMB,
+        memoryLimitMB,
         percentUsed
       }
     },

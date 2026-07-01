@@ -20,6 +20,20 @@
 ---
 
 # Introducción
+
+> **Nota de coste free-tier (ADR-224, 01-07-2026).** Bajo el invariante `scale=1`
+> (ADR-223) sobre Upstash free-tier (10k comandos/día), se recortaron consumidores
+> de comandos sin cambiar el comportamiento funcional: (1) el **pub/sub** entre
+> instancias (`rfid-mode-changes` en `persistRfidModeToRedis` y `cache:invalidate`
+> en `invalidateUserCache`) y sus subscribers ahora **se auto-gatean** tras
+> `SOCKET_ADAPTER_ENABLED` (`config/scaling.js` → `isMultiInstanceEnabled()`), igual
+> que el adapter Socket.IO — en single-instance el propio proceso descartaba sus
+> mensajes (`from===self`) = coste puro; el `notificationEmitSubscriber` (puente
+> worker→HTTP) NO se gatea. (2) La **L1 en memoria** `mechanicCache`/`contextCache`
+> (`utils/inMemoryCache.js`), antes código muerto, se cableó en `cacheGet` como capa
+> previa a Redis (TTL 60s + limpieza en toda invalidación). (3) El `ZREMRANGEBYRANK`
+> no-op de los leaderboards pasa a muestreo ~2% por partida.
+
 Redis es una base de datos **en memoria** (in-memory) de tipo **clave-valor** que utilizamos como complemento a MongoDB. Mientras MongoDB almacena datos persistentes y estructurados (usuarios, sesiones de juego, historial), Redis almacena datos **efímeros** y de **alta velocidad** que requieren:
 - **Baja latencia** (<1ms típicamente)
 - **Expiración automática** (TTL nativo)

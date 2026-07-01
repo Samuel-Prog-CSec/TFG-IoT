@@ -607,6 +607,8 @@ Esta seccion describe las medidas tecnicas implementadas en la plataforma para g
 
 **Que se consigue:** Cumplimiento pleno del Art. 17 RGPD, incluyendo la especial relevancia del derecho de supresion para datos recogidos de menores (Considerando 65). La cascada completa garantiza que no quedan datos residuales del estudiante en ningun almacen del sistema.
 
+> **Endurecimiento de atomicidad (ADR-224, 01-07-2026).** La cascada en Mongo (documento de usuario, partidas, informes generados y alertas del alumno) se ejecuta ahora dentro de una **transaccion** (`withTransaction`), de modo que un fallo intermedio no puede dejar una supresion parcial con PII huerfana potencialmente re-identificable; o se borra todo o no se borra nada. En el despliegue cloud sobre MongoDB Atlas (replica set) la atomicidad es real; en entornos standalone sin replica set (algunos tests) la utilidad degrada a ejecucion secuencial sin sesion de forma transparente. Las operaciones dentro de la transaccion se ejecutan de forma secuencial porque una sesion transaccional de MongoDB no admite operaciones concurrentes.
+
 ### 6.7 Politica de retencion
 
 **Fundamentacion legal:** Art. 5.1.e RGPD — Los datos deben conservarse *«durante no mas tiempo del necesario para los fines del tratamiento»*. Considerando 26 — Los principios de proteccion de datos no se aplican a informacion anonima.

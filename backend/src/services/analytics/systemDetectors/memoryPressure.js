@@ -30,22 +30,32 @@ class MemoryPressureDetector extends SystemAlertDetector {
     const severity = pct >= cfg.thresholds.criticalPct ? 'critical' : 'warning';
     const heapUsedMB = ctx.runtimeMetrics?.memory?.heapUsedMB;
     const heapTotalMB = ctx.runtimeMetrics?.memory?.heapTotalMB;
+    // (A5) percentUsed es RSS / límite del contenedor (no heapUsed/heapTotal).
+    const rssMB = ctx.runtimeMetrics?.memory?.rssMB;
+    const memoryLimitMB = ctx.runtimeMetrics?.memory?.memoryLimitMB;
     const threshold =
       severity === 'critical' ? cfg.thresholds.criticalPct : cfg.thresholds.warningPct;
+
+    const usageLabel =
+      typeof rssMB === 'number' && typeof memoryLimitMB === 'number'
+        ? ` (${rssMB}/${memoryLimitMB} MB RSS)`
+        : '';
 
     return [
       {
         type: this.type,
         severity,
         source: this.source,
+        // Clave de dedup estable (no cambiar): permite que una alerta previa se
+        // re-evalúe con la métrica RSS corregida y se auto-resuelva. Métrica real: RSS.
         component: 'process:heap',
         title: cfg.label,
-        description: `Uso de memoria al ${pct.toFixed(1)}% (umbral ${threshold}%).`,
+        description: `Uso de memoria al ${pct.toFixed(1)}%${usageLabel} (umbral ${threshold}%).`,
         recommendation:
           severity === 'critical'
             ? 'Reinicia el proceso si es seguro. Investiga fugas (heap snapshot).'
             : 'Vigila el consumo. Considera reciclaje preventivo.',
-        data: { percentUsed: pct, heapUsedMB, heapTotalMB, threshold },
+        data: { percentUsed: pct, rssMB, memoryLimitMB, heapUsedMB, heapTotalMB, threshold },
         runbookUrl: cfg.defaultRunbook,
         detectedAt: now
       }

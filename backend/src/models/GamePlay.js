@@ -337,7 +337,7 @@ gamePlaySchema.methods.isInProgress = function () {
  * @example
  * await gamePlay.complete();
  */
-gamePlaySchema.methods.complete = function () {
+gamePlaySchema.methods.complete = function (options = {}) {
   this.status = 'completed';
   this.completedAt = new Date();
   this.metrics.completionTime = this.completedAt - this.startedAt;
@@ -366,7 +366,9 @@ gamePlaySchema.methods.complete = function () {
     this.score = this.maxScore;
   }
 
-  return this.save();
+  // `options` permite pasar `{ session }` cuando el caller envuelve esta
+  // escritura en una transacción (H1). Por defecto `{}` → sin cambios.
+  return this.save(options);
 };
 
 /**
@@ -402,6 +404,32 @@ gamePlaySchema.pre('validate', function () {
  * Caso de uso: "Obtener la partida en progreso del jugador X en la sesión Y"
  */
 gamePlaySchema.index({ sessionId: 1, playerId: 1, status: 1 });
+
+/**
+ * (A2) Índice ÚNICO PARCIAL: garantiza a nivel de BD que un alumno tenga a lo
+ * sumo UNA partida ACTIVA (in-progress | paused) por sesión.
+ *
+ * `validatePlayer` ya comprueba esto con un findOne previo, pero era un TOCTOU:
+ * dos POST /api/plays concurrentes (doble clic, reintento por 429/timeout) podían
+ * pasar ambos el findOne antes de que cualquiera insertara y crear DOS partidas
+ * activas del mismo alumno, estado que el gameEngine stateful y
+ * recalculateSessionStatusFromPlays no esperan. Con este índice la unicidad la
+ * impone Mongo atómicamente; `createPlay` traduce el error 11000 a un
+ * ValidationError de dominio. Las partidas completed/abandoned salen del filtro
+ * parcial, así que "Jugar de nuevo" tras terminar sigue permitido.
+ *
+ * NOTA: si una BD desplegada ya tuviera duplicados por la race previa, la
+ * creación del índice fallaría; `npm run migrate:enforce-active-play-unique`
+ * limpia los duplicados (conserva la partida activa más reciente) antes de crearlo.
+ */
+gamePlaySchema.index(
+  { sessionId: 1, playerId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: ['in-progress', 'paused'] } },
+    name: 'uniq_active_play_per_session_player'
+  }
+);
 
 // Índices monocampo { playerId: 1 } y { sessionId: 1 } ELIMINADOS: son prefijo
 // exacto de los compuestos de abajo ({ playerId, status, completedAt } y

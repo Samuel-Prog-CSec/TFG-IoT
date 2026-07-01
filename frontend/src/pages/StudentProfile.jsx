@@ -101,22 +101,20 @@ export default function StudentProfile() {
       try {
         setLoading(true);
 
-        // Fetch principal: summary contiene datos basicos, partidas, rendimiento, comparativa
-        const summaryData = await analyticsService.getStudentSummary(
-          studentId, { timeRange }, { signal: controller.signal }
-        );
-        if (controller.signal.aborted) return;
-        setSummary(summaryData);
-
-        // Fetches secundarios en paralelo (no bloqueantes si fallan). Un fallo real
-        // (no abort) degrada a null → "sin datos", PERO se reporta a Sentry: antes
-        // `.catch(()=>null)` lo tragaba, indistinguible de "alumno sin datos" e
-        // invisible para diagnóstico (un 500 de trayectoria parecía un alumno vacío).
+        // (E4) summary, trayectoria y engagement dependen de las MISMAS entradas
+        // (studentId, timeRange): se lanzan en PARALELO en vez de esperar al summary.
+        // Los secundarios degradan a null si fallan (reportando a Sentry, no
+        // tragándolos: antes `.catch(()=>null)` hacía indistinguible un 500 de un
+        // alumno sin datos). Un fallo del summary (fetch primario) SÍ rechaza el
+        // Promise.all → estado de error.
         const swallowSecondary = e => {
           if (!isAbortError(e)) captureException(e);
           return null;
         };
-        const [trajectoryData, engagementData] = await Promise.all([
+        const [summaryData, trajectoryData, engagementData] = await Promise.all([
+          analyticsService.getStudentSummary(
+            studentId, { timeRange }, { signal: controller.signal }
+          ),
           analyticsService.getStudentTrajectory(
             studentId, { timeRange, granularity: 'daily' }, { signal: controller.signal }
           ).catch(swallowSecondary),
@@ -126,6 +124,7 @@ export default function StudentProfile() {
         ]);
 
         if (controller.signal.aborted) return;
+        setSummary(summaryData);
         setTrajectory(trajectoryData);
         setEngagement(engagementData);
         setError(null);

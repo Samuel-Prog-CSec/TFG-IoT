@@ -20,6 +20,7 @@ import { getId } from '../../lib/entityId';
 import GlassCard from '../ui/GlassCard';
 import ButtonPremium from '../ui/ButtonPremium';
 import CardAssetPreview from '../ui/CardAssetPreview';
+import ErrorState from '../ui/ErrorState';
 import { SkeletonCard } from '../ui/SkeletonShimmer';
 import { ROUTES } from '../../constants/routes';
 import { deckShape } from './sessionPropTypes';
@@ -27,7 +28,7 @@ import { deckShape } from './sessionPropTypes';
 /**
  * Paso 1: Seleccionar Mazo
  */
-export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
+export default function StepDeck({ decks, loading, error, onRetry, selectedDeckId, onSelect }) {
   const navigate = useNavigate();
 
   if (loading) {
@@ -39,6 +40,18 @@ export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
           ))}
         </div>
       </GlassCard>
+    );
+  }
+
+  // (D1) Si la carga FALLÓ, ofrecer reintento en vez de afirmar que no hay mazos
+  // (el docente podría tener mazos y estar viendo un fallo de red transitorio).
+  if (error) {
+    return (
+      <ErrorState
+        title="No pudimos cargar tus mazos"
+        message={typeof error === 'string' ? error : 'Hubo un problema al cargar los datos. Inténtalo de nuevo.'}
+        onRetry={onRetry}
+      />
     );
   }
 
@@ -150,6 +163,8 @@ export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
 StepDeck.propTypes = {
   decks: PropTypes.arrayOf(deckShape).isRequired,
   loading: PropTypes.bool.isRequired,
+  error: PropTypes.oneOfType([PropTypes.string, PropTypes.bool]),
+  onRetry: PropTypes.func,
   selectedDeckId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   onSelect: PropTypes.func.isRequired
 };

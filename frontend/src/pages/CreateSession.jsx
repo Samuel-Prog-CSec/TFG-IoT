@@ -109,7 +109,9 @@ export default function CreateSession() {
     mechanics,
     loadingDecks,
     loadingMechanics,
-    currentSensorId
+    currentSensorId,
+    error: wizardDataError,
+    loadData
   } = useSessionWizardData();
 
   // Configuracion del wizard (selecciones, validaciones, handlers)
@@ -248,6 +250,8 @@ export default function CreateSession() {
           <StepDeck
             decks={decks}
             loading={loadingDecks}
+            error={wizardDataError}
+            onRetry={loadData}
             selectedDeckId={sessionConfig.deckId}
             onSelect={handleSelectDeck}
           />

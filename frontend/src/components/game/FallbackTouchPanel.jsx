@@ -4,7 +4,7 @@
  * pueda responder tocando directamente en la pantalla.
  */
 
-import { useEffect, useState } from 'react';
+import { memo, useEffect, useMemo, useState } from 'react';
 import { AnimatePresence, m as motion } from 'framer-motion';
 import { Hand, Loader2, CheckCircle2, XCircle } from 'lucide-react';
 import PropTypes from 'prop-types';
@@ -33,7 +33,7 @@ import { useSquareGridColumns } from '../../hooks/useSquareGridColumns';
 const getSortKey = (card) =>
   String(card?.assignedValue ?? card?.displayData?.display ?? card?.uid ?? '').toLowerCase();
 
-export default function FallbackTouchPanel({
+function FallbackTouchPanel({
   cards,
   round = 1,
   onSelectCard,
@@ -55,8 +55,16 @@ export default function FallbackTouchPanel({
   // (sin sensor) el alumno NO podía responderla → ronda imposible de ganar. El
   // mazo admite hasta 20 cartas y el grid cuadrado adaptativo ya escala el
   // tamaño de carta al área disponible.
-  const visibleCards = (Array.isArray(cards) ? [...cards] : [])
-    .sort((a, b) => getSortKey(a).localeCompare(getSortKey(b), 'es'));
+  // (E1) useMemo: sin esto se copiaba y re-ordenaba el mazo entero con
+  // localeCompare('es') en cada render, y GameSession re-renderiza cada segundo
+  // por el tick del timer. Con la dep [cards] el sort solo corre al cambiar el mazo.
+  const visibleCards = useMemo(
+    () =>
+      (Array.isArray(cards) ? [...cards] : []).sort((a, b) =>
+        getSortKey(a).localeCompare(getSortKey(b), 'es')
+      ),
+    [cards]
+  );
 
   // PROP-79: feedback "procesando" entre tap y validation_result. Confirma
   // visualmente al jugador que su tap se ha registrado, evitando la sensación
@@ -247,3 +255,8 @@ FallbackTouchPanel.propTypes = {
   canPause: PropTypes.bool,
   feedbackState: PropTypes.oneOf(['idle', 'success', 'error'])
 };
+
+// (E1) memo: el panel táctil (modo real sin sensor) se montaba directamente en
+// GameSession, que re-renderiza cada segundo por el tick del timer. Memoizado,
+// solo se re-renderiza cuando cambian sus props reales.
+export default memo(FallbackTouchPanel);

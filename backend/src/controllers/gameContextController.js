@@ -341,13 +341,29 @@ const deleteContext = async (req, res) => {
 
   await invalidateContextCaches(id, context.contextId);
 
-  // Limpiar archivos del contexto en Supabase Storage.
-  // Hard-fail: si Supabase falla, se lanza excepción y el contexto NO se elimina de MongoDB.
-  // Única excepción: si Storage está deshabilitado intencionalmente (SUPABASE_SERVICE_KEY no configurada),
-  // se omite en silencio para compatibilidad con entornos de desarrollo locales sin Supabase.
-  await storageService.deleteFolder(context.contextId);
-
+  // (H2) Borrar PRIMERO el documento Mongo (fuente de verdad) y DESPUÉS los
+  // archivos de Storage. Antes se borraba Storage primero con "hard-fail": si el
+  // delete de Mongo fallaba después (o Storage se borraba parcialmente), el
+  // contexto SOBREVIVÍA en Mongo con URLs de imagen/audio muertas para TODOS los
+  // profesores que lo usan — el fallo más visible. Con este orden, un fallo de
+  // Storage solo deja archivos huérfanos (invisibles y purgables por el job de
+  // retención), nunca un contexto con enlaces rotos.
   await context.deleteOne();
+
+  // Limpieza de Storage best-effort tras confirmar el borrado en Mongo. Si falla
+  // (o Storage está deshabilitado en dev sin SUPABASE_SERVICE_KEY), se registra
+  // como huérfano pero NO se revierte el borrado ni se falla la petición.
+  try {
+    await storageService.deleteFolder(context.contextId);
+  } catch (storageErr) {
+    logger.warn(
+      'deleteContext: fallo al limpiar Storage tras borrar el contexto (quedan archivos huérfanos)',
+      {
+        contextId: context.contextId,
+        error: storageErr.message
+      }
+    );
+  }
 
   logger.info('Contexto eliminado con limpieza de Storage', {
     contextId: context.contextId,

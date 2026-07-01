@@ -42,7 +42,7 @@ const {
   validateAssociationChallengePlanAgainstMappings,
   applySequenceConfigForCreate,
   applySequencePlanForCreate
-} = require('../controllers/helpers/sessionValidationHelpers');
+} = require('./helpers/sessionValidationHelpers');
 const logger = require('../utils/logger').child({ component: 'gameSessionService' });
 
 const MIN_DECK_CARDS = 2;

@@ -29,21 +29,11 @@ const REPORT_AGGREGATE_TIMEOUT_MS = 7000;
  * `score` ya viene clampado a `maxScore`, así que el porcentaje queda en [0,100].
  * Se usa en TODOS los promedios de puntuación que la UI muestra como "%".
  */
-const SCORE_PERCENT_EXPR = {
-  // Suelo a 0 (OBS-5): el `score` crudo puede quedar negativo en BD (penalizaciones
-  // acumuladas vía `$inc` en partidas en curso, que saltan el clamp `min:0` del
-  // modelo). El % normalizado nunca debe ser negativo ni arrastrar medias a la baja.
-  $max: [
-    0,
-    {
-      $cond: [
-        { $gt: ['$maxScore', 0] },
-        { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
-        0
-      ]
-    }
-  ]
-};
+// (I1) Fuente ÚNICA de la expresión score→% en `analytics/analyticsHelpers` (ya la
+// importan adminAnalyticsService, contentEffectiveness, studentTrajectory y los
+// detectores). Antes este módulo mantenía una COPIA idéntica, con riesgo de que la
+// semántica de puntuación divergiera entre módulos si uno se editaba sin el otro.
+const { SCORE_PERCENT_EXPR } = require('./analytics/analyticsHelpers');
 
 /**
  * Obtiene la evolución del rendimiento de un estudiante a lo largo del tiempo.

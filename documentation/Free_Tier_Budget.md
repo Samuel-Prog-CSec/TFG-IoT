@@ -9,7 +9,7 @@
 > **Audiencia:** Samuel (super_admin) y cualquier persona que herede la
 > operación del proyecto tras la defensa del TFG.
 >
-> **Última actualización:** 21-05-2026 (T-910, ADR-168).
+> **Última actualización:** 01-07-2026 (ADR-224 — reducción de comandos Upstash y corrección del detector de memoria).
 
 ---
 
@@ -38,6 +38,19 @@ en el free tier. Los dos cuellos de botella reales aparecerían si crece
 la base de usuarios (Atlas M0 degrada bajo concurrencia ~50 usuarios y
 Upstash 500K cmds/mes se acerca con tráfico intenso). El detalle por
 servicio está en §2; el cálculo del escenario objetivo en §3.
+
+> **Reducciones de coste Upstash (ADR-224, 01-07-2026).** Tras ver el detector
+> `upstash_commands_quota` disparar una crítica al 97,1% del presupuesto diario,
+> se recortaron consumidores de comandos sin cambiar comportamiento a `scale=1`:
+> (1) los `PUBLISH`/`SUBSCRIBE` de coordinación entre instancias (modo RFID e
+> invalidación de LRU) ahora se auto-gatean tras `SOCKET_ADAPTER_ENABLED`
+> (`config/scaling.js`); (2) el `ZREMRANGEBYRANK` no-op de los leaderboards pasa a
+> muestreo ~2% por partida (−12 comandos/partida); (3) la L1 en memoria de
+> mecánicas/contextos se cableó en `cacheGet` (ahorra un GET Redis por lectura de
+> dashboard). Nota de observabilidad: el detector `memory_pressure` medía
+> `heapUsed/heapTotal` (~90% siempre en Node = falso positivo perpetuo); ahora mide
+> **RSS/`MEMORY_LIMIT_MB`** (Koyeb free ≈512MB), coherente con el umbral "RAM > 400 MB"
+> de la fila de Koyeb.
 
 ---
 

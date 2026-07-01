@@ -15,9 +15,7 @@ const { cacheInvalidatePattern } = require('../../utils/cacheHelper');
 const materializedAnalytics = require('../analytics/materializedAnalyticsService');
 const { recalculateSessionStatusFromPlays } = require('../sessionStatusService');
 const { getMechanicStrategy } = require('../../strategies/mechanics');
-const {
-  ensureMemoryBoardLayoutIsComplete
-} = require('../../controllers/helpers/sessionValidationHelpers');
+const { ensureMemoryBoardLayoutIsComplete } = require('../helpers/sessionValidationHelpers');
 
 // Módulos extraídos del GameEngine para mejor mantenibilidad
 const timerManager = require('./timerManager');
@@ -101,6 +99,51 @@ const cardNotInPlayCounters = new Map();
 const resetCardNotInPlayCountersForTests = () => cardNotInPlayCounters.clear();
 
 const peekCardNotInPlayCountersForTests = () => Array.from(cardNotInPlayCounters.entries());
+
+/**
+ * (I3) Mapea el nombre de mecánica al `mode` que el frontend consume en el
+ * game_over (`GameOverStats` delega por `summary.mode`). Fuente única para no
+ * repetir la escalera if/else en la persistencia y la emisión de `endPlay`.
+ * @param {string} mechanicName
+ * @returns {'association'|'memory'|'sequence'}
+ */
+const mechanicNameToMode = mechanicName => {
+  if (mechanicName === 'memory') {
+    return 'memory';
+  }
+  if (mechanicName === 'sequence') {
+    return 'sequence';
+  }
+  return 'association';
+};
+
+/**
+ * (I3) Aplica el final summary específico de la mecánica al objeto de métricas
+ * destino, con la MISMA forma en persistencia y emisión: Secuencia serializa flat
+ * (campos directamente bajo `metrics.*`); Memoria/Asociación se aíslan en
+ * sub-objetos `metrics.memory` / `metrics.association`. Antes esta lógica estaba
+ * duplicada en `endPlay` (persistir en `playDoc.metrics` y fusionar en el
+ * `finalMetrics` del game_over), con riesgo de divergir si la forma cambiaba.
+ * @param {Object} metricsTarget - Objeto de métricas a mutar.
+ * @param {string} mechanicName
+ * @param {Object} summary - Salida de `finalSummary.buildFinalSummary`.
+ * @returns {boolean} true si la mecánica era conocida y se modificó el destino.
+ */
+const applyMechanicSummary = (metricsTarget, mechanicName, summary) => {
+  if (mechanicName === 'sequence') {
+    Object.assign(metricsTarget, summary);
+    return true;
+  }
+  if (mechanicName === 'memory') {
+    metricsTarget.memory = summary;
+    return true;
+  }
+  if (mechanicName === 'association') {
+    metricsTarget.association = summary;
+    return true;
+  }
+  return false;
+};
 
 /**
  * GameEngine - Servicio con estado para gestión de partidas en tiempo real.
@@ -749,7 +792,7 @@ class GameEngine {
    * @param {boolean} options.abandoned
    * @returns {Promise<void>}
    */
-  // eslint-disable-next-line sonarjs/cognitive-complexity, sonarjs/cyclomatic-complexity -- finalización de partida (game_over): orquestación stateful; refactor diferido por riesgo de regresión en gameplay
+
   async _endPlayInternal(playId, playState, { abandoned }) {
     // Guard de reentrancia SÍNCRONO (antes de cualquier await): entre el
     // `activePlays.get` de endPlay() y el `activePlays.delete` final hay una
@@ -811,26 +854,14 @@ class GameEngine {
         // campos viven directamente bajo `metrics.*`), Memoria/Asociación
         // se aíslan en sub-objetos `metrics.memory` / `metrics.association`.
         const persistedSummary = finalSummary.buildFinalSummary(playState.mechanicName, playState);
-        let didModifyMetrics = false;
-        if (playState.mechanicName === 'sequence') {
-          if (!playState.playDoc.metrics) {
-            playState.playDoc.metrics = {};
-          }
-          Object.assign(playState.playDoc.metrics, persistedSummary);
-          didModifyMetrics = true;
-        } else if (playState.mechanicName === 'memory') {
-          if (!playState.playDoc.metrics) {
-            playState.playDoc.metrics = {};
-          }
-          playState.playDoc.metrics.memory = persistedSummary;
-          didModifyMetrics = true;
-        } else if (playState.mechanicName === 'association') {
-          if (!playState.playDoc.metrics) {
-            playState.playDoc.metrics = {};
-          }
-          playState.playDoc.metrics.association = persistedSummary;
-          didModifyMetrics = true;
+        if (!playState.playDoc.metrics) {
+          playState.playDoc.metrics = {};
         }
+        const didModifyMetrics = applyMechanicSummary(
+          playState.playDoc.metrics,
+          playState.mechanicName,
+          persistedSummary
+        );
         // `markModified` solo existe en documentos Mongoose. Los tests
         // unitarios pasan plain objects en `playDoc`, así que el guard
         // evita que la rama Memoria/Asociación rompa esos tests.
@@ -844,8 +875,16 @@ class GameEngine {
         // Actualizar métricas del alumno con todos los datos
         // Solo si el tutor no ha ejercido el derecho de oposición a analytics (Art. 21 RGPD)
         const player = await userRepository.findById(playState.playDoc.playerId);
+        // A1: snapshot de la media ANTES de actualizar métricas, para detectar la
+        // transición a "en riesgo" (trigger student_at_risk) tras la escritura.
+        const prevAverageForRisk =
+          typeof player?.studentMetrics?.averageScore === 'number'
+            ? player.studentMetrics.averageScore
+            : null;
+        let metricsUpdated = false;
         if (player) {
           if (player.hasConsentFor('performance_analytics')) {
+            metricsUpdated = true;
             await player.updateStudentMetrics({
               score: playState.playDoc.score,
               // SIN `maxScore`, updateStudentMetrics calcula scorePercent=0 para
@@ -912,6 +951,44 @@ class GameEngine {
           (this.metrics.averagePlayDuration * (this.metrics.totalPlaysCompleted - 1) +
             playDuration) /
           this.metrics.totalPlaysCompleted;
+
+        // A1: notificaciones al docente (T-955). El flujo REAL de juego termina
+        // aquí (endPlay), no en el endpoint HTTP `completePlay` que el frontend
+        // nunca llama; sin esto las notificaciones "X ha completado una partida"
+        // y la alerta en tiempo real "alumno en riesgo" NUNCA disparaban en
+        // producción. Se comparten las mismas funciones que usa completePlay
+        // (fuente única). Fire-and-forget: jamás bloquean la finalización.
+        // Lazy require para evitar cualquier ciclo de carga al boot.
+        const gamePlayService = require('../gamePlayService');
+        gamePlayService
+          .notifyTeacherPlayCompleted({
+            teacherId: playState.sessionDoc?.createdBy,
+            studentName: player?.name,
+            studentId: playState.playDoc.playerId,
+            sessionName: playState.sessionDoc?.name,
+            sessionId: playState.playDoc.sessionId,
+            score: playState.playDoc.score,
+            maxScore: playState.playDoc.maxScore,
+            playId
+          })
+          .catch(err =>
+            logger.warn('endPlay: notify play_completed ignorado', {
+              playId,
+              error: err?.message
+            })
+          );
+        // student_at_risk solo tiene sentido si se actualizaron métricas
+        // (consentimiento presente) y había una media previa para comparar.
+        if (metricsUpdated) {
+          gamePlayService
+            .notifyStudentAtRiskIfTransition(playState.playDoc.playerId, prevAverageForRisk)
+            .catch(err =>
+              logger.warn('endPlay: notify student_at_risk ignorado', {
+                playId,
+                error: err?.message
+              })
+            );
+        }
       }
 
       await recalculateSessionStatusFromPlays(playState.playDoc.sessionId);
@@ -988,21 +1065,12 @@ class GameEngine {
     const finalMetrics = playState.playDoc.metrics?.toObject
       ? playState.playDoc.metrics.toObject()
       : { ...(playState.playDoc.metrics || {}) };
-    let mode = 'association';
-    if (playState.mechanicName === 'memory') {
-      mode = 'memory';
-    } else if (playState.mechanicName === 'sequence') {
-      mode = 'sequence';
-    }
+    const mode = mechanicNameToMode(playState.mechanicName);
 
+    // Se reconstruye y refusiona el summary (defense-in-depth): si la persistencia
+    // anterior falló de forma silenciosa, el frontend recibe datos frescos igualmente.
     const emittedSummary = finalSummary.buildFinalSummary(playState.mechanicName, playState);
-    if (mode === 'sequence') {
-      Object.assign(finalMetrics, emittedSummary);
-    } else if (mode === 'memory') {
-      finalMetrics.memory = emittedSummary;
-    } else if (mode === 'association') {
-      finalMetrics.association = emittedSummary;
-    }
+    applyMechanicSummary(finalMetrics, playState.mechanicName, emittedSummary);
 
     // Garantizar `completionTime` en el payload — `playDoc.complete()`
     // lo escribe en el documento, pero si el path falla o llega al

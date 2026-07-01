@@ -8,7 +8,6 @@ const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const userRepository = require('../repositories/userRepository');
 const gamePlayService = require('../services/gamePlayService');
-const { recalculateSessionStatusFromPlays } = require('../services/sessionStatusService');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
 const {
   ensureResourceOwnership,
@@ -154,7 +153,10 @@ const getPlayById = async (req, res) => {
         select: 'mechanicId contextId config difficulty createdBy',
         populate: [
           { path: 'mechanicId', select: 'name displayName icon' },
-          { path: 'contextId', select: 'contextId name assets' }
+          // (G3) NO poblar `assets`: el DTO de GamePlay solo emite `contextId` como
+          // _id (toId), nunca el array de assets — que podía traer hasta 30 entradas
+          // con URLs/metadata Mongo→Node en CADA GET /api/plays/:id para descartarlas.
+          { path: 'contextId', select: 'contextId name' }
         ]
       },
       { path: 'playerId', select: 'name profile' }
@@ -391,31 +393,25 @@ const completePlay = async (req, res) => {
 const abandonPlay = async (req, res) => {
   const { id } = req.params;
 
-  const play = await gamePlayRepository.findById(id);
+  // (I5) Ownership sobre la sesión ya poblada (paridad con completePlay): la lógica
+  // de dominio (marcar abandonada + recalc) se delega en gamePlayService.abandonPlay.
+  const owned = await gamePlayRepository.findById(id, {
+    populate: [{ path: 'sessionId', select: 'createdBy' }]
+  });
 
-  if (!play) {
+  if (!owned) {
     throw new NotFoundError('Partida');
   }
 
-  if (!play.isInProgress()) {
-    throw new ValidationError('La partida ya no está en progreso');
-  }
+  ensureResourceOwnershipOrAdmin(owned.sessionId, req.user, 'partida');
 
-  const session = await gameSessionRepository.findById(play.sessionId, {
-    select: 'createdBy'
-  });
-  ensureResourceOwnershipOrAdmin(session, req.user, 'partida');
+  const play = await gamePlayService.abandonPlay(id);
 
-  // Cambiar status a abandoned
-  play.status = 'abandoned';
-  play.completedAt = new Date();
-  await play.save();
-  await recalculateSessionStatusFromPlays(play.sessionId);
-
-  // Limpiar estado del motor si la partida está activa (timers, Redis, cards)
+  // Limpiar estado del motor si la partida está activa (timers, Redis, cards).
+  // Vive en el controller porque necesita `req.app.get('gameEngine')`. Limpieza
+  // graceful — un fallo no crítico no debe propagarse.
   const gameEngine = req.app.get('gameEngine');
   if (gameEngine) {
-    // Limpieza graceful del engine — fallo no crítico no debe propagarse
     try {
       await gameEngine.endPlay(id);
     } catch (engineErr) {
@@ -425,12 +421,6 @@ const abandonPlay = async (req, res) => {
       });
     }
   }
-
-  logger.info('Partida abandonada', {
-    playId: play._id,
-    playerId: play.playerId,
-    abandonedAt: play.completedAt
-  });
 
   sendSuccess(res, toGamePlayDetailDTOV1(play), 'Partida abandonada');
 };

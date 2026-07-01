@@ -96,6 +96,21 @@ const STUDENT_METRICS_TTL_SECONDS = 90 * 24 * 60 * 60;
  */
 const LEADERBOARD_MAX_MEMBERS = 200;
 
+/**
+ * Fracción de partidas en las que se ejecuta el recorte a top-N (B2).
+ *
+ * El `ZREMRANGEBYRANK` es una salvaguarda contra corrupción aguas arriba, pero
+ * dado que el dominio real tiene <20 miembros por leaderboard (contextos/mecánicas
+ * de un docente), en operación normal es no-op el ~100% de las partidas. Ejecutarlo
+ * en CADA endPlay gastaba 12 comandos Upstash por partida sin recortar nada
+ * (~1/3 del presupuesto free-tier bajo carga). Ejecutándolo de forma probabilística
+ * (~1 de cada 50 partidas) la salvaguarda sigue activa —una corrupción se recortaría
+ * en pocas partidas— y el coste baja ~98%. El reconciliador nocturno además reconstruye
+ * los ZSET desde Mongo, así que cualquier deriva se corrige a diario.
+ * @readonly
+ */
+const LEADERBOARD_CAP_SAMPLE_RATE = 0.02;
+
 const NAMESPACES = {
   LEADERBOARD: 'leaderboard',
   STUDENT_METRICS: 'student:metrics'
@@ -192,6 +207,12 @@ async function recordPlayCompletion(payload) {
   // Coherente con el reconciliador nocturno y con student:metrics (ADR-213).
   const scorePercent = maxScore > 0 ? (score / maxScore) * 100 : 0;
 
+  // (B2) Una única tirada por partida decide si aplicamos el recorte-salvaguarda
+  // de los leaderboards en este endPlay; cuando aplica, se recortan las 6
+  // dimensiones a la vez. Ver LEADERBOARD_CAP_SAMPLE_RATE.
+  // eslint-disable-next-line sonarjs/pseudo-random -- muestreo de salvaguarda, no es un uso de seguridad
+  const applyLeaderboardCap = Math.random() < LEADERBOARD_CAP_SAMPLE_RATE;
+
   // Las escrituras pueden fallar de forma silenciosa (Redis caído,
   // circuit breaker abierto). El job nocturno reconciliará — no
   // bloqueamos endPlay.
@@ -219,8 +240,13 @@ async function recordPlayCompletion(payload) {
         p.zincrby(playsKey, 1, member);
         p.expire(scoreKey, LEADERBOARD_TTL_SECONDS);
         p.expire(playsKey, LEADERBOARD_TTL_SECONDS);
-        p.zremrangebyrank(scoreKey, 0, -(LEADERBOARD_MAX_MEMBERS + 1));
-        p.zremrangebyrank(playsKey, 0, -(LEADERBOARD_MAX_MEMBERS + 1));
+        // (B2) Recorte-salvaguarda solo en ~2% de partidas: en operación normal
+        // es no-op (dominio <20 miembros) y ejecutarlo siempre desperdiciaba 12
+        // comandos Upstash/partida. Ver LEADERBOARD_CAP_SAMPLE_RATE.
+        if (applyLeaderboardCap) {
+          p.zremrangebyrank(scoreKey, 0, -(LEADERBOARD_MAX_MEMBERS + 1));
+          p.zremrangebyrank(playsKey, 0, -(LEADERBOARD_MAX_MEMBERS + 1));
+        }
       };
 
       if (contextId) {

@@ -20,7 +20,7 @@
  * @module components/analytics/CrossMatrix
  */
 
-import { useCallback, useMemo, useState } from 'react';
+import { memo, useCallback, useMemo, useState } from 'react';
 import PropTypes from 'prop-types';
 import { m as motion } from 'framer-motion';
 import {
@@ -680,4 +680,7 @@ CrossMatrix.propTypes = {
   onCellClick: PropTypes.func,
 };
 
-export default CrossMatrix;
+// (E3) memo: la matriz 2D (mecánicas × contextos) es cara de reconciliar y se
+// re-renderizaba con cada render del padre (InsightsReports) aunque sus datos no
+// cambien. Memoizada, solo re-renderiza cuando cambian sus props.
+export default memo(CrossMatrix);

@@ -999,12 +999,17 @@ export default function GameSession() {
   useEffect(() => {
     const mappings = session?.cardMappings;
     if (!Array.isArray(mappings) || mappings.length === 0) return;
+    // (C1) Solo la mecánica Asociación pinta la imagen full-res (ChallengeDisplay).
+    // Memoria y Secuencia usan siempre el thumbnail, así que no precargamos la full
+    // en ~2/3 de las partidas → ahorro de egress de Supabase (free-tier).
+    const mechanicName = session?.mechanic?.name;
+    const includeFullRes = !(mechanicName === 'memory' || mechanicName === 'sequence');
     prefetchDeckImages(mappings, () => {
       if (prefetchNotifiedRef.current) return;
       prefetchNotifiedRef.current = true;
       console.warn('[GameSession] Alguna imagen del mazo fallo al precargar. Se mostrara el nombre como fallback.');
-    });
-  }, [session?.cardMappings]);
+    }, { includeFullRes });
+  }, [session?.cardMappings, session?.mechanic?.name]);
 
   // Sincronizar gameState con el socket hook
   useEffect(() => {

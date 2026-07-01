@@ -15,6 +15,7 @@
 
 const redisService = require('../../services/redisService');
 const { cacheInvalidate } = require('../cacheHelper');
+const { contextCache } = require('../inMemoryCache');
 const logger = require('../logger').child({ component: 'contextCacheInvalidator' });
 
 const CONTEXT_NAMESPACE = 'cache:context';
@@ -88,6 +89,11 @@ const invalidateContextListCaches = async () => {
 const invalidateContextCaches = async (mongoId = null, slugId = null) => {
   await invalidateContextEntityCaches(mongoId, slugId);
   const listsInvalidated = await invalidateContextListCaches();
+  // (B3) El listado se invalida por SCAN+delMany directo (bypassa cacheHelper),
+  // así que su L1 no se limpia por esa vía: vaciamos la L1 de contextos entera
+  // para que create/update/delete de un contexto se reflejen de inmediato en el
+  // mismo proceso (sin esperar al TTL de 60s).
+  contextCache.clear();
   return {
     entities: (mongoId ? 1 : 0) + (slugId && slugId !== mongoId ? 1 : 0),
     lists: listsInvalidated

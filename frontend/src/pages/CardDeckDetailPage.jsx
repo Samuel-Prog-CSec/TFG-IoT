@@ -8,8 +8,7 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { m as motion } from 'framer-motion';
-import { ArrowLeft, Pencil, Layers, CreditCard, Calendar, Archive } from 'lucide-react';
-import { toast } from 'sonner';
+import { ArrowLeft, Pencil, Layers, CreditCard, Calendar, Archive, Lock } from 'lucide-react';
 import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { getId } from '../lib/entityId';
@@ -17,6 +16,7 @@ import ButtonPremium from '../components/ui/ButtonPremium';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import EmptyState from '../components/ui/EmptyState';
+import ErrorState from '../components/ui/ErrorState';
 import GlassCard from '../components/ui/GlassCard';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import StatusBadge from '../components/ui/StatusBadge';
@@ -98,6 +98,8 @@ export default function CardDeckDetailPage() {
 
   const [deck, setDeck] = useState(null);
   const [loading, setLoading] = useState(true);
+  // (D2) 404 real (mazo inexistente) vs fallo de red/servidor (reintentable).
+  const [error, setError] = useState(null);
 
   const loadDeck = useCallback(async (signal) => {
     if (!deckId) {
@@ -111,14 +113,17 @@ export default function CardDeckDetailPage() {
       const response = await decksAPI.getDeckById(deckId, signal ? { signal } : {});
       const deckData = extractData(response);
       setDeck(deckData || null);
-    } catch (error) {
-      if (isAbortError(error)) {
+      setError(null);
+    } catch (err) {
+      if (isAbortError(err)) {
         return;
       }
 
       setDeck(null);
-      toast.error('No se pudo cargar el mazo', {
-        description: extractErrorMessage(error),
+      setError({
+        isNotFound: err?.response?.status === 404,
+        isForbidden: err?.response?.status === 403,
+        message: extractErrorMessage(err)
       });
     } finally {
       if (!signal?.aborted) {
@@ -158,12 +163,32 @@ export default function CardDeckDetailPage() {
   }
 
   if (!deck) {
+    // Error transitorio real (red/servidor) → ErrorState con reintento.
+    if (error && !error.isNotFound && !error.isForbidden) {
+      return (
+        <div className="page-container py-[var(--space-fluid-section)]">
+          <ErrorState
+            title="No pudimos cargar el mazo"
+            message={error.message || 'Hubo un problema al cargar el mazo. Inténtalo de nuevo.'}
+            onRetry={() => loadDeck()}
+          />
+        </div>
+      );
+    }
+    // 403 (sin permiso) y 404 (no existe) comparten el patrón "vuelve": estado
+    // calmado con acción de salida y SIN reintento (reintentar no cambia el
+    // resultado). El icono y el texto distinguen ambos casos.
+    const forbidden = Boolean(error?.isForbidden);
     return (
       <div className="page-container py-[var(--space-fluid-section)]">
         <EmptyState
-          title="Mazo no encontrado"
-          description="El mazo solicitado no existe o no está disponible."
-          icon={<Layers size={28} />}
+          title={forbidden ? 'Sin acceso' : 'Mazo no encontrado'}
+          description={
+            forbidden
+              ? 'No tienes permiso para ver este mazo. Solo puedes acceder a los mazos que has creado.'
+              : 'El mazo solicitado no existe o no está disponible.'
+          }
+          icon={forbidden ? <Lock size={28} /> : <Layers size={28} />}
           action={(
             <ButtonPremium variant="secondary" onClick={() => navigate(ROUTES.CARD_DECKS)}>
               <ArrowLeft size={16} />

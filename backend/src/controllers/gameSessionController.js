@@ -1,7 +1,7 @@
 /**
  * @fileoverview Controller para gestión CRUD de sesiones de juego.
  * Maneja la configuración de sesiones con mecánicas, contextos y mapeo de tarjetas.
- * Los helpers de validación y normalización se encuentran en helpers/sessionValidationHelpers.js.
+ * Los helpers de validación y normalización se encuentran en services/helpers/sessionValidationHelpers.js.
  * @module controllers/gameSessionController
  */
 
@@ -32,7 +32,7 @@ const {
   ensureAssociationPlanReadyForStart,
   applyCloneMechanicState,
   buildCloneSuccessMessage
-} = require('./helpers/sessionValidationHelpers');
+} = require('../services/helpers/sessionValidationHelpers');
 
 const sessionFilterMappings = {
   mechanicId: { field: 'mechanicId', type: 'exact' },
@@ -109,11 +109,17 @@ const getSessions = async (req, res) => {
   const sessionIds = sessions.map(s => s._id || s.id);
   const playStatsMap = await gamePlayService.getPlayStatsBySessionIds(sessionIds);
 
-  // Attach playStats to each session before DTO conversion
-  for (const s of sessions) {
+  // Attach playStats before DTO conversion. (A3) Cuando SESSION_READ_LEAN_ENABLED=false
+  // los `sessions` son documentos Mongoose con schema STRICT: asignar `s.playStats`
+  // (una propiedad fuera de schema) se descarta en la serialización, así que el
+  // listado perdía conteo/media/sparkline por sesión. Convertimos a POJO (toObject)
+  // antes de adjuntar para que sobreviva al DTO en AMBOS modos (lean y no-lean).
+  const sessionsWithStats = sessions.map(s => {
     const sid = (s._id || s.id).toString();
-    s.playStats = playStatsMap[sid] || null;
-  }
+    const plain = typeof s.toObject === 'function' ? s.toObject() : s;
+    plain.playStats = playStatsMap[sid] || null;
+    return plain;
+  });
 
   logger.info('Lista de sesiones obtenida', {
     requestedBy: req.user._id,
@@ -121,7 +127,7 @@ const getSessions = async (req, res) => {
     resultsCount: sessions.length
   });
 
-  sendPaginated(res, toGameSessionListDTOV1(sessions), {
+  sendPaginated(res, toGameSessionListDTOV1(sessionsWithStats), {
     page: Number.parseInt(page, 10),
     limit: Number.parseInt(limit, 10),
     total

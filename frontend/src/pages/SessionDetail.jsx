@@ -32,7 +32,8 @@ import {
   Link2,
   ListOrdered,
   ListChecks,
-  Sparkles
+  Sparkles,
+  Lock
 } from 'lucide-react';
 import { toast } from 'sonner';
 import PropTypes from 'prop-types';
@@ -48,6 +49,7 @@ import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import SelectPremium from '../components/ui/SelectPremium';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import EmptyState from '../components/ui/EmptyState';
+import ErrorState from '../components/ui/ErrorState';
 import Breadcrumb from '../components/ui/Breadcrumb';
 import Tooltip from '../components/ui/Tooltip';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
@@ -164,6 +166,10 @@ export default function SessionDetail() {
 
   const [session, setSession] = useState(null);
   const [loading, setLoading] = useState(true);
+  // (D2) Distinguimos un 404 real (sesión inexistente) de un fallo de red/servidor
+  // (reintentable). Antes cualquier error dejaba `session` en null y se pintaba
+  // "Sesión no encontrada", engañando al docente (creía que se borró) sin reintento.
+  const [error, setError] = useState(null); // null | { isNotFound: boolean, message: string }
   const [deleteLoading, setDeleteLoading] = useState(false);
   const [cloneLoading, setCloneLoading] = useState(false);
 
@@ -196,12 +202,18 @@ export default function SessionDetail() {
       const response = await sessionsAPI.getSessionById(sessionId, signal ? { signal } : {});
       const data = extractData(response);
       setSession(data);
+      setError(null);
     } catch (err) {
       if (isAbortError(err)) {
         return;
       }
-      toast.error('No se pudo cargar la sesión', {
-        description: extractErrorMessage(err)
+      // 404 = sesión inexistente (empty-state "no encontrada"); 403 = sin permiso
+      // (empty-state "sin acceso", sin reintento); cualquier otro error (red, 5xx)
+      // es reintentable → ErrorState con botón de reintento.
+      setError({
+        isNotFound: err?.response?.status === 404,
+        isForbidden: err?.response?.status === 403,
+        message: extractErrorMessage(err)
       });
     } finally {
       if (!signal?.aborted) {
@@ -377,12 +389,32 @@ export default function SessionDetail() {
   }
 
   if (!session) {
+    // (D2) Fallo de red/servidor (no un 404 ni 403): ofrecer reintento en vez de
+    // afirmar que la sesión "no existe".
+    if (error && !error.isNotFound && !error.isForbidden) {
+      return (
+        <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+          <ErrorState
+            title="No pudimos cargar la sesión"
+            message={error.message || 'Hubo un problema al cargar la sesión. Inténtalo de nuevo.'}
+            onRetry={() => loadSession()}
+          />
+        </div>
+      );
+    }
+    // 403 (sin permiso) y 404 (no existe): estado calmado con salida y SIN
+    // reintento; icono y texto distinguen ambos casos.
+    const forbidden = Boolean(error?.isForbidden);
     return (
       <div className="p-6 lg:p-8 max-w-6xl mx-auto">
         <EmptyState
-          title="Sesión no encontrada"
-          description="La sesión solicitada no existe o no está disponible."
-          icon={<Layers size={28} />}
+          title={forbidden ? 'Sin acceso' : 'Sesión no encontrada'}
+          description={
+            forbidden
+              ? 'No tienes permiso para ver esta sesión. Solo puedes acceder a las sesiones que has creado.'
+              : 'La sesión solicitada no existe o no está disponible.'
+          }
+          icon={forbidden ? <Lock size={28} /> : <Layers size={28} />}
           action={(
             <ButtonPremium variant="secondary" onClick={() => navigate(ROUTES.SESSIONS)}>
               <ArrowLeft size={16} />
