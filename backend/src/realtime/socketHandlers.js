@@ -1823,7 +1823,20 @@ const registerSocketHandlers = ({
       // por lo que debe limpiarse aquí (no en el namespace default).
       const gameUserId = socket.data.userId;
       if (gameUserId) {
-        clearRfidModeState(gameUserId, socket.id);
+        // Serializar con el MISMO mutex por-usuario que usan los comandos
+        // (join/leave/set RFID mode). Sin él, el `clearRfidModeState` del socket
+        // viejo podía interleavear con el `JOIN_PLAY` del socket nuevo en una
+        // reconexión rápida de /game, corrompiendo los mapas compartidos
+        // (rfidModeByUserId, sensorIdToUserId) y su persistencia en Redis.
+        // Fire-and-forget: el handler de disconnect no puede await, pero el lock
+        // garantiza el orden respecto a las operaciones de modo del socket nuevo.
+        executeWithRfidLock(gameUserId, () => clearRfidModeState(gameUserId, socket.id)).catch(
+          err =>
+            logger.warn('Fallo limpiando modo RFID en disconnect', {
+              userId: gameUserId,
+              err: err?.message
+            })
+        );
       }
       socket.data.playOwnershipCache = null;
       socketRateLimiter.cleanupForSocket(socket);

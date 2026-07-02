@@ -15,6 +15,7 @@ import Tooltip from '../components/ui/Tooltip';
 import TimerBar from '../components/game/TimerBar';
 import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/game/ScoreDisplay';
 import GameOverScreen from '../components/game/GameOverScreen';
+import ErrorState from '../components/ui/ErrorState';
 import CharacterMascot from '../components/game/CharacterMascot';
 import { resolveAssociationTheme } from '../components/game/associationTheme';
 import { getMechanicTheme } from '../lib/mechanicTheme';
@@ -29,6 +30,7 @@ import { useSoundEffects } from '../hooks/useSoundEffects';
 import { useGameTimer } from '../hooks/useGameTimer';
 import { useGameSocket } from '../hooks/useGameSocket';
 import { useGameSessionState } from '../hooks/useGameSessionState';
+import { useStartupGuard } from '../hooks/useStartupGuard';
 import { normalizeFinalSummary } from '../lib/finalSummary';
 import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from '../lib/sessionSnapshot';
 
@@ -203,6 +205,11 @@ export default function GameSession() {
   // el backend ha confirmado board_ready (playEndsAt establecido). Antes de
   // eso mostramos la barra llena y estatica, evitando el visual "bucle vacio".
   const [memoryTimerArmed, setMemoryTimerArmed] = useState(false);
+  // Conexión en tiempo real, sincronizada desde `realtimeStatus` (que devuelve
+  // useGameSocket MÁS ABAJO). Se declara aquí porque `useGameTimer` —que la
+  // consume para congelar la barra durante una reconexión— se llama antes que
+  // useGameSocket; el effect de sincronización vive tras el hook de socket.
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(true);
 
   // --- Hooks de feedback y sonido ---
   const gameFeedback = useGameFeedback({
@@ -240,7 +247,8 @@ export default function GameSession() {
     memoryFeedbackActive,
     memoryTimerArmed,
     roundTime,
-    playTick
+    playTick,
+    isRealtimeConnected
   });
 
   // Sincronizar refs
@@ -311,7 +319,10 @@ export default function GameSession() {
       } else {
         dispatch({ type: 'ANSWER_INCORRECT', score: newScore });
         setShakeError(true);
-        globalThis.setTimeout(() => setShakeError(false), 600);
+        // Rastreado en pendingTimeoutRef (como el resto): sin esto, si el
+        // componente se desmonta en estos 600ms disparaba setState sobre un
+        // componente ya desmontado (inconsistente con el patrón del archivo).
+        pendingTimeoutRef.current.push(globalThis.setTimeout(() => setShakeError(false), 600));
       }
       if (socketSessionRef.current?.mechanic?.name === 'memory') {
         setMemoryFeedbackActive(true);
@@ -883,6 +894,12 @@ export default function GameSession() {
     emitBoardReady
   } = socket;
 
+  // Sincroniza la conexión en tiempo real al estado declarado arriba (que
+  // `useGameTimer` consume para congelar la barra durante una reconexión).
+  useEffect(() => {
+    setIsRealtimeConnected(realtimeStatus === 'connected');
+  }, [realtimeStatus]);
+
   // Memoiza la lista de cardMappings de la sesión para que SequenceGameplayPanel
   // no re-renderice en cada cambio del padre — sin esto, el `|| []` inline
   // creaba una referencia nueva por cada render del GameSession (Bloque G,
@@ -1057,18 +1074,44 @@ export default function GameSession() {
   //   arranca la memorización de la ronda 1 SOLO entonces y el alumno recibe los
   //   segundos completos — antes la pantalla pre-inicio "¡Hora de Jugar!"
   //   consumía ese tiempo (el timer corría desde el bootstrap).
+  // - Asociación (A1): cuando el reto de la ronda 1 ya está renderizado
+  //   (gameState='playing'). Antes NO emitía board_ready, así que el backend armaba
+  //   el roundTimer en el bootstrap y el niño perdía 1-3s del reloj mientras el
+  //   frontend aún cargaba. Ahora las 3 mecánicas comparten el mismo gate.
   useEffect(() => {
     if (gameState !== 'playing' || !playId || boardReadyEmittedRef.current) {
       return;
     }
+    // Memoria: esperar a que el tablero esté poblado antes de confirmar.
     if (sessionIsMemory && memoryBoard.length === 0) {
       return;
     }
-    if (sessionIsMemory || sessionIsSequence) {
-      boardReadyEmittedRef.current = true;
-      emitBoardReady();
-    }
+    boardReadyEmittedRef.current = true;
+    emitBoardReady();
   }, [sessionIsMemory, sessionIsSequence, gameState, memoryBoard, playId, emitBoardReady]);
+
+  // --- Blindaje del arranque de partida (todas las mecánicas) ---
+  // Reintento: limpia estado local y re-emite start_play. Con el reclamo de
+  // tarjetas huérfanas del backend, un conflicto de "tarjeta en uso" por una
+  // partida interrumpida previa se resuelve en el reintento sin intervención.
+  const retryStartPlay = useCallback(() => {
+    setRealtimeError(null);
+    setMemoryTimerArmed(false);
+    boardReadyEmittedRef.current = false;
+    startPlay();
+  }, [setRealtimeError, startPlay]);
+
+  const { startupError, handleStartupRetry } = useStartupGuard({
+    gameState,
+    playId,
+    realtimeError,
+    sessionIsMemory,
+    sessionIsSequence,
+    memoryBoardLength: memoryBoard.length,
+    sequenceLength: sequenceState.length,
+    hasChallenge: Boolean(challenge),
+    onRetry: retryStartPlay
+  });
 
   // Sonido de victoria cuando la partida termina con buen resultado (>=3 estrellas
   // en la escala canónica de 5 niveles; mismo umbral y MISMA base que las estrellas
@@ -1142,7 +1185,13 @@ export default function GameSession() {
     setSrAnnouncement('Partida iniciada.');
   };
 
-  const togglePause = () => {
+  // `useCallback`: `togglePause` se pasa como `onPauseRequest` al
+  // `memo(FallbackTouchPanel)`. GameSession re-renderiza cada segundo (el tick de
+  // la TimerBar), así que una función nueva por render rompía la memoización del
+  // panel táctil (hasta 20 motion.button) — se reconciliaba cada segundo durante
+  // toda la partida táctil. Con referencia estable, el panel solo re-renderiza
+  // cuando cambian sus props reales.
+  const togglePause = useCallback(() => {
     if (!playId) return;
 
     if (gameState === 'playing') {
@@ -1156,7 +1205,7 @@ export default function GameSession() {
         setSrAnnouncement('Solicitando reanudación de la partida.');
       }
     }
-  };
+  }, [playId, gameState, emitPausePlay, emitResumePlay, setSrAnnouncement]);
 
   const handlePauseDialogKeyDown = event => {
     if (event.key === 'Escape') {
@@ -1235,14 +1284,15 @@ export default function GameSession() {
     try {
       await webSerialService.disconnect();
       await webSerialService.connect();
+      // Solo limpiar el banner guiado si la reconexión tuvo ÉXITO. Antes estaba
+      // en `finally`: si el docente cancelaba el selector de puerto o la conexión
+      // fallaba, el banner desaparecía igualmente y perdía la guía de reconexión
+      // hasta el siguiente scan rechazado (confuso para un usuario no técnico).
+      clearRfidBlocked();
     } catch (reconnectError) {
       toast.error(
         reconnectError?.message || 'No se pudo reconectar el lector. Inténtalo de nuevo.'
       );
-    } finally {
-      // Limpiar el banner pase lo que pase: si el usuario cancela el selector
-      // de puerto, el banner reaparecerá al siguiente scan rechazado.
-      clearRfidBlocked();
     }
   }, [clearRfidBlocked]);
 
@@ -1815,7 +1865,13 @@ export default function GameSession() {
                           feedbackState={feedbackState}
                           feedbackPoints={feedbackPoints}
                           feedbackMessage={feedbackMessage}
-                          onCardTap={handleMemoryCardTap}
+                          // Con el sensor conectado y activo, el tablero NO es tappable:
+                          // el niño juega ESCANEANDO la carta física (el backend voltea la
+                          // del tablero). El fallback táctil (tap) solo aparece cuando se
+                          // pierde el RFID, para poder seguir jugando — mismo criterio que
+                          // el FallbackTouchPanel de Asociación/Secuencia. El tablero sigue
+                          // visible siempre (es el juego); solo se desactiva la interacción.
+                          onCardTap={rfidConnected ? undefined : handleMemoryCardTap}
                         />
                       );
                     }
@@ -1960,6 +2016,76 @@ export default function GameSession() {
                   Continuar
                 </motion.button>
               </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Overlay de reconexión: cuando el socket cae a media partida, el timer
+            visual ya se CONGELA (useGameTimer + isRealtimeConnected). Este overlay
+            cubre el tablero para que el niño no siga tocando cartas cuyas respuestas
+            no se enviarían, y le da un mensaje tranquilizador en vez de dejar la barra
+            vaciándose sola con toasts rojos por cada toque. No es modal (no atrapa el
+            foco): el docente sigue pudiendo pausar/salir desde el HUD. Al reconectar,
+            el backend re-sincroniza `remainingTimeMs` y la partida continúa. */}
+        <AnimatePresence>
+          {gameState === 'playing' && !isRealtimeConnected && (
+            <motion.div
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="absolute inset-0 bg-background-deep/80 backdrop-blur-md flex items-center justify-center z-20"
+              role="status"
+              aria-live="polite"
+            >
+              <motion.div
+                initial={shouldReduceMotion ? false : { scale: 0.92, y: 8, opacity: 0 }}
+                animate={{ scale: 1, y: 0, opacity: 1 }}
+                transition={{ type: 'spring', stiffness: 340, damping: 24 }}
+                className="text-center px-6"
+              >
+                <div className={cn(
+                  'mx-auto mb-5 flex size-20 items-center justify-center rounded-2xl',
+                  'bg-warning-base/15 border border-warning-base/30'
+                )}>
+                  <Loader2 size={44} className="text-warning-base animate-spin" aria-hidden="true" />
+                </div>
+                <h2 className="text-3xl font-bold font-display text-text-primary mb-2 tracking-tight">
+                  Reconectando…
+                </h2>
+                <p className="text-text-secondary">
+                  Espera un momento, seguimos enseguida. No pierdes tiempo.
+                </p>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Overlay de error de ARRANQUE (blindaje, las 3 mecánicas): si la partida
+            no pudo iniciarse (tarjeta en uso por una partida interrumpida previa,
+            config/plan inválido, límite de partidas, o arranque colgado) mostramos
+            un panel claro con Otto y reintento — NUNCA el skeleton "Preparando
+            cartas…" infinito, que deja al docente sin entender qué ocurre. El
+            backend reclama las tarjetas de la partida huérfana, así que el reintento
+            normalmente resuelve el conflicto sin más. */}
+        <AnimatePresence>
+          {startupError && (
+            <motion.div
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="absolute inset-0 bg-background-deep/85 backdrop-blur-md flex items-center justify-center z-30 px-4"
+              role="alert"
+              aria-live="assertive"
+            >
+              <ErrorState
+                title="No se pudo iniciar la partida"
+                message={startupError.message}
+                mascot={<CharacterMascot mood="worried" size="lg" noBubble />}
+                onRetry={handleStartupRetry}
+                retryLabel="Reintentar"
+              />
             </motion.div>
           )}
         </AnimatePresence>

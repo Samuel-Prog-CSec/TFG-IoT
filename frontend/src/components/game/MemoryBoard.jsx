@@ -4,7 +4,7 @@
  * feedback visual de acierto/error y accesibilidad.
  */
 
-import { useState, useEffect, useMemo } from 'react';
+import { useEffect, useMemo, useRef } from 'react';
 import { m as motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { Heart, Sparkle } from 'lucide-react';
@@ -39,12 +39,16 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
   // grandes. Cap 6 columnas para no aplastar la motricidad infantil.
   const [gridRef, columns] = useSquareGridColumns(total, { maxCols: 6 });
   const gridStyle = { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` };
-  const [prevBoard, setPrevBoard] = useState([]);
+  // Snapshot del tablero anterior en un ref (no en estado): calcular
+  // `feedbackSlots` necesita comparar con el board previo, pero derivarlo a estado
+  // vía useEffect+setState provocaba un render EXTRA por cada cambio de tablero.
+  // El ref se actualiza tras el render (effect de abajo), sin re-render.
+  const prevBoardRef = useRef([]);
 
   // Detectar qué celdas acaban de cambiar (recién emparejadas o reveladas para feedback)
   const feedbackSlots = new Set();
   if (feedbackState !== 'idle') {
-    const prevBySlotIndex = new Map(prevBoard.map(p => [p.slotIndex, p]));
+    const prevBySlotIndex = new Map(prevBoardRef.current.map(p => [p.slotIndex, p]));
     for (const slot of safeBoard) {
       const prev = prevBySlotIndex.get(slot.slotIndex);
       if (!prev) continue;
@@ -59,9 +63,14 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
     }
   }
 
-  // Actualizar snapshot del board anterior tras cada cambio de board
+  // Actualizar el snapshot del board anterior tras cada cambio de board. Al vivir
+  // en un ref, esto NO dispara re-render (a diferencia del antiguo setPrevBoard).
   useEffect(() => {
-    setPrevBoard(safeBoard.map(s => ({ slotIndex: s.slotIndex, isMatched: s.isMatched, isRevealed: s.isRevealed })));
+    prevBoardRef.current = safeBoard.map(s => ({
+      slotIndex: s.slotIndex,
+      isMatched: s.isMatched,
+      isRevealed: s.isRevealed
+    }));
   }, [board]); // eslint-disable-line react-hooks/exhaustive-deps
 
   const pairsFound = safeBoard.filter(s => s.isMatched).length / 2;

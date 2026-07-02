@@ -31,6 +31,13 @@ const ACTIVE_PLAYS_WARNING_THRESHOLD =
 // Límite duro de partidas activas simultáneas - protección contra OOM
 const ACTIVE_PLAYS_HARD_LIMIT = Number.parseInt(process.env.ACTIVE_PLAYS_HARD_LIMIT, 10) || 2000;
 const PLAY_TIMEOUT_MS = Number.parseInt(process.env.PLAY_TIMEOUT_MS, 10) || 3600000; // 1 hora
+// Gracia mínima antes de reclamar las tarjetas de una partida HUÉRFANA (sin
+// cliente conectado) en conflicto con un nuevo arranque. Evita reclamar una
+// partida legítima cuyo cliente esté momentáneamente fuera de la sala (race de
+// JOIN_PLAY); a la vez, una partida interrumpida real (corte de red) supera este
+// umbral enseguida, liberando sus tarjetas para que el reintento del docente
+// funcione en vez de quedar bloqueado hasta PLAY_TIMEOUT_MS (1h).
+const ORPHAN_RECLAIM_GRACE_MS = Number.parseInt(process.env.ORPHAN_RECLAIM_GRACE_MS, 10) || 10000;
 const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
 const PROCESS_BATCH_SIZE = Number.parseInt(process.env.GAME_ENGINE_BATCH_SIZE, 10) || 20;
 const PERSIST_ROUND_START_EVENTS = process.env.PERSIST_ROUND_START_EVENTS === 'true';
@@ -526,6 +533,7 @@ class GameEngine {
               message:
                 'El servidor ha alcanzado el límite de partidas simultáneas. Inténtalo de nuevo más tarde.'
             });
+            await this._releaseInitLock(playId);
             return;
           }
 
@@ -536,15 +544,38 @@ class GameEngine {
             );
           }
 
-          // 1. Bloquear las tarjetas para este juego
-          // Esto previene que la misma tarjeta se use en dos juegos a la vez
+          // 1. Bloquear las tarjetas para este juego.
+          // Antes de rechazar por "tarjeta en uso", intentamos RECLAMAR las
+          // partidas en conflicto que estén huérfanas (sin cliente conectado /
+          // nunca arrancaron). Una partida interrumpida (corte de red, el docente
+          // cierra la pestaña) dejaba sus tarjetas reservadas hasta 1h
+          // (PLAY_TIMEOUT_MS), de modo que el docente que reintentaba con el mismo
+          // mazo quedaba bloqueado con un error perpetuo. Reclamar libera esas
+          // tarjetas para que el arranque/reintento funcione. Una partida REALMENTE
+          // en curso (con cliente conectado) NO se reclama: el rechazo es correcto.
+          const conflictingPlayIds = new Set();
           for (const mapping of sessionDoc.cardMappings) {
-            if (this.cardUidToPlayId.has(mapping.uid)) {
-              // La tarjeta ya está en otro juego activo
-              logger.error(`Error al iniciar ${playId}: Tarjeta ${mapping.uid} ya en uso.`);
+            const owner = this.cardUidToPlayId.get(mapping.uid);
+            if (owner && owner !== playId) {
+              conflictingPlayIds.add(owner);
+            }
+          }
+          for (const conflictId of conflictingPlayIds) {
+            await this._reclaimOrphanedPlay(conflictId);
+          }
+
+          // Re-verificar tras el intento de reclamación: si alguna tarjeta sigue
+          // ocupada por una partida activa real, ahora sí rechazamos.
+          for (const mapping of sessionDoc.cardMappings) {
+            const owner = this.cardUidToPlayId.get(mapping.uid);
+            if (owner && owner !== playId) {
+              logger.error(
+                `Error al iniciar ${playId}: Tarjeta ${mapping.uid} ya en uso (partida ${owner}).`
+              );
               this.io.to(`play_${playId}`).emit('error', {
                 message: `La tarjeta ${mapping.assignedValue || mapping.uid} ya está en uso en otra partida`
               });
+              await this._releaseInitLock(playId);
               return;
             }
           }
@@ -568,6 +599,7 @@ class GameEngine {
             this.io.to(`play_${playId}`).emit('error', {
               message: `La tarjeta ${conflictedMapping?.assignedValue || conflictedUid || 'desconocida'} ya está en uso en otra partida`
             });
+            await this._releaseInitLock(playId);
             return;
           }
 
@@ -635,6 +667,7 @@ class GameEngine {
               for (const mapping of sessionDoc.cardMappings) {
                 this.cardUidToPlayId.delete(mapping.uid);
               }
+              await this._releaseInitLock(playId);
               return;
             }
           }
@@ -680,6 +713,13 @@ class GameEngine {
             // memorización de la ronda 1 (el timer de displaySeconds corría antes
             // de que el alumno pudiera ver la secuencia). Memoria ya usa el mismo
             // mecanismo; aquí lo extendemos a Secuencia (F-03).
+            playState.awaitingBoardReady = true;
+          } else {
+            // Asociación: mismo gate de board_ready que Memoria/Secuencia. Sin él,
+            // el `roundTimer` de la ronda 1 se armaba en el bootstrap (mientras el
+            // frontend aún cargaba/renderizaba), consumiendo 1-3s del tiempo jugable
+            // antes de que el niño pudiera ver el reto (frontend audit A1). El
+            // timer se arma cuando el tablero es visible (confirmBoardReady).
             playState.awaitingBoardReady = true;
           }
 
@@ -733,6 +773,97 @@ class GameEngine {
       }
     }
     this.activePlays.delete(playId);
+    await this._releaseInitLock(playId);
+  }
+
+  /**
+   * Libera (best-effort) el `PLAY_INIT_LOCK` de una partida cuyo arranque falló.
+   * Sin esto, un fallo en `startPlay` (tarjeta en uso, config inválida, límite de
+   * partidas) dejaba el lock retenido 60s (su TTL) y un reintento con el MISMO
+   * playId se rechazaba silenciosamente en ese intervalo. En el éxito el lock lo
+   * libera `endPlay` (junto al resto de recursos) — este helper es solo para los
+   * caminos de fallo temprano.
+   *
+   * @private
+   * @param {string} playId
+   * @returns {Promise<void>}
+   */
+  async _releaseInitLock(playId) {
+    try {
+      await redisService.del(redisService.NAMESPACES.PLAY_INIT_LOCK, playId);
+    } catch (err) {
+      logger.warn('Fallo liberando PLAY_INIT_LOCK tras error de startPlay', {
+        playId,
+        err: err?.message
+      });
+    }
+  }
+
+  /**
+   * Reclama una partida en conflicto de tarjetas SI está huérfana, liberando sus
+   * tarjetas para que un nuevo `startPlay` con el mismo mazo pueda arrancar.
+   *
+   * Una partida se considera reclamable si:
+   *  - Ya no existe en `activePlays` pero dejó una reserva colgada en el Map
+   *    `cardUidToPlayId` → se limpia la reserva directamente.
+   *  - Está en `activePlays` SIN cliente conectado en su sala (huérfana) y, además,
+   *    superó `ORPHAN_RECLAIM_GRACE_MS` de vida (evita reclamar una partida
+   *    legítima cuyo cliente esté en pleno JOIN_PLAY). Se abandona vía `endPlay`,
+   *    que libera tarjetas (memoria + Redis) y persiste el estado como abandonada.
+   *
+   * Si la partida en conflicto tiene un cliente conectado (se está jugando de
+   * verdad), NO se reclama: el rechazo posterior por "tarjeta en uso" es correcto.
+   * Ante cualquier duda (no se pueden listar sockets), NO se reclama.
+   *
+   * @private
+   * @param {string} conflictId - playId de la partida en conflicto.
+   * @returns {Promise<void>}
+   */
+  async _reclaimOrphanedPlay(conflictId) {
+    const playState = this.activePlays.get(conflictId);
+
+    // Reserva colgada: la partida ya no existe pero quedaron entradas en el Map.
+    if (!playState) {
+      let cleaned = 0;
+      for (const [uid, owner] of this.cardUidToPlayId.entries()) {
+        if (owner === conflictId) {
+          this.cardUidToPlayId.delete(uid);
+          cleaned++;
+        }
+      }
+      if (cleaned > 0) {
+        logger.warn(
+          `Reserva colgada de ${conflictId} liberada (${cleaned} tarjetas, sin partida activa)`
+        );
+      }
+      return;
+    }
+
+    // ¿Algún cliente conectado en la sala de la partida en conflicto?
+    let hasConnectedClient = true; // ante duda, NO reclamar
+    try {
+      const sockets = await this.io.in(`play_${conflictId}`).fetchSockets();
+      hasConnectedClient = Array.isArray(sockets) && sockets.length > 0;
+    } catch (err) {
+      logger.warn('No se pudo comprobar clientes de la partida en conflicto; no se reclama', {
+        conflictId,
+        err: err?.message
+      });
+      return;
+    }
+
+    if (hasConnectedClient) {
+      return; // partida realmente en curso: el rechazo por "tarjeta en uso" es correcto
+    }
+
+    const neverStarted = playState.awaitingBoardReady === true;
+    const ageMs = Date.now() - (playState.createdAt || Date.now());
+    if (ageMs > ORPHAN_RECLAIM_GRACE_MS) {
+      logger.warn(
+        `Reclamando partida huérfana ${conflictId} para liberar sus tarjetas (sin cliente, neverStarted=${neverStarted}, edad=${Math.round(ageMs / 1000)}s)`
+      );
+      await this.endPlay(conflictId, { abandoned: true });
+    }
   }
 
   /**
@@ -966,7 +1097,12 @@ class GameEngine {
             studentName: player?.name,
             studentId: playState.playDoc.playerId,
             sessionName: playState.sessionDoc?.name,
-            sessionId: playState.playDoc.sessionId,
+            // `playDoc.sessionId` puede venir POPULADO (documento completo). Pasar el
+            // `_id` limpio evita que el link de la notificación arrastre el doc entero.
+            sessionId:
+              playState.sessionDoc?._id ||
+              playState.playDoc?.sessionId?._id ||
+              playState.playDoc?.sessionId,
             score: playState.playDoc.score,
             maxScore: playState.playDoc.maxScore,
             playId
@@ -1248,6 +1384,17 @@ class GameEngine {
       }
 
       this.emitMemoryTurnState(playId, playState, { phase: 'first_pick' });
+      return;
+    }
+
+    // Grupos ≥ 3 (tríos+): las cartas intermedias (2ª..N-1) revelan pero aún no
+    // resuelven el grupo. MemoryStrategy ya las deja en `revealedUids`, pero sin
+    // emitir `memory_turn_state` el cliente NO las volteaba hasta que la última
+    // carta resolvía — el niño veía la carta 2 de un trío aparecer de golpe con
+    // la 3ª. Emitimos el estado del tablero para que el volteo intermedio se vea.
+    // (Con el grupo=2 del seed, `intermediate_pick` nunca ocurre → sin efecto.)
+    if (outcome.type === 'intermediate_pick') {
+      this.emitMemoryTurnState(playId, playState, { phase: 'intermediate_pick' });
       return;
     }
 
@@ -1565,12 +1712,19 @@ class GameEngine {
     // El cliente cree que el reloj llega a 0 a `timeLimit`, pero el servidor
     // aún acepta scans durante `ROUND_GRACE_PERIOD_MS` extra. Esto evita que
     // los scans en tránsito en el último frame se descarten como `not_awaiting`.
-    playState.roundTimer = setTimeout(
-      () => {
-        this.handleTimeout(playId);
-      },
-      sessionDoc.config.timeLimit * 1000 + ROUND_GRACE_PERIOD_MS
-    );
+    //
+    // Ronda 1 de Asociación: NO armamos el timer aquí si `awaitingBoardReady`
+    // (mismo gate que Memoria en el branch de arriba). El reto ya se emitió, pero
+    // el reloj arranca cuando el tablero es visible (`confirmBoardReady`), no en
+    // el bootstrap. Las rondas 2+ tienen `awaitingBoardReady=false` → arman aquí.
+    if (!playState.awaitingBoardReady) {
+      playState.roundTimer = setTimeout(
+        () => {
+          this.handleTimeout(playId);
+        },
+        sessionDoc.config.timeLimit * 1000 + ROUND_GRACE_PERIOD_MS
+      );
+    }
   }
 
   /**
@@ -1902,8 +2056,14 @@ class GameEngine {
         return;
       }
 
+      // Memoria NO usa este path: su timeout lo gestiona `scheduleMemoryPlayTimeout`
+      // → `handleMemoryTimeout`, que adquiere su PROPIO lock. Llamarlo aquí —ya
+      // DENTRO del lock 'handle_timeout'— anidaría el lock sobre el mismo playId y
+      // colgaría la partida para siempre (deadlock). El `roundTimer` que dispara
+      // este método nunca se arma para Memoria, así que la rama es inalcanzable
+      // hoy; salimos sin procesar (en vez de deadlockear) como defensa ante un
+      // cambio futuro que armara `roundTimer` para Memoria.
       if (this.isMemoryPlay(playState)) {
-        await this.handleMemoryTimeout(playId);
         return;
       }
 
@@ -2215,7 +2375,23 @@ class GameEngine {
       return;
     }
 
+    // Asociación (A1): el reto de la ronda 1 ya se emitió en `sendNextRound`, pero
+    // su `roundTimer` se difirió (awaitingBoardReady). Lo armamos AHORA que el
+    // tablero es visible y reanclamos `roundStartTime` para medir el tiempo de la
+    // ronda desde que el niño puede responder, no desde el bootstrap.
     if (!this.isMemoryPlay(playState)) {
+      playState.awaitingBoardReady = false;
+      playState.roundStartTime = Date.now();
+      const timeLimitSec = Number(playState.sessionDoc?.config?.timeLimit) || 0;
+      if (timeLimitSec > 0) {
+        playState.roundTimer = setTimeout(
+          () => {
+            this.handleTimeout(playId);
+          },
+          timeLimitSec * 1000 + ROUND_GRACE_PERIOD_MS
+        );
+      }
+      logger.info('Timer de Asociación iniciado tras board_ready', { playId });
       return;
     }
 

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { CreditCard } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -28,19 +28,32 @@ export default function CardAssetPreview({
   // Cada retry remonta el <img> vía `key` (re-dispara la carga) manteniendo la URL
   // canónica; antes se usaba ?retry=N, que rompía el cache de CDN/navegador.
   const [retries, setRetries] = useState(0);
+  // Referencia al nodo <img> real para poder consultar su estado de carga desde
+  // el efecto de cambio de URL (ver abajo por qué es imprescindible).
+  const imgNodeRef = useRef(null);
 
-  // Reset total cuando cambia la URL fuente (asset distinto).
+  // Reset al cambiar la URL fuente (asset distinto). NO ponemos `imageLoading`
+  // en true a ciegas: en Memoria la carta se voltea con la imagen YA precargada
+  // (prefetch del mazo), así que el <img> recién montado con el nuevo src suele
+  // estar `complete` en cache. En ese caso el navegador NO vuelve a disparar
+  // `onLoad` (la carga ya ocurrió), y como este efecto corre DESPUÉS del callback
+  // ref, dejaríamos `imageLoading=true` para siempre → la imagen queda cargada
+  // pero en opacity-0 (invisible). Por eso consultamos el nodo real (ya montado
+  // en la fase de commit) y solo mostramos "cargando" si de verdad no está listo.
   useEffect(() => {
     setImageError(false);
-    setImageLoading(Boolean(imageUrl));
     setRetries(0);
+    const node = imgNodeRef.current;
+    const alreadyLoaded = Boolean(node && node.complete && node.naturalWidth > 0);
+    setImageLoading(Boolean(imageUrl) && !alreadyLoaded);
   }, [imageUrl]);
 
-  // Callback ref: detecta imagenes que ya se cargaron desde cache antes de
-  // que React adjunte el handler onLoad. Tambien sincroniza el estado cuando
-  // un re-render reusa el mismo <img> con el mismo src (caso comun en juegos
-  // donde se barajan las cartas pero los assets se repiten entre rondas).
+  // Callback ref: guarda el nodo y detecta imagenes que ya se cargaron desde
+  // cache antes de que React adjunte el handler onLoad. Tambien sincroniza el
+  // estado cuando un re-render reusa el mismo <img> con el mismo src (caso comun
+  // en juegos donde se barajan las cartas pero los assets se repiten entre rondas).
   const imgRef = useCallback((node) => {
+    imgNodeRef.current = node;
     if (!node) return;
     if (node.complete && node.naturalWidth > 0) {
       setImageLoading(false);

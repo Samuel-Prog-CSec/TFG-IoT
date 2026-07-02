@@ -361,8 +361,21 @@ export function useGameSocket({
     const wrappedOnGameOver = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onGameOver(data); };
     // (F2) Wrappers de Secuencia vía ref (igual que los de arriba): resuelven la
     // versión ACTUAL del callback en cada evento, no la del primer render.
-    const wrappedOnSequenceCardResult = data => { gameplayCallbacksRef.current.onSequenceCardResult?.(data); };
-    const wrappedOnSequenceRoundResult = data => { gameplayCallbacksRef.current.onSequenceRoundResult?.(data); };
+    // `cancelPendingScanTimeout()` es OBLIGATORIO aquí, igual que en los wrappers
+    // de Memoria/Asociación: cada scan hardware/sim arma un timeout de 3s que
+    // muestra "Tarjeta no reconocida". Sin cancelarlo al recibir la respuesta del
+    // servidor (`sequence_card_result`/`round_result`), tras la última carta de
+    // cada ronda saltaba un toast rojo espurio ~3s después, aunque la carta SÍ se
+    // aceptó — falso negativo confuso para el niño y el docente.
+    const wrappedOnSequenceCardResult = data => {
+      cancelPendingScanTimeout();
+      setRealtimeError(null);
+      gameplayCallbacksRef.current.onSequenceCardResult?.(data);
+    };
+    const wrappedOnSequenceRoundResult = data => {
+      cancelPendingScanTimeout();
+      gameplayCallbacksRef.current.onSequenceRoundResult?.(data);
+    };
 
     const onScanIgnored = payload => {
       cancelPendingScanTimeout();
@@ -404,9 +417,17 @@ export function useGameSocket({
       onSrAnnouncement(message);
     };
 
-    // Timeout client-side: si el frontend envía un scan y no recibe respuesta en 3s
+    // Timeout client-side: si el frontend envía un scan y no recibe respuesta en 3s.
+    // `webSerialService` emite `scan` SIEMPRE, incluso cuando el socket está caído
+    // y la lectura solo se ENCOLA (no se envía). En ese caso NO armamos el timeout:
+    // no habrá respuesta del servidor y el toast "Tarjeta no reconocida" sería
+    // factualmente incorrecto (la carta era válida y quedó en cola para reenviar).
+    // El feedback correcto de ese caso ya lo cubren la cola + el evento `scan_expired`.
     const handleLocalScan = () => {
       cancelPendingScanTimeout();
+      if (!socketService.isGameSocketConnected()) {
+        return;
+      }
       pendingScanTimeoutRef.current = setTimeout(() => {
         toast.warning('Tarjeta no reconocida. Verifica que pertenece a esta sesión.', {
           id: 'scan-timeout',
@@ -639,6 +660,15 @@ export function useGameSocket({
         return;
       }
       socketService.sendGameCommand(GAME_EVENTS.JOIN_PLAY, { playId: currentPlayId });
+      // Reenviar los escaneos encolados durante la caída de /game. El socket de
+      // sistema (`onSocketConnect`) ya hace flush, pero /game es una conexión io()
+      // INDEPENDIENTE que puede caer y volver sola (blip de WiFi de aula) sin que
+      // el de sistema lo haga; sin este flush las respuestas del niño quedaban
+      // varadas hasta el siguiente escaneo hardware. Orden correcto: JOIN_PLAY re-
+      // registra el modo RFID ANTES de reenviar (mismo socket → FIFO).
+      if (typeof webSerialService.flushPendingScans === 'function') {
+        webSerialService.flushPendingScans();
+      }
       socketService.requestPlayStateSync(currentPlayId);
     };
 

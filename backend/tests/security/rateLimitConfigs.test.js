@@ -16,11 +16,17 @@ const EXPECTED_HTTP_LIMITS = {
 };
 
 const EXPECTED_SOCKET_LIMITS = {
-  rfid_scan_from_client: { windowMs: 60 * 1000, max: 60 }
+  // Auditoría 2026-07-02: subido de 60 a 120/min. En modo táctil un niño puede
+  // superar 60 taps/min "masheando" el tablero (dedupe táctil de 250ms → hasta
+  // 4/s) y perder respuestas legítimas; 120/min sigue filtrando abuso real y el
+  // dedupe cubre el chattering del sensor. Además `rfid_scan_from_client` es ahora
+  // un evento "soft-limit" (ver socketSoftLimitEvents): al excederse descarta la
+  // lectura sobrante SIN activar el bloqueo compartido que congelaba los controles.
+  rfid_scan_from_client: { windowMs: 60 * 1000, max: 120 }
 };
 
 describe('rate limits recalibrados (B4)', () => {
-  it('socket rfid_scan_from_client está en 60/min', () => {
+  it('socket rfid_scan_from_client está en 120/min', () => {
     const { socketRateLimits } = require('../../src/config/socketRateLimits');
     const cfg = socketRateLimits.rfid_scan_from_client;
     expect(cfg).toEqual(EXPECTED_SOCKET_LIMITS.rfid_scan_from_client);

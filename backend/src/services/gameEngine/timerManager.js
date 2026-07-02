@@ -13,8 +13,14 @@ const PLAY_TIMEOUT_MS = Number.parseInt(process.env.PLAY_TIMEOUT_MS, 10) || 3600
 const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
 const DISTRIBUTED_LOCK_TTL_SECONDS =
   Number.parseInt(process.env.GAME_ENGINE_LOCK_TTL_SECONDS, 10) || 90;
+// Heartbeat a 45s (antes 30s): con TTL de 90s mantiene un margen 2× de seguridad
+// ante blips de red, pero renueva el lease de cada partida ~10 veces (en vez de
+// ~20) por partida de 10 min. En `scale=1` el lease solo sirve para recovery tras
+// reinicio de Koyeb, no para coordinación entre instancias; su renovación es el
+// consumidor DOMINANTE de comandos Upstash por partida — recortarlo a la mitad
+// alivia el techo free-tier de 10k comandos/día sin coste funcional real.
 const LOCK_HEARTBEAT_INTERVAL_MS =
-  Number.parseInt(process.env.GAME_ENGINE_LOCK_HEARTBEAT_MS, 10) || 30000;
+  Number.parseInt(process.env.GAME_ENGINE_LOCK_HEARTBEAT_MS, 10) || 45000;
 
 // ============================================================================
 // CLEANUP DE PARTIDAS ABANDONADAS

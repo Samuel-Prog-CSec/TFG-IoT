@@ -26,6 +26,7 @@ const { connectDB, disconnectDB } = require('./config/database');
 const { connectRedis, disconnectRedis } = require('./config/redis');
 const { initSentry, setupSentryErrorHandler } = require('./config/sentry');
 const { socketPayloadLimits } = require('./config/socketRateLimits');
+const { isMultiInstanceEnabled } = require('./config/scaling');
 const {
   corsOptions,
   ensureCsrfCookie,
@@ -134,8 +135,17 @@ const gameNsp = io.of('/game');
  */
 const gameEngine = new GameEngine(gameNsp);
 
-// Rate limiting para WebSockets (instancia única compartida)
-const socketRateLimiter = createSocketRateLimiter({ logger });
+// Rate limiting para WebSockets (instancia única compartida).
+// `useRedis` se gatea por la MISMA señal que el adapter Socket.IO y el pub/sub:
+// en `scale=1` (invariante actual, Upstash free-tier 10k comandos/día) el ZSET
+// distribuido no aporta nada frente al limiter in-memory, pero gastaría ~1
+// comando Upstash por CADA evento de socket (scans, heartbeats, control). Con
+// SOCKET_ADAPTER_ENABLED=false → in-memory, 0 comandos. Al escalar a >1
+// instancia, la misma flag reactiva el store distribuido.
+const socketRateLimiter = createSocketRateLimiter({
+  logger,
+  useRedis: isMultiInstanceEnabled()
+});
 if (process.env.NODE_ENV !== 'test') {
   socketRateLimiter.startCleanupTimer();
 }

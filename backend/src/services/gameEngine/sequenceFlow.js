@@ -183,12 +183,7 @@ function resumeFeedbackPhase(engine, playId) {
   if (playState.strategyState?.phase !== SEQUENCE_PHASE[2]) {
     return; // 'completed'
   }
-  if (playState.nextRoundTimer) {
-    clearTimeout(playState.nextRoundTimer);
-  }
-  playState.nextRoundTimer = setTimeout(() => {
-    advanceSequence(engine, playId);
-  }, FEEDBACK_PAUSE_MS);
+  scheduleSequenceAdvance(engine, playState, playId);
 }
 
 /**
@@ -214,6 +209,14 @@ function enterSequenceReproducingPhase(engine, playId) {
   playState.roundStartTime = Date.now();
   // Ancla del tiempo de respuesta por carta (se reinicia cada ronda; la 1ª carta
   // se mide desde aquí, las siguientes como delta entre scans).
+  // NOTA (auditoría 2026-07-02): la 1ª carta de cada ronda incluye el grace de
+  // reproducción (`SEQUENCE_REPRODUCE_GRACE_MS`), durante el cual el cliente
+  // congela la barra, así que su `timeElapsed` queda ~2.4s inflado frente a
+  // Asociación/Memoria en el KPI cross-mecánica. Sumar el grace al ancla lo
+  // corregiría, pero rompe la semántica del guard de regresión de ADR-222
+  // (sequenceFlow.test.js) que fija la 1ª carta en el delta desde el inicio de
+  // reproducing. Se deja el skew (menor) como decisión consciente para no tocar
+  // ese contrato de test; revisitar junto con el test si se prioriza el KPI.
   playState.lastSequenceScanAt = playState.roundStartTime;
   playState.remainingTimeMs = null;
   playState.roundElapsedBeforePauseMs = 0;
@@ -488,17 +491,41 @@ async function finalizeSequenceRound(engine, playId, { timedOut }) {
     roundNumber: summary.roundNumber
   });
 
-  // Pausa breve para que el cliente muestre el resultado antes de la siguiente ronda.
+  // Pausa breve para que el cliente muestre el resultado antes de la siguiente
+  // ronda. El avance corre bajo el lock de partida (ver scheduleSequenceAdvance).
+  scheduleSequenceAdvance(engine, playState, playId);
+}
+
+/**
+ * Programa el avance a la siguiente ronda de Secuencia BAJO el lock de partida.
+ *
+ * El incremento de `currentRound` + `playDoc.save()` de `advanceSequence` deben
+ * serializarse con pause/resume (que también hacen `save()` sobre el MISMO
+ * documento Mongoose). Sin el lock, ambos `save()` podían solaparse
+ * (`ParallelSaveError`) y, peor, el incremento no idempotente podía saltarse una
+ * ronda al reanudar (dejando su puntuación inalcanzable → `scorePercent` nunca
+ * llega a 100% y arrastra la media del alumno). Mismo patrón que Asociación y
+ * Memoria, que ya canalizan TODAS sus mutaciones por el lock.
+ *
+ * @param {Object} engine
+ * @param {Object} playState
+ * @param {string} playId
+ */
+function scheduleSequenceAdvance(engine, playState, playId) {
   if (playState.nextRoundTimer) {
     clearTimeout(playState.nextRoundTimer);
   }
   playState.nextRoundTimer = setTimeout(() => {
-    advanceSequence(engine, playId);
+    engine
+      .executeWithPlayLock(playId, 'sequence_advance', () => advanceSequence(engine, playId))
+      .catch(err => logger.error('Error avanzando secuencia', { playId, error: err?.message }));
   }, FEEDBACK_PAUSE_MS);
 }
 
 /**
  * Avanza el `currentRound` y dispara la siguiente ronda o finaliza la partida.
+ * Se ejecuta SIEMPRE bajo `executeWithPlayLock` (ver `scheduleSequenceAdvance`),
+ * por lo que el re-chequeo de `paused` es autoritativo frente a pause/resume.
  */
 async function advanceSequence(engine, playId) {
   const playState = engine.activePlays.get(playId);
@@ -519,7 +546,15 @@ async function advanceSequence(engine, playId) {
   }
 
   playState.playDoc.currentRound = Number(playState.playDoc.currentRound || 1) + 1;
-  await playState.playDoc.save();
+  try {
+    await playState.playDoc.save();
+  } catch (error) {
+    // Bajo el lock no debería producirse ParallelSaveError; si aún así falla el
+    // save, revertimos el incremento en memoria para no saltarnos la ronda al
+    // reintentar y propagamos para que el caller lo registre.
+    playState.playDoc.currentRound = Number(playState.playDoc.currentRound || 1) - 1;
+    throw error;
+  }
 
   await engine.sendNextRound(playId);
 }

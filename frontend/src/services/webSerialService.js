@@ -589,11 +589,20 @@ class WebSerialService {
       case 'card_detected':
         this._handleCardDetected(event);
         break;
-      case 'card_removed':
-        this.emit('card_removed', {
-          uid: String(event.uid || '').trim().toUpperCase()
-        });
+      case 'card_removed': {
+        const removedUid = String(event.uid || '').trim().toUpperCase();
+        // Invalidar el cooldown de dedupe del UID retirado: una retirada REAL de
+        // la carta no es chattering del RC522, así que el próximo acercamiento —
+        // aunque ocurra en <DEDUPE_MS— es una lectura legítima que NO debe
+        // tragarse. Sin esto, si el niño levanta y reacerca la misma carta rápido
+        // (Secuencia con carta repetida, reintento tras fallo), el 2º escaneo se
+        // descartaba en silencio y parecía que el juego "no reacciona".
+        if (removedUid) {
+          this.lastScanByUid.delete(removedUid);
+        }
+        this.emit('card_removed', { uid: removedUid });
         break;
+      }
       case 'init':
         // Modo seguro: el init de éxito incluye `hmac:"enabled"` cuando el
         // firmware firma cada scan. Lo capturamos ANTES de emitir para que

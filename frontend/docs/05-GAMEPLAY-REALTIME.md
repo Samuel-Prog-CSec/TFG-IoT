@@ -338,3 +338,45 @@ Tras la auditoría pre-v1.0.0 que identificó el componente como kitchen-sink (1
 ### Flujos no afectados
 
 Los eventos socket (`new_round`, `validation_result`, `game_over`, `play_state`, `play_paused`, `play_resumed`, `sequence_phase_*`, `sequence_card_result`, `sequence_round_result`) y el flujo RFID (handlers en `useGameSocket` ya extraído desde antes) NO cambian de contrato. El refactor C2 parcial es transparente para el backend y el resto del frontend.
+
+## Fiabilidad de escaneos y arranque de ronda (Auditoría de partidas 2026-07-02, ADR-225)
+
+Correcciones tras jugar las 3 mecánicas en vivo (táctil + sensor simulado), centradas en el requisito «ni retrasos ni escaneos perdidos»:
+
+- **`board_ready` para las 3 mecánicas.** El efecto que emite `board_ready` en `GameSession.jsx` cubre ahora también **Asociación** (antes solo Memoria/Secuencia). Sin él, el backend armaba el `roundTimer` de la ronda 1 de Asociación en el bootstrap y el niño perdía 1-3s de reloj mientras el frontend cargaba. El backend difiere el timer hasta `confirmBoardReady` (simétrico con Memoria); el frontend emite `board_ready` al renderizar el reto (`gameState==='playing'`).
+- **Toast espurio «Tarjeta no reconocida» en Secuencia eliminado.** Los wrappers `wrappedOnSequenceCardResult`/`wrappedOnSequenceRoundResult` cancelan ahora el timeout client-side de 3s (como los de Memoria/Asociación). Antes, tras la última carta de cada ronda, saltaba el toast ~3s después aunque la carta se había aceptado.
+- **Timeout de escaneo no se arma si el socket está caído.** `handleLocalScan` no programa el timeout de «Tarjeta no reconocida» cuando `!isGameSocketConnected()` (la lectura se encoló, no se perdió; el feedback correcto lo dan la cola + `scan_expired`).
+- **Flush de scans encolados al reconectar `/game`.** `handleGameSocketReconnected` hace `flushPendingScans()` tras re-emitir `JOIN_PLAY` (la reconexión independiente del namespace `/game` antes solo re-unía la sala, dejando los scans varados hasta el siguiente escaneo hardware).
+- **Dedupe reseteado al retirar la carta** (`webSerialService.js`): un `card_removed` invalida el cooldown del UID, de modo que reacercar la misma carta rápido (Secuencia con carta repetida) no se traga como chattering.
+
+## Overlay de reconexión y timer congelado (ADR-225)
+
+Cuando `realtimeStatus` no es `connected` durante `playing`:
+- **El timer visual se congela** (`useGameTimer` recibe `isRealtimeConnected`): la barra no se vacía sola durante la reconexión y el niño no «gasta» la ronda. Al reconectar, el backend re-sincroniza `remainingTimeMs`.
+- **Un overlay suave no-modal «Reconectando…»** cubre el tablero (para que el niño no siga tocando cartas cuyas respuestas no se enviarían) sin atrapar el foco (el docente sigue pudiendo pausar/salir desde el HUD).
+
+## Asset de la carta de Memoria: carga-en-volteo y el bug de "imagen invisible" (ADR-225)
+
+El backend **redacta** `displayData` de las cartas de Memoria boca abajo (`MemoryStrategy`, anti-trampa): una carta oculta llega al cliente con `assignedValue`/`displayData` a `null`. La URL de la imagen aparece **en el momento del volteo** (`memory_turn_state`), y ahí monta el `<img>` de `CardAssetPreview`. El cache del navegador ya está caliente por `prefetchDeckImages` (thumbnails del mazo, precargados al entrar en la partida), así que la imagen suele estar `complete` cuando la carta se voltea.
+
+**Bug corregido:** `CardAssetPreview` ponía `imageLoading=true` (opacity-0) al aparecer la URL, pero para una imagen ya `complete` en cache el `onLoad` NO se vuelve a disparar → la imagen quedaba **cargada pero invisible** de forma intermitente (según el timing del cache). Fix: el efecto de cambio de URL consulta el nodo `<img>` real (`imgNodeRef`) y solo muestra "cargando" si la imagen NO está ya completa. Verificado: la firma `naturalWidth>0 + opacity:0` desaparece (0 casos tras el fix, 30 antes). Afecta a todo uso de `CardAssetPreview`, pero se notaba sobre todo en Memoria por la carga-en-volteo.
+
+## Blindaje del arranque de partida — nunca un skeleton infinito (ADR-225)
+
+Si el arranque falla, el docente NUNCA debe quedarse ante «Preparando cartas…» sin explicación (efecto «no entiendo qué ocurre»). El hook `useStartupGuard` (común a las 3 mecánicas) vigila el arranque mientras `gameState==='playing'` y el gameplay aún no está listo:
+
+- **Señal `gameplayReady` por mecánica**: Memoria `memoryBoard.length>0`, Secuencia `sequenceState.length>0`, Asociación `Boolean(challenge)`.
+- **Error fatal del backend**: `startPlay` emite un `error` con mensaje legible (tarjeta en uso, config/plan inválido, límite de partidas). Si llega durante el arranque → se muestra de inmediato. Los códigos transitorios (`SOCKET_DISCONNECTED`, `RATE_LIMITED`, `RFID_MODE_TAKEN_OVER`…) NO cuentan como fallo de arranque.
+- **Watchdog**: si no llega tablero/reto NI error en 10 s, el arranque se considera colgado → mensaje genérico.
+
+En ambos casos se pinta un **overlay `z-30`** (patrón del overlay de reconexión) con `ErrorState` + Otto (`mood="worried"`) + «Reintentar», tapando el skeleton. «Reintentar» limpia el estado y re-emite `start_play`.
+
+**Causa raíz (backend, `GameEngine._reclaimOrphanedPlay`)**: una partida interrumpida dejaba sus tarjetas reservadas hasta 1 h. Ahora `startPlay`, ante un conflicto de tarjetas, reclama la partida en conflicto si está **huérfana** (sin cliente conectado en su sala, superada una gracia de 10 s) → el reintento del docente arranca solo. Una partida realmente en curso (con cliente) no se reclama.
+
+## Fallback táctil gateado por el estado del sensor (ADR-225)
+
+Regla de las 3 mecánicas: **el fallback táctil desaparece cuando el sensor está conectado y el RFID en juego** (se escanea la carta física) y **aparece cuando se pierde el RFID** (para poder seguir jugando). La señal es `rfidConnected` (`deviceState === 'ready'`), que ya se pone a false al desconectar el sensor (`handleDisconnect`) o degradar a `stale`.
+
+- **Asociación**: `{!rfidConnected && <FallbackTouchPanel/>}` (las cartas de respuesta táctiles solo con el sensor perdido).
+- **Secuencia**: `{!rfidConnected && phase === REPRODUCING && <FallbackTouchPanelSequence/>}`. El `SequenceBoard` es siempre solo-visualización (`onCardTap={null}`) para no filtrar el orden de la secuencia.
+- **Memoria**: el tablero está SIEMPRE visible (es el juego), pero su interacción se gatea: `onCardTap={rfidConnected ? undefined : handleMemoryCardTap}`. Con el sensor activo las cartas no son tappables (sin cursor/tabIndex/click); al perder el RFID el tap se reactiva como fallback. (Antes el tap era incondicional — única mecánica inconsistente.)

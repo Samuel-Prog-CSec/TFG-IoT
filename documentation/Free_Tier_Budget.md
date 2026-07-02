@@ -9,7 +9,7 @@
 > **Audiencia:** Samuel (super_admin) y cualquier persona que herede la
 > operación del proyecto tras la defensa del TFG.
 >
-> **Última actualización:** 01-07-2026 (ADR-224 — reducción de comandos Upstash y corrección del detector de memoria).
+> **Última actualización:** 02-07-2026 (ADR-225 — reducción de comandos Upstash en el hot-path de partidas: rate-limiter gateado + heartbeat de leases).
 
 ---
 
@@ -464,6 +464,15 @@ Decisiones de la auditoría de mantenimiento que reducen el consumo del free-tie
 - **Adapter Socket.IO tras flag `SOCKET_ADAPTER_ENABLED` (off por defecto).** En single-instance evitaba un `PUBLISH` por cada broadcast de sala (sin consumidor) = coste puro. Activar solo al escalar.
 - **10 índices monocampo redundantes eliminados** (migración `migrate:drop-redundant-indexes`, 79→69 índices): menos write-amplification y storage de índice en Atlas M0 (512MB).
 - **Pendiente (ALTO):** la invalidación de caché analytics por `endPlay` hace `SCAN` del keyspace completo (3× por partida) → sustituir por índice inverso (`SMEMBERS`+`DEL`). Ver ADR-223.
+
+## Actualización 2026-07-02 (ADR-225) — reducción de comandos Upstash en el hot-path de partidas
+
+Al jugar las partidas en vivo se detectaron dos consumidores Upstash evitables en `scale=1`, ambos en el camino más frecuente (eventos de socket durante una partida):
+
+- **Rate-limiter de sockets auto-gateado a in-memory.** Se instanciaba con Redis-on en producción → un `EVALSHA` por CADA evento de socket (scans, heartbeats, control). Ahora usa `useRedis: isMultiInstanceEnabled()` (misma señal `SOCKET_ADAPTER_ENABLED` que el adapter y el pub/sub). En single-instance: **0 comandos de rate-limiting** (~1.800/día ahorrados en el escenario objetivo). Ver ADR-225 y `Rate_Limiting_Analysis.md` §escaneos.
+- **Heartbeat de leases 30s → 45s** (TTL 90s, margen 2×): ~10 renovaciones/partida en vez de ~20 (~300/día ahorrados). El lease solo sirve para recovery tras reinicio de Koyeb a `scale=1`.
+
+Efecto combinado: el consumo de la capa realtime de gameplay baja de ~3-5K a ~1-3K comandos/día en el escenario objetivo, ampliando el margen frente a los background jobs (worker SmartAlert cada 15 min, refresh de tokens, analytics). La estimación «1 partida ≈ 30-50 comandos» de la §3 se mantiene conservadora (con estos cambios el escaneo hardware con HMAC son 2 comandos: rate-limit ya no aplica en scale=1, queda el CAS del HMAC).
 
 ---
 

@@ -16,13 +16,19 @@ WORKDIR /app
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
 
+# Modo de build de Vite. Por defecto `production` (bundle real de despliegue).
+# Para sesiones de QA con sensor simulado se puede construir con
+# `docker compose build --build-arg VITE_BUILD_MODE=development frontend`,
+# que monta `window.__rfidSim` (gate dev-only en webSerialService.js).
+ARG VITE_BUILD_MODE=production
+
 # Instalar dependencias primero (aprovechar caché)
 COPY package*.json ./
 RUN npm ci
 
 # Copiar código fuente y construir
 COPY . .
-RUN npm run build
+RUN npm run build -- --mode ${VITE_BUILD_MODE}
 
 # ============================================
 # STAGE 2: Production

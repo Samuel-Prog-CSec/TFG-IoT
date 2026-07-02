@@ -18,6 +18,7 @@ const { logSecurityEvent, getSocketContext } = require('../utils/securityLogger'
 const {
   socketRateLimits,
   socketRateLimitDefaults,
+  socketSoftLimitEvents,
   socketBlockConfig,
   socketPayloadLimits,
   rfidDedupeConfig,
@@ -292,6 +293,18 @@ class SocketRateLimiter {
     const filtered = eventTimestamps.filter(ts => ts > windowStart);
 
     if (filtered.length >= limit.max) {
+      // Eventos soft-limit (escaneos): descartan la lectura sobrante pero NO
+      // acumulan violaciones ni activan el bloqueo compartido — así un niño
+      // tocando rápido nunca congela los controles del docente (pause/next).
+      if (socketSoftLimitEvents.has(eventName)) {
+        state.events.set(eventName, filtered);
+        return {
+          allowed: false,
+          retryAfterMs: limit.windowMs - (now - filtered[0]),
+          blocked: false
+        };
+      }
+
       state.consecutiveViolations += 1;
 
       if (state.consecutiveViolations >= socketBlockConfig.violationThreshold) {

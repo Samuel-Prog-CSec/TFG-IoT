@@ -525,7 +525,11 @@ async function notifyTeacherPlayCompleted({
     priority: 'info',
     title: `${studentName || 'Un alumno'} ha completado una partida`,
     body: `${sessionName || 'una sesión'} · ${starsLabel} · ${praise}`,
-    link: `/sessions/${sessionId.toString?.() || sessionId}`,
+    // Normaliza el id: acepta ObjectId, string o un documento de sesión POPULADO
+    // (endPlay pasa `playDoc.sessionId` populado). Sin extraer `_id`, un doc
+    // populado se serializaba entero en el link (>2000 chars) y superaba el
+    // maxlength(200) del modelo Notification → la notificación fallaba SIEMPRE.
+    link: `/sessions/${sessionId?._id?.toString?.() || sessionId?.toString?.() || sessionId}`,
     metadata: {
       playId: playId ? playId.toString?.() || String(playId) : undefined,
       sessionId: sessionId.toString?.() || String(sessionId),

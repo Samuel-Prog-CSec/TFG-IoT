@@ -8,7 +8,12 @@ const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const userRepository = require('../repositories/userRepository');
 const gamePlayService = require('../services/gamePlayService');
-const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const {
+  NotFoundError,
+  ValidationError,
+  ForbiddenError,
+  ConflictError
+} = require('../utils/errors');
 const {
   ensureResourceOwnership,
   ensureResourceOwnershipOrAdmin,
@@ -71,8 +76,14 @@ const buildSortOptions = (sortBy, order) => ({
 const getPlays = async (req, res) => {
   const {
     page = 1,
+    // Orden por defecto `_id` (no `createdAt`): en `gameplays` NINGÚN índice
+    // cubre `createdAt`, así que ordenar por él fuerza un SORT bloqueante en
+    // memoria (peligroso en Atlas M0 con RAM escasa y el límite de 32MB de sort).
+    // `_id` es un ObjectId monotónico que embebe el timestamp de creación → mismo
+    // orden visible (más reciente primero) pero recorriendo el índice `_id`
+    // siempre presente, sin sort en memoria.
     limit = 20,
-    sortBy = 'createdAt',
+    sortBy = '_id',
     order = 'desc',
     sessionId,
     playerId,
@@ -371,6 +382,19 @@ const completePlay = async (req, res) => {
   }
 
   ensureResourceOwnershipOrAdmin(play.sessionId, req.user, 'partida');
+
+  // Guard de finalización ÚNICA: si el motor de juego gestiona esta partida en
+  // vivo, la autoridad de cierre es `endPlay` (el flujo real por socket, que
+  // aplica `updateStudentMetrics`). Finalizar también aquí en paralelo abriría un
+  // TOCTOU con el `isInProgress()` del service → doble `updateStudentMetrics`
+  // sobre un menor (media corrompida, irrecuperable). El frontend NO usa este
+  // endpoint; es defensa del borde alcanzable. Dejamos que el motor la cierre.
+  const gameEngine = req.app.get('gameEngine');
+  if (gameEngine?.getPlayRuntimeContext?.(id)) {
+    throw new ConflictError(
+      'La partida está activa en el motor de juego; se cerrará automáticamente al finalizar.'
+    );
+  }
 
   const result = await gamePlayService.completePlay(id);
 
