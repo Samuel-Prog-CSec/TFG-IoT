@@ -950,7 +950,7 @@ export default function DeckEditPage() {
           </>
         }
         variant="archive"
-        confirmLabel="Archivar"
+        confirmText="Archivar"
         loading={deleteLoading}
       />
 

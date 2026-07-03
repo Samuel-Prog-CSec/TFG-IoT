@@ -140,8 +140,13 @@ router.post(
  */
 router.get(
   '/me',
-  authLooseRateLimiter, // T-905 B4: loose 20/15min — frecuente durante sesión activa
+  // authenticate ANTES del rate limiter: authLooseRateLimiter keyea por usuario
+  // (userOrIpKeyGenerator) y necesita req.user. Si el limiter corre primero cae a
+  // IP → varios docentes tras el NAT del colegio comparten la cuota de /me
+  // (frecuente en carga de sesión) y reciben 429 falsos. Mismo invariante que
+  // sessions.js/decks/contexts.
   authenticate,
+  authLooseRateLimiter, // T-905 B4: loose 20/15min — frecuente durante sesión activa
   validateQuery(emptyObjectSchema),
   asyncHandler(getProfile)
 );
@@ -216,8 +221,9 @@ router.get(
 
 router.post(
   '/mfa/setup-init',
-  authLooseRateLimiter,
+  // authenticate antes del limiter loose (keyed por usuario, ver /me).
   authenticate,
+  authLooseRateLimiter,
   requireRole('super_admin'),
   validateQuery(emptyObjectSchema),
   validateBody(emptyObjectSchema),
@@ -226,8 +232,9 @@ router.post(
 
 router.post(
   '/mfa/setup-verify',
-  authLooseRateLimiter,
+  // authenticate antes del limiter loose (keyed por usuario, ver /me).
   authenticate,
+  authLooseRateLimiter,
   requireRole('super_admin'),
   validateQuery(emptyObjectSchema),
   validateBody(setupVerifySchema),
@@ -256,8 +263,9 @@ router.post(
 
 router.post(
   '/mfa/backup-codes/regenerate',
-  authLooseRateLimiter,
+  // authenticate antes del limiter loose (keyed por usuario, ver /me).
   authenticate,
+  authLooseRateLimiter,
   requireRole('super_admin'),
   requireMfa,
   validateQuery(emptyObjectSchema),

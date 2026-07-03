@@ -10,7 +10,12 @@
 
 const gamePlayRepository = require('../../repositories/gamePlayRepository');
 const userRepository = require('../../repositories/userRepository');
-const { toObjectId, getStartDate, enrichMetric } = require('./analyticsHelpers');
+const {
+  toObjectId,
+  getStartDate,
+  enrichMetric,
+  SCORE_PERCENT_EXPR
+} = require('./analyticsHelpers');
 const { cacheGet } = require('../../utils/cacheHelper');
 
 // Timeout más corto que `reportDataService.REPORT_TIMEOUT_MS` para que MongoDB
@@ -585,22 +590,9 @@ async function getStudentPlayPatterns(studentId, { timeRange = '30d' } = {}) {
             $group: {
               _id: { $dateToString: { format: '%Y-%m-%d', date: '$startedAt' } },
               gamesPlayed: { $sum: 1 },
-              // Puntuación normalizada a % (score/maxScore×100), comparable entre mecánicas.
-              avgScore: {
-                $avg: {
-                  // Suelo a 0 (OBS-5): un score crudo negativo no debe dar % negativo.
-                  $max: [
-                    0,
-                    {
-                      $cond: [
-                        { $gt: ['$maxScore', 0] },
-                        { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
-                        0
-                      ]
-                    }
-                  ]
-                }
-              }
+              // Puntuación normalizada a % (score/maxScore×100), comparable entre
+              // mecánicas. Fuente única de verdad (ADR-201); antes reescrito inline.
+              avgScore: { $avg: SCORE_PERCENT_EXPR }
             }
           },
           { $sort: { _id: 1 } }

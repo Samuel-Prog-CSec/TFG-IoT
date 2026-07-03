@@ -14,7 +14,10 @@ const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHe
 const { buildFilter } = require('../utils/filterBuilder');
 const { ensureResourceOwnership } = require('../utils/ownershipHelpers');
 const { withTransaction } = require('../utils/withTransaction');
-const { assertAssignedValuesInContext } = require('../utils/cardMappingValidation');
+const {
+  assertAssignedValuesInContext,
+  rebuildDisplayDataFromContext
+} = require('../utils/cardMappingValidation');
 
 /**
  * Límites de configuración para mazos de cartas.
@@ -214,10 +217,14 @@ const createDeck = async (req, res) => {
     const normalizedMappings = validateDeckMappingsStructure(cardMappings);
 
     // Validar contexto y que assignedValue pertenece al contexto
-    await validateContextAndAssignedValues(contextId, normalizedMappings);
+    const context = await validateContextAndAssignedValues(contextId, normalizedMappings);
+
+    // displayData server-authoritative: se reconstruye desde el asset del
+    // contexto (no se confía en las URLs del cliente — antes `z.any()`).
+    const cleanMappings = rebuildDisplayDataFromContext(normalizedMappings, context);
 
     // Crear mazo con resolución atómica de conflictos cross-deck (ADR-022)
-    const uids = normalizedMappings.map(m => m.uid);
+    const uids = cleanMappings.map(m => m.uid);
 
     const { deck, conflictSummary } = await withTransaction(async session => {
       const summary = await cardDeckService.resolveCardConflicts(uids, req.user._id, session);
@@ -227,7 +234,7 @@ const createDeck = async (req, res) => {
           name: name.trim(),
           description: description ? description.trim() : undefined,
           contextId,
-          cardMappings: normalizedMappings,
+          cardMappings: cleanMappings,
           status: status || 'active',
           createdBy: req.user._id
         },
@@ -322,13 +329,21 @@ const applyDeckMappingUpdates = async (deck, { contextId, cardMappings }) => {
 
   if (hasCardMappingsUpdate) {
     const normalizedMappings = validateDeckMappingsStructure(cardMappings);
-    await validateContextAndAssignedValues(finalContextId, normalizedMappings);
-    deck.cardMappings = normalizedMappings;
+    const context = await validateContextAndAssignedValues(finalContextId, normalizedMappings);
+    // displayData server-authoritative (ver createDeck / AS-2).
+    deck.cardMappings = rebuildDisplayDataFromContext(normalizedMappings, context);
     return;
   }
 
   if (hasContextUpdate) {
-    await validateContextAndAssignedValues(finalContextId, deck.cardMappings);
+    // Cambió el contexto sin reenviar cardMappings: revalidar y REGENERAR el
+    // displayData de los mapeos existentes contra el nuevo contexto (si no, el
+    // snapshot quedaría apuntando a URLs del contexto anterior).
+    const context = await validateContextAndAssignedValues(finalContextId, deck.cardMappings);
+    deck.cardMappings = rebuildDisplayDataFromContext(
+      deck.cardMappings.map(m => ({ uid: m.uid, assignedValue: m.assignedValue })),
+      context
+    );
   }
 };
 

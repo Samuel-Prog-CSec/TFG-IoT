@@ -462,6 +462,18 @@ El detector `rfidHmacSpike` suma ambos contadores de la última hora y alerta so
 
 **(c) Visibilidad del rechazo para el docente.** Antes, un rechazo del backend por sensor no autorizado (`RFID_SENSOR_UNAUTHORIZED`) se silenciaba en el cliente y el rechazo por firma inválida (`rfid_scan_error`) no tenía listener: el docente con un sensor físico mal pareado o con firma inválida no recibía señal alguna. Ahora la UI de partida muestra un **banner guiado** con el motivo del rechazo y una acción **«Reconectar lector»**, y el indicador de estado del lector expone en un tooltip el sensor autorizado de la sesión y el **modo seguro** (firma activa). El silencio se mantiene solo en modo táctil (sin sensor físico), donde el enforcement no aplica.
 
+### 13.7 Autorización de escaneos entre partidas y ciclo de vida de sockets (ADR-226)
+
+Endurecimiento de la capa realtime tras la auditoría full-stack. Complementa al HMAC (§13.2): el HMAC prueba **quién firmó** el escaneo, pero no **a qué partida pertenece**; y los `touch_fallback` están exentos de firma por diseño, así que la autorización por partida es la única barrera para ellos.
+
+- **Escaneo dirigido a la partida del emisor (anti-inyección cross-docente).** Los escaneos se enrutaban globalmente por UID de tarjeta y la comprobación de autorización solo validaba la partida **del emisor**, no la partida **destino** del UID. Con dos partidas activas que compartieran UID, un docente podía inyectar escaneos en la partida de otro. Ahora `GameEngine.handleCardScan(uid, expectedPlayId)` **descarta** el escaneo si el `playId` asociado al UID no coincide con el `playId` del modo RFID del emisor (que viaja en el evento ingerido). El escaneo cruzado se ignora en silencio en el motor (no altera la otra partida).
+- **Revocación cubre el namespace `/game`.** `disconnectUserSockets` (logout, revocación de token, baja de cuenta) solo desconectaba el namespace por defecto `/`; los sockets de `/game` sobrevivían y seguían recibiendo eventos de partida tras revocar el acceso. Ahora itera **ambos** namespaces (`[io, io.of('/game')]`), de modo que la revocación de sesión corta también el canal de juego.
+- **Binding sensor→usuario no secuestrable.** `setRfidSensorBinding` permitía a un docente reclamar un `sensorId` ya vinculado a otro docente con modo activo. Ahora se rechaza el rebind en ese caso, registrando `SECURITY_RFID_SENSOR_BINDING_DENIED`; el binding solo se cede cuando el propietario previo está en `idle`.
+
+### 13.8 `displayData` de tarjetas regenerado en el servidor (ADR-226)
+
+El campo `displayData` de cada `cardMapping` (URL de imagen/audio y texto que se muestran al niño) se validaba como `z.any()`, permitiendo a un cliente inyectar **URLs arbitrarias** que se renderizarían en la pantalla de un menor. Ahora el servidor **ignora el `displayData` entrante y lo regenera** desde el asset real del contexto asociado a la carta (`rebuildDisplayDataFromContext`), tanto al crear un mazo como al actualizar sus mapeos. El cliente no puede influir en qué se muestra al alumno; solo elige la carta del contexto. Alinea con el principio de minimizar la confianza en la entrada del cliente para contenido dirigido a menores.
+
 ---
 
 ## 14. Vulnerabilidades avanzadas y mitigaciones

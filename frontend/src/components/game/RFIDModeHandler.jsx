@@ -86,8 +86,22 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
     };
   }, []);
 
-  // Mostrar expandido si está conectado, o si el usuario hizo click
-  const showExpanded = isConnected || expanded;
+  // Auto-expandir SOLO en la transición a "conectado" (flanco de subida): al
+  // enchufar el sensor la tarjeta se abre para confirmar "Listo para escanear".
+  // A partir de ahí el estado lo controla el usuario: el botón "Minimizar" ahora
+  // colapsa de verdad y se MANTIENE colapsado mientras el sensor siga conectado.
+  // Antes `showExpanded = isConnected || expanded` forzaba el expandido con el
+  // sensor conectado → el botón minimizar era un no-op y la tarjeta fija (256px)
+  // tapaba controles de pantallas embebidas (p. ej. el "Siguiente" del asistente
+  // de Nueva Sesión a 1366×768). Como el widget vive en una instancia única
+  // global (App.jsx), este estado persiste entre navegaciones.
+  useEffect(() => {
+    if (isConnected) {
+      setExpanded(true);
+    }
+  }, [isConnected]);
+
+  const showExpanded = expanded;
 
   return (
     <div className={cn("fixed bottom-6 right-6 z-40 pointer-events-none", className)}>
@@ -177,22 +191,26 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
             onClick={() => setExpanded(true)}
             className="pointer-events-auto group relative flex items-center gap-2.5 pl-2.5 pr-3.5 py-2 rounded-full bg-background-elevated/85 border border-border-default backdrop-blur-md shadow-lg hover:border-brand-base/40 hover:bg-background-surface/80 transition-[border-color,background-color] duration-200 cursor-pointer"
             aria-label="Expandir widget RFID"
-            title="Sensor RFID desconectado — click para expandir"
+            title={isConnected ? 'Sensor RFID conectado — click para ver detalle' : 'Sensor RFID desconectado — click para expandir'}
           >
+            {/* El pill colapsado refleja el estado real del sensor: verde con pulso
+                cuando está conectado (antes se mostraba siempre en rojo aunque el
+                sensor estuviera listo, porque el widget no podía colapsarse estando
+                conectado). */}
             <span className="relative flex items-center justify-center size-5" aria-hidden="true">
               <motion.span
-                className="absolute inset-0 rounded-full ring-2 ring-error-base/60"
+                className={cn('absolute inset-0 rounded-full ring-2', isConnected ? 'ring-success-base/60' : 'ring-error-base/60')}
                 initial={{ scale: 0.6, opacity: 0.6 }}
                 animate={{ scale: [0.6, 1.6], opacity: [0.6, 0] }}
                 transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
               />
               <motion.span
-                className="absolute inset-0 rounded-full ring-2 ring-error-base/40"
+                className={cn('absolute inset-0 rounded-full ring-2', isConnected ? 'ring-success-base/40' : 'ring-error-base/40')}
                 initial={{ scale: 0.6, opacity: 0.35 }}
                 animate={{ scale: [0.6, 2.1], opacity: [0.35, 0] }}
                 transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut', delay: 0.55 }}
               />
-              <span className="relative size-2 rounded-full bg-error-base shadow-[0_0_8px_var(--color-error-glow)]" />
+              <span className={cn('relative size-2 rounded-full', isConnected ? 'bg-success-base shadow-[0_0_8px_var(--color-success-glow)]' : 'bg-error-base shadow-[0_0_8px_var(--color-error-glow)]')} />
             </span>
             <span className="text-nano uppercase tracking-[0.15em] font-bold text-text-secondary group-hover:text-text-primary transition-colors">RFID</span>
           </motion.button>

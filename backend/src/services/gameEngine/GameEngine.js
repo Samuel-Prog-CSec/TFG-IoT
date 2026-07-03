@@ -8,6 +8,7 @@
 const Sentry = require('@sentry/node');
 const logger = require('../../utils/logger').child({ component: 'gameEngine' });
 const userRepository = require('../../repositories/userRepository');
+const { withTransaction } = require('../../utils/withTransaction');
 const { SCAN_IGNORED_REASONS, PLAY_INTERRUPTED_REASONS } = require('../../constants/errorCodes');
 const redisService = require('../redisService');
 const { cacheInvalidatePattern } = require('../../utils/cacheHelper');
@@ -1000,46 +1001,62 @@ class GameEngine {
           playState.playDoc.markModified('metrics');
         }
 
-        // Partida completada normalmente
-        await playState.playDoc.complete();
-
-        // Actualizar métricas del alumno con todos los datos
-        // Solo si el tutor no ha ejercido el derecho de oposición a analytics (Art. 21 RGPD)
-        const player = await userRepository.findById(playState.playDoc.playerId);
-        // A1: snapshot de la media ANTES de actualizar métricas, para detectar la
-        // transición a "en riesgo" (trigger student_at_risk) tras la escritura.
-        const prevAverageForRisk =
-          typeof player?.studentMetrics?.averageScore === 'number'
-            ? player.studentMetrics.averageScore
-            : null;
+        // H1: `complete()` + `updateStudentMetrics()` ATÓMICOS en una transacción.
+        // Eran dos escrituras sueltas: un fallo entre ambas dejaba la partida
+        // `completed` sin reflejar en studentMetrics; dos finalizaciones
+        // concurrentes del mismo alumno corrompían la media (read-modify-write).
+        // La transacción da atomicidad y serializa (write-conflict → reintento con
+        // lectura fresca). En Mongo standalone (tests) degrada a ejecución directa.
+        let player = null;
+        let prevAverageForRisk = null;
         let metricsUpdated = false;
-        if (player) {
-          if (player.hasConsentFor('performance_analytics')) {
-            metricsUpdated = true;
-            await player.updateStudentMetrics({
-              score: playState.playDoc.score,
-              // SIN `maxScore`, updateStudentMetrics calcula scorePercent=0 para
-              // TODA partida real (endPlay es el path principal), arrastrando el
-              // `studentMetrics.averageScore` de cada alumno hacia 0% (todos
-              // "en riesgo"). Los paths hermanos (completePlay HTTP y la
-              // materialización Redis) sí lo pasan; aquí faltaba.
-              maxScore: playState.playDoc.maxScore,
-              correctAttempts: playState.playDoc.metrics.correctAttempts,
-              errorAttempts: playState.playDoc.metrics.errorAttempts,
-              timeoutAttempts: playState.playDoc.metrics.timeoutAttempts,
-              averageResponseTime: playState.playDoc.metrics.averageResponseTime,
-              maxSequenceLengthAchieved:
-                playState.mechanicName === 'sequence'
-                  ? persistedSummary.maxSequenceLengthAchieved
-                  : undefined
-            });
 
-            // T-931 (pre-v1.0.0): materialización dual — escribir en
-            // ZSETs leaderboards + Hash studentMetrics en paralelo a la
-            // escritura Mongo. Fire-and-forget: si falla, la
-            // reconciliación nocturna corregirá el drift. Respeta
-            // consentimiento RGPD porque solo se ejecuta dentro de la
-            // rama con `hasConsentFor('performance_analytics')`.
+        await withTransaction(async session => {
+          // Partida completada normalmente
+          await playState.playDoc.complete({ session });
+
+          // Solo si el tutor no ha ejercido el derecho de oposición a analytics (Art. 21 RGPD).
+          // Se re-lee el alumno DENTRO de la txn: un reintento por write-conflict
+          // debe partir de la media persistida fresca, no de una copia en memoria.
+          player = await userRepository.findById(playState.playDoc.playerId, { session });
+          // A1: snapshot de la media ANTES de actualizar, para detectar la
+          // transición a "en riesgo" (trigger student_at_risk) tras la escritura.
+          prevAverageForRisk =
+            typeof player?.studentMetrics?.averageScore === 'number'
+              ? player.studentMetrics.averageScore
+              : null;
+
+          if (player?.hasConsentFor('performance_analytics')) {
+            await player.updateStudentMetrics(
+              {
+                score: playState.playDoc.score,
+                // SIN `maxScore`, updateStudentMetrics calcula scorePercent=0 para
+                // TODA partida real (endPlay es el path principal), arrastrando el
+                // `studentMetrics.averageScore` de cada alumno hacia 0% (todos
+                // "en riesgo"). Los paths hermanos (completePlay HTTP y la
+                // materialización Redis) sí lo pasan; aquí faltaba.
+                maxScore: playState.playDoc.maxScore,
+                correctAttempts: playState.playDoc.metrics.correctAttempts,
+                errorAttempts: playState.playDoc.metrics.errorAttempts,
+                timeoutAttempts: playState.playDoc.metrics.timeoutAttempts,
+                averageResponseTime: playState.playDoc.metrics.averageResponseTime,
+                maxSequenceLengthAchieved:
+                  playState.mechanicName === 'sequence'
+                    ? persistedSummary.maxSequenceLengthAchieved
+                    : undefined
+              },
+              { session }
+            );
+            metricsUpdated = true;
+          }
+        });
+
+        if (player) {
+          if (metricsUpdated) {
+            // T-931 (pre-v1.0.0): materialización dual — ZSETs leaderboards + Hash
+            // studentMetrics en Redis. FUERA de la transacción Mongo (es Redis,
+            // fire-and-forget): si falla, la reconciliación nocturna corrige el
+            // drift. Solo con consentimiento (metricsUpdated).
             materializedAnalytics
               .recordPlayCompletion({
                 teacherId: playState.sessionDoc?.createdBy,
@@ -1773,11 +1790,27 @@ class GameEngine {
    * @param {string} uid - UID de la tarjeta RFID escaneada (formato hexadecimal mayúsculas)
    * @returns {Promise<void>}
    */
-  async handleCardScan(uid) {
+  async handleCardScan(uid, expectedPlayId = null) {
     this.metrics.totalCardScans++;
 
     // 1. Búsqueda O(1) para encontrar la partida
     const playId = this.cardUidToPlayId.get(uid);
+
+    // Anti cross-teacher injection (WS-1): el scan solo puede afectar a la
+    // partida del MODO del emisor. Si el UID está reservado por OTRA partida
+    // (`playId !== expectedPlayId`), se descarta. `expectedPlayId` llega desde
+    // el modo RFID del socket emisor; si es null (fuentes sin modo, retrocompat)
+    // no se aplica el cross-check.
+    if (expectedPlayId && playId && playId !== expectedPlayId) {
+      this.metrics.ignoredCardScans++;
+      logger.warn('Scan RFID descartado: UID pertenece a otra partida', {
+        uid,
+        expectedPlayId,
+        resolvedPlayId: playId
+      });
+      return;
+    }
+
     if (!playId) {
       this.metrics.ignoredCardScans++;
       // Agrupamos el log por UID/ventana de 60s para no inundar producción

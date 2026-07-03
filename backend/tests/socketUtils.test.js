@@ -21,14 +21,25 @@ describe('disconnectUserSockets — snapshot anti auto-kick (OBS-2)', () => {
     // Estado de la room: al momento de la llamada solo está el dispositivo anterior.
     const roomSockets = [oldSocket];
     const emit = jest.fn();
+    // Namespace `/game`: en este test no tiene sockets del usuario (solo el
+    // namespace por defecto). `disconnectUserSockets` ahora recorre ambos
+    // namespaces (WS-2), así que el mock debe exponer `io.of('/game')`.
+    const gameEmit = jest.fn();
+    const gameNsp = {
+      name: '/game',
+      in: () => ({ fetchSockets: async () => [] }),
+      to: () => ({ emit: gameEmit })
+    };
     const io = {
+      name: '/',
       in: () => ({ fetchSockets: async () => roomSockets.slice() }),
       to: () => ({
         emit,
         // Modela el comportamiento real de socket.io: `disconnectSockets()`
         // desconecta los sockets ACTUALES de la room (no un snapshot previo).
         disconnectSockets: () => roomSockets.forEach(s => s.disconnect(true))
-      })
+      }),
+      of: () => gameNsp
     };
 
     await disconnectUserSockets(io, 'u1', 'NEW_LOGIN');

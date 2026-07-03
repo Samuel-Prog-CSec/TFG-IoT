@@ -17,7 +17,7 @@ import { m as motion, useAnimationControls, AnimatePresence } from 'framer-motio
 import { Bell, BellRing } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
-import useNotifications from '../../hooks/useNotifications';
+import { useNotificationsContext } from '../../context/NotificationsContext';
 import NotificationsPanel from './NotificationsPanel';
 
 /**
@@ -57,7 +57,7 @@ export default function NotificationBell({ compact = false }) {
     loadMore,
     closePanel,
     togglePanel
-  } = useNotifications();
+  } = useNotificationsContext();
 
   // Atajo Shift+B → toggle panel. Coexiste con ShortcutRegistry y
   // GlobalShortcuts; registramos un listener específico aquí para no

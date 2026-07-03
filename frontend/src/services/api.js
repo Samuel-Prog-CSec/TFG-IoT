@@ -439,6 +439,21 @@ async function handleNetworkError(error, originalRequest) {
     throw error;
   }
 
+  // Solo reintentar métodos IDEMPOTENTES ante un error de red (o timeout de 10s).
+  // Un POST/PUT/PATCH/DELETE puede haber llegado al servidor y haberse perdido la
+  // respuesta: reintentarlo crearía duplicados (mazo/sesión/alumno duplicados,
+  // transferencias repetidas...). Las partidas están protegidas por índice único,
+  // pero el resto no. Un consumidor puede optar por reintentar marcando
+  // `config.idempotent = true` explícitamente.
+  const method = (originalRequest.method || 'get').toLowerCase();
+  const isIdempotent = method === 'get' || method === 'head' || originalRequest.idempotent === true;
+  if (!isIdempotent) {
+    const networkError = new Error('No pudimos conectar. Comprueba tu conexión a internet e inténtalo de nuevo.');
+    networkError.isNetworkError = true;
+    networkError.cause = error;
+    throw networkError;
+  }
+
   const retryCount = originalRequest._retryCount || 0;
   
   // Inicializar tiempo de inicio en el primer intento
@@ -1009,9 +1024,13 @@ export const contextsAPI = {
    * @param {FormData} formData - Datos con archivo (file, key, value, display)
    * @returns {Promise} Respuesta de Supabase
    */
-  uploadImage: (contextId, formData) => 
+  uploadImage: (contextId, formData) =>
     api.post(`/contexts/${contextId}/images`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      // Subidas multipart necesitan más que el timeout global de 10s (imagen de
+      // varios MB en conexión de aula) — con 10s abortaban con "No pudimos
+      // conectar" engañoso. El retry ya no aplica (es POST, no idempotente).
+      timeout: 60_000
     }),
 
   /**
@@ -1020,9 +1039,10 @@ export const contextsAPI = {
    * @param {FormData} formData - Datos con archivo (file, key, value, display)
    * @returns {Promise} Respuesta de Supabase
    */
-  uploadAudio: (contextId, formData) => 
+  uploadAudio: (contextId, formData) =>
     api.post(`/contexts/${contextId}/audio`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60_000
     }),
 
   /**
@@ -1060,7 +1080,8 @@ export const contextsAPI = {
    */
   attachAudio: (contextMongoId, assetKey, formData) =>
     api.patch(`/contexts/${contextMongoId}/assets/${assetKey}/audio`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60_000
     }),
 
   /**

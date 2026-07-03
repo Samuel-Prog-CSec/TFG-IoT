@@ -27,6 +27,21 @@ const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
 const RFID_HEARTBEAT_INTERVAL_MS = 60_000;
 const IS_DEV = import.meta.env.DEV;
 
+/**
+ * Códigos de error de handshake (de `makeAuthError` en el backend) que implican
+ * que la sesión ya no es válida → forzar logout. `ORIGIN_INVALID` (config) y
+ * `CONNECTION_LIMIT` (transitorio) se excluyen: no significan "sesión caducada".
+ */
+const AUTH_ERROR_CODES = new Set([
+  'TOKEN_MISSING',
+  'TOKEN_INVALID',
+  'USER_NOT_FOUND',
+  'USER_INACTIVE',
+  'ACCOUNT_NOT_APPROVED',
+  'SESSION_INVALID',
+  'AUTH_FAILED',
+]);
+
 const socketLog = (level, ...args) => {
   if (!IS_DEV || typeof console === 'undefined') {
     return;
@@ -423,8 +438,13 @@ class SocketService {
         if (isSystem) {
           this.isConnected = false;
 
-          // Error de auth → evento global
-          if (error.message?.includes('auth') || error.message?.includes('token')) {
+          // Error de auth → evento global. El backend adjunta un `code` estable en
+          // `error.data` (contrato con makeAuthError en socketHandlers). Antes se
+          // comparaba `error.message` contra 'auth'/'token' en inglés, pero los
+          // mensajes del handshake van en español ('Token inválido', 'Sesión
+          // inválida'...) → el match nunca ocurría y el usuario quedaba en un bucle
+          // de reconexión sin redirigir a login. Ahora decidimos por código.
+          if (AUTH_ERROR_CODES.has(error?.data?.code)) {
             window.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
           }
         }

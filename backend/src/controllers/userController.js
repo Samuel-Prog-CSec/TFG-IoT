@@ -106,7 +106,9 @@ const getUsers = async (req, res) => {
   // de admin pueda mostrar a quien pertenece cada alumno (evita el placeholder "Sistema").
   const findOptions = {
     sort: sortOptions,
-    limit: Number.parseInt(limit, 10),
+    // `page`/`limit` ya llegan como number (paginationSchema los transforma con
+    // z.pipe(z.number())); no hace falta re-parsear.
+    limit,
     skip,
     select: '-password'
   };
@@ -126,8 +128,8 @@ const getUsers = async (req, res) => {
   });
 
   sendPaginated(res, toUserListDTOV1(users), {
-    page: Number.parseInt(page, 10),
-    limit: Number.parseInt(limit, 10),
+    page,
+    limit,
     total
   });
 };
@@ -489,13 +491,15 @@ const getUserStats = async (req, res) => {
     throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
   }
 
+  // Guardar sobre el DENOMINADOR real (intentos), no sobre totalGamesPlayed: una
+  // partida abandonada al instante incrementa totalGamesPlayed pero deja
+  // correctAnswers+errors en 0 → 0/0 = NaN → "NaN" en el DTO. Con el guard sobre
+  // los intentos, ese caso devuelve 0 limpio.
+  const totalAttempts =
+    (user.studentMetrics?.totalCorrectAnswers || 0) + (user.studentMetrics?.totalErrors || 0);
   const accuracyRate =
-    user.studentMetrics && user.studentMetrics.totalGamesPlayed > 0
-      ? (
-          (user.studentMetrics.totalCorrectAnswers /
-            (user.studentMetrics.totalCorrectAnswers + user.studentMetrics.totalErrors)) *
-          100
-        ).toFixed(2)
+    totalAttempts > 0
+      ? ((user.studentMetrics.totalCorrectAnswers / totalAttempts) * 100).toFixed(2)
       : 0;
 
   sendSuccess(

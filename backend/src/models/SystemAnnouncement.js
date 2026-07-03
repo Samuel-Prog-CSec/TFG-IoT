@@ -58,11 +58,15 @@ const SystemAnnouncementSchema = new mongoose.Schema(
 // Listado público (activos y no expirados) por audience
 SystemAnnouncementSchema.index({ active: 1, audience: 1, publishedAt: -1 });
 
-// Limpieza por expiración (partial)
+// Limpieza por expiración (partial). `$type: 'date'` en vez de `$ne: null`:
+// los partialFilterExpression NO admiten `$ne` (solo $eq/$exists/$gt/$gte/$lt/
+// $lte/$type/$and/$or/$in), así que el índice fallaba en createIndex y quedaba
+// como índice fantasma (declarado pero inexistente en la BD). `$type: 'date'`
+// indexa solo documentos con expiresAt de tipo fecha (excluye null y ausente).
 SystemAnnouncementSchema.index(
   { expiresAt: 1 },
   {
-    partialFilterExpression: { expiresAt: { $exists: true, $ne: null } },
+    partialFilterExpression: { expiresAt: { $type: 'date' } },
     name: 'announcement_expires_lookup'
   }
 );

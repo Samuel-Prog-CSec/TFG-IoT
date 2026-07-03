@@ -7,9 +7,7 @@
  * @module services/systemAlerts
  */
 
-import api from './api';
-
-const extractData = response => response.data?.data ?? response.data;
+import api, { extractData } from './api';
 
 const systemAlertsService = {
   // ─────────────── SystemAlerts ──────────────────

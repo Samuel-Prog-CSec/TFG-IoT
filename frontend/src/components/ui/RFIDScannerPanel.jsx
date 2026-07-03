@@ -61,11 +61,12 @@ const generateMockUid = () => {
  * ```
  */
 const EMPTY_ARRAY = [];
+const noop = () => {};
 
 export default function RFIDScannerPanel({
   scannedCards = EMPTY_ARRAY,
   onCardScanned,
-  onCardRemoved,
+  onCardRemoved = noop,
   minCards = 2,
   maxCards = 20,
   allowDuplicates = false,
@@ -569,7 +570,7 @@ RFIDScannerPanel.propTypes = {
     })
   ),
   onCardScanned: PropTypes.func.isRequired,
-  onCardRemoved: PropTypes.func.isRequired,
+  onCardRemoved: PropTypes.func,
   minCards: PropTypes.number,
   maxCards: PropTypes.number,
   allowDuplicates: PropTypes.bool,

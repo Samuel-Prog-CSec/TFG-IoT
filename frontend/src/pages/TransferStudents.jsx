@@ -17,6 +17,7 @@ import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import SelectPremium from '../components/ui/SelectPremium';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
+import ErrorState from '../components/ui/ErrorState';
 import { cn } from '../lib/utils';
 import { getId, findById } from '../lib/entityId';
 import AdminPageShell from '../components/admin/AdminPageHero';
@@ -27,6 +28,10 @@ export default function TransferStudents() {
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Estado de error persistente de la carga inicial (lista de profesores). Antes
+  // un fallo de red solo lanzaba un toast efímero (4s) y la página quedaba con
+  // selects vacíos sin explicación ni reintento — ahora se muestra ErrorState.
+  const [loadError, setLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [sourceTeacherId, setSourceTeacherId] = useState('');
@@ -59,10 +64,12 @@ export default function TransferStudents() {
 
       const teachersData = extractData(teachersRes) || [];
       setTeachers(Array.isArray(teachersData) ? teachersData : []);
+      setLoadError(false);
     } catch (error) {
       if (isAbortError(error)) {
         return;
       }
+      setLoadError(true);
       toast.error(extractErrorMessage(error));
     }
   }, []);
@@ -198,6 +205,31 @@ export default function TransferStudents() {
       <div className="min-h-full p-8">
         <div className="text-text-secondary">Cargando transferencia…</div>
       </div>
+    );
+  }
+
+  if (loadError) {
+    return (
+      <AdminPageShell
+        icon={ArrowRightLeft}
+        title="Transferencias de Alumnos"
+        description="Reasigna alumnos entre profesores de forma centralizada."
+        ariaLabel="Transferencias de alumnos"
+        maxWidth="max-w-6xl"
+      >
+        <ErrorState
+          message="No pudimos cargar la lista de profesores. Revisa tu conexión e inténtalo de nuevo."
+          onRetry={() => {
+            setLoading(true);
+            // loadTeachers gestiona su propio error (setLoadError + toast); aquí
+            // solo reponemos el loading al terminar.
+            // eslint-disable-next-line promise/catch-or-return -- catch antes de finally, error manejado
+            loadTeachers()
+              .catch(() => { /* manejado dentro de loadTeachers */ })
+              .finally(() => setLoading(false));
+          }}
+        />
+      </AdminPageShell>
     );
   }
 

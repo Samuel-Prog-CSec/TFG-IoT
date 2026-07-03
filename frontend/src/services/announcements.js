@@ -8,9 +8,7 @@
  * @module services/announcements
  */
 
-import api from './api';
-
-const extractData = response => response.data?.data ?? response.data;
+import api, { extractData } from './api';
 
 const announcementsService = {
   // Admin (super_admin)

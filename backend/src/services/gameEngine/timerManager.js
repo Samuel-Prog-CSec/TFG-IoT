@@ -74,8 +74,23 @@ async function cleanupAbandonedPlays(engine) {
       playIds: abandonedPlays
     });
 
+    // endPlay bajo el lock de la partida (WS-5): el cron corre FUERA de cualquier
+    // lock, así que sin esto podía finalizar una partida mientras un scan seguía
+    // en vuelo bajo el lock → validation_result emitido DESPUÉS de game_over y
+    // escritura sobre un playDoc ya completado. El lock serializa cleanup con el
+    // scan en curso. Un fallo/timeout de lock de una partida no debe abortar el
+    // resto del batch.
     await engine.processInBatches(abandonedPlays, async playId => {
-      await engine.endPlay(playId, { abandoned: true });
+      try {
+        await engine.executeWithPlayLock(playId, 'cleanup_end_play', () =>
+          engine.endPlay(playId, { abandoned: true })
+        );
+      } catch (err) {
+        logger.warn('Cleanup: no se pudo finalizar partida abandonada bajo lock', {
+          playId,
+          error: err?.message
+        });
+      }
     });
   }
 

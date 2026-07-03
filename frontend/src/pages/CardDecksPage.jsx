@@ -742,7 +742,7 @@ export default function CardDecksPage() {
           </>
         }
         variant="archive"
-        confirmLabel="Archivar"
+        confirmText="Archivar"
         loading={archiveLoading}
       />
     </div>

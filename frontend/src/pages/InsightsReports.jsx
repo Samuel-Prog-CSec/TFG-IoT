@@ -408,7 +408,11 @@ export default function InsightsReports() {
           (summary?.bySeverity?.warning || summary?.warning || 0) +
           (summary?.bySeverity?.info || summary?.info || 0)
         );
-        setAlertsCount(Array.isArray(alertList) ? alertList.length : total || 0);
+        // El badge refleja el TOTAL de alertas activas (del summary), no el
+        // tamaño de la primera página de `getAlerts` (paginada a 20). Antes
+        // `alertList.length` hacía que el badge mostrara 20 mientras las chips
+        // de estado/severidad —que sí usan el summary— mostraban 21.
+        setAlertsCount(total || 0);
       } catch (err) {
         if (isAbortError(err)) return;
         captureException(err);
@@ -1034,6 +1038,7 @@ function ReportsTabContent({ shouldReduceMotion }) {
       // El backend devuelve el documento completo (con payload). Lo pasamos
       // al generator junto con la meta para sincronizar dropdowns y vista.
       setPreloaded({
+        id: full._id ?? id,
         payload: full.payload,
         meta: {
           reportType: full.reportType,
@@ -1061,15 +1066,18 @@ function ReportsTabContent({ shouldReduceMotion }) {
       await reportsService.remove(id);
       // Optimistic update: quitamos el item de la lista de inmediato.
       setRecentReports((prev) => prev.filter((r) => r._id !== id));
-      // Si el informe en pantalla era ese, lo limpiamos.
-      setPreloaded((prev) => (prev?.meta && recentReports.find((r) => r._id === id) ? null : prev));
+      // Si el informe EN PANTALLA era ese, lo limpiamos. Antes se comprobaba que
+      // el id borrado estuviera en `recentReports` (siempre cierto al borrarlo de
+      // la lista) en vez de compararlo con el informe precargado → borrar
+      // cualquier informe cerraba el visor del que estabas viendo.
+      setPreloaded((prev) => (prev?.id === id ? null : prev));
       toast.success('Informe eliminado');
     } catch (err) {
       captureException(err);
       toast.error('No se pudo eliminar el informe');
       refetchRecent();
     }
-  }, [recentReports, refetchRecent]);
+  }, [refetchRecent]);
 
   return (
     <div className="space-y-6">

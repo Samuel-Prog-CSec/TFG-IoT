@@ -169,6 +169,7 @@ describe('GameHistoryTable', () => {
     {
       gameplayId: 'gp1',
       score: 95,
+      scorePercent: 95,
       correctAttempts: 9,
       totalAttempts: 10,
       completedAt: '2026-03-01T10:00:00Z',
@@ -179,6 +180,7 @@ describe('GameHistoryTable', () => {
     {
       gameplayId: 'gp2',
       score: 45,
+      scorePercent: 45,
       correctAttempts: 4,
       totalAttempts: 10,
       completedAt: '2026-03-02T14:00:00Z',
@@ -222,10 +224,12 @@ describe('GameHistoryTable', () => {
     expect(screen.getByText('Quiz')).toBeTruthy();
   });
 
-  it('renderiza los scores redondeados', () => {
+  it('renderiza los scores normalizados a porcentaje', () => {
+    // El score se muestra como % (scorePercent), comparable entre mecánicas,
+    // no como puntos crudos.
     render(<GameHistoryTable games={sampleGames} />);
-    expect(screen.getByText('95')).toBeTruthy();
-    expect(screen.getByText('45')).toBeTruthy();
+    expect(screen.getByText('95%')).toBeTruthy();
+    expect(screen.getByText('45%')).toBeTruthy();
   });
 
   it('calcula y muestra el porcentaje de aciertos', () => {

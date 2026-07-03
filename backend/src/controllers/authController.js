@@ -163,7 +163,10 @@ async function notifyPendingRegistration(teacher) {
   if (!Array.isArray(admins) || admins.length === 0) {
     return;
   }
-  await Promise.all(
+  // allSettled (no all): si el notify a UN super_admin falla, no debe abortar el
+  // resto del lote. La función es fire-and-forget con catch externo, pero con
+  // `all` un único rechazo descartaba las notificaciones de los demás admins.
+  await Promise.allSettled(
     admins.map(admin =>
       notificationService.notify({
         userId: admin._id.toString(),

@@ -216,7 +216,7 @@ export default function StudentProfile() {
             <SkeletonShimmer className="h-4 w-36 rounded-md" />
           </div>
         </div>
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-[var(--space-fluid-gutter)]">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-[var(--space-fluid-gutter)]">
           {STUDENT_PROFILE_STAT_KEYS.map(key => <SkeletonStatCard key={key} />)}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -370,7 +370,7 @@ export default function StudentProfile() {
         animate="visible"
         aria-label="KPIs del estudiante"
       >
-        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 xl:grid-cols-6 gap-[var(--space-fluid-gutter)]">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-[var(--space-fluid-gutter)]">
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Puntuación Media"
@@ -427,11 +427,14 @@ export default function StudentProfile() {
           </motion.div>
 
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
+            {/* Sin "Mejor: X pts": `bestScore` es score CRUDO y varía por mecánica
+                (Secuencia 210-420 vs Memoria 90), así que "147 pts" no es
+                comparable ni interpretable. La media normalizada (%) ya vive en su
+                propio KPI y el historial muestra el % por partida. */}
             <StudentKPICard
               label="Total Partidas"
               value={rangedTotalGames}
               ragStatus="gray"
-              comparison={`Mejor: ${metrics.bestScore || 0} pts`}
             />
           </motion.div>
 

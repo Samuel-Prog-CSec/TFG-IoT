@@ -1,0 +1,26 @@
+# Cabeceras de seguridad para el SPA servido por Cloudflare Pages.
+#
+# En el stack local el SPA lo sirve Nginx (frontend/security-headers.conf) y la
+# API va same-origin vía proxy /api. En producción el SPA vive en Cloudflare
+# Pages y la API en Koyeb: son ORÍGENES DISTINTOS. Sin este archivo, Pages
+# serviría el HTML del SPA SIN cabeceras de seguridad (nosniff, anti-clickjacking,
+# CSP) — el helmet del backend solo cubre las respuestas de la API, no el HTML.
+# Cloudflare Pages aplica este `_headers` de forma nativa.
+#
+# Mantener sincronizado con frontend/security-headers.conf (Nginx). Verificar en
+# prod con: curl -I https://<pages-domain>/
+/*
+  X-Frame-Options: DENY
+  X-Content-Type-Options: nosniff
+  X-XSS-Protection: 0
+  Referrer-Policy: strict-origin-when-cross-origin
+  Strict-Transport-Security: max-age=31536000; includeSubDomains; preload
+  Permissions-Policy: camera=(), microphone=(), geolocation=(), payment=(), usb=(self)
+  # CSP: script-src estricto (sin unsafe-inline/eval — vector XSS principal),
+  # igual que la política de Nginx/helmet. connect-src usa `https: wss:` en vez
+  # de un allowlist exacto porque en Pages el origen del backend Koyeb es
+  # deploy-específico y un `'self'` bloquearía TODAS las llamadas a la API
+  # cross-origin. Es defensa en profundidad del HTML/JS; el allowlist exacto de
+  # la API lo aplica el helmet del backend en sus propias respuestas. Sin
+  # report-uri: /api/csp-report no existe en el origen de Pages.
+  Content-Security-Policy: default-src 'self'; script-src 'self' https://*.sentry.io https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline' https://fonts.googleapis.com; font-src 'self' https://fonts.gstatic.com data:; img-src 'self' data: https://*.supabase.co; media-src 'self' https://*.supabase.co; connect-src 'self' https: wss:; worker-src 'self' blob:; frame-src 'self' https://challenges.cloudflare.com; frame-ancestors 'none'; base-uri 'self'; form-action 'self'

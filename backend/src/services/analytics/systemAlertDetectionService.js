@@ -463,8 +463,12 @@ async function runDetection({ now = new Date(), dryRun = false } = {}) {
   // 6) Auto-resolve no reaparecidas
   const autoResolved = dryRun ? 0 : await autoResolveUnseen(activeMap, now);
 
-  // 7) Invalidar cache
-  if (!dryRun) {
+  // 7) Invalidar cache SOLO si hubo cambios reales. cacheInvalidatePattern hace
+  // SCAN + DEL en Redis; la mayoría de corridas no producen cambios, así que
+  // invalidar incondicionalmente gastaba comandos Upstash cada 15 min para nada.
+  const alertsChanged =
+    created + updated + escalated + autoResolved + reopened + snoozeReactivated > 0;
+  if (!dryRun && alertsChanged) {
     await invalidateCache();
   }
 

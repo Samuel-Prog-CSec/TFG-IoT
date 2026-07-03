@@ -98,7 +98,8 @@ const getSessions = async (req, res) => {
         { path: 'createdBy', select: 'name email' }
       ],
       sort: sortOptions,
-      limit: Number.parseInt(limit, 10),
+      // page/limit ya son number (paginationSchema); sin re-parse.
+      limit,
       skip,
       lean: isSessionReadLeanEnabled()
     }),
@@ -128,8 +129,8 @@ const getSessions = async (req, res) => {
   });
 
   sendPaginated(res, toGameSessionListDTOV1(sessionsWithStats), {
-    page: Number.parseInt(page, 10),
-    limit: Number.parseInt(limit, 10),
+    page,
+    limit,
     total
   });
 };

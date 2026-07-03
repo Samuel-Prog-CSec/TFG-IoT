@@ -104,7 +104,14 @@ function GameHistoryTable({ games, initialCount = 10, onLoadMore, hasMore: hasMo
           <tbody>
             <AnimatePresence>
               {visibleGames.map((game, index) => {
-                const tier = getGameTier(game.score ?? 0);
+                // score NORMALIZADO a % (score/maxScore×100): comparable entre
+                // mecánicas. El backend lo envía como `scorePercent`; el crudo
+                // (`game.score`) se queda solo como fallback de datos cacheados
+                // antiguos. El tier RAG usa umbrales 0-100, así que DEBE evaluarse
+                // sobre el %, no sobre el crudo (un 147 de Secuencia salía siempre
+                // "excelente"; un 24 de Memoria, "en riesgo").
+                const scorePct = game.scorePercent != null ? game.scorePercent : game.score;
+                const tier = getGameTier(scorePct ?? 0);
                 const badge = TIER_BADGE[tier];
                 // El backend puede enviar accuracy pre-calculada (%) o correctAttempts/totalAttempts
                 let accuracy = null;
@@ -132,9 +139,9 @@ function GameHistoryTable({ games, initialCount = 10, onLoadMore, hasMore: hasMo
                       {game.mechanicName || game.mechanic || '—'}
                     </td>
                     <td className="py-2.5 pr-3 text-right">
-                      {game.score != null ? (
-                        <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded-md inline-block", badge.className)} aria-label={`Puntuación ${Math.round(game.score)}, nivel ${badge.label}`}>
-                          {Math.round(game.score)}
+                      {scorePct != null ? (
+                        <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded-md inline-block", badge.className)} aria-label={`Puntuación ${Math.round(scorePct)} por ciento, nivel ${badge.label}`}>
+                          {Math.round(scorePct)}%
                         </span>
                       ) : (
                         // Sin score real no mostramos "0" (que parecería la peor nota):
@@ -176,6 +183,7 @@ GameHistoryTable.propTypes = {
     gameplayId: PropTypes.string,
     _id: PropTypes.string,
     score: PropTypes.number,
+    scorePercent: PropTypes.number,
     accuracy: PropTypes.number,
     correctAttempts: PropTypes.number,
     totalAttempts: PropTypes.number,

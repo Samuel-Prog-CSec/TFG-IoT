@@ -37,6 +37,17 @@ const disconnectUserSockets = async (io, userId, reason) => {
 
   const room = `user_${userId}`;
 
+  // Los sockets del usuario viven en DOS namespaces: el por defecto `/` (sistema)
+  // y `/game` (gameplay), ambos unidos a `user_<id>` en el middleware de auth.
+  // Antes solo se cubría `/`: al revocar la sesión (logout, cambio de password,
+  // rechazo/borrado de cuenta) el socket de `/game` SOBREVIVÍA y seguía
+  // recibiendo eventos de partida (new_round, validation_result, game_over…) con
+  // un token ya revocado — la revalidación por evento cierra el path de comandos
+  // pero no el de escucha pasiva. `io` es el Server (tiene `.of()`), así que
+  // recogemos ambos namespaces. Mismo patrón que ya usa el kick por-socketId de
+  // takeover en socketHandlers.
+  const namespaces = [io, io.of('/game')];
+
   // Snapshot de los sockets ACTUALES de la room ANTES de esperar el grace
   // (OBS-2). En el login, esta función se llama al crear la sesión nueva —
   // ANTES de que el cliente reciba la respuesta y conecte su socket nuevo. Si
@@ -47,21 +58,26 @@ const disconnectUserSockets = async (io, userId, reason) => {
   // lista está vacía y no se desconecta a nadie; solo se expulsan los sockets
   // del dispositivo ANTERIOR (los que ya estaban). `fetchSockets()` es async y
   // cubre todas las instancias vía el adapter de Redis.
-  let staleSockets = [];
-  try {
-    staleSockets = await io.in(room).fetchSockets();
-  } catch (error) {
-    logger.warn('disconnectUserSockets: error al obtener sockets de la room', {
-      userId,
+  const staleSockets = [];
+  for (const nsp of namespaces) {
+    try {
+      const sockets = await nsp.in(room).fetchSockets();
+      staleSockets.push(...sockets);
+    } catch (error) {
+      logger.warn('disconnectUserSockets: error al obtener sockets de la room', {
+        userId,
+        reason,
+        namespace: nsp.name,
+        message: error.message
+      });
+    }
+    // El cliente escucha `session_invalidated` en ambos namespaces; emitimos en
+    // los dos para que reaccione sea cual sea el que tenga vivo.
+    nsp.to(room).emit('session_invalidated', {
       reason,
-      message: error.message
+      timestamp: Date.now()
     });
   }
-
-  io.to(room).emit('session_invalidated', {
-    reason,
-    timestamp: Date.now()
-  });
 
   setTimeout(() => {
     for (const socket of staleSockets) {

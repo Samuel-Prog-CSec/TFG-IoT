@@ -9,7 +9,7 @@
 > **Audiencia:** Samuel (super_admin) y cualquier persona que herede la
 > operación del proyecto tras la defensa del TFG.
 >
-> **Última actualización:** 02-07-2026 (ADR-225 — reducción de comandos Upstash en el hot-path de partidas: rate-limiter gateado + heartbeat de leases).
+> **Última actualización:** 03-07-2026 (ADR-226 — riesgo abierto documentado: coste idle de BullMQ ~5× el free tier, invisible a la telemetría interna; ver §2.2 y `Decision_BullMQ_vs_Scheduling_InProcess.md`).
 
 ---
 
@@ -109,6 +109,22 @@ silenciosa pérdida de datos.
 - Memoria estable: 80-120 MB con cache analytics calentado.
 - Comandos: 30-80K/mes para uso típico (revisado en staging con tráfico
   sintético).
+
+> ⚠️ **Riesgo abierto — coste idle de BullMQ (ADR-226, hallazgo RD-1).** Las
+> cifras de arriba **no incluían el polling activo de BullMQ en reposo**. Los 4
+> workers cron hacen `BZPOPMIN`/`moveToActive`/stalled-check contra Upstash de
+> forma continua aunque no haya trabajo, con un estimado de **~80-90K
+> comandos/día ≈ ~2,6 M/mes — ~5× el free tier, sin una sola partida jugada**.
+> Ese consumo es además **invisible** para el detector interno
+> `upstash_commands_quota` (solo instrumenta `redisService`; BullMQ usa
+> conexiones propias). **Acción pendiente: medir el consumo real en la consola
+> de Upstash durante 24 h de idle** y decidir el rediseño de la capa de jobs
+> (scheduling in-process con lock `SET NX` vs. mantener BullMQ vs. cron externo).
+> Análisis completo y opciones en
+> [`Decision_BullMQ_vs_Scheduling_InProcess.md`](./Decision_BullMQ_vs_Scheduling_InProcess.md).
+> Mitigaciones de bajo riesgo ya aplicadas (cron `*/15`, `getJobCounts` a 4
+> estados, invalidación de cache condicional) reducen el resto del coste pero no
+> el polling, que es el ~85% del total.
 
 **Monitoreo:**
 - **Interno (T-910):** detector `upstash_commands_quota` lee

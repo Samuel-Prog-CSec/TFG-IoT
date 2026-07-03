@@ -167,7 +167,17 @@ const fetchUserForAuthWithChecks = async (decoded, req) => {
 
   // Si Redis no está disponible, runPipeline devuelve null: degradamos a la
   // ruta tradicional sin perder funcionalidad (igual que el resto del servicio).
+  // Fail-open CONSCIENTE: durante un outage de Redis NO podemos comprobar la
+  // blacklist ni el flag de seguridad, así que un token revocado se aceptaría
+  // hasta su expiración (≤15 min access). Se registra el evento para que quede
+  // rastro auditable de la ventana de degradación (RD-5).
   if (!pipelineResults) {
+    logSecurityEvent('AUTH_REVOCATION_CHECK_SKIPPED', {
+      ...getRequestContext(req),
+      userId,
+      jti: decoded.jti,
+      reason: 'REDIS_UNAVAILABLE'
+    });
     if (localUser) {
       recordAuthUserCache('hit');
       return localUser;

@@ -252,8 +252,13 @@ const SYSTEM_ALERT_SOURCES = Object.freeze([
  * Las escalas son operacionales (horas) en lugar de pedagógicas (días).
  */
 const SYSTEM_DETECTION_CONFIG = Object.freeze({
-  /** Patrón cron del job BullMQ (cada 5 minutos por defecto — más frecuente que pedagogía). */
-  cronPattern: process.env.SYSTEM_ALERT_DETECTION_CRON || '*/5 * * * *',
+  // Patrón cron del job BullMQ. Por defecto cada 15 min: cada corrida cuesta
+  // ~30 comandos Redis (PING + 7 ZCOUNT + getJobCounts + SCAN/DEL de cache);
+  // a cada 5 min eran ~8.6K comandos/día, desproporcionado para el free tier de
+  // Upstash frente al valor de detectar incidencias con 5 min de frescura. Cada
+  // 15 min recorta el coste a ~1/3 manteniendo detección casi en tiempo real.
+  // Override por env si se necesita más frecuencia en staging.
+  cronPattern: process.env.SYSTEM_ALERT_DETECTION_CRON || '*/15 * * * *',
   /** Corridas consecutivas SIN aparecer antes de auto-resolve. */
   autoResolveAfterMissedRuns:
     Number.parseInt(process.env.SYSTEM_ALERT_AUTO_RESOLVE_MISSED, 10) || 2,

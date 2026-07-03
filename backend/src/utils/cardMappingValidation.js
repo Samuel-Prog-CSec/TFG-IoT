@@ -25,4 +25,44 @@ function assertAssignedValuesInContext(cardMappings, context) {
   }
 }
 
-module.exports = { assertAssignedValuesInContext };
+/**
+ * Reconstruye el `displayData` de cada mapeo desde el asset REAL del contexto
+ * (emparejando por `value`), descartando cualquier URL/campo que venga del
+ * cliente. `displayData` era `z.any()` en el schema, así que un cliente podía
+ * inyectar URLs arbitrarias (imageUrl/audioUrl) que luego se pintan a menores
+ * vía <img>/<Audio>. Al derivar las URLs server-side desde el contexto ya
+ * validado, cerramos la inyección y además evitamos el drift (el snapshot del
+ * mazo siempre refleja el asset del contexto). Devuelve un array NUEVO de
+ * objetos planos (no muta el original ni subdocumentos Mongoose).
+ *
+ * Debe llamarse DESPUÉS de `assertAssignedValuesInContext` (garantiza que cada
+ * assignedValue tiene asset correspondiente).
+ *
+ * @param {Array<{uid: string, assignedValue: string}>} cardMappings
+ * @param {{assets?: Array<Object>}} context - Contexto ya cargado.
+ * @returns {Array<Object>} Mapeos con displayData server-authoritative.
+ */
+function rebuildDisplayDataFromContext(cardMappings, context) {
+  const assetByValue = new Map((context.assets || []).map(a => [a.value, a]));
+  return cardMappings.map(mapping => {
+    const asset = assetByValue.get(mapping.assignedValue);
+    const displayData = asset
+      ? {
+          key: asset.key || '',
+          value: asset.value,
+          display: asset.display || '',
+          imageUrl: asset.imageUrl || null,
+          thumbnailUrl: asset.thumbnailUrl || null,
+          audioUrl: asset.audioUrl || null,
+          dominantColor: asset.dominantColor || null
+        }
+      : {};
+    return {
+      uid: mapping.uid,
+      assignedValue: mapping.assignedValue,
+      displayData
+    };
+  });
+}
+
+module.exports = { assertAssignedValuesInContext, rebuildDisplayDataFromContext };

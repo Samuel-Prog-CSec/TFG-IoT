@@ -138,25 +138,26 @@ export function useOnboarding({ totalSteps = 0 } = {}) {
     }
   }, []);
 
+  // El efecto secundario (scheduleSync) se hace FUERA del updater de setState:
+  // los updaters deben ser puros y en StrictMode se invocan dos veces, lo que
+  // dispararía el sync por duplicado. Calcular `next` a partir de `currentStep`
+  // (estado, fresco en cada render) mantiene el handler puro y determinista para
+  // un click de la barra del tour.
   const nextStep = useCallback(() => {
-    setCurrentStep((prev) => {
-      const next = prev + 1;
-      if (track) {
-        scheduleSync({ currentStep: next, currentTrack: track });
-      }
-      return next;
-    });
-  }, [track, scheduleSync]);
+    const next = currentStep + 1;
+    setCurrentStep(next);
+    if (track) {
+      scheduleSync({ currentStep: next, currentTrack: track });
+    }
+  }, [currentStep, track, scheduleSync]);
 
   const prevStep = useCallback(() => {
-    setCurrentStep((prev) => {
-      const next = Math.max(0, prev - 1);
-      if (track) {
-        scheduleSync({ currentStep: next, currentTrack: track });
-      }
-      return next;
-    });
-  }, [track, scheduleSync]);
+    const next = Math.max(0, currentStep - 1);
+    setCurrentStep(next);
+    if (track) {
+      scheduleSync({ currentStep: next, currentTrack: track });
+    }
+  }, [currentStep, track, scheduleSync]);
 
   const completeOnboarding = useCallback(() => {
     setIsVisible(false);

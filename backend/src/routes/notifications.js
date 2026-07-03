@@ -54,8 +54,11 @@ const asyncHandler = require('../utils/asyncHandler');
  *               type: object
  *               properties:
  *                 success: { type: boolean }
- *                 data: { type: array, items: { $ref: '#/components/schemas/Notification' } }
- *                 nextCursor: { type: string, nullable: true }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     items: { type: array, items: { $ref: '#/components/schemas/Notification' } }
+ *                     nextCursor: { type: string, nullable: true }
  *       401: { $ref: '#/components/responses/UnauthorizedError' }
  */
 router.get('/', authenticate, validateQuery(notificationListQuerySchema), asyncHandler(list));

@@ -80,7 +80,10 @@ const buildEnvironment = ({
     metrics: { totalRoundResponses: 0 },
     io: { to: ioTo },
     endPlay: jest.fn().mockResolvedValue(undefined),
-    sendNextRound: jest.fn().mockResolvedValue(undefined)
+    sendNextRound: jest.fn().mockResolvedValue(undefined),
+    // Pass-through del lock de partida: el engine real serializa handleSequenceRoundTimeout
+    // bajo executeWithPlayLock (WS-6). El mock lo ejecuta directamente.
+    executeWithPlayLock: jest.fn((playId, operationName, operation) => operation())
   };
 
   return { engine, playState, emit, ioTo, strategy };

@@ -841,7 +841,32 @@ const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
 
 const setRfidSensorBinding = (userId, sensorId, socketId) => {
   if (!userId || !sensorId) {
-    return;
+    return false;
+  }
+
+  // Anti-robo de binding (WS-3): si el sensorId ya pertenece a OTRO usuario con
+  // un modo RFID ACTIVO (no idle), no permitir el secuestro. El sensorId lo
+  // genera el cliente (localStorage) sin autenticidad y el HMAC firma UID:counter
+  // (no el sensorId), así que un docente podría emitir un scan con el sensorId de
+  // otro y robar su binding (los scans del sensor físico de la víctima pasarían
+  // a la sala del atacante). Si el otro modo ya no existe / es idle (limpiado por
+  // el watchdog o desconexión), sí se permite el handoff legítimo del sensor.
+  const existingOwner = sensorIdToUserId.get(sensorId);
+  if (existingOwner && existingOwner !== userId) {
+    const existingOwnerState = rfidModeByUserId.get(existingOwner);
+    if (
+      existingOwnerState &&
+      existingOwnerState.mode &&
+      existingOwnerState.mode !== RFID_MODES.IDLE
+    ) {
+      logSecurityEvent('SECURITY_RFID_SENSOR_BINDING_DENIED', {
+        userId,
+        sensorId,
+        currentOwner: existingOwner,
+        currentOwnerMode: existingOwnerState.mode
+      });
+      return false;
+    }
   }
 
   const current = rfidModeByUserId.get(userId);
@@ -870,6 +895,7 @@ const setRfidSensorBinding = (userId, sensorId, socketId) => {
     socketId: nextState.socketId || null,
     updatedAt: nextUpdatedAt
   });
+  return true;
 };
 
 const clearRfidModeState = (userId, socketId) => {
@@ -1350,7 +1376,16 @@ const ensureRfidSensorConsistency = (socket, modeState, payload) => {
   // sobreescribir el binding con `touch_fallback_sensor`, porque dejaría al
   // próximo scan de un sensor físico atascado en consistency mismatch.
   if (!modeState.sensorId && !isTouchFallback) {
-    setRfidSensorBinding(socket.data.userId, payload.sensorId, socket.id);
+    const bound = setRfidSensorBinding(socket.data.userId, payload.sensorId, socket.id);
+    if (!bound) {
+      // El sensorId pertenece a otro usuario con modo activo (WS-3): rechazar
+      // el scan en vez de robar el binding.
+      socket.emit('error', {
+        code: 'RFID_SENSOR_UNAUTHORIZED',
+        message: 'Este sensor ya está en uso por otra sesión activa'
+      });
+      return false;
+    }
   }
 
   return true;
@@ -1420,10 +1455,31 @@ const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, l
       rfidService.ingestEvent({
         event: 'card_detected',
         mode: modeState.mode,
+        // playId del MODO del emisor: el destino legítimo del scan. El ruteo
+        // aguas abajo (getPlayIdByCardUid) es global por UID; sin este ancla, un
+        // docente con partida propia activa podría inyectar un scan (por
+        // touch_fallback, exento de HMAC) en la partida de OTRO docente que tenga
+        // reservado ese UID. handleCardScan descarta el scan si el playId del UID
+        // no coincide con este `expectedPlayId`.
+        expectedPlayId: modeState.metadata?.playId || null,
         ...payload
       });
     }
   );
+/**
+ * Construye un Error de handshake con un `code` estructurado en `error.data`.
+ * Socket.IO propaga `error.data` al `connect_error` del cliente, de modo que el
+ * frontend puede decidir por CÓDIGO (no por el texto en español del mensaje) si
+ * el fallo es de autenticación y debe forzar logout. Antes el cliente comparaba
+ * el mensaje contra `'auth'`/`'token'` en inglés → nunca hacía match con
+ * "Token inválido"/"Sesión inválida" y el evento UNAUTHORIZED no se disparaba.
+ *
+ * @param {string} message - Mensaje legible (español, para logs/depuración)
+ * @param {string} code - Código estable en MAYÚSCULAS (contrato con el cliente)
+ * @returns {Error}
+ */
+const makeAuthError = (message, code) => Object.assign(new Error(message), { data: { code } });
+
 /**
  * Crea middleware de autenticación reutilizable para namespaces Socket.IO.
  * Valida token JWT, origen, estado del usuario y límite de conexiones.
@@ -1451,7 +1507,7 @@ const createAuthMiddleware =
           reason: 'TOKEN_MISSING',
           tokenSource
         });
-        return next(new Error('Token requerido'));
+        return next(makeAuthError('Token requerido', 'TOKEN_MISSING'));
       }
 
       const originValidation = validateSocketOrigin(socket);
@@ -1461,7 +1517,7 @@ const createAuthMiddleware =
           origin: originValidation.origin,
           tokenSource
         });
-        return next(new Error('Origin no autorizado'));
+        return next(makeAuthError('Origin no autorizado', 'ORIGIN_INVALID'));
       }
 
       const mockReq = { headers: socket.handshake.headers };
@@ -1472,7 +1528,7 @@ const createAuthMiddleware =
           reason: 'TOKEN_INVALID',
           tokenSource
         });
-        return next(new Error('Token inválido'));
+        return next(makeAuthError('Token inválido', 'TOKEN_INVALID'));
       }
 
       // Cache-aside Redis (slim-user, TTL 60s) en el handshake de Socket.IO.
@@ -1486,7 +1542,7 @@ const createAuthMiddleware =
           tokenSource,
           userId: decoded.id
         });
-        return next(new Error('Usuario no encontrado'));
+        return next(makeAuthError('Usuario no encontrado', 'USER_NOT_FOUND'));
       }
 
       if (user.status !== 'active') {
@@ -1496,7 +1552,7 @@ const createAuthMiddleware =
           userId: user._id,
           status: user.status
         });
-        return next(new Error('Usuario inactivo'));
+        return next(makeAuthError('Usuario inactivo', 'USER_INACTIVE'));
       }
 
       if (
@@ -1510,7 +1566,7 @@ const createAuthMiddleware =
           userId: user._id,
           accountStatus: user.accountStatus
         });
-        return next(new Error('Cuenta no aprobada'));
+        return next(makeAuthError('Cuenta no aprobada', 'ACCOUNT_NOT_APPROVED'));
       }
 
       if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
@@ -1519,7 +1575,7 @@ const createAuthMiddleware =
           tokenSource,
           userId: user._id
         });
-        return next(new Error('Sesión inválida'));
+        return next(makeAuthError('Sesión inválida', 'SESSION_INVALID'));
       }
 
       const userId = user._id.toString();
@@ -1535,7 +1591,7 @@ const createAuthMiddleware =
             currentCount,
             limit: socketConnectionLimits.maxConnectionsPerUser
           });
-          return next(new Error('Límite de conexiones alcanzado'));
+          return next(makeAuthError('Límite de conexiones alcanzado', 'CONNECTION_LIMIT'));
         }
         // C.4: registrar socketId para soporte single-cast multi-tab.
         incrementConnectionCount(userId, socket.id);
@@ -1554,7 +1610,7 @@ const createAuthMiddleware =
       logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
         reason: error.message
       });
-      return next(new Error('Autenticación inválida'));
+      return next(makeAuthError('Autenticación inválida', 'AUTH_FAILED'));
     }
   };
 
@@ -1907,7 +1963,10 @@ const registerRfidHandlers = ({ io, gameNsp, gameEngine, rfidService, logger }) 
       case 'card_detected':
         logger.info(`Tarjeta detectada: ${event.uid} (${event.type})`);
         if (event.mode === RFID_MODES.GAMEPLAY) {
-          gameEngine.handleCardScan(event.uid);
+          // expectedPlayId ancla el scan a la partida del modo del emisor
+          // (anti cross-teacher injection). Si el UID pertenece a otra partida,
+          // handleCardScan lo descarta.
+          gameEngine.handleCardScan(event.uid, event.expectedPlayId);
         }
         break;
       case 'card_removed':

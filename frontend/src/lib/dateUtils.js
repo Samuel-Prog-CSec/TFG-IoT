@@ -59,22 +59,29 @@ export function formatRelativeTime(input, options = {}) {
 
   const rtfAuto = getRtf('auto');
 
+  // En cada rango, si `Math.round` empuja el valor al máximo de la unidad
+  // (p. ej. 59.6 min → 60, o 23.6 h → 24) se PROMOCIONA a la unidad superior
+  // para no mostrar "Hace 60 min" / "Hace 24 h": se deja caer al siguiente
+  // bloque, cuyo `absDiff < ...` sigue siendo cierto y redondea a "Hace 1 h" /
+  // "Ayer" de forma natural.
   if (absDiff < HOUR) {
     const mins = Math.round(absDiff / MINUTE);
-    return `Hace ${mins} min`;
+    if (mins < 60) return `Hace ${mins} min`;
   }
   if (absDiff < DAY) {
     const hrs = Math.round(absDiff / HOUR);
-    return `Hace ${hrs} h`;
+    if (hrs < 24) return `Hace ${hrs} h`;
   }
   if (absDiff < WEEK) {
     // Entre 1 y 6 dias: usar RTF para "ayer" / "hace 2 dias" naturales
     const days = Math.round(absDiff / DAY);
-    if (rtfAuto) {
-      const text = rtfAuto.format(futureSign * days, 'day');
-      return text.charAt(0).toUpperCase() + text.slice(1);
+    if (days < 7) {
+      if (rtfAuto) {
+        const text = rtfAuto.format(futureSign * days, 'day');
+        return text.charAt(0).toUpperCase() + text.slice(1);
+      }
+      return `Hace ${days} d`;
     }
-    return `Hace ${days} d`;
   }
   if (absDiff < MONTH) {
     const weeks = Math.round(absDiff / WEEK);

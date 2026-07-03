@@ -730,7 +730,7 @@ function StepCards({
             <RFIDScannerPanel
               onCardScanned={onRFIDScan}
               scannedCards={selectedCards}
-              onRemoveCard={onRemoveCard}
+              onCardRemoved={onRemoveCard}
               maxCards={maxCards}
               showMockButton={import.meta.env.MODE === 'development'}
             />
@@ -785,7 +785,7 @@ function StepCards({
             <RFIDScannerPanel
               onCardScanned={onRFIDScan}
               scannedCards={selectedCards}
-              onRemoveCard={onRemoveCard}
+              onCardRemoved={onRemoveCard}
               maxCards={maxCards}
               showMockButton={import.meta.env.MODE === 'development'}
             />

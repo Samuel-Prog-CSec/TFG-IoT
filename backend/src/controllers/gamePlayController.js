@@ -119,7 +119,8 @@ const getPlays = async (req, res) => {
         { path: 'playerId', select: 'name profile.age profile.classroom' }
       ],
       sort: sortOptions,
-      limit: Number.parseInt(limit, 10),
+      // page/limit ya son number (paginationSchema); sin re-parse.
+      limit,
       skip
     }),
     gamePlayRepository.count(filter)
@@ -132,8 +133,8 @@ const getPlays = async (req, res) => {
   });
 
   sendPaginated(res, toGamePlayListDTOV1(plays), {
-    page: Number.parseInt(page, 10),
-    limit: Number.parseInt(limit, 10),
+    page,
+    limit,
     total
   });
 };

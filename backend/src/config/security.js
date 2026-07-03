@@ -321,7 +321,13 @@ const hasValidCsrf = req => {
   return Boolean(csrfHeader && csrfCookie && csrfHeader === csrfCookie);
 };
 
-const shouldSkipCsrf = req => skipPaths.has(req.path);
+// Normaliza el trailing slash antes de comparar con la skip-list: Express hace
+// coincidir `/api/auth/login` y `/api/auth/login/` con el mismo handler (routing
+// no estricto), pero `skipPaths.has('/api/auth/login/')` daría false → CSRF se
+// aplicaría a un login con barra final y lo bloquearía. Quitamos la barra final
+// (salvo la raíz) para que la exención sea robusta ante esa variante.
+const normalizePath = path => (path.length > 1 && path.endsWith('/') ? path.slice(0, -1) : path);
+const shouldSkipCsrf = req => skipPaths.has(normalizePath(req.path));
 
 const csrfProtection = (req, res, next) => {
   if (isTestEnv()) {

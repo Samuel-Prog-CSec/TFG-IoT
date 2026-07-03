@@ -100,10 +100,13 @@ const buildSharedAggregates = () => ({
   totalPlays: { $sum: 1 },
   uniqueStudents: { $addToSet: '$playerId' },
   avgCompletionTime: { $avg: '$metrics.completionTime' },
-  // Para calcular improvement rate: guardar scores con fecha
+  // Para calcular improvement rate: guardar scores NORMALIZADOS a % con fecha.
+  // Antes se empujaba el `score` crudo, pero varía por mecánica (Asociación
+  // 50-90, Memoria 90, Secuencia 210-420); la pendiente/regresión sobre crudo
+  // con groupBy='context' mezcla escalas y produce ruido, no aprendizaje real.
   scoreDates: {
     $push: {
-      score: '$score',
+      score: SCORE_PERCENT_EXPR,
       date: '$completedAt'
     }
   }
@@ -411,7 +414,12 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
             cond: {
               $and: [
                 { $in: ['$$e.eventType', ['correct', 'error', 'timeout']] },
-                { $ne: ['$$e.cardUid', null] }
+                // `$gt: [campo, null]` excluye null Y ausente; un `$ne` en expresión
+                // NO descarta el campo ausente (los `timeout` no llevan cardUid) →
+                // dejaría pasar timeouts sin tarjeta creando un grupo `_id: null`
+                // espurio ("tarjeta fantasma" con errorRate ~100% al frente del
+                // informe). Mismo fix ya aplicado en sessionAnalysisService.getCardAnalysis.
+                { $gt: ['$$e.cardUid', null] }
               ]
             }
           }
@@ -560,7 +568,10 @@ async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mech
     {
       $group: {
         _id: { playerId: '$playerId', contextId: '$context._id', contextName: '$context.name' },
-        plays: { $push: { score: '$score', date: '$completedAt' } }
+        // score NORMALIZADO a % (no crudo): la curva agrupa por contexto y mezcla
+        // mecánicas de escalas distintas; promediar el crudo daría saltos que no
+        // reflejan aprendizaje. `maxScore` va proyectado justo para esto.
+        plays: { $push: { score: SCORE_PERCENT_EXPR, date: '$completedAt' } }
       }
     }
   ];

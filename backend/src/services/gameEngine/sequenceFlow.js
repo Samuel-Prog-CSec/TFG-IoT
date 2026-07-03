@@ -407,7 +407,16 @@ async function handleSequenceRoundTimeout(engine, playId) {
         return;
       }
 
-      await finalizeSequenceRound(engine, playId, { timedOut: true });
+      // WS-6: finalizar bajo el lock de partida. El scan que completa la secuencia
+      // pasa por executeWithPlayLock (handleCardScan); el timer de ronda no lo
+      // hacía, así que un scan al filo del timeout interleaveaba con la
+      // finalización (awaitingResponse/roundStartTime y orden de
+      // sequence_round_result). El guard `_sequenceRoundFinalizing` sigue como
+      // defensa de idempotencia. El timer corre fuera de cualquier lock → sin
+      // riesgo de re-entrada.
+      await engine.executeWithPlayLock(playId, 'sequence_round_timeout', () =>
+        finalizeSequenceRound(engine, playId, { timedOut: true })
+      );
     }
   );
 }

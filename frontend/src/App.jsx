@@ -24,6 +24,7 @@ import { ROUTES } from './constants/routes';
 import RFIDModeHandler from './components/game/RFIDModeHandler';
 import TopProgressBar from './components/ui/TopProgressBar';
 import { RfidModeProvider } from './context/RfidModeContext';
+import { NotificationsProvider } from './context/NotificationsContext';
 import GlobalShortcuts from './components/system/GlobalShortcuts';
 import MfaChallengeModal from './components/auth/MfaChallengeModal'; // T-905 B7
 import MfaEnrollmentRedirect from './components/auth/MfaEnrollmentRedirect'; // T-905 B7
@@ -307,11 +308,18 @@ export default function App() {
                     Login, Register, AppLayout y GameLayout sin acoplarse a un
                     layout concreto. */}
                 <ShortcutRegistryProvider>
-                  <GlobalShortcuts />
-                  <AppContent />
-                  <MfaChallengeModal />
-                  <MfaEnrollmentRedirect />
-                  <ThemeAwareToaster />
+                  {/* NotificationsProvider: una única instancia del hook de
+                      notificaciones compartida por los dos puntos de montaje de
+                      NotificationBell en AppLayout (sidebar expandida vs rail),
+                      para que alternar el ancho del sidebar no remonte el bell ni
+                      refetchee. El hook no hace nada mientras no haya sesión. */}
+                  <NotificationsProvider>
+                    <GlobalShortcuts />
+                    <AppContent />
+                    <MfaChallengeModal />
+                    <MfaEnrollmentRedirect />
+                    <ThemeAwareToaster />
+                  </NotificationsProvider>
                 </ShortcutRegistryProvider>
               </RfidModeProvider>
             </AuthProvider>

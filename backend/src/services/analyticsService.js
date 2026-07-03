@@ -313,7 +313,7 @@ async function _getClassroomSummaryImpl(teacherId, { contextId, mechanicId, time
         role: 'student',
         status: 'active',
         ...ANALYTICS_CONSENT_FILTER,
-        'studentMetrics.averageScore': { $gte: 0, $lt: 50 }
+        'studentMetrics.averageScore': AT_RISK_SCORE_FILTER
       });
 
   const [results, studentsInRisk] = await Promise.all([
@@ -580,6 +580,20 @@ const ANALYTICS_CONSENT_FILTER = {
 };
 
 /**
+ * Predicado "alumno en riesgo" reutilizable: media POR DEBAJO del 50% pero
+ * MAYOR que 0. El `> 0` excluye a los alumnos que nunca han jugado (su
+ * `studentMetrics.averageScore` es 0 por defecto): no tienen datos, así que no
+ * son "en riesgo" sino "sin actividad".
+ *
+ * Antes el KPI del dashboard (summary) usaba `{ $gte: 0, $lt: 50 }` y las
+ * tendencias `{ $lt: 50, $gt: 0 }`, de modo que un alumno con media exactamente
+ * 0 se contaba como en riesgo en una pantalla y no en la otra. Unificado aquí.
+ *
+ * @private
+ */
+const AT_RISK_SCORE_FILTER = { $gt: 0, $lt: 50 };
+
+/**
  * Obtiene los IDs de estudiantes que NO tienen consentimiento de analytics activo.
  * Usado para excluir sus partidas de aggregaciones GamePlay ($nin).
  * Art. 21 RGPD — Derecho de oposición al tratamiento con fines de análisis.
@@ -684,6 +698,11 @@ const CONTEXT_LOOKUP_PROJECTION_FIELDS = {
 const GAME_HISTORY_ITEM_PROJECTION = {
   $project: {
     score: 1,
+    // score NORMALIZADO a % (score/maxScore×100): la tabla de historial y su
+    // badge de tier deben usar el % —comparable entre mecánicas— y no el crudo
+    // (Secuencia 210-420 vs Memoria 90) que hacía que un 147 crudo se pintara
+    // siempre como "excelente" y mezclara escalas de forma confusa para el docente.
+    scorePercent: SCORE_PERCENT_EXPR,
     completedAt: 1,
     accuracy: {
       $cond: [
@@ -923,19 +942,8 @@ async function getStudentsTiersByMechanic(studentIds = []) {
       $project: {
         playerId: 1,
         mechanicName: '$mechanic.name',
-        accuracyPct: {
-          // Suelo a 0 (OBS-5): nunca mostrar % negativo por un score crudo negativo.
-          $max: [
-            0,
-            {
-              $cond: [
-                { $gt: ['$maxScore', 0] },
-                { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
-                0
-              ]
-            }
-          ]
-        }
+        // Fuente única de verdad para score→% (ADR-201); antes reescrito inline.
+        accuracyPct: SCORE_PERCENT_EXPR
       }
     },
     {
@@ -1325,7 +1333,7 @@ async function getClassroomTrends(teacherId, timeRange = '7d', { contextId, mech
     role: 'student',
     status: 'active',
     ...ANALYTICS_CONSENT_FILTER,
-    'studentMetrics.averageScore': { $lt: 50, $gt: 0 }
+    'studentMetrics.averageScore': AT_RISK_SCORE_FILTER
   });
 
   // Un baseline del periodo anterior solo es comparable si tuvo suficientes
@@ -1734,6 +1742,11 @@ async function _getStudentSummaryImpl(studentId, timeRange = '30d') {
           createdBy: student.createdBy,
           role: 'student',
           status: 'active',
+          // RGPD Art. 21: los alumnos cuyos tutores se opusieron a
+          // `performance_analytics` NO deben computar en la media de clase que
+          // se muestra al docente (coherente con el resto de agregados:
+          // engagement, export, overlay de trayectoria).
+          ...ANALYTICS_CONSENT_FILTER,
           'studentMetrics.totalGamesPlayed': { $gt: 0 }
         }
       },

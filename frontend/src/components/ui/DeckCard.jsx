@@ -11,9 +11,9 @@
  * @module components/ui/DeckCard
  */
 
-import { useState, useRef, useMemo, useEffect } from 'react';
+import { useState, useRef, useMemo, useEffect, createContext, useContext } from 'react';
 import { Link } from 'react-router-dom';
-import { m as motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
+import { m as motion, AnimatePresence, useMotionValue, useSpring, useTransform } from 'framer-motion';
 import { Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
@@ -188,6 +188,14 @@ const useDeckCardInteraction = ({ reducedMotion, selectable, onSelect, deck }) =
  * @param {boolean} [props.reducedMotion=false] - Reducir animaciones para rendimiento
  * @param {string} [props.className] - Clases adicionales
  */
+// Contexto interno de la card: el wrapper computa el estado completo
+// (interacción, motion, menú, preview) y lo provee una sola vez; `DeckCardView`
+// lo consume en vez de recibir 30 props enhebradas una a una. Los
+// subcomponentes (Header, Preview, Stats, Actions) mantienen sus props enfocadas
+// —cohesivas— alimentadas desde DeckCardView, así que su wiring no cambia.
+const DeckCardContext = createContext(null);
+const useDeckCard = () => useContext(DeckCardContext);
+
 export default function DeckCard({
   deck,
   onView,
@@ -241,70 +249,75 @@ export default function DeckCard({
   const remainingCount = Math.max(cardsCount - previewAssets.length, 0);
   const showActions = !selectable;
 
+  const contextValue = {
+    cardRef,
+    className,
+    handlePointerMove,
+    onPointerEnter: () => setIsHovered(true),
+    handlePointerLeave,
+    handleClick,
+    selectable,
+    deck,
+    selected,
+    handleSelectableKeyDown,
+    isHovered,
+    useFullAnimations,
+    rotateX,
+    rotateY,
+    menuRef,
+    isMenuOpen,
+    setIsMenuOpen,
+    onView,
+    onEdit,
+    onDelete,
+    onRename,
+    previewAssets,
+    remainingCount,
+    assetX,
+    assetY,
+    cardsCount,
+    showActions,
+    heroLayoutId
+  };
+
   return (
-    <DeckCardView
-      cardRef={cardRef}
-      className={className}
-      handlePointerMove={handlePointerMove}
-      onPointerEnter={() => setIsHovered(true)}
-      handlePointerLeave={handlePointerLeave}
-      handleClick={handleClick}
-      selectable={selectable}
-      deck={deck}
-      selected={selected}
-      handleSelectableKeyDown={handleSelectableKeyDown}
-      isHovered={isHovered}
-      useFullAnimations={useFullAnimations}
-      rotateX={rotateX}
-      rotateY={rotateY}
-      menuRef={menuRef}
-      isMenuOpen={isMenuOpen}
-      setIsMenuOpen={setIsMenuOpen}
-      onView={onView}
-      onEdit={onEdit}
-      onDelete={onDelete}
-      onRename={onRename}
-      previewAssets={previewAssets}
-      remainingCount={remainingCount}
-      assetX={assetX}
-      assetY={assetY}
-      cardsCount={cardsCount}
-      showActions={showActions}
-      heroLayoutId={heroLayoutId}
-    />
+    <DeckCardContext.Provider value={contextValue}>
+      <DeckCardView />
+    </DeckCardContext.Provider>
   );
 }
 
-function DeckCardView({
-  cardRef,
-  className,
-  handlePointerMove,
-  onPointerEnter,
-  handlePointerLeave,
-  handleClick,
-  selectable,
-  deck,
-  selected,
-  handleSelectableKeyDown,
-  isHovered,
-  useFullAnimations,
-  rotateX,
-  rotateY,
-  menuRef,
-  isMenuOpen,
-  setIsMenuOpen,
-  onView,
-  onEdit,
-  onDelete,
-  onRename,
-  previewAssets,
-  remainingCount,
-  assetX,
-  assetY,
-  cardsCount,
-  showActions,
-  heroLayoutId
-}) {
+function DeckCardView() {
+  const {
+    cardRef,
+    className,
+    handlePointerMove,
+    onPointerEnter,
+    handlePointerLeave,
+    handleClick,
+    selectable,
+    deck,
+    selected,
+    handleSelectableKeyDown,
+    isHovered,
+    useFullAnimations,
+    rotateX,
+    rotateY,
+    menuRef,
+    isMenuOpen,
+    setIsMenuOpen,
+    onView,
+    onEdit,
+    onDelete,
+    onRename,
+    previewAssets,
+    remainingCount,
+    assetX,
+    assetY,
+    cardsCount,
+    showActions,
+    heroLayoutId
+  } = useDeckCard();
   return (
     <motion.div
       ref={cardRef}
@@ -450,36 +463,9 @@ function DeckCardView({
   );
 }
 
-DeckCardView.propTypes = {
-  cardRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
-  className: PropTypes.string,
-  handlePointerMove: PropTypes.func.isRequired,
-  onPointerEnter: PropTypes.func.isRequired,
-  handlePointerLeave: PropTypes.func.isRequired,
-  handleClick: PropTypes.func.isRequired,
-  selectable: PropTypes.bool.isRequired,
-  deck: deckShape.isRequired,
-  selected: PropTypes.bool.isRequired,
-  handleSelectableKeyDown: PropTypes.func.isRequired,
-  isHovered: PropTypes.bool.isRequired,
-  useFullAnimations: PropTypes.bool.isRequired,
-  rotateX: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
-  rotateY: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
-  menuRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
-  isMenuOpen: PropTypes.bool.isRequired,
-  setIsMenuOpen: PropTypes.func.isRequired,
-  onView: PropTypes.func,
-  onEdit: PropTypes.func,
-  onDelete: PropTypes.func,
-  onRename: PropTypes.func,
-  previewAssets: PropTypes.arrayOf(cardMappingShape).isRequired,
-  remainingCount: PropTypes.number.isRequired,
-  assetX: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
-  assetY: PropTypes.oneOfType([PropTypes.number, PropTypes.object]).isRequired,
-  cardsCount: PropTypes.number.isRequired,
-  showActions: PropTypes.bool.isRequired,
-  heroLayoutId: PropTypes.string,
-};
+// DeckCardView no recibe props (consume DeckCardContext), por eso no lleva
+// propTypes. La validación de forma vive en los subcomponentes (Header, Preview…)
+// y en DeckCard.propTypes.
 
 function DeckCardHeader({
   deck,
@@ -570,6 +556,7 @@ function DeckCardHeader({
 
           <AnimateMenu
             isOpen={isMenuOpen}
+            onClose={() => setIsMenuOpen(false)}
             onView={(event) => {
               event.stopPropagation();
               setIsMenuOpen(false);
@@ -818,20 +805,47 @@ DeckSelectionBadge.propTypes = {
   selected: PropTypes.bool.isRequired,
 };
 
-function AnimateMenu({ isOpen, onView, onEdit, onDelete }) {
-  if (!isOpen) return null;
+function AnimateMenu({ isOpen, onClose, onView, onEdit, onDelete }) {
+  const firstItemRef = useRef(null);
+
+  // A11y teclado: al abrir, mover el foco al primer item del menú. Permite
+  // recorrerlo con Tab y cerrarlo con Escape (antes solo se cerraba con click
+  // fuera — inaccesible por teclado).
+  useEffect(() => {
+    if (isOpen) {
+      firstItemRef.current?.focus();
+    }
+  }, [isOpen]);
+
+  const itemClass =
+    'w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary transition-colors focus-ring';
 
   return (
-    <motion.div
-      initial={{ opacity: 0, y: -6, scale: 0.98 }}
-      animate={{ opacity: 1, y: 0, scale: 1 }}
-      exit={{ opacity: 0, y: -6, scale: 0.98 }}
-      className="absolute right-0 mt-2 w-36 rounded-xl border border-border-default bg-background-base/95 backdrop-blur-xl p-1.5 shadow-xl"
-    >
-      <button onClick={onView} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-border-default transition-colors">Ver</button>
-      <button onClick={onEdit} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-border-default transition-colors">Editar</button>
-      <button onClick={onDelete} className="w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary hover:bg-warning-base/15 hover:text-warning-base transition-colors">Archivar</button>
-    </motion.div>
+    // AnimatePresence envuelve el render condicional para que la animación `exit`
+    // se ejecute de verdad (antes `if (!isOpen) return null` desmontaba de golpe
+    // y el `exit` era código muerto).
+    <AnimatePresence>
+      {isOpen && (
+        <motion.div
+          role="menu"
+          aria-label="Opciones del mazo"
+          initial={{ opacity: 0, y: -6, scale: 0.98 }}
+          animate={{ opacity: 1, y: 0, scale: 1 }}
+          exit={{ opacity: 0, y: -6, scale: 0.98 }}
+          onKeyDown={(event) => {
+            if (event.key === 'Escape') {
+              event.stopPropagation();
+              onClose?.();
+            }
+          }}
+          className="absolute right-0 mt-2 w-36 rounded-xl border border-border-default bg-background-base/95 backdrop-blur-xl p-1.5 shadow-xl"
+        >
+          <button ref={firstItemRef} role="menuitem" onClick={onView} className={cn(itemClass, 'hover:bg-border-default')}>Ver</button>
+          <button role="menuitem" onClick={onEdit} className={cn(itemClass, 'hover:bg-border-default')}>Editar</button>
+          <button role="menuitem" onClick={onDelete} className={cn(itemClass, 'hover:bg-warning-base/15 hover:text-warning-base')}>Archivar</button>
+        </motion.div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -908,6 +922,7 @@ DeckCard.propTypes = {
 
 AnimateMenu.propTypes = {
   isOpen: PropTypes.bool.isRequired,
+  onClose: PropTypes.func,
   onView: PropTypes.func.isRequired,
   onEdit: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,

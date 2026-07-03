@@ -56,26 +56,42 @@ export default function AudioPlayBadge({ audioUrl, size = 'xs', className }) {
     (event) => {
       event.stopPropagation();
 
-      if (isPlaying && audioRef.current) {
+      // Detener SIEMPRE cualquier audio en curso antes de decidir. Cubre el
+      // doble-click rápido: dos toques antes de que `setIsPlaying(true)` re-renderice
+      // veían ambos `isPlaying=false` y creaban dos <Audio> solapados.
+      if (audioRef.current) {
         audioRef.current.pause();
         audioRef.current.currentTime = 0;
+        audioRef.current = null;
+      }
+
+      if (isPlaying) {
         setIsPlaying(false);
         return;
       }
 
       const audio = new Audio(audioUrl);
+      // Asignar el ref ANTES de `play()`: si el componente se desmonta mientras
+      // la promesa de play() está pendiente (click + navegación inmediata), el
+      // cleanup encontraba `audioRef.current === null` y el audio quedaba sonando
+      // huérfano.
+      audioRef.current = audio;
 
       audio.addEventListener('ended', () => {
         setIsPlaying(false);
-        audioRef.current = null;
+        if (audioRef.current === audio) {
+          audioRef.current = null;
+        }
       });
 
       audio.play().then(() => {
-        audioRef.current = audio;
         setIsPlaying(true);
         return undefined;
       }).catch(() => {
         // El navegador bloqueo la reproduccion (autoplay policy)
+        if (audioRef.current === audio) {
+          audioRef.current = null;
+        }
         setIsPlaying(false);
       });
     },

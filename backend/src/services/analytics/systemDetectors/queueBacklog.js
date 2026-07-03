@@ -35,13 +35,10 @@ class QueueBacklogDetector extends SystemAlertDetector {
 
     for (const [name, queue] of Object.entries(queues)) {
       try {
-        const counts = await queue.getJobCounts(
-          'waiting',
-          'active',
-          'delayed',
-          'failed',
-          'completed'
-        );
+        // Solo los estados que se usan (pending = waiting+delayed, failed, active).
+        // `completed` se pedía pero nunca se leía: cada estado es un comando Redis
+        // extra por cola y por corrida → se elimina para aligerar el coste Upstash.
+        const counts = await queue.getJobCounts('waiting', 'delayed', 'failed', 'active');
         const pending = (counts.waiting || 0) + (counts.delayed || 0);
         const failed = counts.failed || 0;
         let sev = null;

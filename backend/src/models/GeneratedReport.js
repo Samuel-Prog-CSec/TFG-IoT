@@ -119,6 +119,16 @@ GeneratedReportSchema.index({ studentId: 1 });
 const MAX_REPORTS_PER_TEACHER = 100;
 
 /**
+ * Cap de tamaño del payload individual (1 MB). El `payload` es Mixed y llega del
+ * cliente (POST /reports); aunque el body-parser limita el request, este guard
+ * en el modelo es defensa en profundidad para que ningún informe pueda inflar la
+ * colección hacia el límite de 16 MB/documento ni consumir el storage de M0
+ * (512 MB) de forma anómala. Un informe legítimo (summary/detailed) pesa unos
+ * pocos KB.
+ */
+const MAX_PAYLOAD_BYTES = 1024 * 1024;
+
+/**
  * Hook pre-save: enforce cap de 100 informes/teacher y recalcula
  * `payloadSize` cuando el payload cambia. El cap aplica solo en
  * inserciones (`isNew`) porque updates no varían el conteo.
@@ -126,6 +136,11 @@ const MAX_REPORTS_PER_TEACHER = 100;
 GeneratedReportSchema.pre('save', async function preSaveGeneratedReport() {
   if (this.isModified('payload') || this.isNew) {
     this.payloadSize = Buffer.byteLength(JSON.stringify(this.payload ?? null), 'utf8');
+    if (this.payloadSize > MAX_PAYLOAD_BYTES) {
+      throw new Error(
+        `El contenido del informe (${this.payloadSize} bytes) excede el máximo permitido (${MAX_PAYLOAD_BYTES} bytes)`
+      );
+    }
   }
 
   if (!this.isNew) {

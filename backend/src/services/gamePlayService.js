@@ -11,6 +11,7 @@ const userRepository = require('../repositories/userRepository');
 const { recalculateSessionStatusFromPlays } = require('./sessionStatusService');
 const notificationService = require('./notificationService');
 const { computeMaxScore } = require('./gamePlayScoring');
+const { withTransaction } = require('../utils/withTransaction');
 const {
   NotFoundError,
   ValidationError,
@@ -264,35 +265,52 @@ async function completePlay(playId) {
     throw new ValidationError('La partida ya no está en progreso');
   }
 
-  // Completar partida (método del modelo)
-  await play.complete();
+  // H1: `complete()` + `updateStudentMetrics()` ATÓMICOS en una transacción.
+  // Antes eran dos escrituras sueltas: un fallo entre ambas dejaba la partida
+  // `completed` sin reflejar en studentMetrics, y dos finalizaciones concurrentes
+  // del mismo alumno corrompían la media (read-modify-write con last-write-wins).
+  // La transacción da atomicidad y serializa (write-conflict → withTransaction
+  // reintenta con lectura fresca). En Mongo standalone (tests) withTransaction
+  // degrada a ejecución directa sin sesión.
+  let prevAverage = null;
+  let metricsUpdated = false;
+  let studentName = null;
 
-  // Actualizar métricas del estudiante
-  // Solo si el tutor no ha ejercido el derecho de oposición a analytics (Art. 21 RGPD)
-  const player = await userRepository.findById(play.playerId);
-  // Snapshot del rendimiento previo para detectar transición a "en riesgo"
-  // tras la actualización de métricas (T-955 trigger: student_at_risk).
-  const prevAverage =
-    typeof player?.studentMetrics?.averageScore === 'number'
-      ? player.studentMetrics.averageScore
-      : null;
+  await withTransaction(async session => {
+    await play.complete({ session });
 
-  if (player.hasConsentFor('performance_analytics')) {
-    await player.updateStudentMetrics({
-      score: play.score,
-      maxScore: play.maxScore,
-      correctAttempts: play.metrics.correctAttempts,
-      errorAttempts: play.metrics.errorAttempts,
-      timeoutAttempts: play.metrics.timeoutAttempts,
-      averageResponseTime: play.metrics.averageResponseTime
-    });
+    // Solo si el tutor no ha ejercido el derecho de oposición a analytics (RGPD Art. 21).
+    // Se re-lee el alumno DENTRO de la txn: en un reintento por write-conflict hay
+    // que partir de la media persistida fresca, no de una copia previa en memoria.
+    const player = await userRepository.findById(play.playerId, { session });
+    studentName = player?.name || null;
+    if (player?.hasConsentFor('performance_analytics')) {
+      prevAverage =
+        typeof player.studentMetrics?.averageScore === 'number'
+          ? player.studentMetrics.averageScore
+          : null;
+      await player.updateStudentMetrics(
+        {
+          score: play.score,
+          maxScore: play.maxScore,
+          correctAttempts: play.metrics.correctAttempts,
+          errorAttempts: play.metrics.errorAttempts,
+          timeoutAttempts: play.metrics.timeoutAttempts,
+          averageResponseTime: play.metrics.averageResponseTime
+        },
+        { session }
+      );
+      metricsUpdated = true;
+    }
+  });
 
-    // Tras actualizar la media, comprobar si el alumno acaba de cruzar el
-    // umbral 50 hacia abajo. La dedup window 60s del notificationService
-    // evita spam si dos partidas seguidas vuelven a cruzar el umbral.
-    await notifyStudentAtRiskIfTransition(player._id, prevAverage).catch(err => {
+  // Trigger de notificación FUERA de la txn (efecto secundario, no parte de la
+  // atomicidad). Comprueba si el alumno cruzó el umbral 50 hacia abajo tras la
+  // actualización. La dedup window 60s del notificationService evita spam.
+  if (metricsUpdated) {
+    await notifyStudentAtRiskIfTransition(play.playerId, prevAverage).catch(err => {
       logger.warn('Trigger notify student_at_risk ignorado', {
-        playerId: player._id,
+        playerId: play.playerId,
         error: err?.message
       });
     });
@@ -318,7 +336,7 @@ async function completePlay(playId) {
   // calculateStars del frontend, lib/utils.js).
   await notifyTeacherPlayCompleted({
     teacherId: play.sessionId?.createdBy,
-    studentName: player?.name,
+    studentName,
     studentId: play.playerId,
     sessionName: play.sessionId?.name,
     sessionId: play.sessionId?._id,
