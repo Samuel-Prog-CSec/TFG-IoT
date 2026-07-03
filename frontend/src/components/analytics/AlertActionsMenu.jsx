@@ -116,7 +116,7 @@ export default function AlertActionsMenu({
           )}
           {canPin && (
             <button type="button" className={ITEM_BASE} onClick={handle(onPin)}>
-              <Pin size={13} aria-hidden="true" className="text-amber-400" />
+              <Pin size={13} aria-hidden="true" className="text-accent-amber" />
               Fijar al principio
             </button>
           )}

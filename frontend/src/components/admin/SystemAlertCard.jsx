@@ -109,7 +109,7 @@ export default function SystemAlertCard({
         'focus-within:ring-1 focus-within:ring-brand-base/40',
         isInactive && 'opacity-60',
         alert.pinned &&
-          'ring-1 ring-amber-400/40 shadow-[0_0_10px_rgba(251,191,36,0.18)]',
+          'ring-1 ring-accent-amber/40 shadow-[0_0_10px_var(--color-accent-amber-glow)]',
         isCritical &&
           !isInactive &&
           'animate-pulse-glow shadow-[0_0_18px_var(--color-error-glow)]'
@@ -142,7 +142,7 @@ export default function SystemAlertCard({
               <PIN_ICON
                 size={12}
                 aria-label="Fijada"
-                className="text-amber-400 fill-amber-400/30"
+                className="text-accent-amber fill-accent-amber/30"
               />
             )}
             {/* h2 directo bajo el h1 del page hero (AdminPageHero). Antes h3

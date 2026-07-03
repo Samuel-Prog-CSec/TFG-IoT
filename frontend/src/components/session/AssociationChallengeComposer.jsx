@@ -97,30 +97,35 @@ export default function AssociationChallengeComposer({ cards, challengePlan, onP
         {safePlan.map(item => (
           <div
             key={`association-round-${item.roundNumber}`}
-            className="rounded-xl border border-border-default bg-background-base/40 p-4 grid grid-cols-1 lg:grid-cols-3 gap-4"
+            className="rounded-xl border border-border-default bg-background-base/40 p-4"
           >
-            <div className="lg:col-span-1">
-              <p className="text-sm font-medium text-text-primary mb-2">Ronda {item.roundNumber}</p>
-              <SelectPremium
-                label="Tarjeta objetivo"
-                value={item.uid || ''}
-                onChange={value => handleCardChange(item.roundNumber, value)}
-                options={cardOptions}
-                disabled={disabled}
-                placeholder="Selecciona una tarjeta"
-              />
-            </div>
+            {/* "Ronda X" como título de la fila (no dentro de una columna): así
+                «Tarjeta objetivo» y «Consigna opcional» quedan alineadas a la
+                misma altura, en vez de desfasadas por este rótulo. */}
+            <p className="text-sm font-medium text-text-primary mb-3">Ronda {item.roundNumber}</p>
+            <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+              <div className="lg:col-span-1">
+                <SelectPremium
+                  label="Tarjeta objetivo"
+                  value={item.uid || ''}
+                  onChange={value => handleCardChange(item.roundNumber, value)}
+                  options={cardOptions}
+                  disabled={disabled}
+                  placeholder="Selecciona una tarjeta"
+                />
+              </div>
 
-            <div className="lg:col-span-2">
-              <InputPremium
-                label="Consigna opcional"
-                value={item.promptText || ''}
-                onChange={e => handlePromptChange(item.roundNumber, e.target.value)}
-                maxLength={180}
-                disabled={disabled}
-                placeholder={`Ej: Busca ${item.assignedValue || 'la carta correcta'}`}
-                hint="Se muestra en la ronda como guia del reto."
-              />
+              <div className="lg:col-span-2">
+                <InputPremium
+                  label="Consigna opcional"
+                  value={item.promptText || ''}
+                  onChange={e => handlePromptChange(item.roundNumber, e.target.value)}
+                  maxLength={180}
+                  disabled={disabled}
+                  placeholder={`Ej: Busca ${item.assignedValue || 'la carta correcta'}`}
+                  hint="Se muestra en la ronda como guia del reto."
+                />
+              </div>
             </div>
           </div>
         ))}

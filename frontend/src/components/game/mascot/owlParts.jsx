@@ -18,8 +18,8 @@
  * @module components/game/mascot/owlParts
  */
 
-import { m as motion, AnimatePresence, useAnimationControls } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { m as motion, AnimatePresence, useAnimationControls, useMotionValue, animate as animateValue } from 'framer-motion';
+import { useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import { EXPRESSIONS } from './owlExpressions';
 import { EASING } from '../../../lib/utils';
@@ -51,7 +51,11 @@ const C = {
 // Acentos temáticos (sí adaptan light/dark vía tokens del design system).
 const BEAK = 'var(--color-accent-amber)';
 const FEET = 'var(--color-accent-amber)';
-const TEAR = 'var(--color-info-base)';
+// Gota de sudor / lágrima: cian agua CLARO y brillante, fijo (no cambia por
+// tema) para que resalte sobre el cuerpo índigo de Otto en ambos modos. Antes
+// era var(--color-info-base) — un azul casi idéntico al índigo del cuerpo, así
+// que la gota/lágrima "desaparecía" fundida con Otto.
+const TEAR = 'oklch(87% 0.12 215)';
 const SPARK = 'var(--color-warning-base)';
 const EXCLAIM = 'var(--color-error-base)';
 
@@ -159,6 +163,52 @@ export function OwlFeet() {
    alas vivían FUERA del AnimatePresence de la cara) y se desincronizaba
    del prop que sí animaba (flecha/pompones). Ahora crossfadean al ritmo
    del mismo cambio de `mood` que el prop → entran/salen sincronizadas. */
+// El ala del saludo gira alrededor de su ARTICULACIÓN (punto fijo del viewBox,
+// 153,146) usando el ATRIBUTO SVG `transform="rotate(θ cx cy)"` animado por un
+// MotionValue. Es la única técnica con pivote 100% estable: `transform-box:
+// fill-box` recalcula el origen (bounding box) al rotar en algunos navegadores y
+// la articulación "flotaba"; `view-box` no aplicaba el rotate con Framer. Aquí
+// (cx,cy) es una coordenada absoluta del viewBox → nunca se recalcula, solo
+// oscila la PUNTA. Dos agitaciones por ciclo para que el saludo se lea.
+const WAVE_KEYFRAMES = [0, -30, 8, -26, 4, -22, 0];
+function WaveWing({ active }) {
+  const ref = useRef(null);
+  const angle = useMotionValue(0);
+  // Escribimos el ángulo como ATRIBUTO SVG a mano (no dejamos que Framer lo
+  // ponga como `style.transform`): Framer interpreta `transform` de un motion.g
+  // como CSS, y `rotate(θ cx cy)` NO es CSS válido → se ignoraba y el ala no
+  // giraba. Suscribiéndonos al MotionValue y usando setAttribute, el rotate SVG
+  // gira alrededor del punto fijo (153,146) — la articulación no se recalcula.
+  useEffect(() => {
+    const el = ref.current;
+    if (!el) return undefined;
+    const write = (a) => el.setAttribute('transform', `rotate(${a} 153 146)`);
+    write(0);
+    const unsubscribe = angle.on('change', write);
+    if (!active) {
+      angle.set(0);
+      return unsubscribe;
+    }
+    const controls = animateValue(angle, WAVE_KEYFRAMES, {
+      duration: 1.4,
+      repeat: Infinity,
+      repeatDelay: 0.6,
+      ease: 'easeInOut'
+    });
+    return () => {
+      controls.stop();
+      unsubscribe();
+    };
+  }, [active, angle]);
+  return (
+    <g ref={ref} transform="rotate(0 153 146)">
+      <ellipse cx="168" cy="118" rx="13" ry="34" transform="rotate(30 168 118)" fill={C.wing} />
+      <ellipse cx="166" cy="120" rx="5" ry="20" transform="rotate(30 168 118)" fill={C.wingHi} opacity="0.45" />
+    </g>
+  );
+}
+WaveWing.propTypes = { active: PropTypes.bool };
+
 const WING_VARIANTS = {
   // Alas LEVANTADAS hacia arriba —las DOS, como el ala del saludo (`wave`)— que
   // SUJETAN un pompón en cada punta. Los brazos se extienden arriba y hacia
@@ -189,18 +239,7 @@ const WING_VARIANTS = {
   wave: (animate, reduce) => (
     <>
       <ellipse cx="42" cy="140" rx="15" ry="37" fill={C.wing} />
-      <motion.g
-        style={{ transformBox: 'fill-box', transformOrigin: '50% 92%' }}
-        animate={animate && !reduce ? { rotate: [0, -16, 6, -12, 0] } : { rotate: 0 }}
-        transition={
-          animate && !reduce
-            ? { duration: 1.5, repeat: Infinity, repeatDelay: 2, ease: 'easeInOut' }
-            : { duration: 0 }
-        }
-      >
-        <ellipse cx="168" cy="118" rx="13" ry="34" transform="rotate(30 168 118)" fill={C.wing} />
-        <ellipse cx="166" cy="120" rx="5" ry="20" transform="rotate(30 168 118)" fill={C.wingHi} opacity="0.45" />
-      </motion.g>
+      <WaveWing active={animate && !reduce} />
     </>
   )
 };

@@ -177,7 +177,7 @@ function AlertCard({
               {typeLabel}
             </span>
             {alert.pinned && (
-              <PIN_ICON size={11} className="text-amber-400" aria-label="Fijada" />
+              <PIN_ICON size={11} className="text-accent-amber" aria-label="Fijada" />
             )}
             <EscalationBadge
               daysActive={alert.daysActive}

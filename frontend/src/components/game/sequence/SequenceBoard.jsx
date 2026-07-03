@@ -96,6 +96,7 @@ function SequenceBoard({
   highlightIndex = null,
   displaySeconds = 3,
   roundNumber = 1,
+  hint = null,
   reduceMotion: reduceMotionProp,
   onCardTap,
   isCollecting = false,
@@ -112,7 +113,10 @@ function SequenceBoard({
     ...item,
     index,
     status: cardStatuses[item.uid] || SEQUENCE_CARD_STATES.HIDDEN,
-    highlight: highlightIndex === index ? index + 1 : null
+    highlight: highlightIndex === index ? index + 1 : null,
+    // La pista SOLO viaja a la carta de la posición actual (cursor) y solo en
+    // reproducción: es la que el alumno está intentando acertar.
+    hint: phase === SEQUENCE_PHASES.REPRODUCING && hint && index === cursor ? hint : null
   }));
 
   // Columnas adaptativas por aspect-ratio de la región (ADR-207 addendum):
@@ -265,6 +269,7 @@ function CardCellButton({ item, onCardTap, isInteractive, isFaceUp, reduceMotion
         displayData={item.displayData}
         status={item.status}
         highlightOrder={item.highlight}
+        hint={item.hint}
         isFaceUp={isFaceUp}
         reduceMotion={reduceMotion}
       />
@@ -291,6 +296,7 @@ function CardCellButton({ item, onCardTap, isInteractive, isFaceUp, reduceMotion
         displayData={item.displayData}
         status={item.status}
         highlightOrder={item.highlight}
+        hint={item.hint}
         isFaceUp={isFaceUp}
         reduceMotion={reduceMotion}
       />
@@ -307,6 +313,7 @@ SequenceBoard.propTypes = {
   highlightIndex: PropTypes.number,
   displaySeconds: PropTypes.number,
   roundNumber: PropTypes.number,
+  hint: PropTypes.shape({ type: PropTypes.string, text: PropTypes.string }),
   reduceMotion: PropTypes.bool,
   onCardTap: PropTypes.func,
   isCollecting: PropTypes.bool,

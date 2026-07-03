@@ -666,6 +666,7 @@ export default function AppLayout() {
             onClick={handleLogoutClick}
             disabled={isLoggingOut}
             aria-busy={isLoggingOut}
+            aria-label={isLoggingOut ? 'Cerrando sesión' : 'Cerrar sesión'}
             title={isLoggingOut ? 'Cerrando sesión…' : 'Cerrar sesión'}
             className={cn(
               'flex items-center w-full px-4 py-3 text-error-base hover:bg-error-base/10 rounded-xl active:scale-[0.98] transition-[colors,transform] duration-200',

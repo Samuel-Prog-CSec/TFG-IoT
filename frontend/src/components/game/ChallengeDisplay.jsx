@@ -7,12 +7,10 @@
  */
 
 import { m as motion, AnimatePresence } from 'framer-motion';
-import { useEffect, useState } from 'react';
 import PropTypes from 'prop-types';
-import { HelpCircle, Sparkles } from 'lucide-react';
+import { Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
-import { getAssetImageUrl } from '../../lib/cardMapping';
 import AudioMiniPlayer from '../ui/AudioMiniPlayer';
 import FloatingPointsBadge from './FloatingPointsBadge';
 
@@ -103,16 +101,6 @@ const ChallengeDisplay = function ChallengeDisplay({
   className
 }) {
   const { shouldReduceMotion } = useReducedMotion();
-  const [imageError, setImageError] = useState(false);
-  const [imageLoading, setImageLoading] = useState(false);
-
-  // Usar imagen completa para el display grande (768x768 para retina 2x a 160px CSS)
-  const assetImageUrl = getAssetImageUrl(asset, { preferFull: true });
-
-  useEffect(() => {
-    setImageError(false);
-    setImageLoading(Boolean(assetImageUrl));
-  }, [assetImageUrl]);
 
   const theme = themeColors[contextTheme] || themeColors.default;
   const isIdle = feedbackState === 'idle';
@@ -229,90 +217,38 @@ const ChallengeDisplay = function ChallengeDisplay({
         {/* Emoji/Image — escalada generosamente en desktop para aprovechar
             el ancho disponible del panel de asociacion (QA 2026-04-23: antes
             quedaba muy pequeña y con aire alrededor). */}
-        {assetImageUrl && !imageError ? (
-          <div
+        {/* Objetivo OCULTO: durante el reto NO se muestra el asset de respuesta
+            (la imagen de la tarjeta correcta) — el alumno debe ASOCIAR la
+            consigna/nombre con la tarjeta física correcta, no copiar una imagen.
+            En su lugar, un signo de interrogación estilizado y animado; el
+            nombre/consigna de abajo hace de pista. */}
+        <motion.div
+          className={cn(
+            // Mismo marco tematizado y tamaño vh-aware que tenía la imagen.
+            "relative size-[clamp(4rem,13vh,12rem)] mx-auto mb-[clamp(0.2rem,0.9vh,0.5rem)] rounded-2xl",
+            "flex items-center justify-center",
+            `bg-gradient-to-br ${theme.bg}`,
+            "ring-2 ring-offset-2 ring-offset-transparent",
+            theme.border.replace('border-', 'ring-'),
+            "shadow-[inset_0_2px_6px_color-mix(in_oklab,var(--color-text-primary)_20%,transparent)]"
+          )}
+          animate={shouldReduceMotion ? undefined : { scale: [1, 1.04, 1] }}
+          transition={shouldReduceMotion ? undefined : { duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          {/* Halo suave detrás del signo para darle profundidad de "carta boca abajo". */}
+          <div className={cn('absolute inset-6 rounded-2xl opacity-40', !shouldReduceMotion && 'animate-pulse-glow')} />
+          <motion.span
+            aria-hidden="true"
             className={cn(
-              // Tamaño vh-aware: la imagen del reto encoge en viewports de poca
-              // altura para evitar recorte del contenido (fit-to-viewport).
-              "relative size-[clamp(4rem,13vh,12rem)] mx-auto mb-[clamp(0.2rem,0.9vh,0.5rem)] rounded-2xl overflow-hidden",
-              // Marco tematizado: ring + shadow con color del tema
-              `ring-2 ring-offset-2 ring-offset-transparent`,
-              theme.border.replace('border-', 'ring-'),
-              // Sombra interior para profundidad (token-aware: en light el
-              // negro hardcoded ahogaba el marco; color-mix adapta el alpha
-              // al tema activo).
-              "shadow-[inset_0_2px_6px_color-mix(in_oklab,var(--color-text-primary)_30%,transparent)]"
+              'relative font-display font-black leading-none select-none text-[clamp(2.6rem,8vh,6rem)]',
+              theme.text
             )}
-            style={asset?.dominantColor ? { backgroundColor: asset.dominantColor } : undefined}
+            animate={shouldReduceMotion ? undefined : { y: [0, -6, 0], rotate: [0, -5, 5, 0] }}
+            transition={shouldReduceMotion ? undefined : { duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
           >
-            {/* Placeholder shimmer SIEMPRE visible durante el loading,
-                independientemente de si hay dominantColor (QA 04/05 BUG-A1:
-                la card quedaba VACÍA durante la transición entre rondas en
-                Asociación porque la nueva imagen tarda 1-2s en cargar). */}
-            {imageLoading && (
-              <div className="absolute inset-0 rounded-2xl border border-white/10 bg-white/5 animate-pulse" />
-            )}
-            {/* Fallback textual: muestra el `value` del asset durante el
-                loading. Cuando la imagen carga, se oculta vía opacity. Esto
-                evita frame vacío y da feedback inmediato al alumno. */}
-            {imageLoading && asset?.value && (
-              <div
-                aria-hidden="true"
-                className={cn(
-                  'absolute inset-0 flex items-center justify-center text-center px-2',
-                  'font-display font-bold text-3xl sm:text-4xl lg:text-5xl tracking-tight',
-                  'transition-opacity duration-300',
-                  theme.text
-                )}
-              >
-                {asset.value}
-              </div>
-            )}
-            <motion.img
-              src={assetImageUrl}
-              alt={asset.value}
-              className={cn(
-                "size-full object-contain drop-shadow-2xl transition-opacity duration-400 ease-out",
-                imageLoading ? "opacity-0" : "opacity-100"
-              )}
-              animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
-              transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              onLoad={() => setImageLoading(false)}
-              onError={() => {
-                setImageError(true);
-                setImageLoading(false);
-              }}
-              loading="eager"
-              fetchPriority="high"
-              decoding="sync"
-            />
-          </div>
-        ) : (
-          <motion.div
-            className="text-[clamp(3.5rem,12vh,9rem)] mb-[clamp(0.25rem,1vh,0.5rem)] select-none filter drop-shadow-lg leading-none flex items-center justify-center"
-            animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
-              scale: [1, 1.1, 1],
-              rotate: [0, 3, -3, 0]
-            }}
-            transition={shouldReduceMotion ? { duration: 0 } : {
-              duration: 2,
-              repeat: Infinity,
-              ease: "easeInOut"
-            }}
-          >
-            {revealed && asset?.display ? (
-              asset.display
-            ) : (
-              // Antes era el emoji '❓' (helado por SO/font). Lucide HelpCircle
-              // mantiene el ratio visual y se tiñe con el color tema actual.
-              <HelpCircle
-                className={cn('size-[0.9em]', theme.text)}
-                strokeWidth={1.5}
-                aria-hidden="true"
-              />
-            )}
-          </motion.div>
-        )}
+            ?
+          </motion.span>
+        </motion.div>
 
         {/* Text value — el nombre del target como ayuda visual principal.
             Escalado para desktop porque acompaña a un asset image grande

@@ -52,11 +52,16 @@ function SequenceCard({
   displayData,
   status = SEQUENCE_CARD_STATES.HIDDEN,
   highlightOrder,
+  hint = null,
   isFaceUp,
   reduceMotion = false
 }) {
   const isRevealed = status !== SEQUENCE_CARD_STATES.HIDDEN || isFaceUp;
   const statusConfig = STATUS_CONFIG[status];
+  // La pista revela parte (o la totalidad) del valor esperado. "?" → "_" para
+  // que se lea como huecos por rellenar (más intuitivo para infantil que un
+  // interrogante).
+  const hintText = hint?.text ? hint.text.replace(/\?/g, '_') : '';
 
   return (
     // Rellena la celda cuadrada que la envuelve (la `li`/botón ya fija el
@@ -134,6 +139,24 @@ function SequenceCard({
         </div>
       </div>
 
+      {/* Pista FIJA sobre la carta boca abajo (solo la posición actual la recibe
+          desde el board). Muestra el valor esperado con huecos "_", encima del
+          dorso, y se mantiene hasta que el alumno avanza de posición. */}
+      {hint && !isRevealed && (
+        <motion.div
+          initial={reduceMotion ? false : { opacity: 0, scale: 0.92 }}
+          animate={{ opacity: 1, scale: 1 }}
+          transition={reduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 260, damping: 20 }}
+          className="absolute inset-0 z-20 flex flex-col items-center justify-center gap-1 rounded-xl border-2 border-accent-amber/60 bg-accent-amber/25 backdrop-blur-sm px-1 text-center"
+          role="status"
+        >
+          <span className="text-nano font-semibold uppercase tracking-wider text-accent-amber-on-alpha">Pista</span>
+          <span className="font-display font-bold leading-tight tracking-[0.18em] text-text-primary text-[clamp(0.9rem,3.6vh,1.8rem)] break-all">
+            {hintText}
+          </span>
+        </motion.div>
+      )}
+
       {/* Numerito de orden durante memorizing */}
       <AnimatePresence>
         {highlightOrder != null && (
@@ -160,6 +183,7 @@ SequenceCard.propTypes = {
   displayData: PropTypes.object,
   status: PropTypes.oneOf(Object.values(SEQUENCE_CARD_STATES)),
   highlightOrder: PropTypes.number,
+  hint: PropTypes.shape({ type: PropTypes.string, text: PropTypes.string }),
   isFaceUp: PropTypes.bool,
   reduceMotion: PropTypes.bool
 };

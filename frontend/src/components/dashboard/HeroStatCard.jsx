@@ -205,8 +205,8 @@ function HeroStatCard({
                   className={cn(
                     'inline-flex items-center gap-1 rounded-lg px-2.5 py-1 text-sm font-semibold ring-1 ring-inset',
                     isPositive
-                      ? 'text-success-base bg-success-base/10 ring-success-base/20'
-                      : 'text-error-base bg-error-base/10 ring-error-base/20'
+                      ? 'text-success-on-alpha bg-success-base/10 ring-success-base/20'
+                      : 'text-error-on-alpha bg-error-base/10 ring-error-base/20'
                   )}
                 >
                   <TrendIcon size={14} strokeWidth={3} />

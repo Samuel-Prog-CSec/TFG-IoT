@@ -128,9 +128,13 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
             return (
               <div className={cn(
                 "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap ring-1 ring-inset",
+                // -on-alpha: el texto va sobre bg-{tone}/10 (alpha del mismo tono
+                // mezclado con la card). Con los tokens `-base` el rojo del delta
+                // negativo rendía ~3.5:1 (sub-AA); los `-on-alpha` están
+                // calibrados para AA sobre ese fondo alpha en ambos temas.
                 isPositive
-                  ? "text-success-base bg-success-base/10 ring-success-base/20"
-                  : "text-error-base bg-error-base/10 ring-error-base/20"
+                  ? "text-success-on-alpha bg-success-base/10 ring-success-base/20"
+                  : "text-error-on-alpha bg-error-base/10 ring-error-base/20"
               )}>
                 <TrendIcon size={14} strokeWidth={3} />
                 <span>{trend}</span>

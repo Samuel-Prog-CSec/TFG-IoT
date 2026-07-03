@@ -25,7 +25,7 @@ import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import ThemeToggle from '../components/ui/ThemeToggle';
 import AuthBackground from '../components/auth/AuthBackground';
-import CharacterMascot from '../components/game/CharacterMascot';
+import AuthMascotPeek from '../components/auth/AuthMascotPeek';
 import { ROUTES } from '../constants/routes';
 
 // T-905 B6: CAPTCHA Turnstile tras 3 fallos previos.
@@ -303,15 +303,6 @@ export default function Login() {
             ))}
           </ul>
 
-          {/* Otto se ASOMA por el borde derecho del hero —el lado del
-              formulario— y SALUDA con el ala ("greeting": ala que ondea +
-              "¡Hola!"). Antes flotaba abajo-izquierda, lejos del login y mezclado
-              con las tarjetas decorativas; ahora da la bienvenida mirando hacia
-              la acción. `position="right"` ancla bocadillo y entrada a ese lado.
-              CharacterMascot ya respeta reduced-motion. */}
-          <div className="mt-10 flex justify-end pr-2 xl:pr-6">
-            <CharacterMascot mood="greeting" size="md" position="right" isFirstAppearance />
-          </div>
         </motion.aside>
 
         {/* Panel form — `<main>` para aportar el landmark de contenido
@@ -414,8 +405,10 @@ export default function Login() {
               )}
             </AnimatePresence>
 
-            {/* Card del formulario — auth-form-card aporta la barra superior
-                de marca y sombras tematizadas. */}
+            {/* Card del formulario — auth-form-card aporta la barra superior de
+                marca y sombras tematizadas. AuthMascotPeek hace que Otto se
+                asome por detrás del borde superior al enfocar un campo. */}
+            <AuthMascotPeek mood="greeting">
             <div className="auth-form-card p-8 lg:p-10">
               <motion.form
                 ref={formRef}
@@ -575,6 +568,7 @@ export default function Login() {
                 </span>
               </button>
             </div>
+            </AuthMascotPeek>
 
             {/* Footer */}
             <motion.div

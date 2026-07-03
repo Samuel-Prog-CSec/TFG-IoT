@@ -15,8 +15,6 @@
  */
 import { memo, useCallback, useEffect, useRef } from 'react';
 import PropTypes from 'prop-types';
-import { m as motion, AnimatePresence } from 'framer-motion';
-import { Sparkles } from 'lucide-react';
 import SequenceBoard from './sequence/SequenceBoard';
 import FallbackTouchPanelSequence from './sequence/FallbackTouchPanelSequence';
 import { SEQUENCE_PHASES } from '../../constants/sequenceConfig';
@@ -131,6 +129,7 @@ function SequenceGameplayPanel({
           displaySeconds={displaySeconds}
           roundNumber={roundNumber}
           totalRounds={totalRounds}
+          hint={hint}
           reduceMotion={shouldReduceMotion}
           isCollecting={isCollecting}
           overlayDurationMs={overlayDurationMs}
@@ -147,28 +146,8 @@ function SequenceGameplayPanel({
         />
       )}
 
-      <AnimatePresence>
-        {hint && (
-          <motion.div
-            key={`hint-${roundNumber}-${hint.text}`}
-            initial={{ opacity: 0, y: -8 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -8 }}
-            transition={{ duration: 0.25 }}
-            role="alert"
-            aria-live="polite"
-            className="absolute top-2 right-2 max-w-xs rounded-xl border border-accent-amber/40 bg-accent-amber/15 backdrop-blur px-4 py-2 text-text-primary shadow-lg flex items-center gap-2"
-          >
-            <Sparkles size={16} className="text-accent-amber shrink-0" aria-hidden="true" />
-            <div>
-              <p className="text-micro uppercase tracking-wider text-accent-amber/80">
-                Pista {hint.type === 'partial' ? 'parcial' : 'completa'}
-              </p>
-              <p className="text-sm font-display font-semibold tabular-nums">{hint.text}</p>
-            </div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      {/* La pista ya NO es un toast en la esquina: viaja al SequenceBoard y se
+          pinta FIJA sobre la carta de la posición actual (ver SequenceCard). */}
     </div>
   );
 }

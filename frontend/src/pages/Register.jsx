@@ -35,7 +35,7 @@ import ButtonPremium from '../components/ui/ButtonPremium';
 import InputPremium from '../components/ui/InputPremium';
 import ThemeToggle from '../components/ui/ThemeToggle';
 import AuthBackground from '../components/auth/AuthBackground';
-import CharacterMascot from '../components/game/CharacterMascot';
+import AuthMascotPeek from '../components/auth/AuthMascotPeek';
 import { ROUTES } from '../constants/routes';
 import { cn, formFieldVariants } from '../lib/utils';
 
@@ -345,26 +345,6 @@ export default function Register() {
             <span>Diseñado para infantil y primer ciclo de primaria</span>
           </motion.div>
 
-          {/* Otto anima el inicio del viaje (registro = empezar a jugar). Se
-              asoma por el borde IZQUIERDO del hero —que en registro es el lado
-              del formulario (hero a la derecha, form a la izquierda)— y en
-              `encouraging` invita con calidez. El bocadillo es persistente
-              (bienvenida ambiental). `position="left"` ancla bocadillo/entrada a
-              ese lado; CharacterMascot ya respeta reduced-motion. */}
-          <motion.div
-            initial={{ opacity: 0, y: 14 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ delay: 0.8, ease: [0.22, 1, 0.36, 1] }}
-            className="mt-10 flex justify-start"
-          >
-            <CharacterMascot
-              mood="encouraging"
-              size="md"
-              position="left"
-              message="¡Vamos a jugar juntos!"
-              isFirstAppearance
-            />
-          </motion.div>
         </motion.aside>
 
         {/* Form (izquierda en desktop) — `<main>` para el landmark de
@@ -414,6 +394,10 @@ export default function Register() {
               </h1>
             </div>
 
+            {/* AuthMascotPeek: Otto se asoma por detrás al enfocar un campo.
+                side="right" para no tapar el link "Volver a iniciar sesión"
+                (arriba a la izquierda en esta pantalla). */}
+            <AuthMascotPeek mood="encouraging" side="right">
             <div className="auth-form-card p-8 lg:p-10">
               <div className="mb-6">
                 <h2 className="text-2xl font-bold font-display text-text-primary">
@@ -627,6 +611,7 @@ export default function Register() {
                 </Link>
               </p>
             </div>
+            </AuthMascotPeek>
 
             <motion.p
               initial={{ opacity: 0 }}

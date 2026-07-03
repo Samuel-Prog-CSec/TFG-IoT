@@ -18,7 +18,7 @@ export default function EscalationBadge({ daysActive, isEscalated }) {
       className={cn(
         'inline-flex items-center gap-1 rounded-full border px-1.5 py-0.5 text-nano font-medium',
         isEscalated
-          ? 'border-amber-400/40 bg-amber-400/10 text-amber-400'
+          ? 'border-accent-amber/40 bg-accent-amber/10 text-accent-amber-on-alpha'
           : 'border-text-muted/30 bg-background-elevated/50 text-text-muted'
       )}
     >

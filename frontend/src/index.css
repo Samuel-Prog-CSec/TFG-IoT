@@ -29,14 +29,22 @@
      elevación claramente sin caer en glassmorphism barato (T-951 Fase 1). */
   --color-background-elevated: oklch(30% 0.04 260); /* #2c3a52 aprox */
   --color-background-surface: oklch(35% 0.04 260); /* #334155 eq */
+  /* Soporte de tarjeta RFID física (MIFARE): blanca en AMBOS temas — es un
+     objeto físico blanco con el dibujo impreso, así se reconoce como la que el
+     alumno tiene en la mano. En dark queda un blanco cálido (no puro) para no
+     cegar; el marco/sombra de cada carta la integran. `card-ink` = tinta oscura
+     para el texto de respaldo cuando no hay imagen (legible sobre el blanco). */
+  --color-card-surface: oklch(95% 0.01 85);
+  --color-card-ink: oklch(32% 0.02 260);
 
   /* Text: Jerarquía de 4 niveles para lectura perfecta */
   --color-text-primary: oklch(98% 0.01 260); /* Blanco casi puro */
   --color-text-secondary: oklch(88% 0.02 260); /* Gris muy claro */
-  /* Muted dark a 70% L (antes 65%): sobre background-elevated/40 el 65%
-     rendía ~3.2:1 — bajo WCAG AA 4.5:1 para texto pequeño. 70% L mantiene
-     la jerarquía visual respecto a secondary (88%) sin sacrificar a11y. */
-  --color-text-muted: oklch(70% 0.03 260);
+  /* Muted dark a 74% L (antes 70%): sobre background-elevated con el wash de
+     aurora el 70% rendía ~4.28:1 — aún por debajo de WCAG AA 4.5:1 para texto
+     pequeño (12px). 74% L alcanza ~4.6:1 y mantiene la jerarquía respecto a
+     secondary (88%). */
+  --color-text-muted: oklch(74% 0.03 260);
   --color-text-disabled: oklch(45% 0.03 260); /* Gris oscuro */
 
   /* Primary Brand (Purples) */
@@ -829,11 +837,17 @@
   --color-background-base: oklch(98% 0.005 80);
   --color-background-elevated: oklch(99.5% 0 0);
   --color-background-surface: oklch(94% 0.012 80);
+  /* Soporte de tarjeta física (MIFARE) — ver nota en el bloque oscuro. */
+  --color-card-surface: oklch(99% 0.004 85);
+  --color-card-ink: oklch(28% 0.025 260);
 
   /* Texto — tinta gris-azulada profunda */
   --color-text-primary: oklch(20% 0.025 260);
   --color-text-secondary: oklch(32% 0.025 260);
-  --color-text-muted: oklch(48% 0.025 260);
+  /* Muted light a 44% L (antes 48%): un punto más oscuro sobre marfil da margen
+     para que la variante /80 (notas informativas) siga superando AA — el 48%
+     con /80 caía a ~3.93:1. */
+  --color-text-muted: oklch(44% 0.025 260);
   --color-text-disabled: oklch(70% 0.015 260);
 
   /* Brand — tinta púrpura vibrante (un punto más oscuro y saturado que dark) */

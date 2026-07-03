@@ -33,12 +33,14 @@ const PODIUM_STYLES = [
  * @param {string} tier - risk | average | good | excellent
  * @returns {string} Clases de Tailwind para el color
  */
+// Tokens `-on-alpha` (calibrados AA en ambos temas) — antes usaba `-base` y
+// `-base/80`, que en el badge "Bueno" caían a ~4.08:1 (sub-AA para 10px).
 const getTierColor = (tier) => {
   switch (tier) {
-    case 'excellent': return 'text-success-base';
-    case 'good': return 'text-success-base/80';
+    case 'excellent': return 'text-success-on-alpha';
+    case 'good': return 'text-success-on-alpha';
     case 'average': return 'text-warning-on-alpha';
-    case 'risk': return 'text-error-base';
+    case 'risk': return 'text-error-on-alpha';
     default: return 'text-text-muted';
   }
 };
@@ -48,16 +50,14 @@ const getTierColor = (tier) => {
  * @param {string} tier - risk | average | good | excellent
  * @returns {{ label: string, className: string }}
  */
+// Todos los badges usan tokens `-on-alpha` (AA 5:1+ sobre bg-{tono}/alpha en
+// ambos temas). Antes 'good' usaba `text-success-base/80` → 4.08:1 (sub-AA).
 const getTierBadge = (tier) => {
   switch (tier) {
-    case 'excellent': return { label: 'Excelente', className: 'bg-success-base/15 text-success-base' };
-    case 'good': return { label: 'Bueno', className: 'bg-success-base/10 text-success-base/80' };
-    // BUG-A11Y-CONTRAST-B (QA Sprint 0 post-v0.5.0): el proyecto usa el
-    // custom-variant `light:` (data-theme="light"), no la clase `.dark`.
-    // Defecto = dark theme (text-warning-base = 60% lum, AA sobre bg dark);
-    // light: override = text-warning-dark = 64% lum, AA sobre bg amber-tint.
+    case 'excellent': return { label: 'Excelente', className: 'bg-success-base/15 text-success-on-alpha' };
+    case 'good': return { label: 'Bueno', className: 'bg-success-base/10 text-success-on-alpha' };
     case 'average': return { label: 'Promedio', className: 'bg-warning-base/15 text-warning-on-alpha' };
-    case 'risk': return { label: 'En riesgo', className: 'bg-error-base/15 text-error-base' };
+    case 'risk': return { label: 'En riesgo', className: 'bg-error-base/15 text-error-on-alpha' };
     default: return { label: '—', className: 'bg-background-surface/50 text-text-muted' };
   }
 };

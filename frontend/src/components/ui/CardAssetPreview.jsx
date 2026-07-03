@@ -14,14 +14,13 @@ export default function CardAssetPreview({
   className,
   imageClassName,
   fallbackClassName,
-  fallbackIcon = <CreditCard size={16} className="text-text-muted" />,
+  fallbackIcon = <CreditCard size={16} className="text-card-ink/50" />,
   fallbackLabel,
   showSkeleton = true,
   largeFallback = false,
   onImageError
 }) {
   const imageUrl = getBestAssetImageUrl(asset);
-  const dominantColor = asset?.dominantColor;
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(Boolean(imageUrl));
   // Retries permite recuperarse de fallos transitorios (red inestable, 5xx puntual).
@@ -96,21 +95,20 @@ export default function CardAssetPreview({
     <div
       className={cn(
         'relative overflow-hidden flex items-center justify-center',
-        // Sombra interior sutil para dar profundidad (asset "incrustado" en vez de "pegado")
-        shouldShowImage && 'shadow-[inset_0_2px_8px_rgba(0,0,0,0.25)]',
-        // Sin dominantColor: fondo base genérico
-        !dominantColor && 'bg-background-base/60',
+        // Soporte BLANCO de tarjeta física (MIFARE): el asset se ve como impreso
+        // sobre la tarjeta que el alumno maneja. Válido en light y dark.
+        'bg-card-surface',
+        // Sombra interior sutil para dar profundidad (asset "incrustado")
+        shouldShowImage && 'shadow-[inset_0_2px_8px_color-mix(in_oklab,var(--color-card-ink)_18%,transparent)]',
         className
       )}
-      // Con dominantColor: placeholder LQIP inmediato que coincide con la imagen
-      style={dominantColor ? { backgroundColor: dominantColor } : undefined}
     >
       {shouldShowImage ? (
         <>
-          {/* Placeholder: shimmer (sin dominantColor) o color sólido (con dominantColor) */}
-          {showSkeleton && imageLoading && !dominantColor && (
+          {/* Placeholder shimmer sobre el blanco de la tarjeta mientras carga. */}
+          {showSkeleton && imageLoading && (
             <div
-              className="absolute inset-0 bg-background-elevated/80 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2s_infinite] before:bg-gradient-to-r before:from-transparent before:via-text-primary/5 before:to-transparent"
+              className="absolute inset-0 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2s_infinite] before:bg-gradient-to-r before:from-transparent before:via-[color-mix(in_oklab,var(--color-card-ink)_10%,transparent)] before:to-transparent"
             />
           )}
           {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- onLoad/onError are lifecycle events, not user interactions */}
@@ -147,11 +145,14 @@ export default function CardAssetPreview({
             <span
               aria-hidden={alt === '' ? 'true' : undefined}
               className={cn(
-                'select-none truncate max-w-full font-medium text-text-secondary leading-tight',
+                // Tinta oscura fija (card-ink): el respaldo va sobre el blanco de
+                // la tarjeta, así que NO puede usar tokens de texto que en dark
+                // son claros (quedarían ilegibles sobre el blanco).
+                'select-none truncate max-w-full font-medium leading-tight text-card-ink',
                 // largeFallback: usado cuando el consumidor sabe que el fallback debe
                 // ser legible para sustituir una imagen que deberia haber cargado
                 // (caso FallbackTouchPanel). Escala con el tamaño de la tarjeta.
-                largeFallback ? 'text-sm sm:text-base font-semibold text-text-primary' : 'text-[0.65rem]'
+                largeFallback ? 'text-sm sm:text-base font-semibold' : 'text-[0.65rem]'
               )}
             >
               {fallbackText}

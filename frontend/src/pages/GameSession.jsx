@@ -196,7 +196,6 @@ export default function GameSession() {
     isCollecting: false
   });
   const sequenceCollectTimerRef = useRef(null);
-  const sequenceHintTimerRef = useRef(null);
   // QA 2026-05-06 (ADR-113): timer del grace period entre overlay
   // "Reproduce la secuencia" y `AWAIT_RESPONSE=true` real. Ver
   // `handleSequencePhaseReproducing`.
@@ -628,7 +627,6 @@ export default function GameSession() {
   // del primer evento del backend.
   const handleSequencePhaseMemorizing = useCallback(payload => {
     if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
-    if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
     // Cancelar grace timer pendiente (en caso de transición rápida tras
     // pause/resume o reanudación de partida).
     if (sequenceGraceTimerRef.current) {
@@ -737,11 +735,20 @@ export default function GameSession() {
     setSequenceState(prev => {
       const nextStatuses = { ...prev.cardStatuses };
       if (status && payload?.expectedUid) nextStatuses[payload.expectedUid] = status;
+      const nextCursor = typeof payload?.cursor === 'number' ? payload.cursor : prev.cursor;
+      // La pista es FIJA: acompaña a la carta de la posición actual y solo se
+      // retira al AVANZAR de posición (acierto o bloqueo) o cuando llega una
+      // pista nueva — nunca por un temporizador. Al cambiar de ronda se limpia
+      // en `handleSequencePhaseMemorizing`.
+      const cursorAdvanced = nextCursor !== prev.cursor;
+      let nextHint = prev.hint;
+      if (payload?.hint?.text) nextHint = payload.hint;
+      else if (cursorAdvanced) nextHint = null;
       return {
         ...prev,
         cardStatuses: nextStatuses,
-        cursor: typeof payload?.cursor === 'number' ? payload.cursor : prev.cursor,
-        hint: payload?.hint?.text ? payload.hint : prev.hint
+        cursor: nextCursor,
+        hint: nextHint
       };
     });
     if (payload?.type === 'correct') {
@@ -779,12 +786,6 @@ export default function GameSession() {
         pointsAwarded: payload?.points ?? 0,
         newScore: payload?.score ?? 0
       }, { currentRound, totalRounds });
-    }
-    if (payload?.hint?.text) {
-      if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
-      sequenceHintTimerRef.current = setTimeout(() => {
-        setSequenceState(prev => ({ ...prev, hint: null }));
-      }, 3500);
     }
   }, [playCorrect, playIncorrect, processValidationResult, currentRound, totalRounds, dispatch]);
 
@@ -1154,11 +1155,10 @@ export default function GameSession() {
       clearPendingTimeouts();
       // Los timers de Secuencia viven en refs propios (no en el array de
       // pendingTimeouts), así que hay que cancelarlos también al desmontar: si
-      // el usuario navega fuera de la partida con uno en vuelo (grace/hint hasta
-      // 3.5s, collect 2.4s) dispararía dispatch/setSequenceState sobre un
-      // componente ya desmontado (fuga + warning de React).
+      // el usuario navega fuera de la partida con uno en vuelo (grace, collect
+      // 2.4s) dispararía dispatch/setSequenceState sobre un componente ya
+      // desmontado (fuga + warning de React).
       if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
-      if (sequenceHintTimerRef.current) clearTimeout(sequenceHintTimerRef.current);
       if (sequenceGraceTimerRef.current) clearTimeout(sequenceGraceTimerRef.current);
     };
   }, [clearPendingTimeouts]);
@@ -2137,7 +2137,7 @@ export default function GameSession() {
             message={mascotMessage || undefined}
             position="left"
             mechanicType={mechanicMode}
-            bubbleTimeout={3600}
+            size="md"
           />
         </div>
       )}

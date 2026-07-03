@@ -86,19 +86,18 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
     };
   }, []);
 
-  // Auto-expandir SOLO en la transición a "conectado" (flanco de subida): al
-  // enchufar el sensor la tarjeta se abre para confirmar "Listo para escanear".
-  // A partir de ahí el estado lo controla el usuario: el botón "Minimizar" ahora
-  // colapsa de verdad y se MANTIENE colapsado mientras el sensor siga conectado.
-  // Antes `showExpanded = isConnected || expanded` forzaba el expandido con el
-  // sensor conectado → el botón minimizar era un no-op y la tarjeta fija (256px)
-  // tapaba controles de pantallas embebidas (p. ej. el "Siguiente" del asistente
-  // de Nueva Sesión a 1366×768). Como el widget vive en una instancia única
-  // global (App.jsx), este estado persiste entre navegaciones.
+  // Al conectar (flanco de subida) abrimos la tarjeta para confirmar "Listo para
+  // escanear" y la AUTO-COLAPSAMOS a los pocos segundos: así el pill pequeño
+  // (verde, con pulso) sigue indicando "conectado" sin que la tarjeta fija
+  // (256px) tape controles de pantallas embebidas (p. ej. el "Siguiente" del
+  // asistente de Nueva Sesión a 1366×768). El usuario puede reabrirla con un
+  // clic. El widget vive en una instancia única global (App.jsx), por eso el
+  // estado persiste entre navegaciones.
   useEffect(() => {
-    if (isConnected) {
-      setExpanded(true);
-    }
+    if (!isConnected) return undefined;
+    setExpanded(true);
+    const timer = setTimeout(() => setExpanded(false), 3500);
+    return () => clearTimeout(timer);
   }, [isConnected]);
 
   const showExpanded = expanded;
