@@ -154,7 +154,7 @@ const getSessionById = async (req, res) => {
     // `rondas × puntos` (≠ máximo real Σ longitud × puntos del GameOver) y la
     // pestaña "Plan de secuencias" quedaba vacía.
     select:
-      'name mechanicId deckId contextId createdBy config cardMappings boardLayout associationChallengePlan sequencePlan sequenceConfig requiresAssociationPlanConfiguration status difficulty startedAt endedAt createdAt updatedAt',
+      'name mechanicId deckId contextId createdBy config cardMappings boardLayout associationChallengePlan sequencePlan sequenceConfig associationConfig requiresAssociationPlanConfiguration status difficulty startedAt endedAt createdAt updatedAt',
     populate: [
       { path: 'mechanicId', select: 'name displayName icon' },
       { path: 'deckId', select: 'name status contextId' },
@@ -201,7 +201,8 @@ const createSession = async (req, res) => {
     boardLayout,
     associationChallengePlan,
     sequencePlan,
-    sequenceConfig
+    sequenceConfig,
+    associationConfig
   } = req.body;
 
   if (cardMappings) {
@@ -224,6 +225,7 @@ const createSession = async (req, res) => {
     associationChallengePlan,
     sequencePlan,
     sequenceConfig,
+    associationConfig,
     createdBy: req.user._id
   });
 
@@ -258,7 +260,8 @@ const updateSession = async (req, res) => {
     boardLayout,
     associationChallengePlan,
     sequencePlan,
-    sequenceConfig
+    sequenceConfig,
+    associationConfig
   } = req.body;
 
   const session = await gameSessionRepository.findById(id);
@@ -325,6 +328,14 @@ const updateSession = async (req, res) => {
     associationChallengePlan,
     mechanicName
   });
+
+  // Locución automática de la consigna (mecánica Asociación). Solo se toca si el
+  // profesor la incluyó en el update; si se omite, conserva el valor previo.
+  if (mechanicName === 'association' && associationConfig !== undefined) {
+    session.associationConfig = {
+      autoPlayPrompt: Boolean(associationConfig?.autoPlayPrompt)
+    };
+  }
 
   applySequencePlanOnUpdate({
     session,

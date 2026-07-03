@@ -54,11 +54,22 @@ const bodyAnimation = {
     opacity: [1, 0.9, 1, 0.9, 1],
     transition: { duration: 2.4, repeat: Infinity, ease: 'easeInOut' }
   },
-  // Sorpresa puntual: un solo "pop" enérgico, sin repeat (el asombro decae).
+  // AS-9: "pop" enérgico inicial que DECAE a un micro-float continuo. Antes `pop` era
+  // la ÚNICA variante corporal sin `repeat`, así que en cuanto terminaba (~0.7s) Otto
+  // quedaba CONGELADO (sin respiración) mientras el mood `surprised` persistía —justo
+  // tras romperse una racha, cuando el niño mira a la mascota. Ahora el pop ocurre en
+  // el primer ~23% del ciclo y el resto es un balanceo mínimo (y −2, scale 1.015) que
+  // se repite, manteniendo a Otto "vivo".
   pop: {
-    scale: [1, 1.28, 0.96, 1.06, 1],
-    rotate: [0, -4, 4, -2, 0],
-    transition: { duration: 0.7, ease: 'easeOut' }
+    scale: [1, 1.28, 0.96, 1.06, 1, 1.015, 1],
+    rotate: [0, -4, 4, -2, 0, 0.6, 0],
+    y: [0, 0, 0, 0, 0, -2, 0],
+    transition: {
+      duration: 3,
+      times: [0, 0.07, 0.12, 0.17, 0.23, 0.62, 1],
+      repeat: Infinity,
+      ease: 'easeInOut'
+    }
   }
 };
 
@@ -164,7 +175,6 @@ function CharacterMascot({
   size = 'sm',
   isFirstAppearance = false,
   noBubble = false,
-  bubbleTimeout = 0,
   className
 }) {
   const { shouldReduceMotion } = useReducedMotion();
@@ -209,23 +219,12 @@ function CharacterMascot({
     return greetingPool[idx];
   }, [mood]);
 
-  // Auto-dismiss del bocadillo (opt-in vía `bubbleTimeout` ms). En partida las
-  // frases son EFÍMERAS: Otto las dice y la burbuja se desvanece tras unos
-  // segundos manteniendo el mood facial, para que ninguna frase quede "fuera de
-  // lugar" colgada hasta el siguiente evento. En superficies ambientales
-  // (login, estados vacíos) se omite → bienvenida persistente.
-  const [bubbleHidden, setBubbleHidden] = useState(false);
-  useEffect(() => {
-    if (!bubbleTimeout || !message) {
-      setBubbleHidden(false);
-      return undefined;
-    }
-    setBubbleHidden(false);
-    const t = setTimeout(() => setBubbleHidden(true), bubbleTimeout);
-    return () => clearTimeout(t);
-  }, [message, bubbleTimeout]);
-
-  const displayMessage = noBubble || bubbleHidden ? null : (message || rotatingMessage);
+  // AS-8: eliminado el auto-dismiss `bubbleTimeout` (prop y efecto muertos). Ningún
+  // caller lo pasaba, así que el bocadillo NUNCA se auto-ocultaba pese a que el
+  // comentario prometía lo contrario — la decisión vigente es "bocadillo de partida
+  // FIJO" (persiste hasta el siguiente evento, ADR-227). El bocadillo se muestra salvo
+  // que `noBubble` lo suprima (ilustración decorativa).
+  const displayMessage = noBubble ? null : (message || rotatingMessage);
 
   return (
     <div

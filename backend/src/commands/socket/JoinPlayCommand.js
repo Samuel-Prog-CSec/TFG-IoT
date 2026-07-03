@@ -32,7 +32,12 @@ class JoinPlayCommand extends BaseSocketCommand {
       userId: socket.data.userId
     });
 
-    helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id, {
+    // WS-12: `await` el cambio de modo RFID. Sin él, un RFID_LOCK_TIMEOUT (10s) en el
+    // lock RFID del usuario se convertía en unhandledRejection (escapa del try/catch
+    // del pipeline `executeSocketCommand`). Además, activar el modo GAMEPLAY ANTES de
+    // emitir `play_state` evita que un scan inmediato tras el join se rechace con
+    // RFID_MODE_INVALID porque la cola del lock RFID iba retrasada.
+    await helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id, {
       playId
     });
 

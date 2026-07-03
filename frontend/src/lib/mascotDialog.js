@@ -42,7 +42,9 @@ const MEMORY_DIALOG = Object.freeze({
     '¡Tranqui!',
     '¡Siguiente!'
   ],
-  timeout: ['¡Inténtalo!', 'Sigue mirando…', 'Tu turno, ¡ánimo!', '¿Cuál destapas?'],
+  // AS-3: el timeout va con mood de consuelo (encouraging), NO de urgencia. Frases
+  // orientadas a "se acabó + la próxima es tuya", sin instrucciones que ya no aplican.
+  timeout: ['Se acabó el tiempo', 'La próxima es tuya', 'Sigue mirando', '¡Ánimo, tú puedes!'],
   streakReached: ['¡MEMORIA TOP!', '¡Imparable!', '¡Cerebro al 100%!', '¡Eres un crack!'],
   // T-953 Fase 2.4 — eventos nuevos:
   // - `streakBroken`: cuando una racha >=3 se rompe; mascota `surprised`.
@@ -59,7 +61,9 @@ const MEMORY_DIALOG = Object.freeze({
   firstCorrect: ['¡Primera pareja!', '¡Buen comienzo!', '¡Empiezas fino!'],
   nearWin: ['¡Última pareja!', '¡Ya casi están!', '¡Solo falta una!'],
   idleNudge: ['¿Dónde estará?', 'Prueba una carta', 'Tú recuerdas dónde'],
-  gameOverHigh: ['¡INCREÍBLE!', '¡MEMORIA DE ELEFANTE!', '¡PERFECTO!'],
+  // AS-4: sin "¡PERFECTO!" — el tier `high` cubre 4★ Y 5★, así que afirmar perfección
+  // con una partida que tuvo fallos (4★) es feedback falso que los docentes detectan.
+  gameOverHigh: ['¡INCREÍBLE!', '¡MEMORIA DE ELEFANTE!', '¡BRILLANTE!'],
   gameOverMid: ['¡Muy bien!', '¡Sigue así!', '¡Buen trabajo!'],
   gameOverLow: ['Otra y mejorarás', 'No te rindas', 'La práctica suma']
 });
@@ -84,7 +88,8 @@ const ASSOCIATION_DIALOG = Object.freeze({
     '¡Tranqui!',
     'Mira de nuevo'
   ],
-  timeout: ['¡A elegir!', '¡Decídete!', '¿Cuál es?', '¡Tú puedes!'],
+  // AS-3: consuelo, no urgencia (el tiempo ya expiró).
+  timeout: ['Se acabó el tiempo', 'La próxima es tuya', 'Sigue atento', '¡Ánimo, tú puedes!'],
   streakReached: ['¡CONEXIÓN TOTAL!', '¡IMPARABLE!', '¡Genio!', '¡Tú mandas!'],
   streakBroken: ['¡Casi seguías!', 'Vuelve a conectar', '¡Otra ronda!'],
   worriedRebound: ['Respira, hay tiempo', 'Mira con calma', 'Una a una'],
@@ -93,7 +98,8 @@ const ASSOCIATION_DIALOG = Object.freeze({
   firstCorrect: ['¡Buen comienzo!', '¡Empiezas genial!', '¡Bien visto!'],
   nearWin: ['¡Última ronda!', '¡Ya casi!', '¡La última!'],
   idleNudge: ['¿Cuál crees?', 'Mira y elige', 'Tú puedes con esta'],
-  gameOverHigh: ['¡INCREÍBLE!', '¡CONEXIÓN PERFECTA!', '¡ERES UN GENIO!'],
+  // AS-4: "CONEXIÓN PERFECTA" afirmaba perfección también con 4★ (partida con fallos).
+  gameOverHigh: ['¡INCREÍBLE!', '¡CONEXIÓN TOTAL!', '¡ERES UN GENIO!'],
   gameOverMid: ['¡Muy bien!', '¡Sigue así!', '¡Vas creciendo!'],
   gameOverLow: ['Otra y mejorarás', 'No te rindas', 'A practicar']
 });
@@ -114,7 +120,10 @@ const SEQUENCE_DIALOG = Object.freeze({
     'Otra ronda',
     'Mira otra vez'
   ],
-  timeout: ['¡Tu turno!', '¡Reproduce!', '¡Vamos!', '¡Sigue el orden!'],
+  // AS-3: consuelo. Antes eran instrucciones ("¡Reproduce!", "¡Tu turno!") que en
+  // Secuencia ya NO aplican al saltar el timeout (la ronda terminó y las cartas se
+  // recogieron), y "¡Tu turno!" además se solapaba con el pool `reproducing`.
+  timeout: ['Se acabó el tiempo', 'La próxima lo logras', 'Sigue el ritmo', '¡Ánimo, tú puedes!'],
   streakReached: ['¡SIGUES EL RITMO!', '¡SECUENCIA EPICA!', '¡Imparable!', '¡Tú mandas!'],
   streakBroken: ['¡Vaya!', 'Se rompió el ritmo', 'A retomar el compás'],
   worriedRebound: ['Respira, escucha', 'Una a una', 'Recupera el orden'],
@@ -127,7 +136,8 @@ const SEQUENCE_DIALOG = Object.freeze({
   idleNudge: ['¿Por cuál seguía?', 'Toca la siguiente', 'Tú recuerdas el orden'],
   memorizing: ['¡Fíjate en el orden!', 'Mira con atención', 'Memoriza el camino', '¡Atento al orden!'],
   reproducing: ['¡Ahora te toca!', '¡Repite el orden!', '¡Tu turno!', '¡A reproducir!'],
-  gameOverHigh: ['¡SECUENCIA PERFECTA!', '¡INCREÍBLE!', '¡RITMO TOTAL!'],
+  // AS-4: sin "SECUENCIA PERFECTA" (salía con 4★, partida con fallos).
+  gameOverHigh: ['¡INCREÍBLE!', '¡RITMO TOTAL!', '¡SECUENCIA GENIAL!'],
   gameOverMid: ['¡Muy bien!', '¡Cada vez mejor!', '¡Buen trabajo!'],
   gameOverLow: ['Otra y mejorarás', 'No te rindas', 'La práctica suma']
 });

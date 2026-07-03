@@ -407,3 +407,16 @@ Para verificar el camino feliz vs el camino de timeout en el simulador RFID, iny
 1. `rfid_mode_error` llega al cliente con `code='RFID_LOCK_TIMEOUT'` y mensaje en español.
 2. `GET /api/metrics` muestra `runtimeMetrics.websocket.rfidLockTimeouts >= 1`.
 3. Una siguiente operación normal del mismo usuario no queda bloqueada por la fallida.
+
+## 15. Robustez del flujo de scan ante fallos de Atlas/Redis (ADR-228)
+
+Auditoría de la vertical de partidas. Endurecimiento de los caminos donde un blip de Atlas M0 o Upstash dejaba al niño sin feedback o colgaba la partida hasta el cron de 1h.
+
+### 15.1 Paridad de try/catch en el scan de Secuencia (WS-1)
+El `addEventAtomic` del scan y del cierre de ronda de **Secuencia** (`sequenceFlow`) NO estaba envuelto en try/catch, a diferencia de Asociación y Memoria. `handleCardScan` se invoca **sin `await`** desde el handler socket, así que una rejection subía como `unhandledRejection`: el alumno se quedaba sin ningún feedback y, si era la última carta, la ronda **colgada**. Fix: try/catch con `engine._emitFatalScanError(playId, playState, err, 'sequenceFlow.processScan')` en el scan (misma red que las otras mecánicas) y try/catch **que no cuelga** en la telemetría de cierre de ronda (los eventos de timeout + `round_end` son 0 puntos → ante fallo se registra en Sentry pero se CONTINÚA a `scheduleSequenceAdvance`).
+
+### 15.2 Watchdog de `board_ready` (WS-2)
+Si el evento `board_ready` del cliente se pierde (corte de red tras EMPEZAR, drop del rate limiter, crash del frontend en la transición), `awaitingBoardReady` quedaba `true` para siempre y **ninguna** mecánica armaba su timer → partida congelada. Fix: `_armBoardReadyWatchdog(playId)` en `startPlay` auto-confirma `board_ready` a los `BOARD_READY_FALLBACK_MS` (45s por defecto, configurable) registrando el caso anómalo; se cancela al llegar el evento real (`confirmBoardReady`) o al limpiar timers (pausa/fin). `GameEngine.js`, `timerManager.js`.
+
+### 15.3 Volteo instantáneo del primer par de Memoria (WS-9)
+El primer volteo de Memoria hacía `await addEvent('card_scanned')` (telemetría, 0 puntos) **antes** de emitir `memory_turn_state` → el niño esperaba el RTT de Atlas para ver su propia carta, y si ese write fallaba `_emitFatalScanError` mataba TODA la partida por un evento sin impacto en el score. Fix: emitir `memory_turn_state` primero (volteo inmediato) y degradar el fallo del write a `logger.warn` + Sentry sin cerrar la partida. La suite `gameEngineRfidErrorPaths` cubre el nuevo contrato (el fallo del first_pick NO interrumpe la partida y la carta se voltea).

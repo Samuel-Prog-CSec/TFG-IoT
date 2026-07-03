@@ -14,7 +14,8 @@ import {
   Zap,
   AlertTriangle,
   Sparkles,
-  Wifi
+  Wifi,
+  Volume2
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
@@ -44,6 +45,8 @@ export default function StepRules({
   associationCards,
   associationChallengePlan,
   onAssociationChallengePlanChange,
+  autoPlayPrompt = false,
+  onAutoPlayPromptChange,
   contextName
 }) {
   return (
@@ -284,6 +287,48 @@ export default function StepRules({
         </div>
       </GlassCard>
 
+      {/* Locución automática de la consigna — solo Asociación. Accesibilidad para
+          alumnos pre-lectores: si las tarjetas del reto llevan audio, se reproduce
+          solo al empezar cada ronda (el objetivo del reto está oculto, así que el
+          audio hace de pregunta). El botón de reproducción manual sigue disponible. */}
+      {isAssociationSelected && (
+        <GlassCard className="p-6 lg:col-span-2">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold text-text-primary mb-2 flex items-center gap-2">
+                <Volume2 size={20} className="text-accent-indigo" />
+                Locución automática de la consigna
+              </h2>
+              <p className="text-sm text-text-muted">
+                Si las tarjetas del reto tienen audio, se reproducirá automáticamente al
+                empezar cada ronda como pista sonora. Útil para alumnos que aún no leen.
+                El botón para escuchar la consigna manualmente sigue disponible siempre.
+              </p>
+            </div>
+
+            <div className="flex flex-col items-end gap-2">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoPlayPrompt}
+                aria-label="Reproducir la consigna de audio automáticamente"
+                className="flex items-center h-6 w-12 rounded-full bg-background-surface relative p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base"
+                onClick={() => onAutoPlayPromptChange?.(!autoPlayPrompt)}
+              >
+                <motion.div
+                  className={cn('h-4 w-4 rounded-full shadow-sm', autoPlayPrompt ? 'bg-accent-indigo' : 'bg-text-muted')}
+                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                  animate={{ x: autoPlayPrompt ? 24 : 0 }}
+                />
+              </button>
+              <span className={cn('text-xs font-medium', autoPlayPrompt ? 'text-accent-indigo' : 'text-text-muted')}>
+                {autoPlayPrompt ? 'Activada' : 'Desactivada'}
+              </span>
+            </div>
+          </div>
+        </GlassCard>
+      )}
+
       {isAssociationSelected && (
         <AssociationChallengeComposer
           cards={associationCards}
@@ -308,5 +353,7 @@ StepRules.propTypes = {
   associationCards: PropTypes.arrayOf(cardMappingShape),
   associationChallengePlan: PropTypes.arrayOf(challengePlanItemShape),
   onAssociationChallengePlanChange: PropTypes.func,
+  autoPlayPrompt: PropTypes.bool,
+  onAutoPlayPromptChange: PropTypes.func,
   contextName: PropTypes.string
 };

@@ -282,3 +282,23 @@ Cierre de pulido UI/UX. Cambios de feedback/mascota:
 - **La carta es la tarjeta física (blanca).** `CardAssetPreview` usa `--color-card-surface` (blanco en ambos temas, es un objeto físico MIFARE) en vez del `dominantColor`; el texto de respaldo usa `--color-card-ink` (tinta oscura fija, legible sobre blanco en dark).
 
 Verificado en vivo (Playwright, dark 1366×768) con medición de posiciones (bocadillo vs "Volver") y de la animación del ala (ángulo variable, pivote constante `153 146`). Vitest 674/674.
+
+## Auditoría de la vertical de partidas — coherencia emocional, "datos que no pintan" y audio de cierre (ADR-228)
+
+Auditoría acotada a PARTIDAS. Cambios de feedback/mascota/audio:
+
+- **Highlight de memorización de Secuencia (FE-1).** El resaltado numerado "1,2,3…" de la fase `memorizing` se avanzaba mutando **un `ref`** sin `setState`. Como durante la memorización no hay ninguna otra fuente de re-render (timer parado, `sequenceState` estable, panel `memo`), el badge **nunca se pintaba** pese a sonar el SFX de reparto cada 600ms (desajuste audio-visual). Ahora vive en `useState(highlightIndex)`. `SequenceGameplayPanel.jsx`.
+- **Feedback táctil local en Memoria (FE-3).** El tap en carta no daba ninguna señal local (solo el volteo, dependiente del RTT del servidor) → el niño re-tapeaba. Añadido `whileTap={{ scale: 0.95 }}` en cartas tapeables. `MemoryBoard.jsx`.
+- **Skeleton + prefetch del panel (FE-4).** El área central quedaba en blanco mientras baja el chunk lazy del panel; ahora hay skeleton en el `Suspense` + prefetch del chunk por mecánica al resolver la sesión. `GameSession.jsx`.
+- **Mood de timeout = consuelo, no llanto (AS-3).** El timeout ponía a Otto en `sad` (ojos caídos + lágrima) con frases de urgencia/instrucción que ya no aplican. Ahora `encouraging` (pompones de ánimo) + pools de timeout reorientados a "se acabó, la próxima es tuya". `useGameFeedback.js`, `mascotDialog.js`.
+- **Sin "PERFECTO" con 4★ (AS-4).** El pool `gameOverHigh` (cubre 4★ **y** 5★) afirmaba perfección ("¡PERFECTO!", "¡SECUENCIA PERFECTA!", "¡CONEXIÓN PERFECTA!") en partidas con fallos. Retiradas del pool compartido.
+- **GameOver de tier bajo = ánimo, no agobio (AS-5).** 0-1★ mostraba mood `worried` (gota de sudor + halo ROJO de error) con texto de ánimo y fanfare alegre a la vez. Ahora `encouraging` (pompones). El JSDoc de `tierToMascot` se reescribió a la escala real de 5★. `GameOverScreen.jsx`.
+- **Sonidos de cierre CONSERVADOS (AS-2, revertido por el usuario).** Se detectó un solapamiento de tres melodías al finalizar (`playGameOver` + fanfare tier-aware + `playSuccess` diferido). La propuesta de dejar solo la fanfare se **revirtió**: el usuario pidió conservar todos los sonidos de partida (pasar ronda, cuenta atrás, fin de partida, victoria). El leve solapamiento entre sonidos positivos se acepta frente a perder feedback sonoro.
+- **La fanfare no se acopla a reduced-motion (AS-6).** Se gateaba por `prefers-reduced-motion`, contra la política del propio proyecto (sonido y motion son ejes de accesibilidad independientes). Ahora solo depende del toggle de sonido — esto AÑADE sonido (la fanfare suena también con reduced-motion), alineado con conservar el feedback sonoro.
+- **Otto no se congela tras `surprised` (AS-9).** La variante `pop` era la única sin `repeat`; ahora decae a un micro-float continuo.
+
+**Mejoras de UX (decididas con el usuario).**
+- **Locución automática de la consigna en Asociación — configurable por el docente.** Como el objetivo del reto está oculto ("?"), para un niño pre-lector el audio ES la pregunta. En lugar de un comportamiento fijo, es una **decisión del profesor en el wizard** (`associationConfig.autoPlayPrompt`, opt-in): toggle en `StepRules` → persistido de extremo a extremo → en gameplay `AssociationGameplayPanel → ChallengeDisplay → AudioMiniPlayer` reproduce el clip una vez por ronda (`autoPlayToken = asset.value`, dedup por `ref`, `catch` de la política de autoplay). El botón manual sigue disponible siempre.
+- **`dominantColor` en el placeholder de carga.** `CardAssetPreview` tinta el skeleton (18% del color dominante sobre el blanco de la tarjeta) mientras la imagen baja, suavizando el flash blanco→imagen (best-effort; hex validado antes de inyectarlo en el `style`).
+
+Verificado en vivo (Playwright, Docker, Carlos): Memoria/Secuencia end-to-end sin errores; **AS-5 confirmado visualmente** (GameOver de 1★ con Otto `encouraging`, sin halo rojo); **el toggle de locución** aparece/alterna en el wizard y persiste `autoPlayPrompt: true` al crear la sesión. Jest backend en verde (motor + sesiones/DTOs/validators); Vitest de mascota/feedback/GameSession en verde (`useGameFeedback` actualizado al mood `encouraging` de timeout).

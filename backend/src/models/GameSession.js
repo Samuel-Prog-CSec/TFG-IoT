@@ -285,6 +285,19 @@ const gameSessionSchema = new mongoose.Schema(
         default: 3
       }
     },
+    /**
+     * Configuración específica de la mecánica Asociación. `autoPlayPrompt`:
+     * si las tarjetas del reto tienen audio, reproducirlo automáticamente al
+     * empezar cada ronda (locución de la consigna como pista de accesibilidad
+     * para alumnos pre-lectores). Lo decide el profesor en el wizard; el botón
+     * de reproducción manual sigue disponible independientemente de este valor.
+     */
+    associationConfig: {
+      autoPlayPrompt: {
+        type: Boolean,
+        default: false
+      }
+    },
     status: {
       type: String,
       lowercase: true,

@@ -327,15 +327,29 @@ async function _processSequenceScanImpl(engine, playId, playState, scannedCardMa
   const scanAt = Date.now();
   const anchor = playState.lastSequenceScanAt || playState.roundStartTime || scanAt;
   playState.lastSequenceScanAt = scanAt;
-  await playState.playDoc.addEventAtomic({
-    eventType,
-    cardUid: scannedCardMapping.uid,
-    expectedValue: result.expectedUid || null,
-    actualValue: scannedCardMapping.assignedValue,
-    pointsAwarded: points,
-    timeElapsed: Math.max(0, scanAt - anchor),
-    roundNumber: playState.playDoc.currentRound
-  });
+  try {
+    await playState.playDoc.addEventAtomic({
+      eventType,
+      cardUid: scannedCardMapping.uid,
+      expectedValue: result.expectedUid || null,
+      actualValue: scannedCardMapping.assignedValue,
+      pointsAwarded: points,
+      timeElapsed: Math.max(0, scanAt - anchor),
+      roundNumber: playState.playDoc.currentRound
+    });
+  } catch (err) {
+    // WS-1: paridad con Asociación (processResponse) y Memoria (processMemoryScan),
+    // que envuelven sus escrituras en try/catch con `_emitFatalScanError`. Sin esto,
+    // un fallo de Mongo (blip de Atlas M0) en el path de scan de Secuencia dejaba la
+    // rejection subir por `handleCardScan` (invocado sin await en socketHandlers) →
+    // unhandledRejection y el niño sin NINGÚN feedback (ni `sequence_card_result` ni
+    // `play_interrupted`); si era la última carta, `roundCompleted` no disparaba el
+    // cierre y la ronda quedaba colgada hasta el cron de 1h. El cursor ya se avanzó
+    // síncronamente en `processScan`, así que la única salida consistente es cerrar
+    // la partida avisando al cliente.
+    await engine._emitFatalScanError(playId, playState, err, 'sequenceFlow.processScan');
+    return;
+  }
   // NO reclampamos `playState.playDoc.score` en memoria aquí. El antiguo
   // `Math.max(0, …)` NO se persistía nunca: `addEventAtomic` cierra el path de
   // `score` con `$__reset()`, así que el valor flooreado en memoria (≥0)
@@ -414,9 +428,19 @@ async function handleSequenceRoundTimeout(engine, playId) {
       // sequence_round_result). El guard `_sequenceRoundFinalizing` sigue como
       // defensa de idempotencia. El timer corre fuera de cualquier lock → sin
       // riesgo de re-entrada.
-      await engine.executeWithPlayLock(playId, 'sequence_round_timeout', () =>
-        finalizeSequenceRound(engine, playId, { timedOut: true })
-      );
+      await engine.executeWithPlayLock(playId, 'sequence_round_timeout', () => {
+        // WS-11: re-chequear `paused` DENTRO del lock (TOCTOU). El check de arriba
+        // corre fuera del lock; una pausa en vuelo puede ganar la cola del lock
+        // entre ese check y aquí, con lo que cerraríamos la ronda como timedOut
+        // sobre una partida ya pausada (eventos escritos + `sequence_round_result`
+        // bajo el overlay de pausa). Si está pausada, no finalizamos: el resume
+        // rearma el `roundTimer` con el tiempo restante (_resumeSequencePhaseOnResume).
+        const ps = engine.activePlays.get(playId);
+        if (!ps || ps.paused || ps.playDoc?.status === 'paused') {
+          return undefined;
+        }
+        return finalizeSequenceRound(engine, playId, { timedOut: true });
+      });
     }
   );
 }
@@ -483,22 +507,42 @@ async function finalizeSequenceRound(engine, playId, { timedOut }) {
   // excluye además del promedio de tiempo de respuesta. El `sequencesTimedOut`
   // específico se calcula aparte en el summary (sobre los resultados de ronda),
   // así que no hay doble conteo.
-  for (const timedUid of timedOutUids) {
+  // WS-1: la telemetría de cierre de ronda (timeouts por carta + round_end) es
+  // best-effort — su fallo NUNCA debe colgar la partida. Antes, si cualquiera de
+  // estas escrituras fallaba (blip de Atlas M0), la rejection subía y
+  // `scheduleSequenceAdvance` NO se ejecutaba: `roundTimer` ya estaba limpiado y
+  // `nextRoundTimer` nunca se armaba → cuelgue permanente hasta el cron de 1h (con
+  // `_sequenceRoundFinalizing=true`, ni un scan tardío la rescataba). El
+  // `sequence_round_result` visual ya se emitió arriba; estos eventos son 0 puntos
+  // (no afectan el score), así que ante un fallo registramos y AVANZAMOS igual.
+  try {
+    for (const timedUid of timedOutUids) {
+      await playState.playDoc.addEventAtomic({
+        eventType: 'timeout',
+        cardUid: timedUid,
+        pointsAwarded: 0,
+        timeElapsed: 0,
+        roundNumber: summary.roundNumber
+      });
+    }
+
     await playState.playDoc.addEventAtomic({
-      eventType: 'timeout',
-      cardUid: timedUid,
+      eventType: 'round_end',
       pointsAwarded: 0,
-      timeElapsed: 0,
+      timeElapsed: summary.durationMs,
       roundNumber: summary.roundNumber
     });
+  } catch (err) {
+    logger.error('Fallo persistiendo telemetría de cierre de ronda de Secuencia', {
+      playId,
+      roundNumber: summary.roundNumber,
+      err: err?.message
+    });
+    Sentry.captureException(err, {
+      tags: { module: 'sequenceFlow', path: 'finalizeSequenceRound.telemetry' },
+      extra: { playId }
+    });
   }
-
-  await playState.playDoc.addEventAtomic({
-    eventType: 'round_end',
-    pointsAwarded: 0,
-    timeElapsed: summary.durationMs,
-    roundNumber: summary.roundNumber
-  });
 
   // Pausa breve para que el cliente muestre el resultado antes de la siguiente
   // ronda. El avance corre bajo el lock de partida (ver scheduleSequenceAdvance).

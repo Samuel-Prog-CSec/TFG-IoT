@@ -190,13 +190,21 @@ export function useGameSocket({
   // que sus listeners invocaban la versión del primer render (closures obsoletas de
   // currentRound/totalRounds) durante toda la partida — mensajes de ronda/última
   // ronda incorrectos en Secuencia.
+  // (FE-2) Incluir onPlayInterrupted: el resumen de una partida interrumpida por el
+  // servidor cierra sobre `score`/`correctAnswers` (deps INESTABLES en GameSession),
+  // pero su listener se registraba con la versión del PRIMER render → el GameOver de
+  // interrupción pintaba 0 aciertos/score inicial. Leerlo del ref lo mantiene fresco.
+  // (Los otros handlers directos —onPlayPaused/Resumed/PlayState/SequencePhase*— son
+  // seguros HOY solo porque sus deps son estables; es una regla implícita frágil: si
+  // se añade una dep inestable a alguno, moverlo también a este ref.)
   gameplayCallbacksRef.current = {
     onNewRound,
     onValidationResult,
     onMemoryTurnState,
     onGameOver,
     onSequenceCardResult,
-    onSequenceRoundResult
+    onSequenceRoundResult,
+    onPlayInterrupted
   };
 
   const RETRY_COOLDOWN_MS = 5000;
@@ -359,6 +367,8 @@ export function useGameSocket({
     const wrappedOnValidationResult = data => { cancelPendingScanTimeout(); setRealtimeError(null); gameplayCallbacksRef.current.onValidationResult(data); };
     const wrappedOnMemoryTurnState = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onMemoryTurnState(data); };
     const wrappedOnGameOver = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onGameOver(data); };
+    // (FE-2) play_interrupted vía ref para leer score/correctAnswers actuales.
+    const wrappedOnPlayInterrupted = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onPlayInterrupted?.(data); };
     // (F2) Wrappers de Secuencia vía ref (igual que los de arriba): resuelven la
     // versión ACTUAL del callback en cada evento, no la del primer render.
     // `cancelPendingScanTimeout()` es OBLIGATORIO aquí, igual que en los wrappers
@@ -491,7 +501,7 @@ export function useGameSocket({
         socketService.onGame(GAME_EVENTS.PLAY_PAUSED, onPlayPaused);
         socketService.onGame(GAME_EVENTS.PLAY_RESUMED, onPlayResumed);
         socketService.onGame(GAME_EVENTS.PLAY_STATE, onPlayState);
-        socketService.onGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
+        socketService.onGame(GAME_EVENTS.PLAY_INTERRUPTED, wrappedOnPlayInterrupted);
         socketService.onGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
         socketService.onGame(GAME_EVENTS.RFID_SCAN_ERROR, onRfidScanError);
         socketService.onGame(GAME_EVENTS.ERROR, onSocketError);
@@ -605,7 +615,7 @@ export function useGameSocket({
       socketService.offGame(GAME_EVENTS.PLAY_PAUSED, onPlayPaused);
       socketService.offGame(GAME_EVENTS.PLAY_RESUMED, onPlayResumed);
       socketService.offGame(GAME_EVENTS.PLAY_STATE, onPlayState);
-      socketService.offGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
+      socketService.offGame(GAME_EVENTS.PLAY_INTERRUPTED, wrappedOnPlayInterrupted);
       socketService.offGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
       socketService.offGame(GAME_EVENTS.RFID_SCAN_ERROR, onRfidScanError);
       socketService.offGame(GAME_EVENTS.ERROR, onSocketError);

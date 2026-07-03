@@ -16,7 +16,13 @@ class JoinCardAssignmentCommand extends BaseSocketCommand {
     }
 
     socket.join(helpers.getAssignmentRoom(socket.data.userId));
-    helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.CARD_ASSIGNMENT, socket.id);
+    // WS-12: await el cambio de modo RFID (escapaba del try/catch del pipeline como
+    // unhandledRejection ante un RFID_LOCK_TIMEOUT).
+    await helpers.setRfidModeState(
+      socket.data.userId,
+      helpers.RFID_MODES.CARD_ASSIGNMENT,
+      socket.id
+    );
 
     logger.info(`Socket ${socket.id} se unio a card_assignment`, {
       userId: socket.data.userId

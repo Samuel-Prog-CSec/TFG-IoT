@@ -98,6 +98,7 @@ const ChallengeDisplay = function ChallengeDisplay({
   feedbackPoints = 0,
   feedbackMessage = '',
   isTimeout = false,
+  autoPlayAudio = false,
   className
 }) {
   const { shouldReduceMotion } = useReducedMotion();
@@ -269,7 +270,11 @@ const ChallengeDisplay = function ChallengeDisplay({
         </motion.div>
       </AnimatePresence>
 
-      {/* Audio mini-player */}
+      {/* Audio mini-player. Con `autoPlayAudio` (accesibilidad pre-lectora en
+          Asociación), la consigna se reproduce sola al empezar cada ronda: el
+          objetivo del reto está OCULTO ("?"), así que para un niño que aún no lee, el
+          audio ES la pregunta. `autoPlayToken={asset.value}` cambia por ronda → una
+          sola reproducción por reto; el botón manual sigue disponible siempre. */}
       {asset?.audioUrl && (
         <motion.div
           initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
@@ -277,7 +282,13 @@ const ChallengeDisplay = function ChallengeDisplay({
           transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.3 }}
           className="mt-6 w-full max-w-xs"
         >
-          <AudioMiniPlayer audioUrl={asset.audioUrl} size="sm" variant="glass" />
+          <AudioMiniPlayer
+            audioUrl={asset.audioUrl}
+            size="sm"
+            variant="glass"
+            autoPlay={autoPlayAudio && revealed}
+            autoPlayToken={asset?.value}
+          />
         </motion.div>
       )}
 
@@ -335,6 +346,7 @@ ChallengeDisplay.propTypes = {
   feedbackPoints: PropTypes.number,
   feedbackMessage: PropTypes.string,
   isTimeout: PropTypes.bool,
+  autoPlayAudio: PropTypes.bool,
   className: PropTypes.string
 };
 

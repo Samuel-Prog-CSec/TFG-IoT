@@ -219,6 +219,12 @@ function clearPlayTimers(playState) {
     clearTimeout(playState.sequenceMemorizingTimer);
     playState.sequenceMemorizingTimer = null;
   }
+  // WS-2: watchdog de board_ready. Se cancela al pausar/finalizar para que su
+  // callback no auto-confirme board_ready sobre una partida ya pausada o cerrada.
+  if (playState.boardReadyWatchdog) {
+    clearTimeout(playState.boardReadyWatchdog);
+    playState.boardReadyWatchdog = null;
+  }
   if (playState.transientTimers) {
     for (const timer of playState.transientTimers) {
       clearTimeout(timer);

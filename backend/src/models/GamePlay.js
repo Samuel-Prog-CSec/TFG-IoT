@@ -291,7 +291,21 @@ const gamePlaySchema = new mongoose.Schema(
 gamePlaySchema.methods.addEventAtomic = async function (eventData, options = {}) {
   const { update, normalizedEventData } = buildEventUpdateOperators(eventData, options);
 
-  await this.constructor.updateOne({ _id: this._id }, update);
+  // DB-3: guard de estado ATÓMICO en el propio filtro. Antes el write no filtraba
+  // por `status`, y el check `isInProgress()` vivía separado en el service (TOCTOU):
+  // un evento tardío (scan duplicado, carrera con un timeout/endPlay concurrente por
+  // el path HTTP `addEventToPlay`, que NO pasa por el lock del motor) podía aplicar
+  // su `$push`/`$inc` DESPUÉS de que `complete()` calculara métricas y consolidara
+  // `updateStudentMetrics` → descuadre silencioso play vs studentMetrics. Con el
+  // filtro `status: 'in-progress'`, si la partida ya se finalizó el write no hace
+  // match y NO mutamos el estado en memoria (el `$inc` no ocurrió en BD; aplicarlo
+  // divergiría). `matchedCount` es undefined si un test mockea `updateOne` sin
+  // devolver resultado → en ese caso seguimos el path normal (los tests validan el
+  // camino feliz).
+  const result = await this.constructor.updateOne({ _id: this._id, status: 'in-progress' }, update);
+  if (result && result.matchedCount === 0) {
+    return this;
+  }
   applyEventToDocState(this, normalizedEventData, options);
 
   // El `$push` de events y los `$inc` de metrics/score/currentRound ya están

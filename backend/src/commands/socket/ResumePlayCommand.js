@@ -35,7 +35,9 @@ class ResumePlayCommand extends BaseSocketCommand {
       }
 
       await gameEngine.resumePlayInternal(playId, { requestedBy: socket.data.userId });
-      helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id, {
+      // WS-12: await el cambio de modo RFID para que un RFID_LOCK_TIMEOUT caiga en el
+      // catch de este comando en vez de escapar como unhandledRejection.
+      await helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id, {
         playId
       });
     } catch (error) {

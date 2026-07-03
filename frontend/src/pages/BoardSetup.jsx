@@ -8,7 +8,14 @@ import { Layers, RotateCcw, Play, Shuffle, Info, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useConfetti } from '../hooks/useConfetti';
 import { toast } from 'sonner';
-import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import {
+  sessionsAPI,
+  usersAPI,
+  playsAPI,
+  extractData,
+  extractErrorMessage,
+  isAbortError
+} from '../services/api';
 import { captureException } from '../lib/sentry';
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
@@ -21,6 +28,35 @@ import ButtonPremium from '../components/ui/ButtonPremium';
 import ErrorState from '../components/ui/ErrorState';
 import Tooltip from '../components/ui/Tooltip';
 import SkeletonShimmer from '../components/ui/SkeletonShimmer';
+
+/**
+ * Red de seguridad del bug #1: abandona las partidas huérfanas (in-progress / paused)
+ * de una sesión. Se invoca desde BoardSetup cuando la sesión está `active` al cargar
+ * — señal de que una partida quedó colgada (cierre de pestaña sin "Salir"). El docente
+ * está reconfigurando, no jugando, así que abandonarlas es seguro y desbloquea el
+ * `updateSession(boardLayout)` posterior. Best-effort: los fallos se tragan.
+ *
+ * @param {string} sessionId
+ * @param {AbortSignal} [signal]
+ */
+async function abandonOrphanPlays(sessionId, signal) {
+  try {
+    const requestOptions = signal ? { signal } : {};
+    const [inProgressRes, pausedRes] = await Promise.all([
+      playsAPI.getPlays({ sessionId, status: 'in-progress', limit: 5 }, requestOptions),
+      playsAPI.getPlays({ sessionId, status: 'paused', limit: 5 }, requestOptions)
+    ]);
+    const orphans = [
+      ...(extractData(inProgressRes) || []),
+      ...(extractData(pausedRes) || [])
+    ];
+    await Promise.all(
+      orphans.map(play => playsAPI.abandonPlay(getId(play)).catch(() => {}))
+    );
+  } catch {
+    // Best-effort: si no se pueden abandonar, el reclaim del motor / el cron actúan.
+  }
+}
 
 /** Fisher-Yates shuffle — returns a new shuffled copy of the array */
 function shuffleArray(array) {
@@ -103,6 +139,17 @@ export default function BoardSetup() {
 
                         setSession(currentSession);
                         setError(null);
+
+                        // Red de seguridad bug #1 (caso cierre-de-pestaña): si la sesión
+                        // quedó 'active' con una partida huérfana (el docente cerró la
+                        // pestaña de juego sin pulsar "Salir"), abandonarla ANTES de que el
+                        // docente reconfigure. Está en BoardSetup —no jugando—, así que
+                        // cualquier partida in-progress/paused de esta sesión es huérfana.
+                        // Sin esto, `updateSession(boardLayout)` fallaría con 400 "sesión
+                        // activa" al pulsar Iniciar y quedaría bloqueado. Best-effort.
+                        if (currentSession?.status === 'active') {
+                            await abandonOrphanPlays(sessionId, signal);
+                        }
 
                         const students = extractData(studentsResponse) || [];
 

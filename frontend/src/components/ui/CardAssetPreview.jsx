@@ -85,6 +85,15 @@ export default function CardAssetPreview({
   const displaySrc = imageUrl || null;
 
   const shouldShowImage = Boolean(imageUrl) && !imageError;
+  // Color dominante del asset (backfill server-side) para tintar el placeholder de
+  // carga: en vez de un blanco→imagen abrupto, el hueco ya insinúa el color que va a
+  // aparecer (carga percibida más suave, menos "flash"). Se mezcla suave (18%) sobre
+  // el blanco de la tarjeta para no romper la estética de tarjeta física. Validamos el
+  // formato hex por defensa: el valor viene del servidor, no del usuario, pero así
+  // evitamos inyectar CSS arbitrario en el `style` inline.
+  const dominantColor = /^#[0-9a-f]{6}$/i.test(asset?.dominantColor || '')
+    ? asset.dominantColor
+    : null;
   // Preferimos fallbackLabel explicito del caller sobre asset.display porque
   // el caller suele tener mejor contexto sobre que mostrar (e.g. "Vaca" vs
   // un emoji decorativo del seeder). Si no se pasa fallbackLabel, caemos a
@@ -105,10 +114,17 @@ export default function CardAssetPreview({
     >
       {shouldShowImage ? (
         <>
-          {/* Placeholder shimmer sobre el blanco de la tarjeta mientras carga. */}
+          {/* Placeholder shimmer sobre el blanco de la tarjeta mientras carga. Si el
+              asset tiene color dominante conocido, el hueco se tinta suave con él para
+              que la carga sea menos abrupta (el shimmer va por encima). */}
           {showSkeleton && imageLoading && (
             <div
               className="absolute inset-0 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2s_infinite] before:bg-gradient-to-r before:from-transparent before:via-[color-mix(in_oklab,var(--color-card-ink)_10%,transparent)] before:to-transparent"
+              style={
+                dominantColor
+                  ? { backgroundColor: `color-mix(in oklab, ${dominantColor} 18%, var(--color-card-surface))` }
+                  : undefined
+              }
             />
           )}
           {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- onLoad/onError are lifecycle events, not user interactions */}

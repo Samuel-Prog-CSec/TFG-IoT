@@ -126,6 +126,8 @@ export default function CreateSession() {
     setSequencePlan,
     sequenceConfig,
     setSequenceConfig,
+    associationConfig,
+    setAssociationConfig,
     deckCards,
     isMemorySelected,
     isAssociationSelected,
@@ -205,6 +207,7 @@ export default function CreateSession() {
             }))
           : undefined,
         sequenceConfig: isSequenceSelected ? sequenceConfig : undefined,
+        associationConfig: isAssociationSelected ? associationConfig : undefined,
         sensorId: sessionConfig.linkSensor ? currentSensorId : undefined
       };
 
@@ -307,6 +310,10 @@ export default function CreateSession() {
             associationCards={deckCards}
             associationChallengePlan={associationChallengePlan}
             onAssociationChallengePlanChange={setAssociationChallengePlan}
+            autoPlayPrompt={associationConfig.autoPlayPrompt}
+            onAutoPlayPromptChange={value =>
+              setAssociationConfig(prev => ({ ...prev, autoPlayPrompt: value }))
+            }
             contextName={selectedDeck?.context?.name || selectedDeck?.contextId?.name || ''}
           />
         );

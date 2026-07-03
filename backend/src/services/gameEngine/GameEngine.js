@@ -39,6 +39,14 @@ const PLAY_TIMEOUT_MS = Number.parseInt(process.env.PLAY_TIMEOUT_MS, 10) || 3600
 // umbral enseguida, liberando sus tarjetas para que el reintento del docente
 // funcione en vez de quedar bloqueado hasta PLAY_TIMEOUT_MS (1h).
 const ORPHAN_RECLAIM_GRACE_MS = Number.parseInt(process.env.ORPHAN_RECLAIM_GRACE_MS, 10) || 10000;
+// WS-2: fallback server-side si el evento `board_ready` del cliente nunca llega
+// (corte de red justo tras EMPEZAR, drop del rate limiter, crash del frontend en
+// la transición). Sin él, `awaitingBoardReady` quedaba true PARA SIEMPRE: ninguna
+// mecánica armaba su timer (partida congelada hasta el cron de 1h). A los 45s
+// auto-confirmamos board_ready (log warn) para que la partida arranque su reloj —
+// generoso frente a carga lenta de chunk + wifi de aula, pero muy por debajo de la
+// 1h. Se cancela en cuanto llega el board_ready real (confirmBoardReady).
+const BOARD_READY_FALLBACK_MS = Number.parseInt(process.env.BOARD_READY_FALLBACK_MS, 10) || 45000;
 const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
 const PROCESS_BATCH_SIZE = Number.parseInt(process.env.GAME_ENGINE_BATCH_SIZE, 10) || 20;
 const PERSIST_ROUND_START_EVENTS = process.env.PERSIST_ROUND_START_EVENTS === 'true';
@@ -512,10 +520,29 @@ class GameEngine {
             60
           );
           if (!acquired) {
+            // WS-6: a scale=1 (invariante por defecto) el init-lock distribuido NO
+            // puede estar legítimamente retenido por "otra instancia" — no hay otra.
+            // Un !acquired aquí es un FALSO POSITIVO: error de comando Upstash
+            // (setIfNotExists devuelve false con el breaker aún cerrado) o una key
+            // colgada de un intento previo que murió antes de liberarla. Antes se
+            // hacía `return` silencioso y el cliente no recibía NADA (skeleton
+            // infinito; y todos los reintentos del mismo playId fallaban durante los
+            // 60s del TTL). Liberamos la key y continuamos: el guard en memoria
+            // `activePlays.has(playId)` de abajo es la autoridad de idempotencia real
+            // a scale=1. En multi-instancia el lock SÍ es significativo → mantenemos
+            // el return.
+            const { isMultiInstanceEnabled } = require('../../config/scaling');
+            if (isMultiInstanceEnabled()) {
+              logger.warn(
+                `Partida ${playId}: otra instancia ya está inicializando (lock distribuido activo)`
+              );
+              return;
+            }
             logger.warn(
-              `Partida ${playId}: otra instancia ya está inicializando (lock distribuido activo)`
+              `Partida ${playId}: init-lock no adquirido a scale=1 (falso positivo Redis); liberando y continuando`,
+              { playId }
             );
-            return;
+            await this._releaseInitLock(playId);
           }
 
           if (this.activePlays.has(playId)) {
@@ -728,6 +755,15 @@ class GameEngine {
           this.activePlays.set(playId, playState);
           this.metrics.totalPlaysStarted++;
 
+          // WS-2: watchdog de board_ready. Las tres mecánicas arrancan con
+          // `awaitingBoardReady=true` y SOLO `confirmBoardReady` lo baja. Si el
+          // evento del cliente se pierde, la partida quedaría sin ningún timer hasta
+          // el cron de 1h. El watchdog auto-confirma a los 45s (registrando el caso
+          // anómalo). `confirmBoardReady` lo cancela cuando el evento real llega;
+          // `clearPlayTimers` lo cancela al pausar/finalizar. El callback vive en un
+          // método propio (`_fireBoardReadyWatchdog`) para no anidar funciones.
+          playState.boardReadyWatchdog = this._armBoardReadyWatchdog(playId);
+
           // 5. Sincronizar con Redis para persistencia
           await this.syncPlayToRedis(playId, playState);
 
@@ -801,6 +837,48 @@ class GameEngine {
   }
 
   /**
+   * WS-2: arma el watchdog de board_ready de una partida recién iniciada.
+   * Extraído a método propio para no anidar el callback dentro de
+   * `Sentry.startSpan > executeWithPlayLock > setTimeout`.
+   *
+   * @private
+   * @param {string} playId
+   * @returns {NodeJS.Timeout}
+   */
+  _armBoardReadyWatchdog(playId) {
+    const timer = setTimeout(() => this._fireBoardReadyWatchdog(playId), BOARD_READY_FALLBACK_MS);
+    if (timer.unref) {
+      timer.unref();
+    }
+    return timer;
+  }
+
+  /**
+   * WS-2: callback del watchdog. Si `board_ready` no llegó y la partida sigue
+   * esperándolo, auto-confirma para que arranque su reloj (en vez de quedar
+   * congelada hasta el cron de 1h).
+   *
+   * @private
+   * @param {string} playId
+   */
+  _fireBoardReadyWatchdog(playId) {
+    const ps = this.activePlays.get(playId);
+    if (!ps || !ps.awaitingBoardReady) {
+      return;
+    }
+    logger.warn(
+      `board_ready no recibido en ${BOARD_READY_FALLBACK_MS}ms para ${playId}; auto-confirmando (fallback WS-2)`,
+      { playId, mechanic: ps.mechanicName }
+    );
+    this.confirmBoardReady(playId).catch(err =>
+      logger.error('Fallo auto-confirmando board_ready (watchdog)', {
+        playId,
+        err: err?.message
+      })
+    );
+  }
+
+  /**
    * Reclama una partida en conflicto de tarjetas SI está huérfana, liberando sus
    * tarjetas para que un nuevo `startPlay` con el mismo mazo pueda arrancar.
    *
@@ -863,7 +941,17 @@ class GameEngine {
       logger.warn(
         `Reclamando partida huérfana ${conflictId} para liberar sus tarjetas (sin cliente, neverStarted=${neverStarted}, edad=${Math.round(ageMs / 1000)}s)`
       );
-      await this.endPlay(conflictId, { abandoned: true });
+      // WS-7: finalizar la partida en conflicto BAJO SU PROPIO lock. La huérfana no
+      // está inerte: sus round/next timers siguen avanzando rondas solos (timeout →
+      // addEventAtomic → siguiente ronda). Sin el lock del `conflictId`, este endPlay
+      // —que corre bajo el lock del playId NUEVO— podía interleavear en los
+      // await-points con un handleTimeout en vuelo de la huérfana → escrituras de
+      // eventos/$inc posteriores al save() de status 'abandoned'. El cron de cleanup
+      // ya lo hace así (executeWithPlayLock). No hay deadlock: el caller solo posee el
+      // lock del playId nuevo, no el del `conflictId`.
+      await this.executeWithPlayLock(conflictId, 'reclaim_orphan', () =>
+        this.endPlay(conflictId, { abandoned: true })
+      );
     }
   }
 
@@ -1210,62 +1298,94 @@ class GameEngine {
     }
 
     // 3. Emitir evento final al cliente.
-    // Construimos `finalMetrics` desde el documento persistido (que ya
-    // incluye los sub-objetos memory/association tras la rama no abandonada)
-    // y volvemos a fusionar el summary específico para garantizar que el
-    // frontend recibe datos frescos incluso si la persistencia anterior
-    // falló de forma silenciosa (defense-in-depth).
-    const finalMetrics = playState.playDoc.metrics?.toObject
-      ? playState.playDoc.metrics.toObject()
-      : { ...(playState.playDoc.metrics || {}) };
-    const mode = mechanicNameToMode(playState.mechanicName);
+    // WS-3: el paso 3 entero va en try/catch. Antes, un fallo aquí
+    // (`buildFinalSummary` sobre estado corrupto, `toObject`, el propio emit)
+    // abortaba el método con `_ending=true` SIN llegar al paso 4 → la partida
+    // quedaba ZOMBIE: sus tarjetas seguían reservadas en `cardUidToPlayId` y su
+    // entrada viva en `activePlays`, irrecuperable sin reiniciar (tanto
+    // `cleanupAbandonedPlays` como `_reclaimOrphanedPlay` ven `_ending` y hacen
+    // return). Registramos el fallo y CONTINUAMOS a la liberación de recursos.
+    try {
+      // Construimos `finalMetrics` desde el documento persistido (que ya
+      // incluye los sub-objetos memory/association tras la rama no abandonada)
+      // y volvemos a fusionar el summary específico para garantizar que el
+      // frontend recibe datos frescos incluso si la persistencia anterior
+      // falló de forma silenciosa (defense-in-depth).
+      const finalMetrics = playState.playDoc.metrics?.toObject
+        ? playState.playDoc.metrics.toObject()
+        : { ...(playState.playDoc.metrics || {}) };
+      const mode = mechanicNameToMode(playState.mechanicName);
 
-    // Se reconstruye y refusiona el summary (defense-in-depth): si la persistencia
-    // anterior falló de forma silenciosa, el frontend recibe datos frescos igualmente.
-    const emittedSummary = finalSummary.buildFinalSummary(playState.mechanicName, playState);
-    applyMechanicSummary(finalMetrics, playState.mechanicName, emittedSummary);
+      // Se reconstruye y refusiona el summary (defense-in-depth): si la persistencia
+      // anterior falló de forma silenciosa, el frontend recibe datos frescos igualmente.
+      const emittedSummary = finalSummary.buildFinalSummary(playState.mechanicName, playState);
+      applyMechanicSummary(finalMetrics, playState.mechanicName, emittedSummary);
 
-    // Garantizar `completionTime` en el payload — `playDoc.complete()`
-    // lo escribe en el documento, pero si el path falla o llega al
-    // toObject anterior antes del save, el frontend mostraba "—" en
-    // "Tiempo total" del GameOver de Secuencia (BUG QA 03/05/2026).
-    if (!Number.isFinite(Number(finalMetrics.completionTime)) || finalMetrics.completionTime <= 0) {
-      finalMetrics.completionTime = playDuration;
+      // Garantizar `completionTime` en el payload — `playDoc.complete()`
+      // lo escribe en el documento, pero si el path falla o llega al
+      // toObject anterior antes del save, el frontend mostraba "—" en
+      // "Tiempo total" del GameOver de Secuencia (BUG QA 03/05/2026).
+      if (
+        !Number.isFinite(Number(finalMetrics.completionTime)) ||
+        finalMetrics.completionTime <= 0
+      ) {
+        finalMetrics.completionTime = playDuration;
+      }
+
+      this.io.to(`play_${playId}`).emit('game_over', {
+        finalScore: playState.playDoc.score,
+        // ADR-114: enviamos `maxScore` para que el GameOver del cliente
+        // pinte `score / maxScore (Z%)` y el alumno vea el techo absoluto
+        // de la partida (no sólo cuántos puntos sacó). Persistido en
+        // `GamePlay.maxScore` al crear la partida con la fórmula propia
+        // de cada mecánica (ver gamePlayService.createPlay).
+        maxScore: Number(playState.playDoc.maxScore) || null,
+        metrics: finalMetrics,
+        // `mode` se mantiene por compatibilidad con el frontend actual
+        // (`GameOverStats` delega por `summary.mode`). `mechanicType` añade
+        // el mismo valor con un nombre más explícito de cara a futuro
+        // (mascota, tema visual, charts del profesor) — ADR-D/E/F lo usan
+        // como propagación canónica.
+        mode,
+        mechanicType: playState.mechanicName,
+        abandoned
+      });
+    } catch (emitErr) {
+      logger.error(`Error construyendo/emitiendo game_over de ${playId}`, {
+        playId,
+        err: emitErr?.message,
+        stack: emitErr?.stack
+      });
+      Sentry.captureException(emitErr, {
+        tags: { module: 'gameEngine', path: 'endPlay.emit' },
+        extra: { playId }
+      });
     }
 
-    this.io.to(`play_${playId}`).emit('game_over', {
-      finalScore: playState.playDoc.score,
-      // ADR-114: enviamos `maxScore` para que el GameOver del cliente
-      // pinte `score / maxScore (Z%)` y el alumno vea el techo absoluto
-      // de la partida (no sólo cuántos puntos sacó). Persistido en
-      // `GamePlay.maxScore` al crear la partida con la fórmula propia
-      // de cada mecánica (ver gamePlayService.createPlay).
-      maxScore: Number(playState.playDoc.maxScore) || null,
-      metrics: finalMetrics,
-      // `mode` se mantiene por compatibilidad con el frontend actual
-      // (`GameOverStats` delega por `summary.mode`). `mechanicType` añade
-      // el mismo valor con un nombre más explícito de cara a futuro
-      // (mascota, tema visual, charts del profesor) — ADR-D/E/F lo usan
-      // como propagación canónica.
-      mode,
-      mechanicType: playState.mechanicName,
-      abandoned
-    });
-
-    // 4. Limpiar la memoria
-    // Liberar las tarjetas
+    // 4. Limpiar la memoria — SIEMPRE, aunque la persistencia o el emit fallaran
+    // (WS-3). Los deletes en memoria van ANTES del release de Redis (que puede
+    // lanzar): así, pase lo que pase, la partida no queda zombie con sus tarjetas
+    // bloqueadas. `cardUidToPlayId` es la reserva autoritativa que consulta
+    // `startPlay` para rechazar por "tarjeta en uso".
     const cardUids = [];
     for (const mapping of playState.sessionDoc.cardMappings) {
       this.cardUidToPlayId.delete(mapping.uid);
       cardUids.push(mapping.uid);
     }
-
-    // También limpiar de Redis (solo si seguimos siendo owner del lock).
-    // El Lua release es EVALSHA y no entra en pipeline.
-    await this.releaseDistributedCardMappings(playId, cardUids);
-
-    // Borrar la partida de la memoria activa
+    // Borrar la partida de la memoria activa (antes del await de Redis).
     this.activePlays.delete(playId);
+
+    // También liberar de Redis (best-effort: su fallo ya no puede dejar zombie
+    // porque los mapas en memoria ya se limpiaron arriba). El Lua release es
+    // EVALSHA y no entra en pipeline.
+    try {
+      await this.releaseDistributedCardMappings(playId, cardUids);
+    } catch (err) {
+      logger.warn('endPlay: releaseDistributedCardMappings falló (TTL red de seguridad)', {
+        playId,
+        error: err?.message
+      });
+    }
 
     // B.7 (pre-v1.0.0): coalescer las 2 ops Redis restantes (DEL PLAY +
     // DEL PLAY_INIT_LOCK) en un único pipeline para ahorrar 1 RTT a
@@ -1385,6 +1505,16 @@ class GameEngine {
     if (outcome.type === 'first_pick') {
       playState.roundStartTime = Date.now();
 
+      // WS-9: emitir el estado del tablero PRIMERO — el niño ve su carta voltear al
+      // instante, sin esperar el RTT de Atlas (100-300ms en M0). El `card_scanned`
+      // es telemetría pura (0 puntos, no afecta el score), así que su fallo se
+      // registra pero NO interrumpe la partida: antes `_emitFatalScanError` mataba
+      // toda la partida por un evento sin impacto en la puntuación —
+      // desproporcionado frente al criterio de `processResponse`, donde abortar sí
+      // se justifica por consistencia de score. El await sigue dentro del handler
+      // (serializado por el lock de partida), sin riesgo frente al siguiente scan.
+      this.emitMemoryTurnState(playId, playState, { phase: 'first_pick' });
+
       try {
         await playState.playDoc.addEvent({
           eventType: 'card_scanned',
@@ -1396,11 +1526,15 @@ class GameEngine {
           roundNumber: playState.playDoc.currentRound
         });
       } catch (err) {
-        await this._emitFatalScanError(playId, playState, err, 'processMemoryScan.firstPick');
-        return;
+        logger.warn('Fallo persistiendo card_scanned de Memoria (telemetría, ignorado)', {
+          playId,
+          err: err?.message
+        });
+        Sentry.captureException(err, {
+          tags: { module: 'gameEngine', path: 'processMemoryScan.firstPick' },
+          extra: { playId }
+        });
       }
-
-      this.emitMemoryTurnState(playId, playState, { phase: 'first_pick' });
       return;
     }
 
@@ -1758,6 +1892,20 @@ class GameEngine {
       const playState = this.activePlays.get(playId);
       if (!playState) {
         return { ok: false, reason: 'play_not_active' };
+      }
+
+      // WS-8: Secuencia gestiona su avance de ronda INTERNAMENTE
+      // (finalizeSequenceRound → scheduleSequenceAdvance → advanceSequence, que es
+      // quien incrementa `currentRound`). Un `next_round` manual aquí llamaría a
+      // `sendNextRound` SIN incrementar la ronda → RE-JUEGA la ronda actual: duplica
+      // su summary en `roundResults` (infla sequencesCompleted/roundsPlayed) y repite
+      // sus `addEventAtomic` (doble score, solo parcialmente tapado por el clamp a
+      // maxScore). El guard de `awaitingResponse` no lo cubre porque en fase
+      // 'completed' (feedback) y 'memorizing' es false. El avance manual solo tiene
+      // sentido en Asociación; en Secuencia lo rechazamos.
+      if (this.isSequencePlay(playState)) {
+        this.metrics.blockedManualNextRound++;
+        return { ok: false, reason: 'sequence_auto_advance' };
       }
 
       if (playState.awaitingResponse) {
@@ -2353,6 +2501,38 @@ class GameEngine {
     stateHelpers.restoreRoundStartTime(playState);
   }
 
+  /**
+   * WS-5: re-ancla los relojes por-carta de Secuencia y Memoria tras reanudar una
+   * pausa, desplazándolos por la duración de la pausa. Sin esto, esa duración
+   * entraba como `timeElapsed` en la siguiente carta y envenenaba
+   * `averageResponseTime` del alumno y el KPI de tiempo medio del docente (una pausa
+   * de 3 min = un `timeElapsed` de ~180000ms). Asociación ya lo corrige por otra vía
+   * (`restoreRoundStartTime` + `roundElapsedBeforePauseMs`).
+   *
+   * @private
+   * @param {Object} playState
+   * @param {number} pauseDurationMs
+   */
+  _reanchorClocksOnResume(playState, pauseDurationMs) {
+    if (pauseDurationMs <= 0) {
+      return;
+    }
+    // Secuencia: ancla del delta por-carta en reproducing.
+    if (typeof playState.lastSequenceScanAt === 'number') {
+      playState.lastSequenceScanAt += pauseDurationMs;
+    }
+    // Secuencia: inicio de ronda para el `durationMs` del summary de ronda.
+    if (typeof playState.strategyState?.currentRoundStartedAt === 'number') {
+      playState.strategyState.currentRoundStartedAt += pauseDurationMs;
+    }
+    // Memoria: ancla del grupo abierto (first_pick) para el `timeElapsed` de la
+    // pareja que se resuelva tras reanudar (currentChallenge es null en Memoria, así
+    // que restoreRoundStartTime no lo cubre).
+    if (this.isMemoryPlay(playState) && typeof playState.roundStartTime === 'number') {
+      playState.roundStartTime += pauseDurationMs;
+    }
+  }
+
   async persistPlayResumed(playId, playState) {
     try {
       playState.playDoc.status = 'in-progress';
@@ -2384,6 +2564,13 @@ class GameEngine {
     const playState = this.activePlays.get(playId);
     if (!playState || !playState.awaitingBoardReady) {
       return;
+    }
+
+    // WS-2: el board_ready (real o auto-confirmado por el watchdog) llegó → cancelar
+    // el timer de fallback para que no vuelva a dispararse.
+    if (playState.boardReadyWatchdog) {
+      clearTimeout(playState.boardReadyWatchdog);
+      playState.boardReadyWatchdog = null;
     }
 
     // Si la partida se pausó en la ventana entre "entrar a playing" y confirmar
@@ -2549,6 +2736,14 @@ class GameEngine {
           // Restaurar el roundStartTime para que el cálculo timeElapsed NO incluya la pausa
           this.restoreRoundStartTime(playState);
 
+          // WS-5: re-anclar los relojes POR-CARTA de Secuencia y Memoria que
+          // `restoreRoundStartTime` (solo cubre Asociación) no ajusta. Se calcula
+          // ANTES de resetear `pausedAt`; la lógica vive en `_reanchorClocksOnResume`.
+          this._reanchorClocksOnResume(
+            playState,
+            playState.pausedAt ? Math.max(0, Date.now() - playState.pausedAt) : 0
+          );
+
           // Marcar como reanudada
           playState.paused = false;
           playState.pausedAt = null;
@@ -2592,7 +2787,16 @@ class GameEngine {
               playId,
               currentRound: playState.playDoc.currentRound,
               remainingTimeMs,
-              challenge: { displayData: playState.currentChallenge.displayData }
+              // WS-4: redactar el displayData igual que play_state/play_state_sync.
+              // En Secuencia reproducing, currentChallenge.displayData conserva la
+              // `sequence` ordenada completa (la respuesta) y este emit NO la filtraba
+              // → pausar/reanudar durante reproducing revelaba el orden en los frames WS.
+              challenge: {
+                displayData: stateHelpers.redactChallengeDisplayData(
+                  playState,
+                  playState.currentChallenge.displayData
+                )
+              }
             });
           } else {
             this.io.to(`play_${playId}`).emit('play_resumed', {

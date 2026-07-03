@@ -430,21 +430,38 @@ const abandonPlay = async (req, res) => {
 
   ensureResourceOwnershipOrAdmin(owned.sessionId, req.user, 'partida');
 
-  const play = await gamePlayService.abandonPlay(id);
-
-  // Limpiar estado del motor si la partida está activa (timers, Redis, cards).
-  // Vive en el controller porque necesita `req.app.get('gameEngine')`. Limpieza
-  // graceful — un fallo no crítico no debe propagarse.
+  // Bug #1 / DB-9: UN SOLO camino de abandono, sin doble contabilización.
+  //  - Si la partida sigue VIVA en el motor, es el motor quien la finaliza como
+  //    abandonada: `endPlay({abandoned:true})` marca status, hace
+  //    `recordAbandonedGame`, recalcula el estado de la sesión, libera timers/tarjetas
+  //    y emite `game_over`. (Antes se llamaba a `service.abandonPlay` Y a
+  //    `endPlay()` SIN `abandoned`: el segundo re-procesaba la partida como
+  //    `complete()` → status 'completed' que SOBREESCRIBÍA el 'abandoned' y contaba la
+  //    partida en `averageScore` a la vez que el service la contaba en
+  //    `totalAbandonedGames`. Bug latente que el fix de salida del frontend activaría.)
+  //  - Si NO está en el motor (huérfana ya limpiada, o entorno de test sin motor), el
+  //    service hace el trabajo de dominio (status + recordAbandonedGame + recalc).
   const gameEngine = req.app.get('gameEngine');
-  if (gameEngine) {
+  const inEngine = Boolean(gameEngine?.activePlays?.has?.(id));
+
+  let play = null;
+  if (inEngine) {
     try {
-      await gameEngine.endPlay(id);
+      await gameEngine.endPlay(id, { abandoned: true });
+      play = await gamePlayRepository.findById(id, {
+        populate: [{ path: 'sessionId', select: 'createdBy' }]
+      });
     } catch (engineErr) {
-      logger.warn('No se pudo limpiar la partida del motor al abandonar', {
+      logger.warn('No se pudo abandonar la partida vía motor; degradando al service', {
         playId: id,
         error: engineErr.message
       });
     }
+  }
+  // Fallback: no estaba en el motor, o el motor no consiguió cambiar el status.
+  // `service.abandonPlay` exige `in-progress`, así que solo lo invocamos si sigue así.
+  if (!play || play.status === 'in-progress') {
+    play = await gamePlayService.abandonPlay(id);
   }
 
   sendSuccess(res, toGamePlayDetailDTOV1(play), 'Partida abandonada');

@@ -5,99 +5,11 @@ import { Star } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
-/**
- * Display de puntuación con estrellas animadas
- * Diseñado para ser visualmente atractivo para niños
- * 
- * @param {Object} props
- * @param {number} props.score - Puntuación actual
- * @param {number} props.maxStars - Número máximo de estrellas
- * @param {number} props.correctAnswers - Respuestas correctas
- * @param {number} props.totalQuestions - Total de preguntas
- * @param {string} [props.className] - Clases adicionales
- */
-function ScoreDisplay({ 
-  score = 0, 
-  maxStars = 3,
-  correctAnswers = 0,
-  totalQuestions = 5,
-  className 
-}) {
-  // Calcular estrellas basado en el porcentaje de respuestas correctas
-  const percentage = totalQuestions > 0 ? (correctAnswers / totalQuestions) * 100 : 0;
-  const starsEarned = (() => {
-    if (percentage >= 90) return 3;
-    if (percentage >= 70) return 2;
-    if (percentage >= 50) return 1;
-    return 0;
-  })();
-
-  return (
-    <div 
-      className={cn("flex flex-col items-center gap-3", className)}
-      aria-label={`Puntuación: ${score} puntos, ${starsEarned} de ${maxStars} estrellas`}
-    >
-      {/* Estrellas */}
-      <div 
-        className="flex items-center gap-2"
-        role="img"
-        aria-label={`${starsEarned} estrellas de ${maxStars}`}
-      >
-        {Array.from({ length: maxStars }, (_, i) => ({ id: `star-${i}`, index: i })).map(star => (
-          <motion.div
-            key={star.id}
-            initial={{ scale: 0, rotate: -180 }}
-            animate={{
-              scale: star.index < starsEarned ? 1 : 0.8,
-              rotate: 0
-            }}
-            transition={{
-              delay: star.index * 0.1,
-              type: 'spring',
-              stiffness: 300,
-              damping: 15
-            }}
-          >
-            <Star
-              size={32}
-              aria-hidden="true"
-              className={cn(
-                "transition-colors duration-300",
-                star.index < starsEarned
-                  ? "fill-warning-base text-warning-base drop-shadow-[0_0_10px_var(--color-warning-glow)]"
-                  : "fill-background-surface text-text-disabled"
-              )}
-            />
-          </motion.div>
-        ))}
-      </div>
-
-      {/* Score numérico con animación */}
-      <motion.div
-        key={score}
-        initial={{ scale: 1.5, opacity: 0 }}
-        animate={{ scale: 1, opacity: 1 }}
-        className="relative"
-      >
-        <div 
-          className="text-4xl font-bold font-display gradient-text-brand tabular-nums"
-          aria-live="polite"
-        >
-          {score}
-        </div>
-        <div className="text-xs text-text-muted text-center mt-1">puntos</div>
-      </motion.div>
-    </div>
-  );
-}
-
-ScoreDisplay.propTypes = {
-  score: PropTypes.number,
-  maxStars: PropTypes.number,
-  correctAnswers: PropTypes.number,
-  totalQuestions: PropTypes.number,
-  className: PropTypes.string,
-};
+// FE-9: eliminado el componente `ScoreDisplay` (export default) — código muerto: no
+// se importaba en ningún sitio (solo `ScoreDisplayCompactMemo`) y su cálculo de
+// estrellas usaba umbrales propios (90/70/50 sobre accuracy, escala de 3★) que
+// CONTRADECÍAN la escala canónica de 5 niveles sobre `score/maxScore` (`calculateStars`
+// en lib/utils.js). Se conserva solo la versión compacta usada por el HUD.
 
 /**
  * Versión compacta del ScoreDisplay para el HUD
@@ -164,5 +76,4 @@ ScoreDisplayCompact.propTypes = {
   className: PropTypes.string,
 };
 
-export default memo(ScoreDisplay);
 export const ScoreDisplayCompactMemo = memo(ScoreDisplayCompact);

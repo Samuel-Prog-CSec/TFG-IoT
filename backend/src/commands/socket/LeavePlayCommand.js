@@ -27,7 +27,9 @@ class LeavePlayCommand extends BaseSocketCommand {
     }
 
     socket.leave(helpers.getPlayRoom(playId));
-    helpers.clearRfidModeState(socket.data.userId, socket.id);
+    // WS-12: await la limpieza de modo RFID (escapaba del try/catch del pipeline como
+    // unhandledRejection ante un RFID_LOCK_TIMEOUT).
+    await helpers.clearRfidModeState(socket.data.userId, socket.id);
 
     logger.info(`Socket ${socket.id} abandono la partida ${playId}`, {
       userId: socket.data.userId

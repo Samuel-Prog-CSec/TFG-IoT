@@ -38,8 +38,23 @@ export default function GameLayout() {
     return () => globalThis.removeEventListener('gameactive:change', checkActive);
   }, [location.pathname]);
 
-  const performExit = useCallback(() => {
+  const performExit = useCallback(async () => {
     globalThis.__gameActive = false;
+    // Bug #1: abandonar la partida EN CURSO antes de salir. Sin esto, la partida
+    // quedaba `in-progress` y la sesión `active` para siempre (hasta el cron de 1h):
+    // en Memoria bloqueaba la reconfiguración del tablero con un 400 "sesión activa",
+    // y en Asociación/Secuencia el mensaje del modal ("no quedará registrada") mentía
+    // (la partida a medias se reutilizaba). GameSession registra el handler mientras
+    // la partida está en curso (no en GameOver); es null si ya terminó. Best-effort:
+    // un fallo del abandono no debe impedir la salida.
+    const abandonHandler = globalThis.__gameAbandonHandler;
+    if (typeof abandonHandler === 'function') {
+      try {
+        await abandonHandler();
+      } catch {
+        // El reclaim del motor (o el cron) es la red de seguridad final.
+      }
+    }
     navigate(-1);
   }, [navigate]);
 

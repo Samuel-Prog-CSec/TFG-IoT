@@ -115,7 +115,15 @@ describe('GameEngine — error paths fatales', () => {
   });
 
   describe('processMemoryScan — fallo en first_pick (addEvent)', () => {
-    it('captura el error y dispara play_interrupted', async () => {
+    // WS-9: el evento `card_scanned` del primer volteo es telemetría PURA (0 puntos,
+    // no afecta el score). Su fallo NO debe interrumpir la partida (antes
+    // `_emitFatalScanError` la mataba por un evento sin impacto en la puntuación,
+    // desproporcionado). Además el `memory_turn_state` (voltear la carta) se emite
+    // ANTES del write, así que el niño ve su carta pese al fallo de telemetría.
+    it('degrada el fallo (log/Sentry) SIN interrumpir la partida y voltea la carta', async () => {
+      // emitMemoryTurnState delega en stateHelpers; lo stubbeamos para verificar que
+      // el volteo se emitió antes de intentar (y fallar) el write telemétrico.
+      engine.emitMemoryTurnState = jest.fn();
       const playState = {
         playDoc: {
           _id: { toString: () => 'p-mem' },
@@ -135,9 +143,17 @@ describe('GameEngine — error paths fatales', () => {
       const scannedCard = { uid: 'CARD1234', assignedValue: 'X' };
       await engine.processMemoryScan('p-mem', playState, scannedCard);
 
+      // El write telemétrico se intentó y falló…
       expect(playState.playDoc.addEvent).toHaveBeenCalled();
-      expect(collectEmittedEvents(ioMock)).toContain('play_interrupted');
-      expect(engine.endPlay).toHaveBeenCalledWith('p-mem');
+      // …pero la carta se volteó igualmente (emit ANTES del write)…
+      expect(engine.emitMemoryTurnState).toHaveBeenCalledWith(
+        'p-mem',
+        playState,
+        expect.objectContaining({ phase: 'first_pick' })
+      );
+      // …y la partida NO se interrumpió ni se cerró.
+      expect(collectEmittedEvents(ioMock)).not.toContain('play_interrupted');
+      expect(engine.endPlay).not.toHaveBeenCalled();
     });
   });
 

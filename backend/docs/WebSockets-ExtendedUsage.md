@@ -1262,3 +1262,14 @@ Las emisiones existentes NO se modifican (sería breaking para tests UI actuales
 ### Validación multi-instancia
 
 Ver sección anterior. Test `scripts/test-socket-multiinstance.js` ejecutado con 2 instancias (container :5000 + host :5001) ambas contra mismo Redis Docker. clientA emite ping → clientB recibe via Redis adapter. Bidireccional confirmado.
+
+## Auditoría de partidas — fuga de respuesta al reanudar y comandos socket con await (ADR-228)
+
+### Redacción de `displayData` en `play_resumed` (WS-4)
+`getPlayState` (usado en `play_state`/`PLAY_STATE_SYNC`) ya redactaba la respuesta de la mecánica, pero `resumePlayInternal` emitía `challenge.displayData` **sin redactar** en el evento `play_resumed` → en Secuencia reproducing ese objeto contenía la `sequence` ordenada completa (la respuesta), inspeccionable en los frames WS al pausar/reanudar. Fix: helper único `redactChallengeDisplayData(playState, displayData)` en `stateHelpers.js` (para Secuencia reproducing elimina `sequence` y conserva solo `length`), reutilizado por `getPlayState` **y** por `resumePlayInternal`. Evita que la redacción viva duplicada y diverja entre ambos caminos.
+
+### Helpers RFID con `await` en los comandos socket (WS-12)
+Los comandos `JoinPlay`, `PausePlay`, `ResumePlay`, `LeavePlay` y `JoinCardAssignment` invocaban `setRfidModeState`/`clearRfidModeState` **sin `await`** (fire-and-forget). El pipeline `executeSocketCommand` envuelve cada comando en un try/catch; sin el `await`, una rejection de esos helpers **escapaba** del try/catch como `unhandledRejection`. Fix: `await` en todos. Además `JoinPlay` ahora activa el modo GAMEPLAY **antes** de emitir `play_state`, evitando que un scan inmediato al unirse sea rechazado con `RFID_MODE_INVALID` por una carrera de orden.
+
+### Re-anclaje de relojes al reanudar (WS-5)
+Pausar no re-anclaba los relojes por-carta de Secuencia (`lastSequenceScanAt`, `currentRoundStartedAt`) ni el `roundStartTime` del grupo abierto de Memoria (Asociación ya lo hacía) → una pausa de varios minutos entraba como `timeElapsed` de la siguiente carta e inflaba `averageResponseTime` del alumno. Fix: `_reanchorClocksOnResume(playState, pauseDurationMs)` desplaza esos anclas por la duración de la pausa antes de rearmar los timers.

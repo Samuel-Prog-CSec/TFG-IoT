@@ -7,7 +7,7 @@ import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
 import RFIDConnector from '../components/ui/RFIDConnector';
 import webSerialService from '../services/webSerialService';
-import { extractErrorMessage } from '../services/api';
+import { extractErrorMessage, playsAPI } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
 import ErrorBoundary from '../components/common/ErrorBoundary';
@@ -45,6 +45,44 @@ import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from
 const AssociationGameplayPanel = lazy(() => import('../components/game/AssociationGameplayPanel'));
 const MemoryGameplayPanel = lazy(() => import('../components/game/MemoryGameplayPanel'));
 const SequenceGameplayPanel = lazy(() => import('../components/game/SequenceGameplayPanel'));
+
+// FE-4: prefetch de los chunks de panel por mecánica. Se dispara en cuanto se conoce
+// la mecánica de la sesión (mucho antes de pulsar EMPEZAR), calentando la caché del
+// bundler para que el panel esté listo al montar. Reutiliza la promesa del `lazy()`
+// (import() dedupe), así que es seguro y barato.
+const PANEL_PREFETCHERS = {
+  memory: () => import('../components/game/MemoryGameplayPanel'),
+  sequence: () => import('../components/game/SequenceGameplayPanel'),
+  association: () => import('../components/game/AssociationGameplayPanel')
+};
+
+/**
+ * FE-4: skeleton genérico (definido FUERA de los chunks lazy) para el fallback del
+ * Suspense de los paneles. Antes el fallback era `null`: mientras el chunk del panel
+ * bajaba en frío (Cloudflare Pages + wifi de aula), el área central quedaba en blanco
+ * con el HUD y la TimerBar ya visibles. Este placeholder mantiene la superficie
+ * ocupada sin layout shift.
+ */
+function GamePanelSkeleton() {
+  const slots = Array.from({ length: 6 }, (_, i) => `panel-skeleton-${i}`);
+  return (
+    <output
+      className="w-full h-full flex items-center justify-center"
+      aria-label="Preparando el juego…"
+    >
+      <div className="w-full max-w-2xl grid grid-cols-3 gap-3 auto-rows-fr">
+        {slots.map(key => (
+          <div
+            key={key}
+            className="aspect-square rounded-xl bg-gradient-to-br from-brand-base/10 to-accent-indigo/10 border border-border-subtle relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-text-primary/5 to-transparent animate-[shimmer_2s_infinite]" />
+          </div>
+        ))}
+      </div>
+    </output>
+  );
+}
 
 const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
 const FLOAT_DELAY_NONE = { animationDelay: '0s' };
@@ -944,6 +982,15 @@ export default function GameSession() {
     setMechanicMode(name === 'memory' || name === 'sequence' ? name : 'association');
   }, [session]);
 
+  // FE-4: precargar el chunk del panel de la mecánica en cuanto se resuelve (antes de
+  // pulsar EMPEZAR), para que no baje en medio de la partida dejando el área en blanco.
+  useEffect(() => {
+    const prefetch = PANEL_PREFETCHERS[mechanicMode] || PANEL_PREFETCHERS.association;
+    prefetch().catch(() => {
+      // Fallo de red: el lazy() lo reintentará al montar el panel.
+    });
+  }, [mechanicMode]);
+
   // --- Snapshot de partida en sessionStorage (resiliencia a F5) ---
   // Limpiamos snapshots vencidos al montar para no acumular basura.
   useEffect(() => {
@@ -1017,17 +1064,19 @@ export default function GameSession() {
   useEffect(() => {
     const mappings = session?.cardMappings;
     if (!Array.isArray(mappings) || mappings.length === 0) return;
-    // (C1) Solo la mecánica Asociación pinta la imagen full-res (ChallengeDisplay).
-    // Memoria y Secuencia usan siempre el thumbnail, así que no precargamos la full
-    // en ~2/3 de las partidas → ahorro de egress de Supabase (free-tier).
-    const mechanicName = session?.mechanic?.name;
-    const includeFullRes = !(mechanicName === 'memory' || mechanicName === 'sequence');
+    // AS-1: NUNCA precargar la imagen full-res (768px). La suposición original era
+    // que Asociación la pintaba en ChallengeDisplay, pero el objetivo del reto es un
+    // "?" OCULTO por diseño: ningún componente de partida pinta la full-res (el único
+    // <img> es CardAssetPreview, siempre thumbnail) y `getAssetImageUrl({preferFull})`
+    // no tiene callers. Precargarla eran ~1-3 MB de egress de Supabase inservible por
+    // partida de Asociación (free-tier). El fallback a full-res cuando falta el
+    // thumbnail se conserva dentro de prefetchDeckImages/cardMapping.
     prefetchDeckImages(mappings, () => {
       if (prefetchNotifiedRef.current) return;
       prefetchNotifiedRef.current = true;
       console.warn('[GameSession] Alguna imagen del mazo fallo al precargar. Se mostrara el nombre como fallback.');
-    }, { includeFullRes });
-  }, [session?.cardMappings, session?.mechanic?.name]);
+    }, { includeFullRes: false });
+  }, [session?.cardMappings]);
 
   // Sincronizar gameState con el socket hook
   useEffect(() => {
@@ -1068,6 +1117,28 @@ export default function GameSession() {
   useEffect(() => {
     boardReadyEmittedRef.current = false;
   }, [playId]);
+
+  // Bug #1: registrar el handler que `GameLayout.performExit` invoca al confirmar
+  // "Salir". Abandona la partida EN CURSO (POST /plays/:id/abandon) para que la
+  // sesión no quede `active` bloqueando reconfiguraciones (Memoria) ni se reutilice
+  // una partida a medias (Asociación/Secuencia). Solo se registra mientras la partida
+  // está viva: si ya terminó (`finished`, GameOver) la play está `completed` y el
+  // endpoint la rechazaría, así que dejamos el handler a null.
+  useEffect(() => {
+    const abandonable = playId && gameState !== 'finished';
+    globalThis.__gameAbandonHandler = abandonable
+      ? async () => {
+          try {
+            await playsAPI.abandonPlay(playId);
+          } catch {
+            // Best-effort: el reclaim del motor / el cron son la red final.
+          }
+        }
+      : null;
+    return () => {
+      globalThis.__gameAbandonHandler = null;
+    };
+  }, [playId, gameState]);
 
   // Confirmar que el tablero está visible para que el backend arranque su timer:
   // - Memoria: cuando el tablero (memoryBoard) ya está renderizado.
@@ -1853,15 +1924,17 @@ export default function GameSession() {
                   board (Secuencia). Toma una parte equitativa del alto (flex-1) y
                   centra su contenido; con min-h-0 puede encoger sin recortes. */}
               <div className="w-full flex-1 min-h-0 flex flex-col items-center justify-center">
-                <Suspense fallback={null}>
+                <Suspense fallback={<GamePanelSkeleton />}>
                   {(() => {
                     if (sessionIsMemory) {
                       return (
                         <MemoryGameplayPanel
                           board={memoryBoard}
-                          attempts={memoryStats.attempts}
-                          matchedCount={memoryStats.matchedCount}
-                          totalCards={memoryStats.totalCards}
+                          // FE-8: `attempts`/`matchedCount`/`totalCards` no las usa el
+                          // panel (ni las declara), pero al ser `memo` entraban en la
+                          // comparación shallow e invalidaban el memo cada vez que
+                          // cambiaban. El progreso ya vive en los dots del header y en
+                          // los corazones del propio tablero.
                           feedbackState={feedbackState}
                           feedbackPoints={feedbackPoints}
                           feedbackMessage={feedbackMessage}
@@ -1896,6 +1969,9 @@ export default function GameSession() {
                         feedbackPoints={feedbackPoints}
                         feedbackMessage={feedbackMessage}
                         isTimeout={feedbackIsTimeout}
+                        // Locución automática de la consigna: opt-in del docente en el
+                        // wizard (session.associationConfig.autoPlayPrompt).
+                        autoPlayAudio={Boolean(session?.associationConfig?.autoPlayPrompt)}
                       />
                     );
                   })()}

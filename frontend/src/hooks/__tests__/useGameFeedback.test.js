@@ -67,10 +67,12 @@ describe('useGameFeedback — matriz de disparo de Otto (mood + frase por evento
     expect(MASCOT_DIALOG.sequence.streakBroken).toContain(result.current.mascotMessage);
   });
 
-  it('timeout → sad + frase de timeout', () => {
+  it('timeout → encouraging + frase de timeout (AS-3: consuelo, no llanto)', () => {
     const { result } = setup('sequence');
     act(() => result.current.processValidationResult(TIMEOUT, ctx));
-    expect(result.current.mascotMood).toBe('sad');
+    // AS-3: el timeout usa mood de consuelo (`encouraging`), no `sad` (llanto). Una
+    // cara de llanto al agotarse el tiempo transmitía castigo en vez de ánimo.
+    expect(result.current.mascotMood).toBe('encouraging');
     expect(MASCOT_DIALOG.sequence.timeout).toContain(result.current.mascotMessage);
   });
 

@@ -13,7 +13,7 @@
  *  - Dispara los SFX de reparto/recogida en los momentos clave usando
  *    `useEffect` con dependencias en `phase` y `isCollecting`.
  */
-import { memo, useCallback, useEffect, useRef } from 'react';
+import { memo, useCallback, useEffect, useRef, useState } from 'react';
 import PropTypes from 'prop-types';
 import SequenceBoard from './sequence/SequenceBoard';
 import FallbackTouchPanelSequence from './sequence/FallbackTouchPanelSequence';
@@ -36,7 +36,13 @@ function SequenceGameplayPanel({
   const { shouldReduceMotion } = useReducedMotion();
   const sounds = useSoundEffects(soundEnabled);
   const highlightTimerRef = useRef(null);
-  const lastHighlightedRef = useRef(-1);
+  // FE-1: el índice resaltado vive en ESTADO (no en un ref). Mutar un ref no
+  // re-renderiza, y durante `memorizing` no hay ninguna otra fuente de re-render
+  // (el timer visual está parado, `sequenceState` no cambia y el panel es memo), así
+  // que el badge numerado "1,2,3…" NUNCA se pintaba pese a sonar el SFX de reparto
+  // cada 600ms (desajuste audio-visual). El coste es 1 re-render/600ms solo durante
+  // la memorización, y el objeto `sounds` es estable (memoizado, FE-6).
+  const [highlightIndex, setHighlightIndex] = useState(-1);
   const lastPhaseRef = useRef(null);
   const sweepFiredRef = useRef(false);
 
@@ -59,7 +65,7 @@ function SequenceGameplayPanel({
       clearTimeout(highlightTimerRef.current);
       highlightTimerRef.current = null;
     }
-    lastHighlightedRef.current = -1;
+    setHighlightIndex(-1);
 
     if (phase !== SEQUENCE_PHASES.MEMORIZING || sequence.length === 0 || shouldReduceMotion) {
       return undefined;
@@ -67,15 +73,15 @@ function SequenceGameplayPanel({
 
     let idx = 0;
     sounds.playCardDeal();
-    lastHighlightedRef.current = 0;
+    setHighlightIndex(0);
     const tick = () => {
       idx += 1;
       if (idx >= sequence.length) {
-        lastHighlightedRef.current = -1;
+        setHighlightIndex(-1);
         highlightTimerRef.current = null;
         return;
       }
-      lastHighlightedRef.current = idx;
+      setHighlightIndex(idx);
       sounds.playCardDeal();
       highlightTimerRef.current = setTimeout(tick, HIGHLIGHT_INTERVAL_MS);
     };
@@ -125,7 +131,7 @@ function SequenceGameplayPanel({
           phase={phase}
           cursor={cursor}
           cardStatuses={cardStatuses}
-          highlightIndex={lastHighlightedRef.current >= 0 ? lastHighlightedRef.current : null}
+          highlightIndex={highlightIndex >= 0 ? highlightIndex : null}
           displaySeconds={displaySeconds}
           roundNumber={roundNumber}
           totalRounds={totalRounds}

@@ -104,12 +104,18 @@ async function validatePlayer(playerId, sessionId, { creatorId, creatorRole } = 
     );
   }
 
-  // Verificar partida activa existente
-  const existingPlay = await gamePlayRepository.findOne({
-    sessionId,
-    playerId,
-    status: { $in: ['in-progress', 'paused'] }
-  });
+  // Verificar partida activa existente. DB-7: es un test de EXISTENCIA — basta el
+  // `_id` con `lean`. Antes hidrataba el documento completo (incluido el array
+  // `events[]`, hasta 500 subdocumentos) solo para comprobar si había una partida
+  // activa, incumpliendo la regla operativa del baseRepository (leer lo mínimo).
+  const existingPlay = await gamePlayRepository.findOne(
+    {
+      sessionId,
+      playerId,
+      status: { $in: ['in-progress', 'paused'] }
+    },
+    { select: '_id', lean: true }
+  );
 
   if (existingPlay) {
     throw new ValidationError('El jugador ya tiene una partida activa en esta sesión');
@@ -380,6 +386,26 @@ async function abandonPlay(playId) {
   play.status = 'abandoned';
   play.completedAt = new Date();
   await play.save();
+
+  // DB-9: registrar el abandono en las métricas del alumno también en ESTE path.
+  // Antes solo lo hacía `GameEngine.endPlay({abandoned:true})` para partidas AÚN en
+  // el motor; una partida huérfana abandonada por este service (el caso del fix de
+  // salida del frontend — bug #1) dejaba `totalAbandonedGames` infracontado. Mismo
+  // patrón que el motor. Best-effort: un fallo registrando la métrica no debe
+  // impedir el abandono en sí. El controller garantiza que NO se cuente dos veces
+  // (llama a este service O a endPlay, nunca ambos — ver gamePlayController.abandonPlay).
+  try {
+    const player = await userRepository.findById(play.playerId);
+    if (player && player.role === 'student') {
+      await player.recordAbandonedGame();
+    }
+  } catch (err) {
+    logger.warn('No se pudo registrar recordAbandonedGame al abandonar partida', {
+      playId: play._id,
+      playerId: play.playerId,
+      error: err?.message
+    });
+  }
 
   await recalculateSessionStatusFromPlays(play.sessionId);
 

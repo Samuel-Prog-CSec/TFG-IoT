@@ -484,6 +484,16 @@ const mapSequenceConfigDTOV1 = config => {
   };
 };
 
+const mapAssociationConfigDTOV1 = config => {
+  if (!config) {
+    return undefined;
+  }
+  const cfg = toPlainObject(config);
+  return {
+    autoPlayPrompt: Boolean(cfg.autoPlayPrompt)
+  };
+};
+
 /**
  * DTO v1 para GameSession (resumen sin cardMappings).
  *
@@ -530,6 +540,7 @@ const toGameSessionDTOV1 = session => {
       ? sessionData.sequencePlan.map(mapSequencePlanRoundDTOV1)
       : [],
     sequenceConfig: mapSequenceConfigDTOV1(sessionData.sequenceConfig),
+    associationConfig: mapAssociationConfigDTOV1(sessionData.associationConfig),
     requiresAssociationPlanConfiguration: Boolean(sessionData.requiresAssociationPlanConfiguration),
     status: sessionData.status,
     difficulty: sessionData.difficulty,

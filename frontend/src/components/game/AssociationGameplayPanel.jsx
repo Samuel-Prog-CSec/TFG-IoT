@@ -10,7 +10,7 @@ import ChallengeDisplay from './ChallengeDisplay';
 import { resolveAssociationTheme } from './associationTheme';
 
 const AssociationGameplayPanel = memo(function AssociationGameplayPanel({
-  ref, challenge, paused, feedbackState, feedbackPoints, feedbackMessage, isTimeout
+  ref, challenge, paused, feedbackState, feedbackPoints, feedbackMessage, isTimeout, autoPlayAudio
 }) {
   const challengeKey = (challenge?.key || challenge?.value || '').toLowerCase();
   const contextTheme = resolveAssociationTheme(challengeKey);
@@ -25,6 +25,7 @@ const AssociationGameplayPanel = memo(function AssociationGameplayPanel({
       feedbackPoints={feedbackPoints}
       feedbackMessage={feedbackMessage}
       isTimeout={isTimeout}
+      autoPlayAudio={autoPlayAudio}
       // Reto capado a un ancho focalizado: en pantallas anchas (2K/4K) la
       // columna se ensancha para la rejilla de respuestas, pero la tarjeta del
       // reto se mantiene proporcionada (prompt focalizado sobre rejilla ancha)
@@ -42,7 +43,8 @@ AssociationGameplayPanel.propTypes = {
   feedbackState: PropTypes.oneOf(['idle', 'success', 'error']),
   feedbackPoints: PropTypes.number,
   feedbackMessage: PropTypes.string,
-  isTimeout: PropTypes.bool
+  isTimeout: PropTypes.bool,
+  autoPlayAudio: PropTypes.bool
 };
 
 export default AssociationGameplayPanel;

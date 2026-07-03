@@ -8,7 +8,7 @@
  * cuando se reduce el feedback visual). WCAG 2.5 trata motion y sound como
  * ejes separados.
  */
-import { useCallback, useEffect } from 'react';
+import { useCallback, useEffect, useMemo } from 'react';
 import soundEffectsService from '../services/soundEffectsService';
 
 export function useSoundEffects(soundEnabled = true) {
@@ -35,16 +35,35 @@ export function useSoundEffects(soundEnabled = true) {
   const playCardSweep = useCallback(() => soundEffectsService.playCardSweep(), []);
   const playSequenceComplete = useCallback(() => soundEffectsService.playSequenceComplete(), []);
 
-  return {
-    playCorrect,
-    playIncorrect,
-    playTick,
-    playRoundStart,
-    playGameOver,
-    playSuccess,
-    playCardDeal,
-    playCardSweep,
-    playSequenceComplete,
-    isEnabled
-  };
+  // FE-6: memoizar el objeto de retorno. Las funciones ya son estables (useCallback []),
+  // pero el objeto contenedor se recreaba en CADA render, así que cualquier consumidor
+  // que lo pusiera en las deps de un efecto (p. ej. el bucle de highlight/SFX de
+  // SequenceGameplayPanel) reiniciaba ese efecto en cada re-render → "deal" duplicado
+  // audible. Con useMemo, `sounds` solo cambia cuando cambia `isEnabled`.
+  return useMemo(
+    () => ({
+      playCorrect,
+      playIncorrect,
+      playTick,
+      playRoundStart,
+      playGameOver,
+      playSuccess,
+      playCardDeal,
+      playCardSweep,
+      playSequenceComplete,
+      isEnabled
+    }),
+    [
+      playCorrect,
+      playIncorrect,
+      playTick,
+      playRoundStart,
+      playGameOver,
+      playSuccess,
+      playCardDeal,
+      playCardSweep,
+      playSequenceComplete,
+      isEnabled
+    ]
+  );
 }

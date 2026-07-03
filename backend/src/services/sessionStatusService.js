@@ -84,7 +84,16 @@ async function recalculateSessionStatusFromPlays(sessionId) {
     return null;
   }
 
-  const session = await gameSessionRepository.findById(sessionId);
+  // DB-4: leer SOLO los campos de estado (lean). Antes `findById` sin `select`
+  // traía la sesión ENTERA (los 4 arrays pesados cardMappings/boardLayout/
+  // sequencePlan/associationChallengePlan, 8-16 KB) y `session.save()` re-ejecutaba
+  // sus validadores en CADA transición de partida (createPlay/complete/abandon/pause
+  // y endPlay del motor). Con `select` + `updateOne` ($set/$unset), solo movemos los
+  // 3 campos de estado y solo esos se validan.
+  const session = await gameSessionRepository.findById(sessionId, {
+    lean: true,
+    select: 'status startedAt endedAt'
+  });
   if (!session) {
     return null;
   }
@@ -95,25 +104,32 @@ async function recalculateSessionStatusFromPlays(sessionId) {
   const changed = previousStatus !== nextStatus;
 
   if (changed) {
-    session.status = nextStatus;
+    const set = { status: nextStatus };
+    const unset = {};
 
     if (nextStatus === 'active') {
       if (!session.startedAt) {
-        session.startedAt = new Date();
+        set.startedAt = new Date();
       }
-      session.endedAt = undefined;
+      unset.endedAt = '';
+    } else if (nextStatus === 'completed') {
+      if (!session.endedAt) {
+        set.endedAt = new Date();
+      }
+    } else if (nextStatus === 'created') {
+      unset.startedAt = '';
+      unset.endedAt = '';
     }
 
-    if (nextStatus === 'completed' && !session.endedAt) {
-      session.endedAt = new Date();
+    const updateDoc = { $set: set };
+    if (Object.keys(unset).length > 0) {
+      updateDoc.$unset = unset;
     }
 
-    if (nextStatus === 'created') {
-      session.startedAt = undefined;
-      session.endedAt = undefined;
-    }
-
-    await session.save();
+    // findOneAndUpdate ($set/$unset) en vez de read-modify-write con save(): evita
+    // traer/validar los arrays y ENCOGE la ventana de carrera del recálculo previo
+    // (dos transiciones concurrentes podían dejar `status` desfasado con last-write-wins).
+    await gameSessionRepository.updateOne({ _id: session._id }, updateDoc);
 
     logger.info('Estado de sesión recalculado', {
       sessionId: session._id,
@@ -125,7 +141,7 @@ async function recalculateSessionStatusFromPlays(sessionId) {
 
   return {
     sessionId: session._id.toString(),
-    status: session.status,
+    status: nextStatus,
     changed,
     counters
   };

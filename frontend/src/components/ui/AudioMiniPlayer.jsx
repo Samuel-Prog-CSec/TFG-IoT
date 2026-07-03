@@ -46,6 +46,8 @@ export default function AudioMiniPlayer({
   size = 'sm',
   variant = 'glass',
   className,
+  autoPlay = false,
+  autoPlayToken = null,
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -56,6 +58,9 @@ export default function AudioMiniPlayer({
 
   const audioRef = useRef(null);
   const progressBarRef = useRef(null);
+  // Último token para el que ya se auto-reprodujo: evita repetir el clip si el
+  // efecto vuelve a correr por un cambio de `isLoaded` dentro de la misma ronda.
+  const lastAutoPlayedTokenRef = useRef(null);
 
   // Crear y configurar el elemento de audio
   useEffect(() => {
@@ -126,6 +131,31 @@ export default function AudioMiniPlayer({
       audioRef.current.muted = isMuted;
     }
   }, [isMuted]);
+
+  // Auto-reproducción de la consigna (accesibilidad pre-lectora en Asociación).
+  // Cuando `autoPlay` está activo y `autoPlayToken` cambia (nueva ronda), reproduce
+  // el clip UNA vez en cuanto los metadatos están listos. El AudioContext ya está
+  // desbloqueado por el gesto de EMPEZAR, así que `play()` no suele bloquearse; si el
+  // navegador lo bloquea igualmente, el `catch` es silencioso y el botón manual sigue
+  // disponible. El `ref` de token deduplica frente a re-ejecuciones por `isLoaded`.
+  useEffect(() => {
+    if (!autoPlay || !autoPlayToken || !isLoaded || hasError) return;
+    if (lastAutoPlayedTokenRef.current === autoPlayToken) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+    lastAutoPlayedTokenRef.current = autoPlayToken;
+    audio.currentTime = 0;
+    audio
+      .play()
+      .then(() => {
+        setIsPlaying(true);
+        return undefined;
+      })
+      .catch(() => {
+        // Autoplay bloqueado por el navegador: el niño/docente puede pulsar Play.
+        setIsPlaying(false);
+      });
+  }, [autoPlay, autoPlayToken, isLoaded, hasError]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
@@ -334,4 +364,9 @@ AudioMiniPlayer.propTypes = {
   size: PropTypes.oneOf(['sm', 'md']),
   variant: PropTypes.oneOf(['glass', 'solid']),
   className: PropTypes.string,
+  // autoPlay: reproduce la consigna automáticamente al cambiar autoPlayToken.
+  autoPlay: PropTypes.bool,
+  // autoPlayToken: identificador de "ronda" (p. ej. el valor del reto); un cambio
+  // dispara una nueva auto-reproducción.
+  autoPlayToken: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
 };

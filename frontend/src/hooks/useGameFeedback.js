@@ -166,15 +166,17 @@ export function useGameFeedback({
     //   - `worried`:   5+ errores totales y la racha sigue rota — `worriedRebound`.
     //   - `celebrating`: racha actual >=3 → frase `streakReached`.
     //   - `happy`:      acierto normal → frase `correctAnswer`.
-    //   - `sad`:        timeout → frase `timeout`.
-    //   - `encouraging`: error puntual → frase `errorAnswer`.
+    //   - `encouraging`: timeout o error puntual → frase `timeout`/`errorAnswer`.
     // Si `mechanicType` no está definido (caller histórico), conservamos
     // el comportamiento previo: 'celebrating'/'encouraging' + el mensaje
     // de `selectFeedbackMessage`.
     let nextMood;
     let nextMessage = message;
     if (isTimeoutResult) {
-      nextMood = mechanicTypeRef.current ? 'sad' : 'encouraging';
+      // AS-3: el timeout usa mood de CONSUELO (`encouraging`: pompones de ánimo), no
+      // `sad` (ojos caídos + lágrima). Una cara de llanto al agotarse el tiempo —
+      // combinada con las frases— transmitía castigo en vez de "la próxima es tuya".
+      nextMood = 'encouraging';
       if (mechanicTypeRef.current) {
         nextMessage = pickMascotPhrase(mechanicTypeRef.current, 'timeout') || message;
       }

@@ -168,12 +168,16 @@ function GameBackdrop({ theme = 'default', mechanicType = null }) {
         />
       )}
 
-      {/* Patron de puntos sutil — refuerza "espacio de juego" vs "admin UI" */}
+      {/* Patron de puntos sutil — refuerza "espacio de juego" vs "admin UI".
+          AS-7: el color deriva del token `--color-text-primary` (oscuro en light,
+          claro en dark) en vez de un blanco fijo (rgba(255,255,255)); sobre el fondo
+          claro del tema light los puntos blancos eran invisibles, perdiendo la señal
+          de "espacio de juego" en una de las dos estéticas. */}
       <div
         className="absolute inset-0 opacity-[0.04]"
         style={{
           backgroundImage:
-            'radial-gradient(circle, rgba(255,255,255,0.8) 1px, transparent 1px)',
+            'radial-gradient(circle, color-mix(in oklab, var(--color-text-primary) 80%, transparent) 1px, transparent 1px)',
           backgroundSize: '32px 32px'
         }}
       />

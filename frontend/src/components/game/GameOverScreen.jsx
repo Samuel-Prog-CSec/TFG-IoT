@@ -14,21 +14,25 @@ import CharacterMascot from './CharacterMascot';
 import GameOverStats from './gameover/GameOverStats';
 
 /**
- * T-953 Fase 2.10 — mapeo tier → mood + tier para `pickMascotMessage`.
- *  - 0⭐ → `worried` + frase gameOverLow.
- *  - 1⭐ → `encouraging` + frase gameOverMid.
- *  - 2⭐ → `happy` + frase gameOverMid (rota distinta a 1⭐ por
- *    aleatoriedad del pool — visualmente la mascota salta de forma
- *    distinta y la frase es la misma categoría pero la animación
- *    diferencia los dos tiers).
- *  - 3⭐ → `celebrating` + frase gameOverHigh.
+ * Mapeo tier → mood + tier del pool de frases para `pickMascotMessage`, sobre la
+ * escala canónica de 5★ (score/maxScore). (JSDoc reescrito — describía la escala
+ * antigua de 3★, que ya no corresponde al código.)
+ *  - 5★ → `celebrating` + gameOverHigh.
+ *  - 4★ → `happy` + gameOverHigh.
+ *  - 3★ → `happy` + gameOverMid.
+ *  - 2★ → `encouraging` + gameOverMid.
+ *  - 0-1★ → `encouraging` + gameOverLow (AS-5: consuelo, no preocupación).
  */
 function tierToMascot(stars) {
   if (stars >= 5) return { mood: 'celebrating', tier: 'high' };
   if (stars === 4) return { mood: 'happy', tier: 'high' };
   if (stars === 3) return { mood: 'happy', tier: 'mid' };
   if (stars === 2) return { mood: 'encouraging', tier: 'mid' };
-  return { mood: 'worried', tier: 'low' };
+  // AS-5: 0-1★ → `encouraging` (pompones de ánimo), NO `worried` (gota de sudor +
+  // wobble + halo ROJO de error). Como CIERRE de partida, una cara agobiada con halo
+  // de error para un niño que acertó ~la mitad es una señal punitiva; `encouraging`
+  // comunica "ánimo, la próxima" — coherente con la clave amable del rig de Otto.
+  return { mood: 'encouraging', tier: 'low' };
 }
 
 /**
@@ -242,11 +246,15 @@ function GameOverScreen({
   }, [shouldReduceMotion, stars, fireSuccess, fireFireworks, confettiColors]);
 
   // Sound effect proporcional al tier (silencio si 0⭐).
+  // AS-6: la fanfare NO se acopla a reduced-motion. `useSoundEffects` documenta que el
+  // sonido y `prefers-reduced-motion` son ejes de accesibilidad INDEPENDIENTES (WCAG);
+  // el sonido incluso gana importancia cuando se reduce el feedback visual. Antes un
+  // niño con reduced-motion oía todos los sonidos de la partida MENOS el de cierre. El
+  // singleton `soundEffectsService` ya respeta el toggle de sonido (setEnabled).
   useEffect(() => {
-    if (shouldReduceMotion) return undefined;
     const t = setTimeout(() => soundEffectsService.playGameOverFanfare(stars), 250);
     return () => clearTimeout(t);
-  }, [stars, shouldReduceMotion]);
+  }, [stars]);
 
   return (
     <motion.div

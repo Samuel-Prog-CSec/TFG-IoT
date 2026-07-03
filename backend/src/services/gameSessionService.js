@@ -156,6 +156,18 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
     };
   }
 
+  // Para Asociación preservamos la preferencia de locución automática de la consigna
+  // (opt-in del profesor): al clonar "Volver a jugar" no debe perderse.
+  if ((mechanic?.name || '').toLowerCase() === 'association' && sourceSession.associationConfig) {
+    const sourceAssocCfg =
+      typeof sourceSession.associationConfig.toObject === 'function'
+        ? sourceSession.associationConfig.toObject()
+        : sourceSession.associationConfig;
+    clonedSession.associationConfig = {
+      autoPlayPrompt: Boolean(sourceAssocCfg.autoPlayPrompt)
+    };
+  }
+
   return {
     clonedSession,
     mechanic,
@@ -319,6 +331,7 @@ async function createSessionFromDeck({
   associationChallengePlan,
   sequencePlan,
   sequenceConfig,
+  associationConfig,
   createdBy
 }) {
   // Validar mecánica
@@ -358,7 +371,7 @@ async function createSessionFromDeck({
     session.boardLayout = normalizeBoardLayout(boardLayout);
   }
 
-  // AssociationChallengePlan (mecánica association)
+  // AssociationChallengePlan + AssociationConfig (mecánica association)
   if (mechanicName === 'association') {
     const normalizedPlan = validateAssociationChallengePlanAgainstMappings({
       associationChallengePlan,
@@ -367,9 +380,13 @@ async function createSessionFromDeck({
     });
     session.associationChallengePlan = normalizedPlan;
     session.requiresAssociationPlanConfiguration = false;
+    // Locución automática de la consigna (opt-in del profesor). Sin config o sin
+    // el flag → false (comportamiento por defecto: audio solo bajo demanda).
+    session.associationConfig = { autoPlayPrompt: Boolean(associationConfig?.autoPlayPrompt) };
   } else {
     session.associationChallengePlan = [];
     session.requiresAssociationPlanConfiguration = false;
+    session.associationConfig = undefined;
   }
 
   // SequencePlan + SequenceConfig (mecánica sequence)

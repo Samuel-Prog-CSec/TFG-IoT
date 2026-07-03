@@ -10,7 +10,7 @@
  *    cuando llega `sequence_card_result`.
  *  - Cooldown 250ms (alineado con `useGameSocket.DEDUPE_MS_BY_SOURCE.touch_fallback`).
  */
-import { memo, useRef } from 'react';
+import { memo, useMemo, useRef } from 'react';
 import { m as motion } from 'framer-motion';
 import { Hand } from 'lucide-react';
 import PropTypes from 'prop-types';
@@ -33,8 +33,16 @@ function FallbackTouchPanelSequence({ cards, onSelectCard, cursor = 0, sequenceL
   // secuencia que ordenase alfabéticamente más allá de la 12ª quedaba
   // intocable en el panel táctil → ronda imposible en modo sin sensor. El mazo
   // admite hasta 20 cartas y el grid cuadrado adaptativo escala el tamaño.
-  const visibleCards = (Array.isArray(cards) ? [...cards] : [])
-    .sort((a, b) => getSortKey(a).localeCompare(getSortKey(b), 'es'));
+  // FE-7: memoizado (la misma optimización E1 que su gemelo de Asociación). El panel
+  // se re-renderiza en cada avance de `cursor`; sin useMemo copiaba y reordenaba
+  // (localeCompare 'es') el mazo entero en cada uno.
+  const visibleCards = useMemo(
+    () =>
+      (Array.isArray(cards) ? [...cards] : []).sort((a, b) =>
+        getSortKey(a).localeCompare(getSortKey(b), 'es')
+      ),
+    [cards]
+  );
 
   // Columnas adaptativas por aspect-ratio (ADR-207 addendum) — ver
   // FallbackTouchPanel de Asociación. Maximiza el lado de carta para la región

@@ -259,6 +259,17 @@ const sequenceConfigSchema = z
     }
   );
 
+/**
+ * Configuración específica de la mecánica Asociación. Por ahora solo el flag
+ * `autoPlayPrompt` (locución automática de la consigna de audio). `.strict()`
+ * rechaza claves desconocidas para no colar campos arbitrarios.
+ */
+const associationConfigSchema = z
+  .object({
+    autoPlayPrompt: z.boolean().optional()
+  })
+  .strict();
+
 const createGameSessionSchema = z
   .object({
     mechanicId: objectIdSchema,
@@ -281,7 +292,9 @@ const createGameSessionSchema = z
 
     sequencePlan: sequencePlanSchema,
 
-    sequenceConfig: sequenceConfigSchema.optional()
+    sequenceConfig: sequenceConfigSchema.optional(),
+
+    associationConfig: associationConfigSchema.optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -312,6 +325,8 @@ const updateGameSessionSchema = z
     sequencePlan: sequencePlanSchema,
 
     sequenceConfig: sequenceConfigSchema.optional(),
+
+    associationConfig: associationConfigSchema.optional(),
 
     difficulty: z.enum([...DIFFICULTY]).optional()
   })
@@ -404,6 +419,7 @@ module.exports = {
   cardMappingSchema,
   sequencePlanSchema,
   sequenceConfigSchema,
+  associationConfigSchema,
   sequenceItemSchema,
   sequencePlanRoundSchema
 };

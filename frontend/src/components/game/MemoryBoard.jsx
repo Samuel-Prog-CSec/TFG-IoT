@@ -168,6 +168,9 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
           const isInFeedback = feedbackSlots.has(slot.slotIndex);
           const isMatchFeedback = isInFeedback && feedbackState === 'success';
           const isMismatchFeedback = isInFeedback && feedbackState === 'error';
+          // Carta "tapeable": hay handler y no está resuelta ni ya boca arriba.
+          // Reutilizado por el cursor y el feedback táctil local (FE-3).
+          const isTappable = Boolean(onCardTap) && !slot.isMatched && !slot.isRevealed;
 
           return (
             <motion.div
@@ -181,7 +184,7 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                 slotClasses,
                 isMatchFeedback && 'shadow-[0_0_20px] shadow-success-glow',
                 isMismatchFeedback && 'border-error-base/60',
-                onCardTap && !slot.isMatched && !slot.isRevealed && 'cursor-pointer'
+                isTappable && 'cursor-pointer'
               )}
               animate={(() => {
                 if (shouldReduceMotion) return {};
@@ -212,6 +215,14 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                 }
                 return {};
               })()}
+              // FE-3: feedback táctil LOCAL inmediato. El único cambio visual del tap
+              // era el volteo, que depende de que vuelva `memory_turn_state` del backend
+              // (100-300ms+ en aula con wifi + Koyeb) → el niño no sabía si su toque
+              // registró y re-tapeaba (el dedupe de 250ms los traga, pero la sensación
+              // de "no funciona" ya ocurría). Un `scale 0.95` al pulsar confirma el
+              // toque al instante, sin esperar la confirmación del servidor. Solo en
+              // cartas tapeables (no emparejadas, no reveladas) y con motion activo.
+              whileTap={!shouldReduceMotion && isTappable ? { scale: 0.95 } : undefined}
               role="gridcell"
               aria-label={slotLabel}
               onClick={() => onCardTap && !slot.isMatched && onCardTap(slot)}

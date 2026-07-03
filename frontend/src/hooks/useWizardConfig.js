@@ -42,6 +42,12 @@ export function useWizardConfig({ mechanics }) {
     maxSequenceLength: 5,
     displaySeconds: 3
   });
+  // Estado específico de Asociación: locución automática de la consigna de audio
+  // (opt-in del profesor, accesibilidad pre-lectora). Por defecto false → el audio
+  // solo suena si el niño/docente pulsa Play.
+  const [associationConfig, setAssociationConfig] = useState({
+    autoPlayPrompt: false
+  });
 
   // Derivados de la mecanica seleccionada
   const selectedMechanicName = resolveMechanicName(selectedMechanic);
@@ -269,6 +275,8 @@ export function useWizardConfig({ mechanics }) {
     setSequencePlan,
     sequenceConfig,
     setSequenceConfig,
+    associationConfig,
+    setAssociationConfig,
     deckCards,
     isMemorySelected,
     isAssociationSelected,
