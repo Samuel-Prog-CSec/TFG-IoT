@@ -48,6 +48,7 @@ export default function AudioMiniPlayer({
   className,
   autoPlay = false,
   autoPlayToken = null,
+  visuallyHidden = false,
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -229,10 +230,20 @@ export default function AudioMiniPlayer({
   }
   const playIconKey = getPlayIconKey();
 
+  // Modo oculto: mantiene TODA la lógica de audio (incluido el auto-play de la
+  // consigna) pero no pinta controles. Se usa en la partida de Asociación, donde el
+  // audio es una PISTA sonora automática y el reproductor visible descuadraba el
+  // layout bajo el "?". El objeto Audio vive en el ref (no en el DOM), así que suena
+  // igual sin render. Va tras todos los hooks para no violar las reglas de hooks.
+  if (visuallyHidden) return null;
+
   // Clases de contenedor segun variante
   const containerClasses = cn(
-    'flex items-center gap-2 rounded-xl',
-    'px-3 py-2',
+    // gap/padding compactos + min-w-0 para que el reproductor quepa sin desbordar en
+    // cards estrechos (grid multi-columna, p. ej. monitores 4K): la barra encoge y
+    // los controles no se salen del recuadro del asset.
+    'flex items-center gap-1.5 rounded-xl min-w-0',
+    'px-2.5 py-2',
     variant === 'glass'
       ? 'bg-glass-bg border border-glass-border backdrop-blur-xl saturate-150'
       : 'bg-background-elevated/60 border border-border-subtle',
@@ -292,7 +303,7 @@ export default function AudioMiniPlayer({
         onClick={handleSeek}
         onKeyDown={handleProgressKeyDown}
         className={cn(
-          'flex-1 h-[3px] rounded-full cursor-pointer',
+          'flex-1 min-w-0 h-[3px] rounded-full cursor-pointer',
           'bg-background-surface/50',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent',
           hasError && 'pointer-events-none'
@@ -305,7 +316,7 @@ export default function AudioMiniPlayer({
       </div>
 
       {/* Duracion */}
-      <span className="flex-shrink-0 text-text-muted font-mono text-xs tabular-nums select-none">
+      <span className="flex-shrink-0 text-text-muted font-mono text-[11px] tabular-nums select-none">
         {formatTime(currentTime)}/{formatTime(duration)}
       </span>
 
@@ -369,4 +380,7 @@ AudioMiniPlayer.propTypes = {
   // autoPlayToken: identificador de "ronda" (p. ej. el valor del reto); un cambio
   // dispara una nueva auto-reproducción.
   autoPlayToken: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  // visuallyHidden: mantiene la lógica de audio (auto-play incluido) SIN renderizar
+  // controles. Para usos donde el audio es una pista automática (partida Asociación).
+  visuallyHidden: PropTypes.bool,
 };

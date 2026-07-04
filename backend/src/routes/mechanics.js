@@ -36,11 +36,14 @@ const asyncHandler = require('../utils/asyncHandler');
  */
 const mechanicMethodNotAllowed = (req, res) => {
   res.set('Allow', 'GET');
+  // Shape alineado con el errorHandler central (`{ success, message, code }`) y con el
+  // schema OpenAPI `ApiError` referenciado arriba: usamos `code` (no `error`) para que
+  // los clientes lean el mismo campo que en el resto de respuestas de error de la API.
   return res.status(405).json({
     success: false,
-    error: 'Method Not Allowed',
     message:
-      'Las mecánicas de juego son inmutables. Solo los desarrolladores pueden añadir, modificar o eliminar mecánicas mediante seeders y migraciones del backend.'
+      'Las mecánicas de juego son inmutables. Solo los desarrolladores pueden añadir, modificar o eliminar mecánicas mediante seeders y migraciones del backend.',
+    code: 'METHOD_NOT_ALLOWED'
   });
 };
 

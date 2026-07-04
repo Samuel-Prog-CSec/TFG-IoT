@@ -75,6 +75,12 @@ services:
     environment:
       - PORT=5000
       - NODE_ENV=${NODE_ENV:-development}
+      # El stack Docker sirve SIEMPRE tras Nginx (proxy inverso del servicio frontend),
+      # así que activamos trust proxy para que Express lea la IP real del cliente desde
+      # X-Forwarded-For. Sin esto el rate limit agrupa a todos los clientes bajo la IP
+      # de Nginx y Express emite ERR_ERL_UNEXPECTED_X_FORWARDED_FOR. En producción
+      # (Koyeb) se activa solo por NODE_ENV=production; aquí NODE_ENV suele ser development.
+      - TRUST_PROXY=true
       # Conexión interna a servicios Docker (incluye password de Redis)
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devRedis123!}@redis:6379
       - MONGO_URI=mongodb://mongo:27017/rfid_games_db

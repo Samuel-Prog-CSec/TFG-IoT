@@ -32,6 +32,19 @@ const createRedisStore = (prefix = 'default') => {
     return undefined;
   }
 
+  // En single-instance (invariante scale=1, ver config/scaling.js) el rate limit NO
+  // necesita store distribuido: con una sola instancia MemoryStore cuenta TODAS las
+  // requests igual que Redis, pero sin gastar un comando Upstash por request —crítico
+  // en free-tier, con ~10K comandos/día de margen. Usamos MemoryStore de forma
+  // DELIBERADA y NO marcamos fallback: el detector `rate_limit_store_fallback` vigila
+  // pérdidas de Redis en multi-instancia, no esta elección consciente. Al escalar
+  // (`SOCKET_ADAPTER_ENABLED=true`) se reactiva el store distribuido junto con el resto
+  // de la coordinación entre instancias (adapter Socket.IO, pub/sub de modo RFID/LRU).
+  const { isMultiInstanceEnabled } = require('./scaling');
+  if (!isMultiInstanceEnabled()) {
+    return undefined;
+  }
+
   const reportFallback = (reason, extra = {}) => {
     recordRateLimitStoreFallback();
     // En producción elevamos a error con alert: true para que llegue a Sentry.
@@ -416,8 +429,13 @@ const buildHelmetOptions = (env = process.env.NODE_ENV) => {
   }
 
   // imgSrc + mediaSrc: Supabase Storage tiene dominio variable según proyecto.
+  // `blob:` es imprescindible para las vistas previas de imagen/audio ANTES de
+  // subir: los modales de subida generan la preview con URL.createObjectURL(),
+  // que produce una URL `blob:`. Sin `blob:` en la política, el navegador
+  // bloqueaba la miniatura (la subida funcionaba, pero el docente no veía qué
+  // iba a subir). Debe ir sincronizado con la CSP de Nginx (security-headers.conf).
   const supabaseDomain = supabaseHost || 'https://*.supabase.co';
-  const imgSrc = ["'self'", 'data:', supabaseDomain];
+  const imgSrc = ["'self'", 'data:', 'blob:', supabaseDomain];
   if (!isProd) {
     imgSrc.push('https:'); // dev: permitir cualquier imagen externa (placeholder, etc.)
   }
@@ -434,7 +452,7 @@ const buildHelmetOptions = (env = process.env.NODE_ENV) => {
     scriptSrcAttr: ["'none'"],
     styleSrc: ["'self'", "'unsafe-inline'", 'https://fonts.googleapis.com'], // Tailwind v4 + Framer
     upgradeInsecureRequests: isProd ? [] : null, // Solo en prod (HTTPS forzado)
-    mediaSrc: ["'self'", supabaseDomain],
+    mediaSrc: ["'self'", 'blob:', supabaseDomain],
     workerSrc: ["'self'", 'blob:'], // service workers / web workers locales
     connectSrc
   };

@@ -270,26 +270,22 @@ const ChallengeDisplay = function ChallengeDisplay({
         </motion.div>
       </AnimatePresence>
 
-      {/* Audio mini-player. Con `autoPlayAudio` (accesibilidad pre-lectora en
-          Asociación), la consigna se reproduce sola al empezar cada ronda: el
-          objetivo del reto está OCULTO ("?"), así que para un niño que aún no lee, el
-          audio ES la pregunta. `autoPlayToken={asset.value}` cambia por ronda → una
-          sola reproducción por reto; el botón manual sigue disponible siempre. */}
+      {/* Audio de consigna como PISTA sonora AUTOMÁTICA (accesibilidad pre-lectora en
+          Asociación): el objetivo del reto está OCULTO ("?"), así que para un niño que
+          aún no lee el audio ES la pregunta. Se reproduce solo al empezar cada ronda
+          (`autoPlayToken={asset.value}` cambia por ronda → una reproducción por reto).
+          Va en modo OCULTO (`visuallyHidden`): el reproductor visible con barra y
+          tiempo descuadraba el layout bajo el "?"; el audio suena igual sin pintar
+          controles (el objeto Audio vive en JS, no en el DOM). */}
       {asset?.audioUrl && (
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.3 }}
-          className="mt-6 w-full max-w-xs"
-        >
-          <AudioMiniPlayer
-            audioUrl={asset.audioUrl}
-            size="sm"
-            variant="glass"
-            autoPlay={autoPlayAudio && revealed}
-            autoPlayToken={asset?.value}
-          />
-        </motion.div>
+        <AudioMiniPlayer
+          audioUrl={asset.audioUrl}
+          size="sm"
+          variant="glass"
+          autoPlay={autoPlayAudio && revealed}
+          autoPlayToken={asset?.value}
+          visuallyHidden
+        />
       )}
 
       {/* Sparkles decoration */}

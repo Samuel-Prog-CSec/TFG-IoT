@@ -177,8 +177,8 @@ Toda query a recursos teacher-scoped incluye `baseFilter: { createdBy: req.user.
 - `scriptSrc 'self' https://*.sentry.io https://challenges.cloudflare.com`
 - `styleSrc 'self' 'unsafe-inline' https://fonts.googleapis.com` (compromiso Tailwind v4 + Framer Motion documentado)
 - `connectSrc 'self' https://*.sentry.io https://challenges.cloudflare.com wss://${WSS_DOMAIN}`
-- `imgSrc 'self' data: https://*.supabase.co`
-- `mediaSrc 'self' https://*.supabase.co`
+- `imgSrc 'self' data: blob: https://*.supabase.co` (`blob:` habilita las vistas previas de subida generadas con `URL.createObjectURL`; sin él el docente subía a ciegas — ADR-229)
+- `mediaSrc 'self' blob: https://*.supabase.co`
 - `frameAncestors 'none'`, `formAction 'self'`, `baseUri 'self'`, `scriptSrcAttr 'none'`
 - `upgradeInsecureRequests []`
 - `reportUri /api/csp-report`

@@ -80,7 +80,7 @@ export default function LockoutUnlockForm() {
         </h2>
         <p className="text-sm text-text-secondary max-w-2xl">
           Las cuentas se bloquean automáticamente tras 5 intentos fallidos de
-          login en 15 minutos (T-905). Usa este formulario para reactivarlas
+          login en 15 minutos. Usa este formulario para reactivarlas
           manualmente. La acción requiere un código de verificación reciente y se
           registra en el historial de auditoría.
         </p>

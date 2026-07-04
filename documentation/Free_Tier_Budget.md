@@ -52,6 +52,17 @@ servicio está en §2; el cálculo del escenario objetivo en §3.
 > **RSS/`MEMORY_LIMIT_MB`** (Koyeb free ≈512MB), coherente con el umbral "RAM > 400 MB"
 > de la fila de Koyeb.
 
+> **Reducción adicional (ADR-229, 04-07-2026).** El rate-limit **HTTP** usaba
+> `RedisStore` sin gatear por escala — **un comando Upstash por request** en todas
+> las `/api/*`. En `scale=1` el contador no necesita ser distribuido (una sola
+> instancia cuenta igual con MemoryStore), así que `createRedisStore` retorna
+> MemoryStore cuando `!isMultiInstanceEnabled()` — mismo criterio que pub/sub y el
+> adapter Socket.IO — **sin** marcar `rateLimitStoreFallbackCount` (elección
+> deliberada, no pérdida de Redis; el detector `rate_limit_store_fallback` sigue
+> vigilando fallos reales en multi-instancia). Ahorra un estimado de ~6-12K
+> comandos/día bajo carga de aula; el store distribuido se reactiva junto al resto
+> de coordinación al activar `SOCKET_ADAPTER_ENABLED`. `config/security.js`.
+
 ---
 
 ## 2. Servicio por servicio

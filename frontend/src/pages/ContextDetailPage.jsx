@@ -478,6 +478,12 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
       className="group"
     >
       <GlassCard
+        // `padding="none"`: la card gestiona su propio layout (preview a sangre +
+        // franja de detalles con `p-3`). Sin esto heredaba el `p-6 lg:p-8` por
+        // defecto de GlassCard, que SUMADO al `p-3` de los detalles estrechaba el
+        // contenido a ~112px y hacía que el mini-reproductor de audio se saliera del
+        // recuadro. El `overflow-hidden` recorta el preview a sangre a los bordes.
+        padding="none"
         className={cn(
           "h-full overflow-hidden flex flex-col relative border-border-subtle transition-[border-color,box-shadow] duration-300",
           "hover:border-accent-indigo/30"
@@ -569,6 +575,7 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
 function UploadAssetModal({ context, onClose, onSuccess }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
 
   // Libera el object URL del preview al cambiar o al desmontar el modal: cada
@@ -623,8 +630,9 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
   // hook compartido. El modal solo se monta cuando está abierto → isOpen true.
   useModalA11y({ isOpen: true, onClose, panelRef, initialFocusRef: dropzoneRef, escapeDisabled: isSubmitting });
 
-  const handleFileChange = (e) => {
-    const selected = e.target.files[0];
+  // Procesa un archivo elegido — vía input (clic) O arrastrar/soltar: valida
+  // tamaño/tipo, actualiza estado y autocompleta. Reutilizado por ambos caminos.
+  const processImageFile = (selected) => {
     if (!selected) return;
 
     const maxSizeMB = uploadConfig?.image?.maxInputSizeMB || 8;
@@ -650,6 +658,20 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
         setFormData(prev => ({ ...prev, value: capitalize }));
       }
     }
+  };
+
+  const handleFileChange = (e) => processImageFile(e.target.files[0]);
+
+  // Arrastrar y soltar (paridad con AudioUploadModal, que sí lo tenía). El
+  // `preventDefault` en dragOver es OBLIGATORIO: sin él el navegador nunca dispara
+  // el evento `drop`, y arrastrar la imagen no hacía nada.
+  const handleDragOver = (e) => e.preventDefault();
+  const handleDragEnter = (e) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); setIsDragging(false); };
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    processImageFile(e.dataTransfer.files?.[0]);
   };
 
   const handleSubmit = async (e) => {
@@ -726,20 +748,17 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
               role="button"
               tabIndex={0}
               onClick={() => fileInputRef.current?.click()}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              aria-label="Zona para arrastrar o seleccionar una imagen"
               className={cn(
                 'w-full h-40 rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-colors relative overflow-hidden',
-                file ? DROPZONE_VARIANTS.withFile : DROPZONE_VARIANTS.empty
+                (file || isDragging) ? DROPZONE_VARIANTS.withFile : DROPZONE_VARIANTS.empty
               )}
             >
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept=".png,.jpg,.jpeg,.gif,.webp,image/*"
-                className="hidden"
-              />
-              
               {/* Contenido del area de subida */}
               {(() => {
                 if (preview) return (
@@ -774,6 +793,19 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
                 );
               })()}
             </div>
+
+            {/* Input file HERMANO del dropzone (NO hijo): si vive dentro, el clic
+                programático `fileInputRef.click()` vuelve a burbujear al `onClick`
+                del dropzone → segundo `click()` → el navegador cancela la apertura del
+                explorador (por eso "no se abría"). Fuera, se dispara una sola vez. */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept=".png,.jpg,.jpeg,.gif,.webp,image/*"
+              className="hidden"
+              tabIndex={-1}
+            />
 
             <div className="grid grid-cols-2 gap-4 mt-2">
               <InputPremium
