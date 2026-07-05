@@ -606,7 +606,7 @@ const generateAccessToken = (user, deviceFingerprint, sessionId) => {
  */
 const generateRefreshToken = (user, deviceFingerprint, sessionId) => {
   const jti = crypto.randomUUID();
-  const expiresIn = process.env.JWT_REFRESH_EXPIRES_IN || '30d';
+  const expiresIn = process.env.JWT_REFRESH_EXPIRES_IN || '7d';
 
   const payload = {
     jti,

@@ -144,7 +144,7 @@ MONGODB_URI=mongodb://localhost:27017/rfid_games
 JWT_SECRET=tu-secret-super-seguro
 JWT_EXPIRES_IN=15m
 JWT_REFRESH_SECRET=tu-refresh-secret-super-seguro
-JWT_REFRESH_EXPIRES_IN=30d
+JWT_REFRESH_EXPIRES_IN=7d
 
 # CORS (orígenes permitidos, separados por comas)
 CORS_WHITELIST=http://localhost:3000,http://localhost:5173
