@@ -398,7 +398,7 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
     },
     { $unwind: { path: '$context', preserveNullAndEmptyArrays: true } },
     // Proyectar ANTES del $unwind de events: sin esto, el doc de sesión completo
-    // (cardMappings[≤30], boardLayout, sequencePlan, config) se replicaba a través
+    // (cardMappings[≤20], boardLayout, sequencePlan, config) se replicaba a través
     // de cada uno de los ≤500 eventos de la partida → amplificación de bytes
     // inter-stage que puede superar el límite de 100MB/stage de Atlas M0. Además
     // pre-filtramos los eventos a los de respuesta con carta, reduciendo el array

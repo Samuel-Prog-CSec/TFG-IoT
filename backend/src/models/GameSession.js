@@ -31,7 +31,7 @@ const { SESSION_STATUS, DIFFICULTY } = require('../constants/enums');
  * Rangos de dificultad:
  * - easy: 2-5 tarjetas (juegos simples para niños pequeños)
  * - medium: 6-12 tarjetas (dificultad intermedia)
- * - hard: 13-30 tarjetas (juegos más desafiantes)
+ * - hard: 13-20 tarjetas (juegos más desafiantes)
  *
  * @param {number} numberOfCards - Número de tarjetas en el juego
  * @returns {string} Nivel de dificultad ('easy', 'medium', 'hard')
@@ -57,7 +57,7 @@ const calculateDifficulty = numberOfCards => {
  * @property {ObjectId} contextId - Referencia al contexto temático del juego
  * @property {string} [sensorId] - ID del sensor RFID asignado a esta sesión (T-009)
  * @property {Object} config - Configuración de las reglas del juego
- * @property {number} config.numberOfCards - Cantidad de tarjetas RFID usadas en el juego (2-30)
+ * @property {number} config.numberOfCards - Cantidad de tarjetas RFID usadas en el juego (2-20)
  * @property {number} config.numberOfRounds - Número de rondas/desafíos del juego
  * @property {number} config.timeLimit - Tiempo límite en segundos (3-300, según mecánica)
  * @property {number} config.pointsPerCorrect - Puntos otorgados por respuesta correcta
@@ -116,7 +116,7 @@ const gameSessionSchema = new mongoose.Schema(
         type: Number,
         required: true,
         min: 2,
-        max: 30
+        max: 20
       },
       numberOfRounds: {
         type: Number,

@@ -637,7 +637,7 @@ async function getAnalyticsExcludedPlayerIds(teacherId) {
 // ══════════════════════════════════════════════════════════════════════
 //
 // Las aggregations sobre GamePlay con `$lookup game_sessions` traían el
-// documento completo de session, incluyendo `cardMappings[30]`,
+// documento completo de session, incluyendo `cardMappings[20]`,
 // `boardLayout[30]`, `sequencePlan[]` y `config{}` — campos que ninguna de
 // las analytics consume realmente. Bytes egress Atlas inflados hasta 80%.
 //
