@@ -243,7 +243,10 @@ const sequenceConfigSchema = z
       .int('displaySeconds debe ser un número entero')
       .min(2, 'displaySeconds debe ser >= 2')
       .max(8, 'displaySeconds no puede exceder 8')
-      .optional()
+      .optional(),
+    // Audio en las pistas: reproducir el audio de la carta esperada al fallar
+    // (Fácil: con cada pista de texto; Media: una vez; Difícil: nunca).
+    autoPlayHints: z.boolean().optional()
   })
   .strict()
   .refine(

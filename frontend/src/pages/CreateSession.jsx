@@ -391,12 +391,15 @@ export default function CreateSession() {
         </AnimatePresence>
       </div>
 
-      {/* Footer navegacion */}
+      {/* Footer navegacion — sticky: en alturas cortas (720-768px) el CTA
+          "Siguiente" quedaba bajo el fold tras elegir mazo/mecánica y el
+          docente no veía cómo continuar. Pegado al borde inferior siempre
+          queda visible; al llegar al final del scroll ocupa su sitio natural. */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
-        className="max-w-5xl mx-auto"
+        className="max-w-5xl mx-auto sticky bottom-4 z-30"
       >
         <GlassCard className="p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">

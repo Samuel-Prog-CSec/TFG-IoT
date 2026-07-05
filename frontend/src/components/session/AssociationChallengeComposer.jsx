@@ -123,7 +123,7 @@ export default function AssociationChallengeComposer({ cards, challengePlan, onP
                   maxLength={180}
                   disabled={disabled}
                   placeholder={`Ej: Busca ${item.assignedValue || 'la carta correcta'}`}
-                  hint="Se muestra en la ronda como guia del reto."
+                  hint="Se muestra en la ronda como guía del reto."
                 />
               </div>
             </div>

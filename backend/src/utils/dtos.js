@@ -480,7 +480,8 @@ const mapSequenceConfigDTOV1 = config => {
   return {
     minSequenceLength: cfg.minSequenceLength,
     maxSequenceLength: cfg.maxSequenceLength,
-    displaySeconds: cfg.displaySeconds
+    displaySeconds: cfg.displaySeconds,
+    autoPlayHints: Boolean(cfg.autoPlayHints)
   };
 };
 
@@ -546,6 +547,13 @@ const toGameSessionDTOV1 = session => {
     difficulty: sessionData.difficulty,
     // Play stats (attached externally by controller when listing sessions)
     playStats: sessionData.playStats || null,
+    // Disponibilidad de recursos (ADR-231): la adjunta el controller en
+    // listado/detalle cuando popula contexto y mazo. undefined = el endpoint
+    // no la calcula (el frontend no degrada la sesión en ese caso).
+    resourcesAvailable:
+      sessionData.resourcesAvailable === undefined
+        ? undefined
+        : Boolean(sessionData.resourcesAvailable),
     startedAt: sessionData.startedAt,
     endedAt: sessionData.endedAt,
     createdAt: sessionData.createdAt,

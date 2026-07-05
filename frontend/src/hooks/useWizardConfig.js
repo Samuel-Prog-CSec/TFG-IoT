@@ -40,7 +40,11 @@ export function useWizardConfig({ mechanics }) {
   const [sequenceConfig, setSequenceConfig] = useState({
     minSequenceLength: 3,
     maxSequenceLength: 5,
-    displaySeconds: 3
+    displaySeconds: 3,
+    // Audio en las pistas (opt-in del profesor, accesibilidad pre-lectora):
+    // al fallar, si la carta esperada tiene audio se reproduce como pista
+    // sonora (Fácil: con cada pista; Media: 1 vez; Difícil: nunca).
+    autoPlayHints: false
   });
   // Estado específico de Asociación: locución automática de la consigna de audio
   // (opt-in del profesor, accesibilidad pre-lectora). Por defecto false → el audio

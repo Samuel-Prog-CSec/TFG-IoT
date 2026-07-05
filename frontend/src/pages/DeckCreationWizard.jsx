@@ -523,12 +523,13 @@ export default function DeckCreationWizard() {
         </AnimatePresence>
       </div>
 
-      {/* Footer con navegación */}
+      {/* Footer con navegación — sticky por el mismo motivo que en
+          CreateSession: que el CTA no quede bajo el fold en alturas cortas. */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
-        className="max-w-5xl mx-auto"
+        className="max-w-5xl mx-auto sticky bottom-4 z-30"
       >
         <GlassCard className="p-4">
           <div className="flex flex-wrap items-center justify-between gap-3">
@@ -674,8 +675,8 @@ function StepCards({
   }, [manualUid, onRFIDScan]);
 
   // "Generar UID" rellena el input con el siguiente UID secuencial sugerido.
-  // El usuario revisa y luego pulsa "Agregar". Antes anadia la carta directamente,
-  // lo que dejaba el boton "Agregar" disabled y rompia la expectativa del flujo
+  // El usuario revisa y luego pulsa "Añadir". Antes anadia la carta directamente,
+  // lo que dejaba el boton "Añadir" disabled y rompia la expectativa del flujo
   // (QA 2026-05-21 BUG-QA-8: el placeholder cambiaba pero el value seguia vacio).
   const handleGenerateUid = useCallback(() => {
     setManualUid(nextSuggestedUid);
@@ -776,7 +777,7 @@ function StepCards({
                   disabled={!manualUid.trim() || selectedCards.length >= maxCards}
                   icon={<Check size={16} />}
                 >
-                  Agregar
+                  Añadir
                 </ButtonPremium>
               </div>
             </div>

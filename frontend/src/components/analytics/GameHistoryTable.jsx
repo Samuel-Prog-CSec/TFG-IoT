@@ -94,7 +94,7 @@ function GameHistoryTable({ games, initialCount = 10, onLoadMore, hasMore: hasMo
               <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Fecha</th>
               <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Contexto</th>
               <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Mecánica</th>
-              <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Score</th>
+              <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Puntuación</th>
               <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Aciertos</th>
               {hasAnyDuration && (
                 <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 hidden sm:table-cell">Duración</th>

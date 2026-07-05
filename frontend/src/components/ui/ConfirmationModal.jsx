@@ -133,6 +133,7 @@ const getIconAnimation = (variant, shouldReduceMotion) => {
  * @param {React.ComponentType} [props.icon] - Icono personalizado
  * @param {string} [props.subtitle] - Subtítulo opcional
  * @param {boolean} [props.loading=false] - Estado de carga del botón confirmar
+ * @param {boolean} [props.confirmDisabled=false] - Deshabilita el botón confirmar (ej: un bloqueante explicado en la descripción impide la acción)
  * @param {boolean} [props.closeOnOverlay=true] - Cerrar al hacer click en overlay
  * 
  * @example
@@ -158,6 +159,7 @@ export default function ConfirmationModal({
   icon: CustomIcon,
   subtitle,
   loading = false,
+  confirmDisabled = false,
   closeOnOverlay = true,
 }) {
   const modalRef = useRef(null);
@@ -395,6 +397,7 @@ export default function ConfirmationModal({
                 variant={variantConfig.button}
                 onClick={handleConfirm}
                 loading={loading}
+                disabled={confirmDisabled}
                 icon={<Icon size={16} />}
               >
                 {confirmText}
@@ -459,6 +462,7 @@ export function useConfirmationModal() {
     confirmText: config.confirmText,
     cancelText: config.cancelText,
     variant: config.variant,
+    confirmDisabled: config.confirmDisabled,
     onConfirm: handleConfirm,
   };
 

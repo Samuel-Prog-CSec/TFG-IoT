@@ -14,7 +14,7 @@
 import { useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { m as motion } from 'framer-motion';
-import { Check, Clock, Target, Eye, Sparkles, Hourglass, Shuffle, Zap, AlertTriangle } from 'lucide-react';
+import { Check, Clock, Target, Eye, Sparkles, Hourglass, Shuffle, Zap, AlertTriangle, Volume2 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import {
@@ -44,7 +44,8 @@ export default function StepSequenceRules({
   const {
     minSequenceLength = SEQUENCE_DEFAULTS.minSequenceLength,
     maxSequenceLength = SEQUENCE_DEFAULTS.maxSequenceLength,
-    displaySeconds = SEQUENCE_DEFAULTS.displaySeconds
+    displaySeconds = SEQUENCE_DEFAULTS.displaySeconds,
+    autoPlayHints = false
   } = sequenceConfig || {};
 
   const numberOfRounds = config?.numberOfRounds || SEQUENCE_DEFAULTS.numberOfRounds;
@@ -224,6 +225,60 @@ export default function StepSequenceRules({
             onChange={v => onConfigChange?.('penaltyPerError', v)}
             display={`${config?.penaltyPerError ?? -2}`}
           />
+        </div>
+      </GlassCard>
+
+      {/* Audio en las pistas — accesibilidad pre-lectora. Si la carta esperada
+          tiene audio, se reproduce al fallar según la dificultad: Fácil → con
+          cada pista de texto (hasta 2 veces por carta); Media → una vez en el
+          primer fallo (no hay pista de texto, el audio ES la pista); Difícil →
+          nunca (un único intento, sin pistas). */}
+      <GlassCard className="p-6 lg:col-span-2">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+          <div className="flex-1">
+            <h2 className="text-lg font-semibold text-text-primary mb-2 flex items-center gap-2 flex-wrap">
+              <Volume2 size={20} className="text-accent-amber" />
+              Audio en las pistas
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-nano font-bold uppercase tracking-wider bg-accent-amber/15 text-accent-amber border border-accent-amber/30">
+                <Sparkles size={10} aria-hidden="true" />
+                Ideal si aún no leen
+              </span>
+            </h2>
+            <p className="text-sm text-text-muted">
+              Si la carta que toca tiene audio, se reproduce cuando el alumno falla,
+              como pista sonora.{' '}
+              {difficulty === 'easy' && 'Con dificultad Fácil suena con cada pista (hasta 2 veces por carta).'}
+              {difficulty === 'medium' && 'Con dificultad Media suena una vez, en el primer fallo.'}
+              {difficulty === 'hard' && 'Con dificultad Difícil no sonará: hay un único intento, sin pistas.'}
+            </p>
+          </div>
+
+          <div className="flex flex-col items-end gap-2">
+            <button
+              type="button"
+              role="switch"
+              aria-checked={autoPlayHints}
+              aria-label="Reproducir el audio de la carta esperada al mostrar pistas"
+              disabled={difficulty === 'hard'}
+              className={cn(
+                'flex items-center h-6 w-12 rounded-full bg-background-surface relative p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-amber focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
+                difficulty === 'hard' && 'opacity-50 cursor-not-allowed'
+              )}
+              onClick={() => handleSequenceConfig('autoPlayHints', !autoPlayHints)}
+            >
+              <motion.div
+                className={cn('h-4 w-4 rounded-full shadow-sm', autoPlayHints ? 'bg-accent-amber' : 'bg-text-muted')}
+                transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                animate={{ x: autoPlayHints ? 24 : 0 }}
+              />
+            </button>
+            <span className={cn('text-xs font-medium', autoPlayHints && difficulty !== 'hard' ? 'text-accent-amber' : 'text-text-muted')}>
+              {(() => {
+                if (difficulty === 'hard') return 'No disponible en Difícil';
+                return autoPlayHints ? 'Activado' : 'Desactivado';
+              })()}
+            </span>
+          </div>
         </div>
       </GlassCard>
 

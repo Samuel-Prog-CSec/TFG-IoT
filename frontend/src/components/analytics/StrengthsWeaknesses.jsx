@@ -33,9 +33,20 @@ const deriveStrengthsWeaknesses = (performanceByContext = [], performanceByMecha
 
   const sorted = allItems.toSorted((a, b) => b.score - a.score);
 
+  // Umbral de dominio: por encima de este % un área no es una "debilidad"
+  // accionable. Sin él, el bottom-3 entraba en «A mejorar» aunque tuviera un
+  // 100% (contradictorio para el docente).
+  const MASTERY_THRESHOLD = 90;
+  const weaknessCandidates = sorted
+    .slice(count)
+    .filter(item => item.score < MASTERY_THRESHOLD);
+
   return {
     strengths: sorted.slice(0, count),
-    weaknesses: sorted.length > count ? sorted.slice(-count).reverse() : [],
+    weaknesses: weaknessCandidates.slice(-count).reverse(),
+    // true si hay más áreas que las top-N y ninguna baja del umbral: el vacío
+    // de «A mejorar» es una buena noticia, no falta de datos.
+    masteredAll: sorted.length > count && weaknessCandidates.length === 0,
   };
 };
 
@@ -58,7 +69,7 @@ const toneForScore = (score) => {
  */
 function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
   const { shouldReduceMotion } = useReducedMotion();
-  const { strengths, weaknesses } = useMemo(
+  const { strengths, weaknesses, masteredAll } = useMemo(
     () => deriveStrengthsWeaknesses(performanceByContext, performanceByMechanic),
     [performanceByContext, performanceByMechanic]
   );
@@ -144,7 +155,11 @@ function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
               </motion.div>
               );
             }) : (
-              <p className="text-xs text-text-muted py-4 text-center">Sin debilidades identificadas con los datos actuales.</p>
+              <p className="text-xs text-text-muted py-4 text-center">
+                {masteredAll
+                  ? 'Todas sus áreas jugadas rondan o superan el 90% — no hay puntos flojos claros.'
+                  : 'Sin debilidades identificadas con los datos actuales.'}
+              </p>
             )}
           </div>
         </div>

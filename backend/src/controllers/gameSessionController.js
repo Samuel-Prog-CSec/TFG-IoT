@@ -42,6 +42,21 @@ const sessionFilterMappings = {
   createdBy: { field: 'createdBy', type: 'exact' }
 };
 
+/**
+ * Deriva si los recursos de una sesión siguen disponibles (ADR-231): el
+ * contexto existe (populate no-nulo) y su mazo sigue activo. Si no, la sesión
+ * degrada a "solo historial" en la UI (sin jugar/clonar/editar). Requiere que
+ * la query haya populado `contextId` y `deckId` (con `status`).
+ *
+ * @param {Object} plainSession - Sesión como POJO con refs populadas
+ * @returns {boolean}
+ */
+const deriveResourcesAvailable = plainSession => {
+  const contextExists = Boolean(plainSession.contextId?._id || plainSession.contextId?.id);
+  const deckActive = plainSession.deckId?.status === 'active';
+  return contextExists && deckActive;
+};
+
 const isSessionReadLeanEnabled = () => process.env.SESSION_READ_LEAN_ENABLED !== 'false';
 
 /**
@@ -119,6 +134,7 @@ const getSessions = async (req, res) => {
     const sid = (s._id || s.id).toString();
     const plain = typeof s.toObject === 'function' ? s.toObject() : s;
     plain.playStats = playStatsMap[sid] || null;
+    plain.resourcesAvailable = deriveResourcesAvailable(plain);
     return plain;
   });
 
@@ -175,7 +191,12 @@ const getSessionById = async (req, res) => {
     throw new ForbiddenError('No tienes permiso para ver esta sesión');
   }
 
-  sendSuccess(res, toGameSessionDetailDTOV1(session));
+  // POJO antes de adjuntar la propiedad fuera de schema (mismo patrón que
+  // playStats en el listado: en modo no-lean el documento STRICT la descarta).
+  const plainSession = typeof session.toObject === 'function' ? session.toObject() : session;
+  plainSession.resourcesAvailable = deriveResourcesAvailable(plainSession);
+
+  sendSuccess(res, toGameSessionDetailDTOV1(plainSession));
 };
 
 /**

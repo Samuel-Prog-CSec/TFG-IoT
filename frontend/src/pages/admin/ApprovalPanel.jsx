@@ -461,14 +461,15 @@ export default function ApprovalPanel() {
     setModalState((prev) => ({ ...prev, isLoading: true }));
 
     try {
+      // «La cuenta de X» evita presuponer el género del docente (QA cuenta virgen).
       if (type === 'approve') {
         await adminAPI.approveTeacher(getId(user));
-        toast.success(`${user.name} ha sido aprobado correctamente`, {
+        toast.success(`La cuenta de ${user.name} ha sido aprobada correctamente`, {
           icon: <CheckCircle className="size-5 text-success-base" />,
         });
       } else {
         await adminAPI.rejectTeacher(getId(user), reason);
-        toast.success(`${user.name} ha sido rechazado`, {
+        toast.success(`La cuenta de ${user.name} ha sido rechazada`, {
           icon: <XCircle className="size-5 text-error-base" />,
         });
       }

@@ -16,6 +16,7 @@ import TimerBar from '../components/game/TimerBar';
 import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/game/ScoreDisplay';
 import GameOverScreen from '../components/game/GameOverScreen';
 import ErrorState from '../components/ui/ErrorState';
+import AudioMiniPlayer from '../components/ui/AudioMiniPlayer';
 import CharacterMascot from '../components/game/CharacterMascot';
 import { resolveAssociationTheme } from '../components/game/associationTheme';
 import { getMechanicTheme } from '../lib/mechanicTheme';
@@ -238,6 +239,13 @@ export default function GameSession() {
   // "Reproduce la secuencia" y `AWAIT_RESPONSE=true` real. Ver
   // `handleSequencePhaseReproducing`.
   const sequenceGraceTimerRef = useRef(null);
+  // Audio en las pistas de Secuencia (sequenceConfig.autoPlayHints): último
+  // audio a reproducir { url, token }. El flag y el mapa uid→audioUrl viven en
+  // refs para que `handleSequenceCardResult` no dependa de `session` (evitar
+  // re-crear el callback y re-registrar listeners del socket).
+  const [sequenceHintAudio, setSequenceHintAudio] = useState(null);
+  const sequenceHintAudioEnabledRef = useRef(false);
+  const sequenceCardAudioMapRef = useRef(new Map());
   // Flag para el hook de timer: en Memoria, solo empieza a decrementar cuando
   // el backend ha confirmado board_ready (playEndsAt establecido). Antes de
   // eso mostramos la barra llena y estatica, evitando el visual "bucle vacio".
@@ -687,6 +695,9 @@ export default function GameSession() {
       hint: null,
       isCollecting: false
     });
+    // La pista sonora pendiente pertenece a la ronda anterior: se limpia al
+    // empezar la memorización de la nueva.
+    setSequenceHintAudio(null);
 
     // Sincronizar header de la partida (ronda actual / total) — el backend
     // de Secuencia no emite `new_round`, así que lo hacemos a mano aquí.
@@ -824,6 +835,26 @@ export default function GameSession() {
         pointsAwarded: payload?.points ?? 0,
         newScore: payload?.score ?? 0
       }, { currentRound, totalRounds });
+      // Audio en las pistas (opt-in del profesor): suena el audio de la carta
+      // esperada en los fallos QUE DAN OTRA OPORTUNIDAD — `incorrect_with_hint`
+      // (Fácil: acompaña a la pista de texto, hasta 2 veces) e `incorrect`
+      // (Media: no hay pista de texto, el audio ES la pista). En `blocked`
+      // (carta agotada — único tipo de fallo en Difícil) no suena: ya no hay
+      // nada que adivinar. El token por intento hace que la segunda pista
+      // vuelva a reproducir el mismo audio.
+      if (
+        sequenceHintAudioEnabledRef.current &&
+        payload?.type !== 'blocked' &&
+        payload?.expectedUid
+      ) {
+        const hintAudioUrl = sequenceCardAudioMapRef.current.get(payload.expectedUid);
+        if (hintAudioUrl) {
+          setSequenceHintAudio({
+            url: hintAudioUrl,
+            token: `${payload.expectedUid}-${payload.attemptsForCurrent ?? 0}`
+          });
+        }
+      }
     }
   }, [playCorrect, playIncorrect, processValidationResult, currentRound, totalRounds, dispatch]);
 
@@ -947,6 +978,18 @@ export default function GameSession() {
     () => session?.cardMappings || [],
     [session?.cardMappings]
   );
+
+  // Sincroniza a refs la preferencia de audio en pistas y el mapa uid→audioUrl
+  // de las cartas (ver declaración de sequenceHintAudioEnabledRef arriba).
+  useEffect(() => {
+    sequenceHintAudioEnabledRef.current = Boolean(session?.sequenceConfig?.autoPlayHints);
+    const map = new Map();
+    (session?.cardMappings || []).forEach(m => {
+      const url = m?.displayData?.audioUrl;
+      if (m?.uid && url) map.set(m.uid, url);
+    });
+    sequenceCardAudioMapRef.current = map;
+  }, [session]);
 
   // Contenido del tooltip de diagnóstico del lector RFID (HUD). Resume estado
   // del lector, el sensor autorizado de la sesión (truncado, jerga técnica útil
@@ -1950,14 +1993,32 @@ export default function GameSession() {
                     }
                     if (sessionIsSequence) {
                       return (
-                        <SequenceGameplayPanel
-                          totalRounds={totalRounds}
-                          cardMappings={sequenceCardMappings}
-                          rfidConnected={rfidConnected}
-                          soundEnabled={soundEnabled}
-                          sequenceState={sequenceState}
-                          onCardTap={handleSequenceCardTap}
-                        />
+                        <>
+                          <SequenceGameplayPanel
+                            totalRounds={totalRounds}
+                            cardMappings={sequenceCardMappings}
+                            rfidConnected={rfidConnected}
+                            soundEnabled={soundEnabled}
+                            sequenceState={sequenceState}
+                            onCardTap={handleSequenceCardTap}
+                          />
+                          {/* Audio en las pistas (sequenceConfig.autoPlayHints): al fallar,
+                              el audio de la carta esperada suena como pista sonora
+                              (accesibilidad pre-lectora). Oculto: el objeto Audio vive en
+                              JS, no pinta controles (mismo patrón que la locución de la
+                              consigna en Asociación). El `token` cambia por intento, así
+                              en Fácil vuelve a sonar con la segunda pista. */}
+                          {sequenceHintAudio?.url && soundEnabled && (
+                            <AudioMiniPlayer
+                              audioUrl={sequenceHintAudio.url}
+                              size="sm"
+                              variant="glass"
+                              autoPlay
+                              autoPlayToken={sequenceHintAudio.token}
+                              visuallyHidden
+                            />
+                          )}
+                        </>
                       );
                     }
                     return (

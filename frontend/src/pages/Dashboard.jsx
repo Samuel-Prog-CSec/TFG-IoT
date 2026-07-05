@@ -73,6 +73,13 @@ const ICON_ACCURACY = <Target className={KPI_ICON_CLASS} size={24} aria-hidden="
 const ICON_TIME = <Clock className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
 const ICON_COMPLETION = <CheckCircle2 className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
 
+// "—" sin datos: con 0 partidas el 0 crudo se leía como "responden en 0s"
+// (QA cuenta virgen). Un tiempo medio real nunca es 0.
+const formatAvgResponseTime = (ms) => {
+  if (!Number.isFinite(ms) || ms <= 0) return '—';
+  return `${Math.round(ms / 100) / 10}s`;
+};
+
 // eslint-disable-next-line sonarjs/cyclomatic-complexity, sonarjs/cognitive-complexity -- dashboard principal con multiples widgets, filtros y estados de carga
 export default function Dashboard() {
   const { isSuperAdmin } = useAuth();
@@ -514,7 +521,7 @@ export default function Dashboard() {
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Tiempo Medio"
-                    value={`${Math.round((getKPIValue('averageResponseTime') ?? summary?.averageResponseTime ?? 0) / 100) / 10}s`}
+                    value={formatAvgResponseTime(getKPIValue('averageResponseTime') ?? summary?.averageResponseTime)}
                     trend={getTrend('averageResponseTime')}
                     periodLabel={periodLabel}
                     icon={ICON_TIME}

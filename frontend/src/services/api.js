@@ -1064,9 +1064,22 @@ export const contextsAPI = {
     api.put(`/contexts/${contextMongoId}`, data),
 
   /**
-   * Eliminar un contexto completo y sus archivos de Storage (solo super_admin)
+   * Inventario de impacto del borrado en cascada (solo super_admin).
+   * Pre-chequeo para el modal: qué mazos se archivarán, qué sesiones se
+   * completarán/eliminarán, cuántas partidas se conservan y si hay partidas
+   * en curso que bloquean la operación (ADR-231).
    * @param {string} contextMongoId - MongoDB _id del contexto
-   * @returns {Promise} Confirmación de eliminación
+   * @returns {Promise} Inventario de impacto
+   */
+  getContextDeletionImpact: (contextMongoId) =>
+    api.get(`/contexts/${contextMongoId}/deletion-impact`),
+
+  /**
+   * Eliminar un contexto con archivado en cascada (solo super_admin):
+   * borra assets + archivos de Storage, archiva mazos, completa sesiones
+   * jugadas y elimina borradores. Las partidas (historial) se conservan.
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @returns {Promise} Resumen de la cascada ejecutada
    */
   deleteContext: (contextMongoId) =>
     api.delete(`/contexts/${contextMongoId}`),

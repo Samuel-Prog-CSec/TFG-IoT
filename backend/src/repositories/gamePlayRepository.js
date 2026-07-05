@@ -16,6 +16,9 @@ const findOne = (filter = {}, options = {}) =>
 
 const count = (filter = {}) => GamePlay.countDocuments(filter);
 
+// Valores únicos de un campo (ej: sessionIds con al menos una partida).
+const distinct = (field, filter = {}) => GamePlay.distinct(field, filter);
+
 const create = data => GamePlay.create(data);
 
 // maxTimeMS por defecto para proteger contra aggregations lentas que bloqueen el pool
@@ -83,6 +86,7 @@ module.exports = {
   findById,
   findOne,
   count,
+  distinct,
   create,
   aggregate,
   updateById,

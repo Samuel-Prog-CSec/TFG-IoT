@@ -144,3 +144,15 @@ Regla: la frase de Otto **complementa**, nunca repite el título/descripción de
 ## Migración masiva pendiente (T-959)
 
 T-951 sienta los pilares y centraliza categorías iniciales en `microcopy.js` (`EMPTY_STATES`, `TOOLTIPS`, `CTAS`, `ERRORS`). T-959 (Sprint 6, P2) hará la pasada masiva: empty states de todas las páginas, tooltips de KPIs en el panel de dirección, mensajes de error de validadores, y CTAs históricos.
+
+## Barrido de polish pre-entrega (ADR-230, 2026-07-05)
+
+Reglas fijadas (y aplicadas) en la sesión final de pulido de UI:
+
+- **"Puntuación", no "Score"**: eliminado el anglicismo de las vistas de usuario (historial del alumno, detalle de sesión: "Puntuación máxima posible" en lugar de "Score máximo teórico"). "Score" puede sobrevivir en código/JSDoc, nunca en UI.
+- **"Informe", no "reporte"**: el área de Análisis usa "informe" de forma consistente ("Tipo de informe", "parámetros del informe") en línea con el CTA "Generar Informe".
+- **Frases de Otto sin género**: el alumnado es mixto; ninguna frase del diccionario (`lib/mascotDialog.js`) puede concordar en género con el jugador ("¿Lista para parejas?" → "¿Buscamos parejas?").
+- **"Chip", no "UID", en vistas de solo lectura**: el identificador de la tarjeta física se muestra como "Chip: XXXXXXXX" en detalle de mazo y plan de retos. "UID" se mantiene únicamente en los flujos avanzados de creación/edición de mazos (entrada manual con lector), donde es terminología operativa.
+- **Sin ejes de gráfico en inglés**: radar de implicación "Replays" → "Repeticiones".
+- **Un dato, una vez**: los subtítulos no repiten el título (overlay de Secuencia: "Reproduce la secuencia" + "Empieza por la primera carta"; hero del GameOver de Memoria: eyebrow "Mejor racha" + definición "Parejas seguidas sin fallar").
+- **Los colores llevan texto**: el filete de dificultad de las cards de sesión (verde/ámbar/rojo) va acompañado de la palabra ("… · Fácil") — un color sin leyenda es mystery meat.

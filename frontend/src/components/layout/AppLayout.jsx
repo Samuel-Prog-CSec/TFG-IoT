@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from 'react';
+import { useState, useEffect, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
 import { m as motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
@@ -423,7 +423,10 @@ export default function AppLayout() {
                 <p className="text-sm font-medium text-text-primary truncate" title={user?.name || 'Usuario'}>
                   {user?.name || 'Usuario'}
                 </p>
-                <div className="flex items-center gap-1.5 mt-0.5">
+                {/* Badge y email en líneas separadas: compartiendo fila, el
+                    badge ancho ("Dirección") dejaba al email un sliver
+                    ilegible ("a."). En su propia línea trunca con elipsis. */}
+                <div className="mt-0.5 space-y-0.5">
                   <span
                     className={cn(
                       'inline-flex items-center gap-1 px-1.5 py-0.5 rounded-md text-nano font-bold uppercase tracking-wider',
@@ -759,8 +762,23 @@ function NavItem({ to, icon, label, dataTour, compact = false }) {
   const isParentOf = to === '/analytics/students' && location.pathname.startsWith('/students/');
   const exactMatch = to === '/admin/students';
 
+  // En alturas cortas (720-768px) el nav es scrolleable y el item activo
+  // podía quedar recortado fuera de la zona visible (el docente no veía en
+  // qué sección estaba). `block: 'nearest'` solo desplaza si hace falta.
+  const linkRef = useRef(null);
+  const isActivePath =
+    location.pathname === to ||
+    (!exactMatch && location.pathname.startsWith(`${to}/`)) ||
+    isParentOf;
+  useEffect(() => {
+    if (isActivePath && linkRef.current) {
+      linkRef.current.scrollIntoView({ block: 'nearest' });
+    }
+  }, [isActivePath]);
+
   return (
     <NavLink
+      ref={linkRef}
       to={to}
       end={exactMatch}
       data-tour={dataTour}

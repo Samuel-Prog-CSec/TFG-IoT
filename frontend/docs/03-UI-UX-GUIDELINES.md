@@ -777,3 +777,16 @@ Aplicado en: `DeckCard`, `ContextsPage` cards, `SessionsPage` cards (ya cumplía
 
 `GameOverScreen` usa `max-w-[min(720px,92vw)] max-h-[92dvh]` con tipografía `text-fluid-3xl` (score) y `text-fluid-2xl` (título). Botones del footer con `flex-wrap`.
 
+
+## Lecciones del polish final pre-entrega (ADR-230, 2026-07-05)
+
+Reglas de implementación que evitan los defectos cazados en la última auditoría visual:
+
+- **Decoraciones distribuidas: `left/top` CSS, nunca `x`/`y` en %.** Los transforms porcentuales de Framer Motion son relativos al PROPIO elemento, no al contenedor: 12 partículas con `x: 'N%'` acaban apiladas en (0,0). Posicionar con `style={{ left: 'N%' }}` y animar el desplazamiento en px/vh.
+- **`truncate` necesita su cadena de constraints.** Sobre un contenedor flex recorta EN SECO sin elipsis. El patrón correcto: contenedor `flex min-w-0 flex-1` + texto en un hijo propio con `truncate`; el bloque fijo del otro lado lleva `shrink-0`.
+- **Overlays anclados a elementos con scroll interno.** Antes de medir un target con `getBoundingClientRect` (spotlights, tooltips anclados), comprobar si está recortado por un ancestro con `overflow` y hacer `scrollIntoView({ block: 'nearest' })` instantáneo; y clampar SIEMPRE el popup resultante al viewport (el lado "bottom" también).
+- **Offsets de la mascota en % de su propia altura.** El rig es fluido; cualquier offset en px produce fracciones visibles distintas por resolución. `AuthMascotPeek` ancla con `bottom-full` y usa `PEEK_Y/DUCK_Y/HIDDEN_Y` porcentuales.
+- **Widgets flotantes: mínima intrusión.** El pill RFID vive en `bottom-4 right-4` con opacidad 75% en reposo (100% en hover/focus-within) para no tapar acciones de la última fila de cards en 1366×768.
+- **Footers de wizard sticky.** `sticky bottom-4 z-30` en los footers de CreateSession/DeckCreationWizard: el CTA no puede quedar bajo el fold en 720-768px de alto.
+- **Ids de `<mask>`/defs SVG únicos por instancia (`useId`)**: un icono repetido en la página con ids duplicados hace que todos los usos compartan la primera máscara definida.
+- **Marca**: `EduPlayIcon` es una tarjeta RFID sólida en `currentColor` con chip perforado por máscara — no reintroducir rellenos translúcidos (<40%) en el mark: sobre el degradado morado se apagan.

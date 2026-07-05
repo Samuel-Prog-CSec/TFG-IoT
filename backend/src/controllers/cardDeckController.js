@@ -361,6 +361,22 @@ const updateDeck = async (req, res) => {
 
     ensureResourceOwnership(deck, req.user._id, 'mazo');
 
+    // Un mazo archivado cuyo contexto ya no existe no puede volver a activarse:
+    // sus cardMappings apuntan a assets borrados de Storage y las partidas
+    // mostrarían imágenes rotas (ADR-231). Se comprueba contra el contexto
+    // destino por si la misma petición re-apunta el mazo a un contexto vivo.
+    if (status === 'active' && deck.status === 'archived') {
+      const targetContextId = contextId !== undefined ? contextId : deck.contextId;
+      const contextExists = targetContextId
+        ? await gameContextRepository.count({ _id: targetContextId })
+        : 0;
+      if (!contextExists) {
+        throw new ConflictError(
+          'No se puede restaurar el mazo: su contexto ya no existe. Crea un mazo nuevo con un contexto disponible.'
+        );
+      }
+    }
+
     applyDeckFieldUpdates(deck, { name, description, status });
     await applyDeckMappingUpdates(deck, { contextId, cardMappings });
 

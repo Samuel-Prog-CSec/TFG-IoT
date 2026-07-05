@@ -563,7 +563,8 @@ const buildCloneSuccessMessage = mechanicName => {
 const DEFAULT_SEQUENCE_CONFIG = Object.freeze({
   minSequenceLength: 3,
   maxSequenceLength: 5,
-  displaySeconds: 3
+  displaySeconds: 3,
+  autoPlayHints: false
 });
 
 /**
@@ -588,7 +589,19 @@ const applySequenceConfigForCreate = ({ session, sequenceConfig }) => {
     );
   }
 
-  session.sequenceConfig = { minSequenceLength: min, maxSequenceLength: max, displaySeconds };
+  session.sequenceConfig = {
+    minSequenceLength: min,
+    maxSequenceLength: max,
+    displaySeconds,
+    // Audio en pistas (opt-in del profesor): al fallar, si la carta esperada
+    // tiene audio se reproduce (Fácil con cada pista; Media 1 vez; Difícil
+    // nunca). Si el update no incluye el flag, se conserva el valor previo
+    // (mismo criterio que autoPlayPrompt en Asociación).
+    autoPlayHints:
+      provided.autoPlayHints === undefined
+        ? Boolean(session.sequenceConfig?.autoPlayHints)
+        : Boolean(provided.autoPlayHints)
+  };
 };
 
 /**

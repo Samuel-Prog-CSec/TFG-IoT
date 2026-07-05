@@ -893,7 +893,7 @@ export default function DeckEditPage() {
                 </label>
                 <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start">
                   {/* Paridad con StepCards del wizard: InputPremium + ButtonPremium
-                      (ghost "Generar UID" con Wand2, primary "Agregar" con Check).
+                      (ghost "Generar UID" con Wand2, primary "Añadir" con Check).
                       El input usa id="edit-manual-uid" para conservar el htmlFor del
                       <label> superior; no se pasa `label` a InputPremium para no
                       duplicar la etiqueta visible. */}
@@ -919,7 +919,7 @@ export default function DeckEditPage() {
                     disabled={!manualUid.trim()}
                     icon={<Check size={16} />}
                   >
-                    Agregar
+                    Añadir
                   </ButtonPremium>
                 </div>
                 <p className="mt-1.5 text-xs text-text-muted">¿Sin lector a mano? Escribe el identificador de la tarjeta o genera uno.</p>

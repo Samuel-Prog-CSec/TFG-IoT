@@ -26,7 +26,7 @@ const updateOne = (filter, update, options = {}) =>
 
 const deleteById = id => baseRepo.deleteById(GameContext, id);
 
-const deleteMany = filter => baseRepo.deleteMany(GameContext, filter);
+const deleteMany = (filter, options = {}) => baseRepo.deleteMany(GameContext, filter, options);
 
 module.exports = {
   find,

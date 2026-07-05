@@ -103,7 +103,7 @@ function SessionDetailAssociationPanel({ session }) {
                   </p>
                 )}
                 <p className="text-nano text-text-muted/60 font-mono mt-1" title={round.uid}>
-                  UID {round.uid}
+                  Chip {round.uid}
                 </p>
               </div>
             </li>

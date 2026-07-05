@@ -8,7 +8,9 @@ const gameContextRepository = require('../repositories/gameContextRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
 const cardDeckRepository = require('../repositories/cardDeckRepository');
+const userRepository = require('../repositories/userRepository');
 const storageService = require('../services/storageService');
+const { withTransaction } = require('../utils/withTransaction');
 const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
 const logger = require('../utils/logger');
 const { toGameContextDetailDTOV1, toGameContextListDTOV1 } = require('../utils/dtos');
@@ -25,37 +27,107 @@ const contextFilterMappings = {
   isActive: { field: 'isActive', type: 'exact' }
 };
 
-const ACTIVE_SESSION_STATUSES = ['created', 'active'];
 const ACTIVE_PLAY_STATUSES = ['in-progress', 'paused'];
 
-const getActiveContextDependencies = async contextId => {
-  const [activeDecks, activeSessions] = await Promise.all([
-    cardDeckRepository.count({ contextId, status: 'active' }),
+/**
+ * Calcula el inventario de impacto del borrado en cascada de un contexto
+ * (ADR-231): qué mazos se archivarán, qué sesiones borrador se eliminarán,
+ * qué sesiones jugadas pasarán a completadas y cuántas partidas (historial)
+ * se conservan. `activePlays` es el ÚNICO bloqueante: no se puede borrar el
+ * contexto mientras un alumno tiene una partida en curso o pausada.
+ *
+ * Se usa tanto para el endpoint de pre-chequeo (modal del admin) como para
+ * planificar la cascada real en deleteContext.
+ *
+ * @param {import('mongoose').Types.ObjectId} contextMongoId
+ * @returns {Promise<Object>} impacto + listas de IDs para ejecutar la cascada
+ */
+const collectContextDeletionImpact = async contextMongoId => {
+  const [sessions, decks] = await Promise.all([
     gameSessionRepository.find(
-      {
-        contextId,
-        status: { $in: ACTIVE_SESSION_STATUSES }
-      },
-      {
-        select: '_id',
-        lean: true
-      }
+      { contextId: contextMongoId },
+      { select: '_id status createdBy', lean: true }
+    ),
+    cardDeckRepository.find(
+      { contextId: contextMongoId },
+      { select: '_id status createdBy', lean: true }
     )
   ]);
 
+  const sessionIds = sessions.map(session => session._id);
+
   let activePlays = 0;
-  if (activeSessions.length > 0) {
-    activePlays = await gamePlayRepository.count({
-      sessionId: { $in: activeSessions.map(session => session._id) },
-      status: { $in: ACTIVE_PLAY_STATUSES }
-    });
+  let playsPreserved = 0;
+  let playedSessionIds = [];
+  if (sessionIds.length > 0) {
+    [activePlays, playsPreserved, playedSessionIds] = await Promise.all([
+      gamePlayRepository.count({
+        sessionId: { $in: sessionIds },
+        status: { $in: ACTIVE_PLAY_STATUSES }
+      }),
+      gamePlayRepository.count({ sessionId: { $in: sessionIds } }),
+      gamePlayRepository.distinct('sessionId', { sessionId: { $in: sessionIds } })
+    ]);
   }
 
+  const playedSet = new Set(playedSessionIds.map(String));
+
+  // Borradores: nunca iniciados y sin partidas → se eliminan (no tienen historia).
+  // El chequeo de partidas es defensivo: por invariante una sesión 'created'
+  // no puede tener partidas, pero si existieran se conserva como historial.
+  const draftSessionIds = sessions
+    .filter(session => session.status === 'created' && !playedSet.has(String(session._id)))
+    .map(session => session._id);
+
+  // Jugadas o en curso docente: pasan a 'completed' y degradan a solo-historial.
+  const sessionIdsToComplete = sessions
+    .filter(
+      session =>
+        session.status === 'active' ||
+        (session.status === 'created' && playedSet.has(String(session._id)))
+    )
+    .map(session => session._id);
+
+  const decksToArchiveIds = decks.filter(deck => deck.status === 'active').map(deck => deck._id);
+
+  // Docentes cuyo material se ve afectado (para el modal del admin).
+  const teacherIds = [
+    ...new Set(
+      [...sessions, ...decks].map(item => item.createdBy && String(item.createdBy)).filter(Boolean)
+    )
+  ];
+  const teachersAffected = teacherIds.length
+    ? await userRepository.find({ _id: { $in: teacherIds } }, { select: 'name', lean: true })
+    : [];
+
   return {
-    activeDecks,
-    activeSessions: activeSessions.length,
-    activePlays
+    activePlays,
+    playsPreserved,
+    decksToArchive: decksToArchiveIds.length,
+    decksAlreadyArchived: decks.length - decksToArchiveIds.length,
+    draftSessionsToDelete: draftSessionIds.length,
+    sessionsToComplete: sessionIdsToComplete.length,
+    sessionsAlreadyCompleted: sessions.filter(s => s.status === 'completed').length,
+    teachersAffected: teachersAffected.map(t => ({ id: String(t._id), name: t.name })),
+    // Listas internas para ejecutar la cascada (no se exponen en el endpoint).
+    _plan: {
+      draftSessionIds,
+      sessionIdsToComplete,
+      decksToArchiveIds,
+      teacherIds
+    }
   };
+};
+
+/**
+ * Serializa el impacto para la respuesta HTTP (sin el plan interno).
+ *
+ * @param {Object} impact - Resultado de collectContextDeletionImpact
+ * @returns {Object} DTO del impacto
+ */
+const toDeletionImpactDTO = impact => {
+  const { _plan, ...publicImpact } = impact;
+  return publicImpact;
 };
 
 /**
@@ -309,9 +381,45 @@ const updateContext = async (req, res) => {
 };
 
 /**
- * Eliminar un contexto (solo super_admin).
- * Hard delete con limpieza de archivos en Supabase Storage.
- * Bloqueado si existen decks/sesiones/plays activos que referencian el contexto.
+ * Pre-chequeo del borrado de contexto (solo super_admin).
+ * Devuelve el inventario de impacto para que el modal de confirmación
+ * muestre exactamente qué se archivará, qué se eliminará y qué se conserva
+ * ANTES de ejecutar la cascada (ADR-231).
+ *
+ * GET /api/contexts/:id/deletion-impact
+ * Headers: Authorization: Bearer <token> (super_admin)
+ *
+ * @param {import('express').Request} req
+ * @param {import('express').Response} res
+ */
+const getContextDeletionImpact = async (req, res) => {
+  const { id } = req.params;
+
+  const context = await gameContextRepository.findById(id, {
+    select: '_id contextId name',
+    lean: true
+  });
+
+  if (!context) {
+    throw new NotFoundError('Contexto de juego');
+  }
+
+  const impact = await collectContextDeletionImpact(context._id);
+
+  sendSuccess(res, toDeletionImpactDTO(impact));
+};
+
+/**
+ * Eliminar un contexto (solo super_admin) con archivado en cascada (ADR-231).
+ *
+ * Política: el historial educativo se conserva degradado; los recursos se
+ * borran de verdad. En una transacción: se eliminan las sesiones borrador
+ * (nunca jugadas), las sesiones jugadas pasan a 'completed' (solo historial),
+ * los mazos del contexto se archivan y el contexto se borra. Las partidas
+ * (GamePlay) quedan intactas: no guardan URLs de assets y alimentan analytics.
+ *
+ * Único bloqueante (409): partidas in-progress/paused — no se puede retirar
+ * el material mientras un alumno está jugando con él.
  *
  * DELETE /api/contexts/:id
  * Headers: Authorization: Bearer <token> (super_admin)
@@ -329,30 +437,70 @@ const deleteContext = async (req, res) => {
     throw new NotFoundError('Contexto de juego');
   }
 
-  const dependencies = await getActiveContextDependencies(context._id);
-  const hasActiveDependencies =
-    dependencies.activeDecks > 0 || dependencies.activeSessions > 0 || dependencies.activePlays > 0;
+  const impact = await collectContextDeletionImpact(context._id);
 
-  if (hasActiveDependencies) {
+  if (impact.activePlays > 0) {
+    const playWord = impact.activePlays === 1 ? 'partida en curso' : 'partidas en curso';
     throw new ConflictError(
-      'No se puede eliminar el contexto porque tiene dependencias activas (sessions/decks/plays)'
+      `No se puede eliminar el contexto: hay ${impact.activePlays} ${playWord}. ` +
+        'Espera a que terminen antes de retirar sus recursos.'
     );
   }
 
-  await invalidateContextCaches(id, context.contextId);
+  const { draftSessionIds, sessionIdsToComplete, teacherIds } = impact._plan;
+  const now = new Date();
 
-  // (H2) Borrar PRIMERO el documento Mongo (fuente de verdad) y DESPUÉS los
-  // archivos de Storage. Antes se borraba Storage primero con "hard-fail": si el
-  // delete de Mongo fallaba después (o Storage se borraba parcialmente), el
-  // contexto SOBREVIVÍA en Mongo con URLs de imagen/audio muertas para TODOS los
-  // profesores que lo usan — el fallo más visible. Con este orden, un fallo de
-  // Storage solo deja archivos huérfanos (invisibles y purgables por el job de
-  // retención), nunca un contexto con enlaces rotos.
-  await context.deleteOne();
+  // Cascada atómica. Operaciones SECUENCIALES dentro de la transacción
+  // (Promise.all intra-transacción está prohibido: una misma sesión Mongo no
+  // soporta operaciones concurrentes). El orden va de hoja a raíz para que un
+  // abort a mitad nunca deje el contexto borrado con dependencias vivas.
+  await withTransaction(async txnSession => {
+    if (draftSessionIds.length > 0) {
+      await gameSessionRepository.deleteMany(
+        { _id: { $in: draftSessionIds } },
+        { session: txnSession }
+      );
+    }
+    if (sessionIdsToComplete.length > 0) {
+      await gameSessionRepository.updateMany(
+        { _id: { $in: sessionIdsToComplete } },
+        { $set: { status: 'completed', endedAt: now } },
+        { session: txnSession }
+      );
+    }
+    // Todos los mazos del contexto (también los ya archivados quedan cubiertos
+    // por el filtro de estado): sin contexto no hay assets, así que ninguno
+    // puede volver a estar activo. El guard de des-archivado en updateDeck
+    // completa la protección.
+    await cardDeckRepository.updateMany(
+      { contextId: context._id, status: 'active' },
+      { $set: { status: 'archived' } },
+      { session: txnSession }
+    );
+    // Vía query (no doc.deleteOne) para garantizar que la operación participa
+    // en la transacción con la sesión explícita.
+    await gameContextRepository.deleteMany({ _id: context._id }, { session: txnSession });
+  });
 
-  // Limpieza de Storage best-effort tras confirmar el borrado en Mongo. Si falla
-  // (o Storage está deshabilitado en dev sin SUPABASE_SERVICE_KEY), se registra
-  // como huérfano pero NO se revierte el borrado ni se falla la petición.
+  // Invalidaciones post-commit, best-effort: caché de contextos y el set de
+  // sesiones por docente que usan las aggregations de analytics (los borradores
+  // eliminados ya no deben aparecer durante el TTL).
+  try {
+    await invalidateContextCaches(id, context.contextId);
+    const { cacheInvalidatePattern } = require('../utils/cacheHelper');
+    for (const teacherId of teacherIds) {
+      await cacheInvalidatePattern('cache:analytics', `teacherSessions:${teacherId}:*`);
+    }
+  } catch (cacheErr) {
+    logger.warn('deleteContext: fallo al invalidar cachés tras la cascada', {
+      contextId: context.contextId,
+      error: cacheErr.message
+    });
+  }
+
+  // (H2) Storage se limpia DESPUÉS de confirmar el borrado en Mongo, best-effort.
+  // Si falla (o Storage está deshabilitado en dev sin SUPABASE_SERVICE_KEY), solo
+  // quedan archivos huérfanos invisibles — nunca un contexto con enlaces rotos.
   try {
     await storageService.deleteFolder(context.contextId);
   } catch (storageErr) {
@@ -365,13 +513,17 @@ const deleteContext = async (req, res) => {
     );
   }
 
-  logger.info('Contexto eliminado con limpieza de Storage', {
+  logger.info('Contexto eliminado con archivado en cascada', {
     contextId: context.contextId,
     name: context.name,
-    deletedBy: req.user._id
+    deletedBy: req.user._id,
+    decksArchived: impact.decksToArchive,
+    draftSessionsDeleted: impact.draftSessionsToDelete,
+    sessionsCompleted: impact.sessionsToComplete,
+    playsPreserved: impact.playsPreserved
   });
 
-  sendSuccess(res, null, 'Contexto eliminado exitosamente');
+  sendSuccess(res, toDeletionImpactDTO(impact), 'Contexto eliminado exitosamente');
 };
 
 /**
@@ -412,6 +564,7 @@ module.exports = {
   getContextById,
   createContext,
   updateContext,
+  getContextDeletionImpact,
   deleteContext,
   getContextAssets
 };

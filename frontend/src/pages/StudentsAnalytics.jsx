@@ -253,7 +253,11 @@ const TABLE_COLUMNS = [
   { key: "totalGames", label: "Partidas", sortable: true },
   { key: "averageScore", label: "Puntuación", sortable: true },
   { key: "accuracyRate", label: "Acierto", sortable: true },
-  { key: "avgResponseTime", label: "Tiempo Resp", sortable: true },
+  // La tabla mide ~1026px y el contenido a 1280-1535px de viewport deja
+  // ~911-997px: la columna "Nivel" quedaba recortada sin afordancia de scroll.
+  // El tiempo de respuesta es la métrica más secundaria de la vista comparativa
+  // (sigue en el CSV y en el perfil individual), así que se oculta bajo 2xl.
+  { key: "avgResponseTime", label: "T. respuesta", sortable: true, className: "hidden 2xl:table-cell" },
   // T-922 criterio 7: vista comparativa con la mejor secuencia. El tooltip de
   // cada celda explica que es la longitud máxima reproducida correctamente; la
   // cabecera se acorta a "Secuencia" para que la tabla quepa sin recortes a 1366.
@@ -810,7 +814,7 @@ export default function StudentsAnalytics() {
                             <th
                               key={col.key}
                               scope="col"
-                              className="px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap"
+                              className={`px-3 py-3 text-left text-xs font-semibold text-text-secondary uppercase tracking-wider whitespace-nowrap ${col.className || ""}`}
                               aria-sort={(() => {
                                 if (col.sortable && sortField === col.key)
                                   return sortOrder === "asc"
@@ -991,8 +995,8 @@ function StudentRow({ student, navigate }) {
           : "-"}
       </td>
 
-      {/* Response time */}
-      <td className="px-3 py-3 text-text-secondary text-center whitespace-nowrap">
+      {/* Response time — oculto bajo 2xl (ver TABLE_COLUMNS) */}
+      <td className="px-3 py-3 text-text-secondary text-center whitespace-nowrap hidden 2xl:table-cell">
         {formatResponseTime(student.avgResponseTime)}
       </td>
 

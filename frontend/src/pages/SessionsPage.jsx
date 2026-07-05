@@ -23,7 +23,7 @@ import {
   Timer,
   Award,
   RotateCcw,
-  BarChart3
+  ImageOff
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, mechanicsAPI, extractErrorMessage, extractData, isAbortError } from '../services/api';
@@ -48,10 +48,8 @@ import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
 import ScanlineOverlay from '../components/ui/ScanlineOverlay';
-import SessionSparkline from '../components/common/SessionSparkline';
 import InlineEditableText from '../components/ui/InlineEditableText';
 import { cn, listContainerVariants, motionConfig, DURATION, EASING, toTitleCaseEs } from '../lib/utils';
-import { formatRelativeTime } from '../lib/dateUtils';
 
 // Mapeo de dificultad a indicador visual lateral derecho (PROP-5).
 // Se aplica como `after:bg-*` para no chocar con el `border-l-*` que indica el estado.
@@ -158,47 +156,6 @@ const STATUS_CARD_CLASSES = {
   completed: 'border-b-2 border-b-success-base/40',
 };
 
-// Bloque de stats con sparkline. Extraido para reducir la complejidad ciclomatica
-// del SessionCard (regla sonarjs/cyclomatic-complexity).
-function SessionPlayStats({ playStats }) {
-  if (!playStats || (playStats.playsCount ?? 0) <= 0) return null;
-  const playedLabel = playStats.playsCount === 1 ? 'partida jugada' : 'partidas jugadas';
-  const showSparkline =
-    Array.isArray(playStats.recentScores) && playStats.recentScores.length >= 2;
-  return (
-    <div className="flex flex-col gap-2 rounded-lg bg-background-surface/50 px-3 py-2 text-xs text-text-muted">
-      <div className="flex items-center gap-2">
-        <BarChart3 size={14} className="text-text-muted/70 flex-shrink-0" />
-        <span>
-          {playStats.playsCount} {playedLabel}
-          {playStats.averageScore != null && (
-            <> · {playStats.averageScore} pts promedio</>
-          )}
-        </span>
-      </div>
-      {/* PROP-5: tiempo desde la ultima partida en formato relativo. */}
-      {playStats.lastPlayedAt && (
-        <p className="text-micro text-text-muted/80">
-          Última partida: {formatRelativeTime(playStats.lastPlayedAt)}
-        </p>
-      )}
-      {/* PROP-5: sparkline solo si hay >=2 puntuaciones. */}
-      {showSparkline && (
-        <SessionSparkline data={playStats.recentScores} height={42} />
-      )}
-    </div>
-  );
-}
-
-SessionPlayStats.propTypes = {
-  playStats: PropTypes.shape({
-    playsCount: PropTypes.number,
-    averageScore: PropTypes.number,
-    lastPlayedAt: PropTypes.string,
-    recentScores: PropTypes.array
-  })
-};
-
 // Valor de "Rondas" (genérico) o "Parejas" (Memoria). En Memoria no hay rondas:
 // las parejas se derivan de las cartas del tablero (boardLayout o numberOfCards)
 // entre 2; usar config.numberOfRounds (≈5 por defecto) mostraba un dato falso.
@@ -208,6 +165,72 @@ const getRoundsOrPairsValue = (session, isMemoryMechanic) => {
     ? session.boardLayout.length
     : (session.config?.numberOfCards || session.cardMappingsCount || 0);
   return Math.floor(boardCards / 2);
+};
+
+// ADR-231: motivo por el que la sesión no admite jugar/clonar cuando sus
+// recursos (contexto/mazo) ya no existen. Compartido por badge y tooltips.
+const UNAVAILABLE_TOOLTIP =
+  'El contexto o el mazo de esta sesión ya no están disponibles. Puedes consultar su historial, pero no volver a jugarla.';
+
+const getEditTooltip = (canEdit, resourcesUnavailable) => {
+  if (canEdit) return 'Editar sesión';
+  return resourcesUnavailable
+    ? UNAVAILABLE_TOOLTIP
+    : 'Las sesiones jugadas no se pueden editar; clónala para crear una nueva en borrador';
+};
+
+/**
+ * Botón primario de la card (Jugar / Volver a jugar). Extraído para que la
+ * degradación por recursos no disponibles (ADR-231) no infle la complejidad
+ * de SessionCard: aquí viven las tres variantes (deshabilitado con motivo,
+ * jugar directo, clonar).
+ */
+function SessionPrimaryAction({ session, primary, resourcesUnavailable, cloneLoading, onClone, onNavigate }) {
+  if (resourcesUnavailable) {
+    return (
+      <Tooltip content={UNAVAILABLE_TOOLTIP}>
+        <ButtonPremium variant="primary" disabled className="w-full">
+          {primary.action === 'play' ? <Play size={16} /> : <RefreshCw size={16} />}
+          <span className="truncate">{primary.label}</span>
+        </ButtonPremium>
+      </Tooltip>
+    );
+  }
+  if (primary.action === 'play') {
+    return (
+      <ButtonPremium
+        variant="primary"
+        onClick={() => onNavigate(getPlayRouteForSession(session))}
+        className="w-full"
+      >
+        <Play size={16} />
+        <span className="truncate">{primary.label}</span>
+      </ButtonPremium>
+    );
+  }
+  return (
+    <ButtonPremium
+      variant="primary"
+      onClick={() => onClone(session)}
+      disabled={cloneLoading}
+      className="w-full"
+    >
+      <RefreshCw size={16} />
+      <span className="truncate">{primary.label}</span>
+    </ButtonPremium>
+  );
+}
+
+SessionPrimaryAction.propTypes = {
+  session: PropTypes.object.isRequired,
+  primary: PropTypes.shape({
+    action: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+  }).isRequired,
+  resourcesUnavailable: PropTypes.bool.isRequired,
+  cloneLoading: PropTypes.bool.isRequired,
+  onClone: PropTypes.func.isRequired,
+  onNavigate: PropTypes.func.isRequired,
 };
 
 const SessionCard = memo(function SessionCard({
@@ -241,10 +264,15 @@ const SessionCard = memo(function SessionCard({
   const roundsOrPairsValue = getRoundsOrPairsValue(session, isMemoryMechanic);
   const contextLabel = session.context?.name || 'Contexto';
   const sessionId = getId(session);
-  const canEdit = session.status === 'created';
+  // ADR-231: sesión degradada a "solo historial" — su contexto fue eliminado
+  // o su mazo está archivado. Solo el `false` explícito del backend degrada
+  // (undefined = el endpoint no calcula el flag).
+  const resourcesUnavailable = session.resourcesAvailable === false;
+  const canEdit = session.status === 'created' && !resourcesUnavailable;
   const canDelete = session.status === 'created';
   const borderClass = BORDER_CLASSES[session.status] || 'border-l-background-surface/50';
   const primary = getPrimaryActionForSession(session);
+  const editTooltip = getEditTooltip(canEdit, resourcesUnavailable);
   // Tint del glow segun dificultad configurada. Para sesiones activas damos
   // prioridad al tint brand (ya tienen ring-1 en STATUS_CARD_CLASSES).
   const glowTint = (() => {
@@ -310,14 +338,31 @@ const SessionCard = memo(function SessionCard({
               // h2 (no h3): el <h1> es "Sesiones de juego"; saltar a h3 viola
               // WCAG 1.3.1 / Lighthouse heading-order — cada card es la segunda
               // jerarquía bajo el header de página (auditoría 24/05/2026).
-              <h2 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]">{title}</h2>
+              <h2 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]" title={title}>{title}</h2>
             )}
             {/* BUG-A11Y-CONTRAST-SESSIONCARD-A (QA Sprint 0 post-v0.5.0):
                 text-text-muted sobre card bg daba 3.92:1. text-secondary
                 pasa AA y mantiene jerarquía visual. */}
-            <p className="text-sm text-text-secondary">{mechanicLabel} · {contextLabel}</p>
+            {/* La dificultad acompaña al filete de color del borde derecho
+                (PROP-5): sin el texto, ese color era "mystery meat". */}
+            <p className="text-sm text-text-secondary">
+              {mechanicLabel} · {contextLabel}
+              {difficultyLabel && <> · {difficultyLabel}</>}
+            </p>
           </div>
-          <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
+            {/* ADR-231: los recursos (contexto/mazo) ya no existen — la sesión
+                queda como historial consultable, sin re-juego ni edición. */}
+            {resourcesUnavailable && (
+              <Tooltip content={UNAVAILABLE_TOOLTIP}>
+                <span className="inline-flex items-center gap-1 rounded-full border border-warning-base/30 bg-warning-base/15 px-2 py-0.5 text-[10px] font-medium text-warning-base whitespace-nowrap cursor-help">
+                  <ImageOff size={10} aria-hidden="true" />
+                  Recursos no disponibles
+                </span>
+              </Tooltip>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 text-xs text-text-secondary">
@@ -359,8 +404,6 @@ const SessionCard = memo(function SessionCard({
           </div>
         </div>
 
-        <SessionPlayStats playStats={session.playStats} />
-
         <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
           {/* Los botones se apilan (1 col) cuando la card es estrecha y van en
               fila (2 cols) cuando hay sitio. `@[24rem]` consulta el ancho de la
@@ -375,26 +418,14 @@ const SessionCard = memo(function SessionCard({
               <Eye size={16} />
               Ver detalle
             </ButtonPremium>
-            {primary.action === 'play' ? (
-              <ButtonPremium
-                variant="primary"
-                onClick={() => onNavigate(getPlayRouteForSession(session))}
-                className="w-full"
-              >
-                <Play size={16} />
-                <span className="truncate">{primary.label}</span>
-              </ButtonPremium>
-            ) : (
-              <ButtonPremium
-                variant="primary"
-                onClick={() => onClone(session)}
-                disabled={cloneLoading}
-                className="w-full"
-              >
-                <RefreshCw size={16} />
-                <span className="truncate">{primary.label}</span>
-              </ButtonPremium>
-            )}
+            <SessionPrimaryAction
+              session={session}
+              primary={primary}
+              resourcesUnavailable={resourcesUnavailable}
+              cloneLoading={cloneLoading}
+              onClone={onClone}
+              onNavigate={onNavigate}
+            />
           </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
@@ -417,13 +448,13 @@ const SessionCard = memo(function SessionCard({
               )}
               {/* Tooltip dinamico: explica el motivo cuando los botones estan disabled
                   para que el usuario sepa que solo las sesiones en borrador son editables. */}
-              <Tooltip content={canEdit ? 'Editar sesión' : 'Las sesiones jugadas no se pueden editar; clónala para crear una nueva en borrador'}>
+              <Tooltip content={editTooltip}>
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
                   onClick={() => onNavigate(ROUTES.SESSION_EDIT(sessionId))}
                   disabled={!canEdit}
-                  aria-label={canEdit ? 'Editar sesión' : 'Editar sesión (deshabilitado: ya tiene partidas)'}
+                  aria-label={canEdit ? 'Editar sesión' : 'Editar sesión (deshabilitado)'}
                 >
                   <Pencil size={14} />
                 </ButtonPremium>
@@ -474,6 +505,7 @@ SessionCard.propTypes = {
       playsCount: PropTypes.number,
       averageScore: PropTypes.number,
     }),
+    resourcesAvailable: PropTypes.bool,
   }).isRequired,
   cloneLoading: PropTypes.bool.isRequired,
   onClone: PropTypes.func.isRequired,

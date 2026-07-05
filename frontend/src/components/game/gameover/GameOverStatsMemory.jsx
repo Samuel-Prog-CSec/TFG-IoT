@@ -40,7 +40,9 @@ function GameOverStatsMemory({ summary }) {
   const errorTooltip = isTrios
     ? 'Intentos fallidos (tríos mal emparejados)'
     : 'Intentos fallidos (parejas mal emparejadas)';
-  const heroLabel = isTrios ? 'Mejor racha de tríos' : 'Mejor racha de parejas';
+  // El eyebrow ya dice "Mejor racha": el subtítulo aporta la definición en
+  // vez de repetir la misma frase ("Mejor racha / Mejor racha de parejas").
+  const heroLabel = isTrios ? 'Tríos seguidos sin fallar' : 'Parejas seguidas sin fallar';
 
   return (
     <div className="space-y-[clamp(0.35rem,1.4vh,0.75rem)] mb-[clamp(0.5rem,2vh,2rem)]">

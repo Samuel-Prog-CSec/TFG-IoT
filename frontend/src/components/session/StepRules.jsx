@@ -295,14 +295,21 @@ export default function StepRules({
         <GlassCard className="p-6 lg:col-span-2">
           <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
             <div className="flex-1">
-              <h2 className="text-lg font-semibold text-text-primary mb-2 flex items-center gap-2">
+              <h2 className="text-lg font-semibold text-text-primary mb-2 flex items-center gap-2 flex-wrap">
                 <Volume2 size={20} className="text-accent-indigo" />
                 Locución automática de la consigna
+                {/* Badge de recomendación: este toggle es la opción clave para
+                    infantil y pasaba desapercibido dentro del párrafo. */}
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-nano font-bold uppercase tracking-wider bg-accent-indigo/15 text-accent-indigo border border-accent-indigo/30">
+                  <Sparkles size={10} aria-hidden="true" />
+                  Ideal si aún no leen
+                </span>
               </h2>
               <p className="text-sm text-text-muted">
                 Si las tarjetas del reto tienen audio, se reproducirá automáticamente al
-                empezar cada ronda como pista sonora. Útil para alumnos que aún no leen.
-                El botón para escuchar la consigna manualmente sigue disponible siempre.
+                empezar cada ronda como pista sonora — así la pregunta también se escucha,
+                no solo se lee. El botón para escuchar la consigna manualmente sigue
+                disponible siempre.
               </p>
             </div>
 

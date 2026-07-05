@@ -292,3 +292,47 @@ Antes de introducir una nueva mecánica:
 3. Alinear wizard, contrato API y engine runtime.
 4. Añadir tests de regresión de create session + runtime + socket events.
 5. Actualizar esta documentación y la de API/WebSockets.
+
+---
+
+## 11. Ciclo de vida y políticas de borrado (ADR-231)
+
+Principio rector: **hard-delete solo para lo que no tiene historia; ciclo de vida
+(archivar/finalizar) para lo que sí**. Las partidas (`GamePlay`) no guardan URLs de
+assets — el historial educativo y los analytics son inmunes al borrado de recursos.
+
+| Entidad | Acción de "borrado" | Notas |
+|---|---|---|
+| Contexto | Hard delete con **archivado en cascada** (solo super_admin) | Ver detalle abajo |
+| Asset individual | Hard delete (Mongo → Storage best-effort) | Bloqueado con 409 si un mazo **activo** lo usa (AS-1) |
+| Mazo | Soft delete (`status: 'archived'`) | No restaurable si su contexto ya no existe (409) |
+| Sesión | Hard delete **solo** en borrador (`created`, 0 partidas) | Jugada → nunca se borra; el motor la completa al terminar la última partida |
+| Partida | Nunca se borra por cascada | Retención RGPD: anonimización a los 12 meses |
+
+### Cascada al borrar un contexto
+
+1. **Único bloqueante** (409 con conteo): partidas `in-progress`/`paused`.
+2. En transacción (operaciones secuenciales, orden hoja→raíz): sesiones borrador →
+   eliminadas; sesiones `active` → `completed` + `endedAt`; mazos del contexto →
+   `archived`; contexto → eliminado.
+3. Post-commit: invalidación de cachés (contexto + `teacherSessions` de docentes
+   afectados) y limpieza de la carpeta de Storage best-effort (patrón H2).
+
+### Pre-chequeo y UX
+
+`GET /api/contexts/:id/deletion-impact` devuelve el inventario (mazos a archivar,
+borradores a eliminar, sesiones a completar, partidas conservadas, docentes afectados)
+que el modal del admin muestra ANTES de confirmar. La respuesta del `DELETE` repite el
+resumen para el toast.
+
+### Degradación de sesiones huérfanas
+
+El listado/detalle de sesiones expone `resourcesAvailable` (contexto existe + mazo
+`active`). Con `false`, la UI muestra el badge «Recursos no disponibles» y deshabilita
+jugar/clonar/editar — el historial sigue consultable. Los guards de backend ya cubren
+el re-juego (start/update/clone resincronizan contra el mazo y rechazan mazos no
+activos); `PUT /decks/:id` rechaza además des-archivar mazos cuyo contexto no existe.
+
+Tensión asumida: **o una sesión es re-jugable para siempre (contexto inborrable) o el
+contexto es borrable (la sesión degrada a solo-historial)**. Se eligió lo segundo:
+borrar un contexto es una acción excepcional de administración.

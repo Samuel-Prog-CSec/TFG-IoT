@@ -152,7 +152,10 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
     clonedSession.sequenceConfig = {
       minSequenceLength: sourceCfg.minSequenceLength,
       maxSequenceLength: sourceCfg.maxSequenceLength,
-      displaySeconds: sourceCfg.displaySeconds
+      displaySeconds: sourceCfg.displaySeconds,
+      // Preferencia de audio en pistas (opt-in del profesor): "Volver a
+      // jugar" no debe perderla, igual que autoPlayPrompt en Asociación.
+      autoPlayHints: Boolean(sourceCfg.autoPlayHints)
     };
   }
 

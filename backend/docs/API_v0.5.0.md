@@ -251,7 +251,8 @@ Notas de contrato de `PUT /api/users/:id`:
 | `POST`   | `/:id/audio`            | Subir audio al contexto (MP3/OGG) — set `uploadedBy`              | Teacher                       | Upload     |
 | `PATCH`  | `/:id/assets/:k/audio`  | Adjuntar/reemplazar audio en asset (solo el creador del asset)    | Owner del asset               | Upload     |
 | `PUT`    | `/:id`                  | Actualizar contexto (bloquea cambio de slug si hay assets)        | **Super Admin**               | -          |
-| `DELETE` | `/:id`                  | Eliminar contexto + carpeta `ctx-{id}` en Supabase Storage        | **Super Admin**               | -          |
+| `GET`    | `/:id/deletion-impact`  | Inventario de impacto del borrado en cascada (pre-chequeo)        | **Super Admin**               | -          |
+| `DELETE` | `/:id`                  | Eliminar contexto con archivado en cascada + carpeta en Storage   | **Super Admin**               | -          |
 | `DELETE` | `/:id/images/:assetKey` | Eliminar asset (solo el creador del asset)                        | Owner del asset               | -          |
 | `DELETE` | `/:id/audio/:assetKey`  | Eliminar audio del asset (solo el creador del asset)              | Owner del asset               | -          |
 
@@ -266,11 +267,31 @@ Notas de contrato de `PUT /api/users/:id`:
 > - El script `npm run migrate:assets-uploadedby` normaliza los assets seedeados existentes
 >   a `uploadedBy = null` (idempotente; respeta a los assets subidos por profesores).
 
-> **Limpieza de Storage en eliminación de contexto (ADR-054):** `DELETE /api/contexts/:id`
-> ejecuta `storageService.deleteFolder(contextId)` antes de borrar el documento de
-> MongoDB. Política hard-fail: si Supabase Storage falla (red, permisos, circuit breaker
-> abierto) el contexto NO se borra de la BD para preservar consistencia. El admin verá
-> error 500 y puede reintentar.
+> **Borrado de contexto con archivado en cascada (ADR-231, supersede ADR-054):**
+> `DELETE /api/contexts/:id` ejecuta una cascada atómica (transacción): elimina las
+> sesiones borrador (`created` sin partidas), completa las sesiones jugadas (degradan a
+> «solo historial»), archiva los mazos del contexto y borra el documento. Las partidas
+> (GamePlay) se conservan intactas — no guardan URLs de assets. Único bloqueante (409
+> con conteo): partidas `in-progress`/`paused`. Tras el commit se limpia la carpeta de
+> Storage **best-effort** (patrón H2: Mongo primero; un fallo de Storage solo deja
+> archivos huérfanos invisibles, nunca URLs muertas). La respuesta devuelve el resumen
+> de la cascada (mismo shape que `GET /:id/deletion-impact`):
+>
+> ```json
+> {
+>   "activePlays": 0,
+>   "playsPreserved": 2,
+>   "decksToArchive": 1,
+>   "decksAlreadyArchived": 2,
+>   "draftSessionsToDelete": 0,
+>   "sessionsToComplete": 0,
+>   "sessionsAlreadyCompleted": 2,
+>   "teachersAffected": [{ "id": "…", "name": "María García López" }]
+> }
+> ```
+>
+> `GET /api/contexts/:id/deletion-impact` devuelve ese mismo inventario **sin ejecutar
+> nada** — es el pre-chequeo que alimenta el modal de confirmación del admin.
 
 #### Rate Limits Especiales
 
@@ -502,6 +523,23 @@ Elimina el audio de un asset específico.
 - El mapeo de tarjetas (`cardMappings`) de una sesión **se deriva del mazo** (`deckId`).
 - Al crear/consultar/actualizar/iniciar una sesión, el backend **sincroniza** el mapping con el mazo actual, para que si el mazo cambia (nuevas tarjetas, cambios de valores), la sesión use siempre el mapping vigente.
 - `config.numberOfCards` depende del número de `cardMappings` del mazo y se ajusta automáticamente.
+
+**Campo `resourcesAvailable` (ADR-231):** el listado y el detalle devuelven un boolean
+derivado — `true` si el contexto de la sesión existe y su mazo sigue `active`. Con
+`false` la sesión está degradada a «solo historial» (el contexto fue eliminado en
+cascada o el mazo está archivado): la UI muestra el badge «Recursos no disponibles» y
+deshabilita jugar/clonar/editar. `undefined` significa que el endpoint no calcula el
+flag (no degradar).
+
+**Configuración de accesibilidad pre-lectora por mecánica:**
+
+- `associationConfig.autoPlayPrompt` (boolean, default `false`, ADR-228): locución
+  automática de la consigna de audio al empezar cada ronda de Asociación.
+- `sequenceConfig.autoPlayHints` (boolean, default `false`, ADR-230): al fallar en
+  Secuencia, reproduce el audio del asset de la carta esperada junto a la pista de
+  texto. Fácil: suena con cada una de las 2 pistas; Media: 1 vez (intento extra);
+  Difícil: nunca. El motor no cambia — el frontend decide por el `type` del resultado
+  (`incorrect_with_hint` / `incorrect`; nunca `blocked`).
 
 #### `POST /sessions/:id/clone` (T-037)
 
@@ -824,6 +862,11 @@ Verifica si un UID de tarjeta RFID existe en otros mazos activos del profesor. E
 #### PUT `/decks/:id` (actualizar)
 
 Permite actualizar `name`, `description`, `status`, `contextId` y/o `cardMappings`. Si cambia `contextId`, se revalida que `assignedValue` siga existiendo en los assets del nuevo contexto. Si se actualizan `cardMappings`, se aplica la misma logica de unicidad cross-deck que en la creacion (ADR-023): tarjetas duplicadas se mueven automaticamente desde otros mazos, y la respuesta puede incluir el campo `affectedDecks`.
+
+> **Guard de des-archivado (ADR-231):** pasar `status: 'active'` sobre un mazo archivado
+> se rechaza con **409** si el contexto del mazo ya no existe (sus `cardMappings` apuntan
+> a assets borrados de Storage). Se comprueba contra el contexto destino, por lo que
+> re-apuntar el mazo a un contexto vivo en la misma petición sí permite restaurarlo.
 
 #### DELETE `/decks/:id` (soft delete)
 

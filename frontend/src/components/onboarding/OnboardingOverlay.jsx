@@ -73,12 +73,32 @@ function useTargetRect(dataTour, isVisible) {
         setMissing(true);
         return;
       }
-      const r = el.getBoundingClientRect();
-      // Si el target está fuera de viewport, intentamos hacer scrollIntoView
-      // antes de mostrar el spotlight.
-      if (r.bottom < 0 || r.top > window.innerHeight) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      // El target puede estar recortado dentro de un ancestro con scroll (p.ej.
+      // el nav del sidebar en alturas ≤768px): getBoundingClientRect devuelve
+      // coordenadas "de layout" aunque el elemento no sea visible, y el anillo
+      // acabaría dibujado sobre otro contenido. Comprobamos también los
+      // contenedores con overflow, no solo la ventana.
+      const isClipped = () => {
+        const r0 = el.getBoundingClientRect();
+        if (r0.bottom < 0 || r0.top > window.innerHeight) return true;
+        let p = el.parentElement;
+        while (p && p !== document.body) {
+          const st = getComputedStyle(p);
+          if (/auto|scroll|hidden/.test(st.overflowY)) {
+            const pr = p.getBoundingClientRect();
+            if (r0.top < pr.top - 1 || r0.bottom > pr.bottom + 1) return true;
+          }
+          p = p.parentElement;
+        }
+        return false;
+      };
+      // Scroll instantáneo (no smooth): así la medición inmediatamente
+      // posterior ya es correcta y no hay bucles de re-medición a mitad
+      // de animación. `nearest` minimiza el salto visual.
+      if (isClipped()) {
+        el.scrollIntoView({ block: 'nearest', inline: 'nearest' });
       }
+      const r = el.getBoundingClientRect();
       setRect({
         top: r.top,
         left: r.left,
@@ -395,29 +415,41 @@ ModalStep.propTypes = {
   shouldReduceMotion: PropTypes.bool.isRequired,
 };
 
+// Altura estimada del tooltip (Otto + título + descripción + progreso +
+// botones). Se usa para clamparlo al viewport: en pantallas bajas (720-768px)
+// un tooltip sin clamp dejaba el botón "Siguiente" por debajo del fold y el
+// tour quedaba inusable con ratón.
+const TOOLTIP_EST_HEIGHT = 420;
+
+function clampTooltipTop(top, vh) {
+  const maxTop = vh - Math.min(TOOLTIP_EST_HEIGHT, vh - 16) - 8;
+  return Math.max(8, Math.min(top, maxTop));
+}
+
 function calculateTooltipPosition(rect) {
   if (!rect) return { left: 0, top: 0, side: 'right' };
   const vw = window.innerWidth;
   const vh = window.innerHeight;
   // Por defecto el tooltip va a la derecha del target. Si no cabe, se
-  // posiciona a la izquierda; si tampoco cabe, debajo.
+  // posiciona a la izquierda; si tampoco cabe, debajo (siempre clampado
+  // al viewport para que los controles queden alcanzables).
   if (rect.left + rect.width + TOOLTIP_OFFSET + TOOLTIP_WIDTH < vw) {
     return {
       left: rect.left + rect.width + TOOLTIP_OFFSET,
-      top: Math.min(Math.max(rect.top, 16), vh - 320),
+      top: clampTooltipTop(rect.top, vh),
       side: 'right',
     };
   }
   if (rect.left - TOOLTIP_OFFSET - TOOLTIP_WIDTH > 0) {
     return {
       left: rect.left - TOOLTIP_OFFSET - TOOLTIP_WIDTH,
-      top: Math.min(Math.max(rect.top, 16), vh - 320),
+      top: clampTooltipTop(rect.top, vh),
       side: 'left',
     };
   }
   return {
     left: Math.max(16, Math.min(rect.left, vw - TOOLTIP_WIDTH - 16)),
-    top: rect.top + rect.height + TOOLTIP_OFFSET,
+    top: clampTooltipTop(rect.top + rect.height + TOOLTIP_OFFSET, vh),
     side: 'bottom',
   };
 }

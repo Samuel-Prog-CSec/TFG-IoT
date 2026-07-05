@@ -283,6 +283,18 @@ const gameSessionSchema = new mongoose.Schema(
         min: 2,
         max: 8,
         default: 3
+      },
+      /**
+       * Audio en las pistas (accesibilidad pre-lectora). Si la carta esperada
+       * tiene audio, se reproduce cuando el alumno falla: en Fácil acompaña a
+       * las dos pistas de texto (parcial y palabra completa); en Media suena
+       * una vez en el primer fallo (no hay pista de texto pero sí un intento
+       * extra); en Difícil nunca (un único intento, sin pistas). Lo decide el
+       * profesor en el wizard.
+       */
+      autoPlayHints: {
+        type: Boolean,
+        default: false
       }
     },
     /**

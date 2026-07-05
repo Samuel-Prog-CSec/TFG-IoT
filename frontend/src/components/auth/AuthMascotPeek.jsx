@@ -40,8 +40,14 @@ const SECRET_MESSAGE = 'Tranquilo, no miro';
 
 // Campos ante los que Otto se agacha para no ver lo que se escribe.
 const SECRET_FIELDS = new Set(['password', 'confirmPassword']);
-// Cuánto baja Otto al agacharse: tapa los ojos tras la card, deja las orejas.
-const DUCK_Y = 56;
+// Offsets del peek en PORCENTAJE de la altura del propio Otto. El rig es
+// fluido (crece con el viewport: ~126px a 1366×768, ~159px a 1920×1080); con
+// un offset fijo en píxeles asomaba proporcionalmente menos cara cuanto más
+// grande era la pantalla (a 1080p solo se le veían los ojos). En porcentaje,
+// la fracción visible es idéntica en todas las resoluciones.
+const PEEK_Y = '30%';   // asomado: ~70% de Otto visible sobre la card.
+const DUCK_Y = '76%';   // agachado: solo asoman las orejas (~24%).
+const HIDDEN_Y = '110%'; // oculto por completo tras la card (entrada/salida).
 
 /**
  * @param {Object} props
@@ -80,7 +86,9 @@ export default function AuthMascotPeek({ children, mood = 'greeting', side = 'le
   const peekSpring = shouldReduceMotion
     ? { duration: 0.15 }
     : { type: 'spring', stiffness: 240, damping: 22 };
-  const enterOffset = shouldReduceMotion ? 0 : 52;
+  // Con reduced-motion Otto aparece ya en su posición (solo fade); sin ella
+  // entra deslizándose desde detrás de la card.
+  const enterY = shouldReduceMotion ? PEEK_Y : HIDDEN_Y;
 
   // Posición del bocadillo y su colita (extraído para no anidar ternarios en el
   // JSX): duck = encima de Otto; peek = al lado OPUESTO al obstáculo de cada
@@ -105,9 +113,12 @@ export default function AuthMascotPeek({ children, mood = 'greeting', side = 'le
       {/* Capa Otto — DETRÁS de la card (z-0). El bocadillo va dentro (queda por
           encima del borde de la card → no lo tapa). pointer-events-none: no
           intercepta clics del formulario. */}
+      {/* `bottom-full` ancla la base de la capa al borde superior de la card:
+          los offsets de Otto se aplican como translateY en % de su propia
+          altura, así la fracción visible no depende de la resolución. */}
       <div
         className={cn(
-          'pointer-events-none absolute inset-x-0 -top-[88px] z-0 flex',
+          'pointer-events-none absolute inset-x-0 bottom-full z-0 flex',
           isRight ? 'justify-end pr-6 sm:pr-10' : 'justify-start pl-6 sm:pl-10'
         )}
         aria-hidden="true"
@@ -116,9 +127,9 @@ export default function AuthMascotPeek({ children, mood = 'greeting', side = 'le
           {visible && (
             <motion.div
               className="relative"
-              initial={{ y: enterOffset, opacity: 0, scale: 0.9 }}
-              animate={{ y: isDuck ? DUCK_Y : 0, opacity: 1, scale: 1 }}
-              exit={{ y: enterOffset, opacity: 0, scale: 0.92 }}
+              initial={{ y: enterY, opacity: 0, scale: 0.9 }}
+              animate={{ y: isDuck ? DUCK_Y : PEEK_Y, opacity: 1, scale: 1 }}
+              exit={{ y: enterY, opacity: 0, scale: 0.92 }}
               transition={peekSpring}
             >
               <CharacterMascot mood={mood} size="md" noBubble />

@@ -426,17 +426,14 @@ function ContextCard({ context, onClick }) {
           </div>
         )}
 
-        {/* Nombre + afordancia "Ver detalles". h2: la página tiene h1
-            "Contextos Temáticos"; saltar a h3 viola heading-order (WCAG 1.3.1). */}
-        <div className="flex items-start justify-between gap-3 mb-2">
-          <h2 className="min-w-0 text-xl font-semibold text-text-primary tracking-tight line-clamp-1 truncate" title={context.name}>
-            {context.name}
-          </h2>
-          <span className="shrink-0 flex items-center gap-1 text-text-muted group-hover:text-accent-indigo transition-colors">
-            <span className="text-sm font-medium">Ver detalles</span>
-            <ChevronRight size={16} />
-          </span>
-        </div>
+        {/* Nombre en fila completa (hasta 2 líneas): compartir fila con
+            "Ver detalles" truncaba nombres normales ("Animales de Gr...").
+            La afordancia baja a la fila del estado, donde sobra espacio.
+            h2: la página tiene h1 "Contextos Temáticos"; saltar a h3 viola
+            heading-order (WCAG 1.3.1). */}
+        <h2 className="text-xl font-semibold text-text-primary tracking-tight line-clamp-2 mb-2" title={context.name}>
+          {context.name}
+        </h2>
 
         <div className="flex items-center gap-2 mb-4">
           {context.isActive ? (
@@ -450,6 +447,10 @@ function ContextCard({ context, onClick }) {
               Inactivo
             </span>
           )}
+          <span className="ml-auto flex items-center gap-1 text-text-muted group-hover:text-accent-indigo transition-colors">
+            <span className="text-sm font-medium">Ver detalles</span>
+            <ChevronRight size={16} />
+          </span>
         </div>
 
         <div className="flex items-center justify-between mt-auto pt-4 border-t border-border-subtle">

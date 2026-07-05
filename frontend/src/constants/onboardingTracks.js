@@ -45,7 +45,7 @@ export const TEACHER_TRACK = Object.freeze([
   {
     type: 'modal',
     icon: GraduationCap,
-    title: '¡Bienvenido a EduPlay!',
+    title: '¡Te damos la bienvenida a EduPlay!',
     mascotMood: 'greeting',
     mascotLine: '¡Hola! Soy Otto, te guío.',
     description:

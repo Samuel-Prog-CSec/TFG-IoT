@@ -103,7 +103,11 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
   const showExpanded = expanded;
 
   return (
-    <div className={cn("fixed bottom-6 right-6 z-40 pointer-events-none", className)}>
+    // bottom/right-4 + opacidad reducida en reposo: el pill flotante llegaba a
+    // tapar botones de la última fila de cards (p.ej. "Archivar" en Mazos a
+    // 1366×768). Pegado a la esquina y semitransparente interfiere menos y
+    // recupera protagonismo al pasar el ratón o enfocarlo.
+    <div className={cn("fixed bottom-4 right-4 z-40 pointer-events-none opacity-75 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200", className)}>
       <AnimatePresence mode="wait">
         {showExpanded ? (
           <motion.div

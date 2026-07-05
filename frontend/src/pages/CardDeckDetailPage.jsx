@@ -313,7 +313,9 @@ export default function CardDeckDetailPage() {
                   >
                     <div>
                       <p className="text-text-primary font-medium">{label}</p>
-                      <p className="text-xs text-text-muted">UID: {uid}</p>
+                      {/* "Chip" en vez de "UID": mismo dato, sin jerga técnica
+                          en una vista de solo lectura para docentes. */}
+                      <p className="text-xs text-text-muted">Chip: {uid}</p>
                     </div>
                     <div className="flex items-center gap-3">
                       {displayData ? (

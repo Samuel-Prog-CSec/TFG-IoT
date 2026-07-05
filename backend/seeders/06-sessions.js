@@ -203,7 +203,10 @@ const sessionTemplates = [
     contextKey: 'shapes-basic',
     deckName: 'Formas Memoria',
     mechanicName: 'memory',
-    config: { numberOfRounds: 5, timeLimit: 20, pointsPerCorrect: 15, penaltyPerError: -3 },
+    // En Memoria `timeLimit` es el tiempo TOTAL de la partida (no por ronda):
+    // con 18-20s el tablero de 6 parejas expiraba antes de empezar. 120-150s
+    // deja ~20-25s por pareja, ritmo realista para alumnado de 4-8 años.
+    config: { numberOfRounds: 5, timeLimit: 120, pointsPerCorrect: 15, penaltyPerError: -3 },
     status: 'completed',
     description: 'Memoria con formas - introducción',
     daysAgo: 26
@@ -238,7 +241,8 @@ const sessionTemplates = [
     contextKey: 'shapes-basic',
     deckName: 'Formas Memoria',
     mechanicName: 'memory',
-    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 15, penaltyPerError: -3 },
+    // Tiempo TOTAL de partida (ver nota en la sesión de introducción).
+    config: { numberOfRounds: 6, timeLimit: 150, pointsPerCorrect: 15, penaltyPerError: -3 },
     status: 'completed',
     description: 'Memoria con formas - repaso',
     daysAgo: 10

@@ -493,15 +493,16 @@ function GameOverScreen({
             return (
               <motion.div
                 key={`floating-star-${piece.id}`}
-                initial={{
-                  x: `${piece.x}%`,
-                  y: '100%',
-                  opacity: 0,
-                  rotate: 0,
-                }}
+                // `left` CSS reparte las estrellas por el ancho del overlay.
+                // Antes se usaba `x: 'N%'` (transform), que es relativo al
+                // PROPIO icono (16px), no al contenedor: las 12 estrellas se
+                // apilaban en la esquina superior izquierda y se veían como
+                // un destello clavado en (0,0).
+                style={{ left: `${piece.x}%`, top: '100%' }}
+                initial={{ y: 0, opacity: 0, rotate: 0 }}
                 animate={{
-                  x: [`${piece.x}%`, `${piece.x + 3}%`, `${piece.x}%`],
-                  y: '-20%',
+                  y: '-120vh',
+                  x: [0, 14, 0],
                   opacity: [0, 1, 0],
                   rotate: piece.id % 2 === 0 ? 90 : -90,
                 }}

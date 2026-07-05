@@ -11,10 +11,10 @@
  * @module components/ui/DeckCard
  */
 
-import { useState, useRef, useMemo, useEffect, createContext, useContext } from 'react';
+import { useState, useRef, useMemo, createContext, useContext } from 'react';
 import { Link } from 'react-router-dom';
-import { m as motion, AnimatePresence, useMotionValue, useSpring, useTransform } from 'framer-motion';
-import { Edit2, Trash2, Eye, MoreVertical, Calendar, CreditCard } from 'lucide-react';
+import { m as motion, useMotionValue, useSpring, useTransform } from 'framer-motion';
+import { Edit2, Trash2, Eye, Calendar, CreditCard } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
 import { ROUTES } from '../../constants/routes';
@@ -23,7 +23,6 @@ import { getId } from '../../lib/entityId';
 
 const MotionLink = motion.create(Link);
 import { useSharedLayoutTransition } from '../../hooks/useSharedLayoutTransition';
-import Tooltip from './Tooltip';
 import CardAssetPreview from './CardAssetPreview';
 import InlineEditableText from './InlineEditableText';
 
@@ -54,22 +53,6 @@ const deckShape = PropTypes.shape({
   cardsCount: PropTypes.number,
   cardMappings: PropTypes.arrayOf(cardMappingShape),
 });
-
-const useDeckCardMenu = ({ menuRef, isMenuOpen, setIsMenuOpen }) => {
-  useEffect(() => {
-    if (!isMenuOpen) return undefined;
-
-    const handleOutsideClick = (event) => {
-      if (menuRef.current?.contains(event.target)) {
-        return;
-      }
-      setIsMenuOpen(false);
-    };
-
-    globalThis.addEventListener('mousedown', handleOutsideClick);
-    return () => globalThis.removeEventListener('mousedown', handleOutsideClick);
-  }, [isMenuOpen, menuRef, setIsMenuOpen]);
-};
 
 const useDeckCardMotion = ({ reducedMotion }) => {
   const prefersReducedMotion = useMemo(() => {
@@ -108,14 +91,10 @@ const useDeckCardMotion = ({ reducedMotion }) => {
 
 const useDeckCardInteraction = ({ reducedMotion, selectable, onSelect, deck }) => {
   const [isHovered, setIsHovered] = useState(false);
-  const [isMenuOpen, setIsMenuOpen] = useState(false);
   const cardRef = useRef(null);
-  const menuRef = useRef(null);
   const { x, y, useFullAnimations, rotateX, rotateY, assetX, assetY } = useDeckCardMotion({
     reducedMotion
   });
-
-  useDeckCardMenu({ menuRef, isMenuOpen, setIsMenuOpen });
 
   const handlePointerMove = (event) => {
     if (!cardRef.current) return;
@@ -151,10 +130,7 @@ const useDeckCardInteraction = ({ reducedMotion, selectable, onSelect, deck }) =
   return {
     isHovered,
     setIsHovered,
-    isMenuOpen,
-    setIsMenuOpen,
     cardRef,
-    menuRef,
     useFullAnimations,
     rotateX,
     rotateY,
@@ -211,10 +187,7 @@ export default function DeckCard({
   const {
     isHovered,
     setIsHovered,
-    isMenuOpen,
-    setIsMenuOpen,
     cardRef,
-    menuRef,
     useFullAnimations,
     rotateX,
     rotateY,
@@ -264,9 +237,6 @@ export default function DeckCard({
     useFullAnimations,
     rotateX,
     rotateY,
-    menuRef,
-    isMenuOpen,
-    setIsMenuOpen,
     onView,
     onEdit,
     onDelete,
@@ -303,9 +273,6 @@ function DeckCardView() {
     useFullAnimations,
     rotateX,
     rotateY,
-    menuRef,
-    isMenuOpen,
-    setIsMenuOpen,
     onView,
     onEdit,
     onDelete,
@@ -417,12 +384,6 @@ function DeckCardView() {
           <DeckCardHeader
             deck={deck}
             selectable={selectable}
-            menuRef={menuRef}
-            isMenuOpen={isMenuOpen}
-            setIsMenuOpen={setIsMenuOpen}
-            onView={onView}
-            onEdit={onEdit}
-            onDelete={onDelete}
             onRename={onRename}
           />
 
@@ -467,15 +428,12 @@ function DeckCardView() {
 // propTypes. La validación de forma vive en los subcomponentes (Header, Preview…)
 // y en DeckCard.propTypes.
 
+// El antiguo menú kebab ("Opciones": Ver/Editar/Archivar) se eliminó — era
+// redundante con los mismos botones de acción siempre visibles al pie de la
+// card (dos caminos a dos centímetros para la misma acción = ruido).
 function DeckCardHeader({
   deck,
   selectable,
-  menuRef,
-  isMenuOpen,
-  setIsMenuOpen,
-  onView,
-  onEdit,
-  onDelete,
   onRename,
 }) {
   const contextRef = deck.context || deck.contextId;
@@ -535,46 +493,6 @@ function DeckCardHeader({
           })()}
         </div>
 
-      {!selectable && (
-        <div className="relative z-20" ref={menuRef}>
-          <Tooltip content="Opciones">
-            <motion.button
-              className="p-2 rounded-lg text-text-muted hover:text-text-primary hover:bg-border-default transition-colors"
-              whileHover={{ scale: 1.1 }}
-              whileTap={{ scale: 0.95 }}
-              onClick={(event) => {
-                event.stopPropagation();
-                setIsMenuOpen((currentValue) => !currentValue);
-              }}
-              aria-label={`Opciones para mazo ${deck.name}`}
-              aria-haspopup="true"
-              aria-expanded={isMenuOpen}
-            >
-              <MoreVertical size={18} aria-hidden="true" />
-            </motion.button>
-          </Tooltip>
-
-          <AnimateMenu
-            isOpen={isMenuOpen}
-            onClose={() => setIsMenuOpen(false)}
-            onView={(event) => {
-              event.stopPropagation();
-              setIsMenuOpen(false);
-              onView?.(deck);
-            }}
-            onEdit={(event) => {
-              event.stopPropagation();
-              setIsMenuOpen(false);
-              onEdit?.(deck);
-            }}
-            onDelete={(event) => {
-              event.stopPropagation();
-              setIsMenuOpen(false);
-              onDelete?.(deck);
-            }}
-          />
-        </div>
-      )}
     </div>
   );
 }
@@ -582,12 +500,6 @@ function DeckCardHeader({
 DeckCardHeader.propTypes = {
   deck: deckShape.isRequired,
   selectable: PropTypes.bool.isRequired,
-  menuRef: PropTypes.shape({ current: PropTypes.any }).isRequired,
-  isMenuOpen: PropTypes.bool.isRequired,
-  setIsMenuOpen: PropTypes.func.isRequired,
-  onView: PropTypes.func,
-  onEdit: PropTypes.func,
-  onDelete: PropTypes.func,
   onRename: PropTypes.func,
 };
 
@@ -805,50 +717,6 @@ DeckSelectionBadge.propTypes = {
   selected: PropTypes.bool.isRequired,
 };
 
-function AnimateMenu({ isOpen, onClose, onView, onEdit, onDelete }) {
-  const firstItemRef = useRef(null);
-
-  // A11y teclado: al abrir, mover el foco al primer item del menú. Permite
-  // recorrerlo con Tab y cerrarlo con Escape (antes solo se cerraba con click
-  // fuera — inaccesible por teclado).
-  useEffect(() => {
-    if (isOpen) {
-      firstItemRef.current?.focus();
-    }
-  }, [isOpen]);
-
-  const itemClass =
-    'w-full text-left px-2.5 py-2 rounded-lg text-sm text-text-secondary transition-colors focus-ring';
-
-  return (
-    // AnimatePresence envuelve el render condicional para que la animación `exit`
-    // se ejecute de verdad (antes `if (!isOpen) return null` desmontaba de golpe
-    // y el `exit` era código muerto).
-    <AnimatePresence>
-      {isOpen && (
-        <motion.div
-          role="menu"
-          aria-label="Opciones del mazo"
-          initial={{ opacity: 0, y: -6, scale: 0.98 }}
-          animate={{ opacity: 1, y: 0, scale: 1 }}
-          exit={{ opacity: 0, y: -6, scale: 0.98 }}
-          onKeyDown={(event) => {
-            if (event.key === 'Escape') {
-              event.stopPropagation();
-              onClose?.();
-            }
-          }}
-          className="absolute right-0 mt-2 w-36 rounded-xl border border-border-default bg-background-base/95 backdrop-blur-xl p-1.5 shadow-xl"
-        >
-          <button ref={firstItemRef} role="menuitem" onClick={onView} className={cn(itemClass, 'hover:bg-border-default')}>Ver</button>
-          <button role="menuitem" onClick={onEdit} className={cn(itemClass, 'hover:bg-border-default')}>Editar</button>
-          <button role="menuitem" onClick={onDelete} className={cn(itemClass, 'hover:bg-warning-base/15 hover:text-warning-base')}>Archivar</button>
-        </motion.div>
-      )}
-    </AnimatePresence>
-  );
-}
-
 /**
  * ActionButton - Acción para las cards. Renderiza `<Link>` si recibe `href`
  * (navegación: permite Ctrl+clic / pestaña nueva / semántica de enlace para
@@ -918,14 +786,6 @@ DeckCard.propTypes = {
   selected: PropTypes.bool,
   reducedMotion: PropTypes.bool,
   className: PropTypes.string,
-};
-
-AnimateMenu.propTypes = {
-  isOpen: PropTypes.bool.isRequired,
-  onClose: PropTypes.func,
-  onView: PropTypes.func.isRequired,
-  onEdit: PropTypes.func.isRequired,
-  onDelete: PropTypes.func.isRequired,
 };
 
 /**

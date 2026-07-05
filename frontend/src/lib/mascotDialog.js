@@ -27,7 +27,8 @@
  */
 
 const MEMORY_DIALOG = Object.freeze({
-  roundStart: ['¡A recordar!', '¿Lista para parejas?', '¡Concéntrate!', '¡Vamos!'],
+  // Sin frases con género: juegan tanto alumnas como alumnos.
+  roundStart: ['¡A recordar!', '¿Buscamos parejas?', '¡Concéntrate!', '¡Vamos!'],
   correctAnswer: [
     '¡Pareja!',
     '¡Lo recordaste!',

@@ -20,7 +20,7 @@ const ENGAGEMENT_LABELS = {
   regularity: 'Regularidad',
   completionRate: 'Completado',
   avgTimeBetweenSessions: 'Constancia',
-  voluntaryReplays: 'Replays',
+  voluntaryReplays: 'Repeticiones',
 };
 
 /**

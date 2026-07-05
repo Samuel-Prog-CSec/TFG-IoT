@@ -33,7 +33,8 @@ import {
   ListOrdered,
   ListChecks,
   Sparkles,
-  Lock
+  Lock,
+  ImageOff
 } from 'lucide-react';
 import { toast } from 'sonner';
 import PropTypes from 'prop-types';
@@ -82,7 +83,9 @@ const statusToBadge = (status) => {
 function SummaryKpi({ icon, label, value, hint }) {
   return (
     <div className="rounded-xl bg-background-elevated/40 border border-border-subtle p-3">
-      <div className="flex items-center gap-2 text-xs text-text-muted">
+      {/* min-h de 2 líneas: "Tiempo por ronda" envuelve y sin esta reserva
+          los valores de las 4 tiles quedaban a distinta altura. */}
+      <div className="flex items-start gap-2 text-xs text-text-muted min-h-[2rem]">
         {icon}
         <span>{label}</span>
       </div>
@@ -326,9 +329,15 @@ export default function SessionDetail() {
   }, [selectedStudentId, session, navigate]);
 
   const statusInfo = statusToBadge(session?.status);
-  const canEdit = session?.status === 'created';
+  // ADR-231: contexto eliminado o mazo archivado → la sesión degrada a "solo
+  // historial" (sin jugar/clonar/editar). Solo el false explícito degrada.
+  const resourcesUnavailable = session?.resourcesAvailable === false;
+  const unavailableTooltip =
+    'El contexto o el mazo de esta sesión ya no están disponibles. Puedes consultar su historial, pero no volver a jugarla.';
+  const canEdit = session?.status === 'created' && !resourcesUnavailable;
   const canDelete = session?.status === 'created';
-  const canPlayDirectly = session?.status === 'created' || session?.status === 'active';
+  const canPlayDirectly =
+    (session?.status === 'created' || session?.status === 'active') && !resourcesUnavailable;
   const mechanicKey = (session?.mechanic?.name || '').toString().toLowerCase();
   const isAssociationSession = mechanicKey === 'association';
   const isMemorySession = mechanicKey === 'memory';
@@ -451,6 +460,16 @@ export default function SessionDetail() {
           </div>
           <div className="flex items-center gap-3">
             <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
+            {/* ADR-231: los recursos (contexto/mazo) ya no existen — la sesión
+                queda como historial consultable, sin re-juego ni edición. */}
+            {resourcesUnavailable && (
+              <Tooltip content={unavailableTooltip}>
+                <span className="inline-flex items-center gap-1 rounded-full border border-warning-base/30 bg-warning-base/15 px-2 py-0.5 text-[11px] font-medium text-warning-base whitespace-nowrap cursor-help">
+                  <ImageOff size={11} aria-hidden="true" />
+                  Recursos no disponibles
+                </span>
+              </Tooltip>
+            )}
             {/* QA 2026-05-06 (ADR-114): "Ver mapping" sólo tiene sentido en
                 Memoria — el "mapping" es el layout 2D del tablero digital
                 que simula la disposición física de las tarjetas. En
@@ -483,15 +502,23 @@ export default function SessionDetail() {
                 Jugar
               </ButtonPremium>
             ) : (
-              <ButtonPremium
-                variant="primary"
-                onClick={cloneModal.open}
-                disabled={cloneLoading}
+              <Tooltip
+                content={
+                  resourcesUnavailable
+                    ? unavailableTooltip
+                    : 'Crea una copia en borrador para volver a jugar esta sesión'
+                }
               >
-                <Timer size={16} />
-                <span className="sm:hidden">Clonar</span>
-                <span className="hidden sm:inline">Volver a jugar</span>
-              </ButtonPremium>
+                <ButtonPremium
+                  variant="primary"
+                  onClick={cloneModal.open}
+                  disabled={cloneLoading || resourcesUnavailable}
+                >
+                  <Timer size={16} />
+                  <span className="sm:hidden">Clonar</span>
+                  <span className="hidden sm:inline">Volver a jugar</span>
+                </ButtonPremium>
+              </Tooltip>
             )}
             <div className="border-l border-border-default h-8 mx-1" />
             <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
@@ -499,7 +526,9 @@ export default function SessionDetail() {
                   solo tenían icono; cuando están disabled, axe los marcaba
                   sin nombre accesible (Tooltip aporta describedby, no label).
                   Añadidos aria-label explícitos. */}
-              <Tooltip content="Editar sesión">
+              <Tooltip
+                content={resourcesUnavailable && !canEdit ? unavailableTooltip : 'Editar sesión'}
+              >
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
@@ -618,7 +647,7 @@ export default function SessionDetail() {
                   icon={<Award size={15} className="text-success-base" />}
                   label="Máx. puntos"
                   value={theoreticalMaxScore}
-                  hint="Score máximo teórico"
+                  hint="Puntuación máxima posible"
                 />
               </div>
             </GlassCard>
@@ -681,11 +710,11 @@ export default function SessionDetail() {
               <Sparkles size={18} className="text-success-base flex-shrink-0 mt-0.5" />
               <div>
                 <p className="text-sm font-semibold text-text-primary">
-                  Score máximo teórico:{' '}
+                  Puntuación máxima posible:{' '}
                   <span className="tabular-nums text-success-base">{theoreticalMaxScore} pts</span>
                 </p>
                 <p className="text-xs text-text-muted mt-0.5">
-                  Es el techo de puntos que un alumno puede sacar sin penalizaciones. Las estrellas (1-3⭐) se calculan por % de aciertos, no por score absoluto, para no desvirtuar el ranking entre sesiones.
+                  Es el techo de puntos que un alumno puede sacar sin penalizaciones. Las estrellas (1-3⭐) se calculan por % de aciertos, no por puntos absolutos, para no desvirtuar el ranking entre sesiones.
                 </p>
               </div>
             </div>

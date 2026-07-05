@@ -258,15 +258,17 @@ export default function SelectPremium({
           !disabled && 'hover:border-border-strong'
         )}
       >
-        {/* Selected value or placeholder */}
+        {/* Selected value or placeholder. `truncate` va en un span propio
+            (hijo del flex): aplicado al contenedor flex recortaba el texto en
+            seco y sin elipsis ("Clase comple" en Informes a 1366px). */}
         <span className={cn(
-          'flex items-center gap-2 truncate',
+          'flex min-w-0 flex-1 items-center gap-2',
           selected ? 'text-text-primary' : 'text-text-muted'
         )}>
           {selected?.icon && (
             <span className="flex-shrink-0">{selected.icon}</span>
           )}
-          {selected?.label || placeholder}
+          <span className="truncate">{selected?.label || placeholder}</span>
         </span>
 
         {/* Chevron */}
@@ -384,8 +386,12 @@ export default function SelectPremium({
                       <span className="flex-shrink-0">{option.icon}</span>
                     )}
 
-                    {/* Label */}
-                    <span className="flex-1 truncate">{option.label}</span>
+                    {/* Label — envuelve en vez de truncar: en dropdowns con
+                        frases largas (p.ej. tipos de alerta "Caída repentina
+                        de puntuación") el truncado impedía saber qué opción
+                        era cada una. El trigger sí trunca (una línea); la
+                        lista muestra el texto completo. */}
+                    <span className="flex-1 min-w-0 break-words">{option.label}</span>
 
                     {/* Check mark */}
                     {isSelected && (

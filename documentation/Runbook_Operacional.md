@@ -35,6 +35,7 @@
 | 18 | [Responder alerta UptimeRobot](#18-responder-alerta-uptimerobot) | Alta |
 | 19 | [Diagnosticar Security Audit rojo en CI](#19-diagnosticar-security-audit-rojo-en-ci) | Media (bloqueante PRs) |
 | 20 | [Responder alerta `rfid_hmac_spike` (rechazos HMAC/replay RFID)](#20-responder-alerta-rfid_hmac_spike-rechazos-hmacreplay-rfid) | Alta (posible ataque) / Media (firmware) |
+| 21 | [Supabase Storage: regla de oro y reparación de mutaciones a mano](#21-supabase-storage-regla-de-oro-y-reparación-de-mutaciones-a-mano-adr-231) | Media (integridad de assets) |
 
 ---
 
@@ -1008,3 +1009,42 @@ Si Redis cayó >30 min:
 **Verificación:** Tras la acción, el total de rechazos cae por debajo de 10/h; el detector deja de reaparecer y la alerta auto-resuelve tras 2 corridas sin findings (`*/5 * * * *`). Confirmar en el bloque `security` de `/api/metrics/rfid` que `invalid`/`replay` dejan de crecer.
 
 **Rollback:** N/A para la rotación del secret (es la acción correctiva). Si una rotación de secret se hizo por error y no había compromiso, re-provisionar el secret anterior en backend + firmware lo revierte.
+
+---
+
+## 21. Supabase Storage: regla de oro y reparación de mutaciones a mano (ADR-231)
+
+**Regla operativa: el bucket de Supabase NUNCA se muta a mano** (dashboard, SQL o API
+directa). MongoDB es la fuente de verdad de los assets; todo borrado va vía app, que
+borra Mongo primero y Storage después (patrón H2) precisamente para no dejar URLs
+muertas visibles.
+
+### Por qué un borrado a mano "parece funcionar" (y por qué es peor)
+
+Tras borrar una carpeta desde el dashboard, la app sigue listando los assets (salen de
+Mongo) y las imágenes siguen cargando durante horas o días por **doble caché**:
+
+1. **Navegador**: los assets se suben con `cacheControl: 31536000` (1 año — son
+   inmutables con path timestampado; decisión de egress free-tier).
+2. **CDN básica de Supabase** (free tier): sirve archivos borrados hasta que expira el
+   cache-control. Solo la Smart CDN (Pro+) invalida en ~60s.
+
+Resultado: un contexto "envenenado" con 404 diferidos e indetectables que aparecerán
+en tarjetas y partidas cuando expiren las cachés.
+
+### Reparación
+
+1. **Opción preferente — borrar el contexto vía app** (super_admin → Contextos →
+   Eliminar): la cascada ADR-231 limpia Mongo, archiva mazos y degrada sesiones; la
+   limpieza de Storage sobre la carpeta ya vacía es un no-op silencioso (log:
+   «Carpeta de contexto vacía o inexistente en Storage, nada que eliminar»).
+2. **Si el contexto debe conservarse**: borrar los assets afectados uno a uno desde la
+   app (mismo efecto por asset) y re-subir los archivos.
+3. Verificar en el log del backend que no quedan warnings de Storage y que el detalle
+   del contexto ya no lista los assets muertos.
+
+### Caso inverso (archivos huérfanos en el bucket sin doc en Mongo)
+
+Inofensivo e invisible para los usuarios. Se puede purgar manualmente desde el
+dashboard con seguridad — es el ÚNICO caso en el que tocar el bucket a mano es
+aceptable, porque Mongo ya no referencia esos paths.

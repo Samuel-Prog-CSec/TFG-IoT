@@ -109,6 +109,24 @@ const updateOne = (Model, filter, update, options = {}) =>
     ...options
   });
 
+/**
+ * Actualiza múltiples documentos que coincidan con el filtro.
+ * Pensado para operaciones batch (ej: archivado en cascada) donde no se
+ * necesitan los documentos actualizados de vuelta. Acepta { session } para
+ * participar en transacciones.
+ *
+ * @param {import('mongoose').Model} Model - Modelo de Mongoose
+ * @param {Object} filter - Filtro de búsqueda
+ * @param {Object} update - Campos a actualizar (operadores $ o campos planos)
+ * @param {Object} [options={}] - Opciones adicionales de Mongoose (ej: { session })
+ * @returns {Promise<{matchedCount: number, modifiedCount: number}>} Resultado
+ */
+const updateMany = (Model, filter, update, options = {}) =>
+  Model.updateMany(filter, update, {
+    runValidators: true,
+    ...options
+  });
+
 // ───────────────────────── Eliminación ─────────────────────────────
 
 /**
@@ -125,9 +143,10 @@ const deleteById = (Model, id) => Model.findByIdAndDelete(id);
  *
  * @param {import('mongoose').Model} Model - Modelo de Mongoose
  * @param {Object} filter - Filtro de búsqueda
+ * @param {Object} [options={}] - Opciones adicionales de Mongoose (ej: { session })
  * @returns {Promise<{deletedCount: number}>} Resultado de la eliminación
  */
-const deleteMany = (Model, filter) => Model.deleteMany(filter);
+const deleteMany = (Model, filter, options = {}) => Model.deleteMany(filter, options);
 
 // ────────────────────── Operaciones Batch ───────────────────────────
 
@@ -155,6 +174,7 @@ module.exports = {
   applyQueryOptions,
   updateById,
   updateOne,
+  updateMany,
   deleteById,
   deleteMany,
   insertMany,

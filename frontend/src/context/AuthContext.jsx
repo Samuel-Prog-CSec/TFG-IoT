@@ -388,8 +388,8 @@ export function AuthProvider({ children }) {
         captureException(socketError);
       }
 
-      // Mensaje de bienvenida
-      toast.success(`¡Bienvenido, ${user.name}!`);
+      // Mensaje de bienvenida — fórmula neutra («Bienvenido» presupone género).
+      toast.success(`¡Te damos la bienvenida, ${user.name}!`);
 
       // Redirigir
       const from = location.state?.from?.pathname;

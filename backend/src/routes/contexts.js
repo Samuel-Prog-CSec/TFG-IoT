@@ -13,6 +13,7 @@ const {
   getContextById,
   createContext,
   updateContext,
+  getContextDeletionImpact,
   deleteContext,
   getContextAssets
 } = require('../controllers/gameContextController');
@@ -362,8 +363,23 @@ router.put(
 );
 
 /**
+ * @route   GET /api/contexts/:id/deletion-impact
+ * @desc    Inventario de impacto del borrado en cascada (pre-chequeo del modal)
+ * @access  Private (Super_Admin únicamente)
+ * @validation params: gameContextIdParamsSchema | query: emptyObjectSchema
+ */
+router.get(
+  '/:id/deletion-impact',
+  authenticate,
+  requireRole('super_admin'),
+  validateParams(gameContextIdParamsSchema),
+  validateQuery(emptyObjectSchema),
+  asyncHandler(getContextDeletionImpact)
+);
+
+/**
  * @route   DELETE /api/contexts/:id
- * @desc    Eliminar contexto con limpieza de Supabase Storage
+ * @desc    Eliminar contexto con archivado en cascada y limpieza de Supabase Storage
  * @access  Private (Super_Admin únicamente)
  * @validation params: gameContextIdParamsSchema | query: emptyObjectSchema
  */

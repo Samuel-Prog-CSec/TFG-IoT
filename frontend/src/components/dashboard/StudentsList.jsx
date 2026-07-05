@@ -101,9 +101,12 @@ function StudentsList({ students }) {
 
       <header className="flex items-center justify-between mb-6">
         <h3 id="students-list-title" className="text-lg font-semibold text-text-primary font-display">Mejores Estudiantes</h3>
-        <span className="text-xs text-text-muted bg-background-surface/50 px-2 py-1 rounded-lg" aria-label={`Mostrando top ${topStudents.length}`}>
-          Top {topStudents.length}
-        </span>
+        {/* Sin estudiantes, el chip "Top 0" era ruido sin significado (QA cuenta virgen). */}
+        {hasStudents && (
+          <span className="text-xs text-text-muted bg-background-surface/50 px-2 py-1 rounded-lg" aria-label={`Mostrando top ${topStudents.length}`}>
+            Top {topStudents.length}
+          </span>
+        )}
       </header>
 
       {hasStudents ? (
@@ -133,13 +136,16 @@ function StudentsList({ students }) {
                 variants={staggerItem}
                 whileHover={{ x: 4 }}
                 onClick={() => navigate(`/students/${studentId}`)}
-                className="flex items-center justify-between p-3 rounded-xl transition-colors duration-200 group cursor-pointer hover:bg-background-surface/40 focus:outline-none focus:ring-1 focus:ring-brand-base/40 focus:bg-background-surface/20"
+                className="flex items-center justify-between gap-3 p-3 rounded-xl transition-colors duration-200 group cursor-pointer hover:bg-background-surface/40 focus:outline-none focus:ring-1 focus:ring-brand-base/40 focus:bg-background-surface/20"
                 role="listitem"
                 tabIndex={0}
                 onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/students/${studentId}`); }}
                 aria-label={`${student.name}, puntuación ${Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}, posición ${index + 1}`}
               >
-                <div className="flex items-center gap-3">
+                {/* flex-1 + min-w-0: sin esto el `truncate` del nombre nunca
+                    actúa y los nombres largos empujaban el % hasta pegarse
+                    ("Joaquín Vázquez92%") y partían el aula en dos líneas. */}
+                <div className="flex flex-1 min-w-0 items-center gap-3">
                   {/* Rank Badge: pódium oro/plata/bronce para top 3; neutro resto */}
                   <span
                     className={cn(
@@ -188,17 +194,17 @@ function StudentsList({ students }) {
                       {student.name}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={cn("text-nano font-semibold px-1.5 py-0.5 rounded-md", tierBadge.className)}>
+                      <span className={cn("text-nano font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap", tierBadge.className)}>
                         {tierBadge.label}
                       </span>
                       {student.classroom && (
-                        <span className="text-xs text-text-muted">{student.classroom}</span>
+                        <span className="text-xs text-text-muted whitespace-nowrap truncate">{student.classroom}</span>
                       )}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <div className="text-right">
                     <div
                       className={cn("font-bold tabular-nums", getTierColor(student.tier))}

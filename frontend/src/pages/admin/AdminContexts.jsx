@@ -20,6 +20,7 @@ import {
   Trash2,
   RefreshCw,
   AlertTriangle,
+  ShieldCheck,
   ImageIcon,
   Music
 } from 'lucide-react';
@@ -435,35 +436,107 @@ export default function AdminContexts() {
     }
   };
 
-  const handleDeleteRequest = ctx => {
+  // Concordancia singular/plural para el inventario del modal (QA 2026-05-21).
+  const plural = (n, singular, pluralForm) => (n === 1 ? singular : pluralForm);
+
+  /**
+   * Flujo de borrado en dos tiempos (ADR-231): primero se pide el inventario
+   * de impacto al backend y el modal muestra EXACTAMENTE qué se archivará,
+   * qué se eliminará y qué se conserva. Si hay partidas en curso, el confirm
+   * queda deshabilitado con el motivo a la vista.
+   */
+  const handleDeleteRequest = async ctx => {
     const totalAssets = ctx.assets?.length ?? ctx.assetsCount ?? 0;
+
+    let impact;
+    try {
+      impact = extractData(await contextsAPI.getContextDeletionImpact(getId(ctx)));
+    } catch (err) {
+      toast.error(extractErrorMessage(err) || 'No se pudo calcular el impacto del borrado.');
+      return;
+    }
+
+    const blocked = impact.activePlays > 0;
+    const affectedNames = (impact.teachersAffected || []).map(t => t.name).join(', ');
+
     deleteModal.openModal({
       title: `Eliminar contexto "${ctx.name}"`,
       variant: 'danger',
       confirmText: 'Eliminar definitivamente',
       cancelText: 'Cancelar',
+      confirmDisabled: blocked,
       description: (
         <div className="space-y-3 text-sm text-text-secondary">
           <p>Vas a eliminar el contexto <strong>{ctx.name}</strong> de forma permanente.</p>
+          {blocked && (
+            <div className="flex items-start gap-2 rounded-lg border border-error-base/40 bg-error-base/10 p-3 text-xs">
+              <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
+              <span>
+                Ahora mismo hay <strong>{impact.activePlays}</strong>{' '}
+                {plural(impact.activePlays, 'partida en curso', 'partidas en curso')} con este
+                contexto. Espera a que {plural(impact.activePlays, 'termine', 'terminen')} para
+                poder eliminarlo.
+              </span>
+            </div>
+          )}
           <ul className="space-y-1 rounded-lg border border-error-base/30 bg-error-base/10 p-3 text-xs">
             <li className="flex items-start gap-2">
               <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
-              <span>Se borran <strong>{totalAssets}</strong> assets asociados (imágenes, thumbnails y audios).</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
               <span>
-                Se elimina la carpeta <code className="rounded bg-background-base/60 px-1">ctx-{ctx.contextId}</code>{' '}
-                del almacenamiento del centro (imagen, miniatura y audio).
+                Se {plural(totalAssets, 'borra', 'borran')} <strong>{totalAssets}</strong>{' '}
+                {plural(totalAssets, 'recurso', 'recursos')} (imágenes, miniaturas y audios) y su
+                carpeta <code className="rounded bg-background-base/60 px-1">ctx-{ctx.contextId}</code>{' '}
+                del almacenamiento del centro.
               </span>
             </li>
-            <li className="flex items-start gap-2">
-              <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
-              <span>
-                Si hay mazos, sesiones o partidas activas usando este contexto, la operación se rechazará.
-              </span>
-            </li>
+            {impact.decksToArchive > 0 && (
+              <li className="flex items-start gap-2">
+                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
+                <span>
+                  Se {plural(impact.decksToArchive, 'archivará', 'archivarán')}{' '}
+                  <strong>{impact.decksToArchive}</strong>{' '}
+                  {plural(impact.decksToArchive, 'mazo', 'mazos')} (no se podrán reactivar).
+                </span>
+              </li>
+            )}
+            {impact.sessionsToComplete > 0 && (
+              <li className="flex items-start gap-2">
+                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
+                <span>
+                  <strong>{impact.sessionsToComplete}</strong>{' '}
+                  {plural(impact.sessionsToComplete, 'sesión jugada pasará', 'sesiones jugadas pasarán')}{' '}
+                  a solo consulta (sin volver a jugar ni editar).
+                </span>
+              </li>
+            )}
+            {impact.draftSessionsToDelete > 0 && (
+              <li className="flex items-start gap-2">
+                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
+                <span>
+                  Se {plural(impact.draftSessionsToDelete, 'eliminará', 'eliminarán')}{' '}
+                  <strong>{impact.draftSessionsToDelete}</strong>{' '}
+                  {plural(impact.draftSessionsToDelete, 'sesión en borrador', 'sesiones en borrador')}{' '}
+                  (sin partidas).
+                </span>
+              </li>
+            )}
           </ul>
+          <div className="flex items-start gap-2 rounded-lg border border-success-base/30 bg-success-base/10 p-3 text-xs">
+            <ShieldCheck size={14} className="mt-0.5 flex-shrink-0 text-success-base" aria-hidden="true" />
+            <span>
+              Las partidas y estadísticas del alumnado se conservan
+              {impact.playsPreserved > 0 && (
+                <> (<strong>{impact.playsPreserved}</strong> {plural(impact.playsPreserved, 'partida', 'partidas')})</>
+              )}
+              .
+            </span>
+          </div>
+          {affectedNames && (
+            <p className="text-xs text-text-muted">
+              {plural(impact.teachersAffected.length, 'Docente afectado', 'Docentes afectados')}:{' '}
+              {affectedNames}.
+            </p>
+          )}
         </div>
       ),
       onConfirm: () => performDelete(ctx)
@@ -473,8 +546,20 @@ export default function AdminContexts() {
   const performDelete = async ctx => {
     setPendingDeleteId(getId(ctx));
     try {
-      await contextsAPI.deleteContext(getId(ctx));
-      toast.success(`Contexto "${ctx.name}" eliminado junto con sus archivos en Storage.`);
+      const summary = extractData(await contextsAPI.deleteContext(getId(ctx)));
+      const parts = [];
+      if (summary?.decksToArchive > 0) {
+        parts.push(`${summary.decksToArchive} ${plural(summary.decksToArchive, 'mazo archivado', 'mazos archivados')}`);
+      }
+      if (summary?.sessionsToComplete > 0) {
+        parts.push(`${summary.sessionsToComplete} ${plural(summary.sessionsToComplete, 'sesión pasada a historial', 'sesiones pasadas a historial')}`);
+      }
+      if (summary?.draftSessionsToDelete > 0) {
+        parts.push(`${summary.draftSessionsToDelete} ${plural(summary.draftSessionsToDelete, 'borrador eliminado', 'borradores eliminados')}`);
+      }
+      toast.success(`Contexto "${ctx.name}" eliminado junto con sus archivos.`, {
+        description: parts.length > 0 ? parts.join(' · ') : undefined
+      });
       await loadContexts();
     } catch (err) {
       toast.error(extractErrorMessage(err) || 'No se pudo eliminar el contexto.');

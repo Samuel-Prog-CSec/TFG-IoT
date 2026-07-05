@@ -5,6 +5,7 @@
  */
 
 import { useState, useRef, useEffect, useCallback, useId, cloneElement, isValidElement } from 'react';
+import { createPortal } from 'react-dom';
 import { m as motion, AnimatePresence } from 'framer-motion';
 import { cn } from '../../lib/utils';
 
@@ -28,7 +29,11 @@ function getEffectiveSide(triggerRect, preferredSide) {
 
   switch (preferredSide) {
     case 'top':
-      return top < 60 ? 'bottom' : 'top';
+      // 120px cubre un tooltip multilinea (max-w-260px ≈ 3-4 lineas + offset).
+      // Con 60px, un contenido largo cerca del borde superior se salia del
+      // viewport por arriba (reporte usuario 2026-07-05, badge "Recursos no
+      // disponibles" del detalle de sesion).
+      return top < 120 ? 'bottom' : 'top';
     case 'bottom':
       return bottom > viewportHeight - 60 ? 'top' : 'bottom';
     case 'left':
@@ -89,6 +94,12 @@ export default function Tooltip({
 }) {
   const [visible, setVisible] = useState(false);
   const [effectiveSide, setEffectiveSide] = useState(side);
+  // Rect del trigger en coordenadas de viewport: ancla el tooltip portaleado.
+  const [triggerRect, setTriggerRect] = useState(null);
+  // Corrección horizontal (px) para que un tooltip centrado en un trigger
+  // pegado al borde no se salga del viewport; la flecha se compensa a la
+  // inversa para seguir señalando al trigger.
+  const [hShift, setHShift] = useState(0);
   const tooltipId = useId();
   const triggerRef = useRef(null);
   const hoverTimeoutRef = useRef(null);
@@ -100,13 +111,48 @@ export default function Tooltip({
     };
   }, []);
 
-  // Recalcular lado al hacerse visible
+  // Medir el trigger y recalcular lado al hacerse visible. Mientras esté
+  // visible, re-medimos en scroll/resize para que el ancla fija siga pegada
+  // al trigger (el scroll con tooltip abierto es raro pero posible).
   useEffect(() => {
-    if (visible && triggerRef.current) {
+    if (!visible) return undefined;
+
+    const measure = () => {
+      if (!triggerRef.current) return;
       const rect = triggerRef.current.getBoundingClientRect();
+      setTriggerRect(rect);
       setEffectiveSide(getEffectiveSide(rect, side));
-    }
+    };
+
+    measure();
+    window.addEventListener('scroll', measure, { capture: true, passive: true });
+    window.addEventListener('resize', measure);
+    return () => {
+      window.removeEventListener('scroll', measure, { capture: true });
+      window.removeEventListener('resize', measure);
+    };
   }, [visible, side]);
+
+  // Reset de la corrección horizontal al ocultarse (cada apertura re-mide).
+  useEffect(() => {
+    if (!visible) setHShift(0);
+  }, [visible]);
+
+  // Callback ref del tooltip ya montado: si sobresale por un lateral del
+  // viewport, se desplaza lo justo. Solo corre al montar el nodo (no en
+  // re-renders), así que la corrección es de una sola pasada, sin bucles.
+  const clampToViewport = useCallback((node) => {
+    if (!node) return;
+    const rect = node.getBoundingClientRect();
+    const margin = 8;
+    let delta = 0;
+    if (rect.right > window.innerWidth - margin) {
+      delta = window.innerWidth - margin - rect.right;
+    } else if (rect.left < margin) {
+      delta = margin - rect.left;
+    }
+    if (Math.abs(delta) > 1) setHShift(prev => prev + delta);
+  }, []);
 
   const show = useCallback(() => {
     hoverTimeoutRef.current = setTimeout(() => setVisible(true), delay);
@@ -199,44 +245,69 @@ export default function Tooltip({
       })}
     >
       {child}
-      <AnimatePresence>
-        {visible && (
-          <motion.span
-            id={tooltipId}
-            role="tooltip"
-            initial={variants.initial}
-            animate={variants.animate}
-            exit={variants.exit}
-            transition={{ duration: 0.15, ease: [0.25, 1, 0.5, 1] }}
-            className={cn(
-              'absolute z-[60] pointer-events-none',
-              'px-3 py-2 rounded-lg',
-              'text-xs font-medium leading-snug',
-              // Texto corto = una sola linea; texto largo (mas de 32 chars) hace wrap con max-width
-              typeof content === 'string' && content.length > 32
-                ? 'max-w-[260px] whitespace-normal text-balance'
-                : 'whitespace-nowrap',
-              // Glassmorphism con saturacion para coherencia con resto de UI
-              'bg-background-elevated/95 backdrop-blur-md text-text-primary',
-              'border border-border-default',
-              // Tokens por tema — en light el tooltip no flota con sombra
-              // negra agresiva sobre el papel marfil (T-951 Fase 1).
-              'shadow-[var(--shadow-lg),var(--shadow-inset-card)]',
-              positionClasses[effectiveSide]
-            )}
-          >
-            {content}
-            {/* Flecha */}
+      {/* Portal a body con un ancla `fixed` que replica el rect del trigger:
+          el tooltip conserva sus clases de posicionamiento relativo (absolute
+          + positionClasses) pero vive fuera de cualquier ancestro con
+          overflow-hidden (las GlassCard lo recortaban) o stacking context
+          bajo (reporte usuario 2026-07-05). */}
+      {createPortal(
+        <AnimatePresence>
+          {visible && triggerRect && (
             <span
-              className={cn(
-                'absolute w-0 h-0 border-[5px]',
-                arrowClasses[effectiveSide]
-              )}
-              aria-hidden="true"
-            />
-          </motion.span>
-        )}
-      </AnimatePresence>
+              className="pointer-events-none z-[60]"
+              style={{
+                position: 'fixed',
+                top: triggerRect.top,
+                left: triggerRect.left,
+                width: triggerRect.width,
+                height: triggerRect.height,
+              }}
+            >
+              <motion.span
+                ref={clampToViewport}
+                id={tooltipId}
+                role="tooltip"
+                style={{ marginLeft: hShift }}
+                initial={variants.initial}
+                animate={variants.animate}
+                exit={variants.exit}
+                transition={{ duration: 0.15, ease: [0.25, 1, 0.5, 1] }}
+                className={cn(
+                  'absolute pointer-events-none',
+                  'px-3 py-2 rounded-lg',
+                  'text-xs font-medium leading-snug',
+                  // Texto corto = una sola linea; texto largo (mas de 32 chars) hace
+                  // wrap con max-width. `w-max` es imprescindible: un absolute dentro
+                  // de un ancla estrecha (badge/boton) hace shrink-to-fit al ancho del
+                  // ancla y el texto con wrap quedaba en columna de ~90px.
+                  typeof content === 'string' && content.length > 32
+                    ? 'w-max max-w-[260px] whitespace-normal text-balance'
+                    : 'whitespace-nowrap',
+                  // Glassmorphism con saturacion para coherencia con resto de UI
+                  'bg-background-elevated/95 backdrop-blur-md text-text-primary',
+                  'border border-border-default',
+                  // Tokens por tema — en light el tooltip no flota con sombra
+                  // negra agresiva sobre el papel marfil (T-951 Fase 1).
+                  'shadow-[var(--shadow-lg),var(--shadow-inset-card)]',
+                  positionClasses[effectiveSide]
+                )}
+              >
+                {content}
+                {/* Flecha (compensa el clamp horizontal para apuntar al trigger) */}
+                <span
+                  className={cn(
+                    'absolute w-0 h-0 border-[5px]',
+                    arrowClasses[effectiveSide]
+                  )}
+                  style={{ marginLeft: -hShift }}
+                  aria-hidden="true"
+                />
+              </motion.span>
+            </span>
+          )}
+        </AnimatePresence>,
+        document.body
+      )}
     </span>
   );
 }
