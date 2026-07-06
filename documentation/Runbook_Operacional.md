@@ -49,27 +49,44 @@
 
 1. Asegúrate de que tu rama está mergeada o cherry-picked a `Maintenance`.
 2. Push a `Maintenance`: `git push origin Maintenance`.
-3. El workflow `build.yml` (CI) corre primero.
-4. Si CI verde, `deploy-staging.yml` se dispara automáticamente via `workflow_run`.
-5. Monitor: https://github.com/Samuel-Prog-CSec/TFG-IoT/actions
+3. El workflow `build.yml` (CI) corre primero, en `ubuntu-latest`.
+4. Si CI verde, `deploy-staging.yml` se dispara automáticamente vía `workflow_run` — se
+   ejecuta en el runner **self-hosted** `contabo-vps` (nunca en un trigger `pull_request`,
+   ver [`SECURITY.md#runner-self-hosted`](SECURITY.md#runner-self-hosted)).
+5. El job copia `/opt/eduplay/secrets/staging.env` a un `.env` en el workspace del runner
+   (`docker-compose.yml` declara `env_file: - .env`, un nombre literal — el flag `--env-file`
+   de `docker compose` NO alimenta esa directiva) y ejecuta:
+   ```bash
+   cp /opt/eduplay/secrets/staging.env .env
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+     -p eduplay-staging up -d --build
+   ```
+6. Smoke test automático: 8 intentos × 15s contra `http://127.0.0.1:<PORT>/api/health/ready`
+   (directo por loopback — el runner vive en la propia VPS, no sale a Internet).
+7. Monitor: https://github.com/Samuel-Prog-CSec/TFG-IoT/actions
 
-**Pre-requisitos de config (Settings → Secrets and variables → Actions):**
+**Pre-requisitos de config:**
 
-- **Secrets:** `KOYEB_API_TOKEN`, `KOYEB_API_STAGING_NAME`, `KOYEB_WORKER_STAGING_NAME`.
-- **Variables:** `KOYEB_STAGING_URL` (no es secreto — URL operativa visible en logs).
-
-Si falta cualquiera, el step "Verificar secrets y variables requeridos" detiene el workflow con un error claro.
+- Ya **no hay** Secrets/Variables de GitHub que configurar para este deploy — los secretos de
+  runtime viven en `/opt/eduplay/secrets/staging.env`, en el filesystem de la propia VPS (ver
+  [`Secrets_Rotation.md`](Secrets_Rotation.md)).
+- El runner self-hosted `contabo-vps` debe estar online (GitHub → repo → *Settings* →
+  *Actions* → *Runners*) y `/opt/eduplay/secrets/staging.env` debe existir en la VPS (`chmod
+  600`, propiedad de `deploy`).
 
 **Verificación:**
 
 ```bash
-curl -i https://api-staging-<org>.koyeb.app/health/ready
+curl -i https://eduplay-tfg-staging.duckdns.org/api/health/ready
 # Esperar 200 con { "ready": true, "checks": { "mongo": "ok", "redis": "ok" } }
 ```
 
-Frontend: abrir `https://maintenance.eduplay-frontend.pages.dev` → login con `maria@test.com` / `Test1234!` → comprobar que se conecta a `api-staging`.
+Login con `maria@test.com` / `Test1234!` en `https://eduplay-tfg-staging.duckdns.org` — frontend
+y backend comparten origen (sin CORS entre ellos), no hay una URL de frontend separada.
 
-**Rollback:** Automático si `/health/ready` falla <3/8 veces tras deploy. Manual con [playbook 3](#3-rollback-manual-de-producción) sustituyendo `prod` por `staging`.
+**Rollback:** Automático si `/api/health/ready` falla ≥6/8 veces tras deploy (vuelve al SHA
+registrado en `/opt/eduplay/secrets/staging.last-good-sha`). Manual con [playbook
+3](#3-rollback-manual-de-producción) sustituyendo `prod` por `staging`.
 
 ---
 
@@ -84,29 +101,46 @@ Frontend: abrir `https://maintenance.eduplay-frontend.pages.dev` → login con `
 1. Asegúrate de que el PR "chore: release vX.Y.Z" de `release-please` está abierto en GitHub.
 2. Revisa el CHANGELOG que ha generado. Si necesitas editar (ej. la primera release retroactiva), edita el archivo `CHANGELOG.md` directamente en el PR.
 3. Aprueba y mergea el PR.
-4. `release-please` crea automáticamente el tag `vX.Y.Z` y dispara `deploy-production.yml`.
-5. El workflow espera approval en el environment `production`. Aprueba desde:
+4. `release-please` crea automáticamente el tag `vX.Y.Z`, lo que dispara `deploy-production.yml`
+   (`push: tags: ["v*"]`).
+5. El job `validate-tag` corre primero en `ubuntu-latest` (valida el formato semver); el job
+   `deploy` corre en el runner **self-hosted** `contabo-vps` y espera approval en el
+   environment `production`. Aprueba desde:
    `https://github.com/Samuel-Prog-CSec/TFG-IoT/actions/runs/<RUN_ID>`
-6. El workflow redeploya `api-prod` + `worker-prod` en paralelo + smoke test.
+6. Tras aprobar, el job copia `/opt/eduplay/secrets/prod.env` a un `.env` y ejecuta:
+   ```bash
+   cp /opt/eduplay/secrets/prod.env .env
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+     -p eduplay-prod up -d --build
+   ```
+   Seguido de un smoke test (8 intentos × 15s contra `127.0.0.1:8090/api/health/ready`) y la
+   creación/actualización del GitHub Release del tag.
 
 **Pre-requisitos de config:**
 
 - **Environment `production`** con Required reviewer = Samuel-Prog-CSec y Deployment branches = tags `v*`. Si no existe, el workflow queda *Waiting for approval* sin un reviewer asignado y nunca progresa.
-- **Secrets:** `KOYEB_API_TOKEN`, `KOYEB_API_PROD_NAME`, `KOYEB_WORKER_PROD_NAME`.
-- **Variables:** `KOYEB_PROD_URL` (no es secreto). Si la migración desde `secrets.KOYEB_PROD_URL` no se ha hecho, borrar la antigua y crear la nueva como Variable.
+- **Variable `PROD_URL`** = `https://eduplay-tfg.duckdns.org` (`vars.*`, usada en
+  `environment.url` del workflow y en `zap-scan.yml`).
+- El runner self-hosted `contabo-vps` debe estar online y `/opt/eduplay/secrets/prod.env` debe
+  existir en la VPS. Ya no hay secrets de GitHub que configurar para el deploy en sí (ver
+  [`Secrets_Rotation.md`](Secrets_Rotation.md)).
 
 **Verificación:**
 
 ```bash
-curl -i https://api-<org>.koyeb.app/health/ready    # 200
-curl -i https://api-<org>.koyeb.app/health         # 200 con detalle
-# Frontend
-curl -I https://eduplay-frontend.pages.dev          # 200 (Cloudflare Pages)
+curl -i https://eduplay-tfg.duckdns.org/api/health/ready    # 200
+curl -i https://eduplay-tfg.duckdns.org/api/health           # 200 con detalle
 ```
+
+El `/health` de Nginx (sin `/api`) es solo el liveness ping estático del contenedor ("OK\n"),
+no expone detalle — no confundir con `/api/health` de arriba.
+
+Frontend y backend comparten origen (mismo dominio, sin CORS) — no hay una URL de frontend separada que verificar.
 
 Login con un docente real → crear sesión → simular RFID scan → verificar que GamePlay se crea en MongoDB.
 
-**Rollback:** Automático si `/health/ready` falla ≥5/8 veces. Manual con [playbook 3](#3-rollback-manual-de-producción).
+**Rollback:** Automático si `/api/health/ready` falla ≥5/8 veces (vuelve al tag registrado en
+`/opt/eduplay/secrets/prod.last-good-tag`). Manual con [playbook 3](#3-rollback-manual-de-producción).
 
 ---
 
@@ -117,41 +151,53 @@ Login con un docente real → crear sesión → simular RFID scan → verificar 
 **Diagnóstico:**
 
 ```bash
-# 1. ¿Está respondiendo /health/ready?
-curl -s https://api-<org>.koyeb.app/health/ready | jq
+# 1. ¿Está respondiendo /api/health/ready?
+curl -s https://eduplay-tfg.duckdns.org/api/health/ready | jq
 
 # 2. ¿Qué dice el log de Sentry? Top 5 errores en los últimos 15 min.
 
-# 3. ¿La revisión actual es la del último deploy?
-koyeb services describe api-prod
+# 3. ¿Los contenedores están sanos? (por SSH en la VPS, como `deploy`)
+docker compose -p eduplay-prod ps
 ```
 
 **Pasos:**
 
-1. **Instalar Koyeb CLI** (si no lo tienes):
+No hay API de rollback instantáneo como en Koyeb — "rollback" aquí es volver al tag anterior y
+reconstruir. Dos formas de hacerlo, de más a menos preferible:
+
+1. **Re-disparar `deploy-production.yml` vía `workflow_dispatch` con el tag anterior como
+   input** (recomendado — queda auditado en Actions, usa el mismo flujo que un deploy normal):
+   `https://github.com/Samuel-Prog-CSec/TFG-IoT/actions/workflows/deploy-production.yml` →
+   *Run workflow* → introducir el tag anterior (ej. `v1.0.0` si `v1.0.1` es el que falló).
+2. **Manual por SSH en la VPS** (si el runner no responde o Actions está caído):
    ```bash
-   curl -fsSL https://raw.githubusercontent.com/koyeb/koyeb-cli/master/install.sh | sh
-   export KOYEB_TOKEN=<tu_token_personal>
+   # Averiguar el último tag bueno registrado automáticamente por deploy-production.yml:
+   cat /opt/eduplay/secrets/prod.last-good-tag
+
+   # En el checkout que use el runner (o uno manual de depuración, ver Deploy_VPS.md §6.3):
+   git fetch origin "refs/tags/<PREV_TAG>"
+   git checkout "<PREV_TAG>"
+   cp /opt/eduplay/secrets/prod.env .env
+   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+     -p eduplay-prod up -d --build
    ```
-2. **Rollback paralelo de api + worker:**
-   ```bash
-   koyeb services rollback api-prod --token "$KOYEB_TOKEN"
-   koyeb services rollback worker-prod --token "$KOYEB_TOKEN"
-   ```
-   Koyeb mantiene las últimas 5 revisiones y vuelve a la anterior estable.
+
+Más lento que el revert instantáneo de Koyeb (~1-2 min de rebuild de imágenes), pero sin
+infraestructura adicional que mantener.
 
 **Verificación:**
 
 ```bash
 # Esperar 60-90s a que el rollback termine
 sleep 90
-curl -s https://api-<org>.koyeb.app/health/ready | jq
+curl -s https://eduplay-tfg.duckdns.org/api/health/ready | jq
 # Esperado: { "ready": true, "checks": { "mongo": "ok", "redis": "ok" } }
 ```
 
 Confirmar con un smoke test E2E: login + endpoint autenticado funcionando.
 
-**Rollback del rollback:** Si la versión anterior también está rota (raro), usar `koyeb services describe api-prod --revisions` para listar revisiones y deploy con `koyeb services update api-prod --revision <SHA>`.
+**Rollback del rollback:** Si la versión anterior también está rota (raro), repetir el paso 1/2
+con un tag aún más antiguo hasta encontrar una versión sana.
 
 ---
 
@@ -699,6 +745,12 @@ cd backend && npm audit --omit=dev
 
 ## 16. Crear preview deploy desde un Pull Request
 
+> ⚠️ **RETIRADO (migración a VPS, 06-07-2026).** `preview-deploy.yml` dependía de Koyeb +
+> Cloudflare Pages y se eliminó junto con ellos — este playbook ya no es ejecutable tal cual.
+> No hay reemplazo: la validación de una feature pasa por `develop` → `Maintenance` (deploy
+> real a staging, [playbook 1](#1-desplegar-a-staging)). Se conserva el resto de la sección sin
+> reescribir, como referencia histórica de cómo funcionaban los previews por PR.
+
 **Síntoma:** Un PR cambia código relevante para QA visual o flujos críticos (RFID, gameplay, analytics) y se quiere probar la build real antes de mergear a `Maintenance`.
 
 **Cómo funciona:**
@@ -903,17 +955,21 @@ node backend/scripts/audit-with-exclusions.js --workspace backend --label "Backe
 - **ADR-139..146** en [`Architecture_Decisions.md`](Architecture_Decisions.md): decisiones de stack y CD.
 - **ADR-165, ADR-166**: Sentry Performance + Log shipping Loki (T-904).
 - **ADR-167**: Saneamiento del pipeline CI/CD pre-cierre cloud foundation.
-- **[`Deploy_Koyeb.md`](Deploy_Koyeb.md)**: aprovisionamiento inicial.
-- **[`Operational_Dashboard.md`](Operational_Dashboard.md)**: hub de las 6 consolas + saved queries LogQL.
+- **[`Deploy_VPS.md`](Deploy_VPS.md)**: aprovisionamiento de la VPS Contabo (sustituye a `Deploy_Koyeb.md`).
+- **[`SECURITY.md#runner-self-hosted`](SECURITY.md#runner-self-hosted)**: modelo de seguridad del runner self-hosted.
+- **[`Operational_Dashboard.md`](Operational_Dashboard.md)**: hub de las consolas externas + saved queries LogQL.
 - **[`Secrets_Rotation.md`](Secrets_Rotation.md)**: política rotación completa.
 - **[`Proteccion_Datos_Menores.md`](Proteccion_Datos_Menores.md)**: política RGPD detallada.
 - **Sentry**: https://sentry.io (login con cuenta del proyecto).
 - **Grafana Cloud**: https://grafana.com (Loki + alertas LogQL).
 - **UptimeRobot**: https://uptimerobot.com.
-- **Koyeb**: https://koyeb.com.
-- **Atlas**: https://cloud.mongodb.com.
-- **Upstash**: https://upstash.com.
-- **Cloudflare**: https://dash.cloudflare.com.
+- **Contabo**: https://contabo.com (panel del proveedor de la VPS).
+- **DuckDNS**: https://www.duckdns.org (dominios gratuitos usados en producción/staging).
+
+> Koyeb, MongoDB Atlas, Upstash y Cloudflare Pages se retiraron en la migración a la VPS
+> Contabo (06-07-2026) — los playbooks §6/§7/§11/§12/§13/§13a-e/§17/§18 de más abajo todavía
+> describen procedimientos atados a esos proveedores y no se han reescrito en esta tarea;
+> tratarlos como referencia histórica hasta una revisión posterior.
 
 ---
 

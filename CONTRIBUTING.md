@@ -1,7 +1,7 @@
 # Guía de contribución — TFG-IoT (EduPlay)
 
 > Esta guía cubre el flujo de trabajo del repositorio: cómo escribir commits, abrir PRs, gestionar versiones y desplegar.
-> Para el aprovisionamiento cloud inicial ver [`documentation/Deploy_Koyeb.md`](documentation/Deploy_Koyeb.md).
+> Para el aprovisionamiento de la VPS ver [`documentation/Deploy_VPS.md`](documentation/Deploy_VPS.md).
 > Para la política de rotación de secretos ver [`documentation/Secrets_Rotation.md`](documentation/Secrets_Rotation.md).
 
 ---
@@ -83,8 +83,8 @@ main         ── Estado de producción. Sólo recibe merges desde el PR que a
 Maintenance  ── Rama de validación pre-release. Aquí se hace QA, se aplican
                 fixes detectados al integrar y se pulen detalles. Cada push
                 verde en CI dispara deploy-staging.yml para validar el
-                comportamiento contra Koyeb + Atlas + Upstash reales.
-                Cuando está estable, se mergea a main para release.
+                comportamiento contra el stack real desplegado en la VPS
+                (staging). Cuando está estable, se mergea a main para release.
 
 develop      ── Rama de integración. Recibe los PRs de las features y es
                 el origen para crear nuevas ramas de feature. No despliega.
@@ -93,9 +93,9 @@ develop      ── Rama de integración. Recibe los PRs de las features y es
                 back-merge desde main para mantenerse sincronizada.
 
 feature/*    ── Ramas de feature (ej. `feature/cloud-foundation-and-cd`).
-                Parten de `develop` y vuelven a `develop` vía PR. Si la
-                variable `PREVIEW_DEPLOYS_ENABLED=true` está activa, cada
-                PR genera un preview backend efímero en Koyeb.
+                Parten de `develop` y vuelven a `develop` vía PR. No hay
+                preview deploys por PR (se retiraron junto con Koyeb): la
+                validación de una feature pasa por develop → Maintenance.
 
 Testing      ── Rama auxiliar para desarrollar/refactorizar suites de tests.
                 No participa en CI/CD — los tests se ejecutan en local
@@ -123,7 +123,7 @@ develop ──► feature/* ──PR──► develop ──► Maintenance ─�
 4. Lanza tests y lint en local: `npm test && npm run lint` en `backend/` y `frontend/`.
 5. Abre PR a `develop`. CI verde + (opcional) review + merge.
 6. Cuando `develop` acumula un bloque listo para validar, se promueve a `Maintenance` (PR develop → Maintenance, o merge directo si es un set pequeño y aislado).
-7. El push a `Maintenance` dispara `deploy-staging.yml` automáticamente — el código ya está corriendo en `api-staging.koyeb.app`. Aprovecha para QA en cloud real.
+7. El push a `Maintenance` dispara `deploy-staging.yml` automáticamente — el código ya está corriendo en `https://eduplay-tfg-staging.duckdns.org`. Aprovecha para QA contra el entorno real.
 8. Si durante la QA en `Maintenance` aparecen fixes, commit allí y vuelven a `develop` vía back-merge (PR o merge directo).
 9. Cuando `Maintenance` está estable, mergéala a `main` (PR Maintenance → main).
 10. `release-please` actualizará automáticamente su PR "chore: release vX.Y.Z" con el CHANGELOG generado desde los commits.
@@ -152,7 +152,7 @@ develop ──► feature/* ──PR──► develop ──► Maintenance ─�
 3. Revisa el CHANGELOG y aprueba el PR.
 4. Al mergear, release-please crea el tag `vX.Y.Z` automáticamente.
 5. El tag dispara `deploy-production.yml`, que pasa por el approval gate del environment `production`.
-6. Aprueba el deploy desde la UI de GitHub → deploy-production hace redeploy en Koyeb + smoke test + GitHub Release.
+6. Aprueba el deploy desde la UI de GitHub → deploy-production hace redeploy del stack `eduplay-prod` en la VPS (runner self-hosted) + smoke test + GitHub Release.
 
 ### Hotfix urgente sin esperar al ciclo de release
 
@@ -183,31 +183,31 @@ git push -u origin fix/hotfix-descripcion
 
 | Workflow | Trigger | Hace |
 |---|---|---|
-| `deploy-staging.yml` | `workflow_run` con CI verde en `Maintenance` | Redeploy api-staging + worker-staging en Koyeb |
-| `deploy-production.yml` | Push de tag `v*` o `workflow_dispatch` | Redeploy api-prod + worker-prod con approval gate |
+| `deploy-staging.yml` | `workflow_run` con CI verde en `Maintenance` | Redeploy del stack `eduplay-staging` en la VPS Contabo (runner self-hosted `contabo-vps`) |
+| `deploy-production.yml` | Push de tag `v*` o `workflow_dispatch` | Redeploy del stack `eduplay-prod` en la VPS con approval gate del environment `production` |
 | `release-please.yml` | Push a `main` | Mantiene PR de release con CHANGELOG |
-| `preview-deploy.yml` | PR opened/sync/closed (sólo si `PREVIEW_DEPLOYS_ENABLED=true`) | Crea/destruye servicio efímero `api-pr-<N>` |
+
+> `preview-deploy.yml` se retiró junto con Koyeb (dependía de sus previews efímeros por PR). No hay reemplazo: la validación de una feature pasa por `develop` → `Maintenance` (staging real).
+
+> Los workflows `deploy-*.yml` corren en el runner self-hosted `contabo-vps`, nunca en un trigger `pull_request` — ver [`documentation/SECURITY.md#runner-self-hosted`](documentation/SECURITY.md#runner-self-hosted).
 
 ### Secrets requeridos en el repo
 
 | Secret | Usado por | Cómo obtenerlo |
 |---|---|---|
-| `KOYEB_API_TOKEN` | deploy-staging, deploy-production, preview-deploy | Koyeb dashboard → Account → API Tokens |
-| `KOYEB_API_STAGING_NAME` | deploy-staging | Nombre del servicio (`api-staging` por defecto) |
-| `KOYEB_WORKER_STAGING_NAME` | deploy-staging | Nombre del worker (`worker-staging` por defecto) |
-| `KOYEB_API_PROD_NAME` | deploy-production | Nombre del servicio (`api-prod` por defecto) |
-| `KOYEB_WORKER_PROD_NAME` | deploy-production | Nombre del worker (`worker-prod` por defecto) |
-| `KOYEB_ORG` | preview-deploy | Slug de la organización Koyeb (para construir URLs) |
-| `KOYEB_STAGING_URL` | deploy-staging | URL pública del api-staging |
-| `KOYEB_PROD_URL` | deploy-production | URL pública del api-prod |
 | `SONAR_TOKEN` | build.yml | SonarCloud → My Account → Security → Generate Tokens |
+| `SENTRY_AUTH_TOKEN` | sentry-release.yml | Sentry → Settings → Auth Tokens |
+| `SENTRY_ORG_SLUG` | sentry-release.yml | Slug de la organización Sentry |
 | `RELEASE_PLEASE_TOKEN` (opcional) | release-please.yml | PAT con `contents:write` + `pull_requests:write` si el GITHUB_TOKEN no basta para disparar workflows reactivos |
+
+> Los secretos de **runtime** (`JWT_SECRET`, `MONGO_URI`, credenciales Mongo/Redis, etc.) ya no viven en GitHub Secrets — viven en `/opt/eduplay/secrets/{staging,prod}.env` en la propia VPS y los recogen `deploy-staging.yml`/`deploy-production.yml` por `docker compose --env-file`. Ver [`documentation/Secrets_Rotation.md`](documentation/Secrets_Rotation.md).
 
 ### Variables del repo (no son secrets)
 
 | Variable | Usado por | Valor |
 |---|---|---|
-| `PREVIEW_DEPLOYS_ENABLED` | preview-deploy | `true` para activar previews por PR; cualquier otra cosa = desactivado (default) |
+| `STAGING_URL` | zap-scan.yml | URL pública de staging (`https://eduplay-tfg-staging.duckdns.org`) |
+| `PROD_URL` | deploy-production.yml (`environment.url`), zap-scan.yml | URL pública de producción (`https://eduplay-tfg.duckdns.org`) |
 
 ---
 
@@ -271,7 +271,7 @@ Si abusas del `--no-verify`, el CI te lo recordará: lint + tests + CodeQL + git
 ## Referencias
 
 - **ADR-139..147** en [`documentation/Architecture_Decisions.md`](documentation/Architecture_Decisions.md): decisiones de stack cloud, CD, hardening CI y OpenAPI.
-- **[`documentation/Deploy_Koyeb.md`](documentation/Deploy_Koyeb.md)**: aprovisionamiento desde cero.
+- **[`documentation/Deploy_VPS.md`](documentation/Deploy_VPS.md)**: aprovisionamiento de la VPS desde cero.
 - **[`documentation/Secrets_Rotation.md`](documentation/Secrets_Rotation.md)**: política rotación.
 - **Conventional Commits**: https://www.conventionalcommits.org/
 - **release-please**: https://github.com/googleapis/release-please

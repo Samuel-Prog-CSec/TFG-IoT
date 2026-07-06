@@ -6,7 +6,7 @@ Sistema de seeders para poblar la base de datos con datos realistas que simulen 
 
 ### Docker (arranque automático)
 
-Los tres compose (`docker-compose.yml`, `docker-compose.dev.yml` y, en testing local pre-deploy, `docker/archive/docker-compose.prod.yml`) invocan `npm run seed:if-empty` como parte del comando del contenedor de backend. Este script comprueba si la base de datos tiene datos y, en caso contrario, ejecuta `runSeeders()` sin limpieza previa. En el despliegue real de producción (Koyeb) este paso lo lanza el `npm run start:prod` documentado en `documentation/Deploy_Koyeb.md`.
+Los tres compose (`docker-compose.yml`, `docker-compose.dev.yml` y, en testing local pre-deploy, `docker/archive/docker-compose.prod.yml`) invocan `npm run seed:if-empty` como parte del comando del contenedor de backend. Este script comprueba si la base de datos tiene datos y, en caso contrario, ejecuta `runSeeders()` sin limpieza previa. En el despliegue real de producción (VPS autoalojada) este paso lo lanza el comando del contenedor `backend` (`npm run seed:if-empty && npm run migrate:sessions && npm start`) definido en `docker-compose.yml`/`docker-compose.prod.yml`, documentado en `documentation/Deploy_VPS.md`.
 
 ### Manual
 

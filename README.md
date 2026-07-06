@@ -111,9 +111,9 @@ Para **desarrollo local**:
 - Git con soporte de hooks (Husky + commitlint).
 - Navegador moderno con Web Serial API: Chrome/Edge ≥ 89. Firefox/Safari no soportan Web Serial — los alumnos usan el modo táctil fallback.
 
-Para **deploy cloud** (opcional, en TFG):
+Para el **despliegue autoalojado** (opcional, en TFG):
 
-- Cuenta gratuita en MongoDB Atlas, Upstash, Koyeb, Cloudflare. Ver [`documentation/Deploy_Koyeb.md`](documentation/Deploy_Koyeb.md) para el aprovisionamiento paso a paso.
+- Acceso a una VPS con Docker Engine + Compose plugin, Nginx y Certbot. Ver [`documentation/Deploy_VPS.md`](documentation/Deploy_VPS.md) para el aprovisionamiento paso a paso.
 
 Para el **hardware RFID**:
 
@@ -186,7 +186,7 @@ npm run audit:prod   # desde el root
 
 ## Quickstart — deploy
 
-El stack se despliega en cloud free tier (Koyeb + Atlas + Upstash + Cloudflare Pages). La guía completa, incluida la creación de cuentas desde cero, está en [`documentation/Deploy_Koyeb.md`](documentation/Deploy_Koyeb.md).
+El stack se despliega autoalojado en una VPS (Docker Compose + Nginx + Certbot). La guía completa, incluido el aprovisionamiento desde cero, está en [`documentation/Deploy_VPS.md`](documentation/Deploy_VPS.md).
 
 **Resumen del flujo CD:**
 

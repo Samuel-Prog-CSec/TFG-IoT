@@ -25,7 +25,6 @@ services:
       context: ./frontend
       args:
         - VITE_API_URL=http://localhost/api
-    container_name: rfid-games-frontend
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -33,7 +32,7 @@ services:
       - /var/run
       - /tmp
     ports:
-      - "80:80"
+      - "${FRONTEND_PORT_BINDING:-80:80}"
     depends_on:
       backend:
         condition: service_healthy
@@ -61,7 +60,6 @@ services:
   # ============================================
   backend:
     build: ./backend
-    container_name: rfid-games-backend
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -83,7 +81,13 @@ services:
       - TRUST_PROXY=true
       # Conexión interna a servicios Docker (incluye password de Redis)
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devRedis123!}@redis:6379
-      - MONGO_URI=mongodb://mongo:27017/rfid_games_db
+      # Deriva de MONGO_INITDB_ROOT_USERNAME/PASSWORD (servicio `mongo`, más
+      # abajo) vía interpolación anidada de Compose — verificado que funciona
+      # en Compose v5 (`docker compose config`), igual que hace bash con
+      # `${VAR:-default}`. Si defines MONGO_URI explícito en el .env (p. ej.
+      # para un Mongo fuera de este stack) pasa a ser independiente de esas
+      # dos variables: mantenlo sincronizado a mano si rotas credenciales.
+      - MONGO_URI=${MONGO_URI:-mongodb://${MONGO_INITDB_ROOT_USERNAME:-eduplay}:${MONGO_INITDB_ROOT_PASSWORD:-devMongo123!}@mongo:27017/rfid_games_db?replicaSet=rs0&authSource=admin}
     env_file:
       - .env
     depends_on:
@@ -91,6 +95,8 @@ services:
         condition: service_healthy
       mongo:
         condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
     command: >
       sh -c "npm run seed:if-empty && npm run migrate:sessions && npm start"
     networks:
@@ -111,7 +117,6 @@ services:
   # ============================================
   worker:
     build: ./backend
-    container_name: rfid-games-worker
     restart: unless-stopped
     read_only: true
     tmpfs:
@@ -123,7 +128,13 @@ services:
     environment:
       - NODE_ENV=${NODE_ENV:-development}
       - REDIS_URL=redis://:${REDIS_PASSWORD:-devRedis123!}@redis:6379
-      - MONGO_URI=mongodb://mongo:27017/rfid_games_db
+      # Deriva de MONGO_INITDB_ROOT_USERNAME/PASSWORD (servicio `mongo`, más
+      # abajo) vía interpolación anidada de Compose — verificado que funciona
+      # en Compose v5 (`docker compose config`), igual que hace bash con
+      # `${VAR:-default}`. Si defines MONGO_URI explícito en el .env (p. ej.
+      # para un Mongo fuera de este stack) pasa a ser independiente de esas
+      # dos variables: mantenlo sincronizado a mano si rotas credenciales.
+      - MONGO_URI=${MONGO_URI:-mongodb://${MONGO_INITDB_ROOT_USERNAME:-eduplay}:${MONGO_INITDB_ROOT_PASSWORD:-devMongo123!}@mongo:27017/rfid_games_db?replicaSet=rs0&authSource=admin}
     env_file:
       - .env
     depends_on:
@@ -131,6 +142,8 @@ services:
         condition: service_healthy
       mongo:
         condition: service_healthy
+      mongo-init:
+        condition: service_completed_successfully
     command: ["node", "worker.js"]
     healthcheck:
       # El worker NO expone servidor HTTP (solo procesa colas BullMQ). Sin este
@@ -149,12 +162,67 @@ services:
       - "com.rfid-games.description=BullMQ worker for async jobs (data retention, GDPR)"
 
   # ============================================
+  # MONGO-KEYFILE-INIT — genera el keyfile de autenticación interna del
+  # replica set (una vez). MongoDB EXIGE security.keyFile (o x.509) para
+  # combinar --replSet con auth habilitada, incluso con un solo miembro.
+  # Idempotente: si el fichero ya existe, no lo regenera (evita invalidar
+  # la autenticación interna de un replica set ya inicializado tras un
+  # restart). Usa el mismo mongo:7 para no depender de openssl del host y
+  # resuelve el UID/GID de `mongodb` en TIEMPO DE EJECUCIÓN (no hardcodeado):
+  # verificado en la imagen mongo:7 (Ubuntu 22.04) -> uid=999(mongodb) gid=999.
+  # ============================================
+  mongo-keyfile-init:
+    image: mongo:7
+    restart: "no"
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    volumes:
+      - mongo-keyfile-data:/keyfile
+    entrypoint:
+      - bash
+      - -c
+      - >
+        set -e;
+        KEYFILE=/keyfile/mongo-keyfile;
+        if [ -f "$$KEYFILE" ]; then
+          echo 'keyfile ya existe, omitiendo generación';
+        else
+          openssl rand -base64 756 > "$$KEYFILE";
+          echo 'keyfile generado';
+        fi;
+        chmod 400 "$$KEYFILE";
+        chown "$$(id -u mongodb)":"$$(id -g mongodb)" "$$KEYFILE";
+    labels:
+      - "com.rfid-games.service=init-job"
+      - "com.rfid-games.description=Genera el keyfile de autenticación interna del replica set (idempotente)"
+
+  # ============================================
   # BASE DE DATOS (MongoDB Local)
+  # Auth SIEMPRE activa (misma UX que `redis` en este fichero: credenciales
+  # por defecto para que `docker compose up -d` funcione sin configurar
+  # ningún `.env`). --keyFile es obligatorio en combinación con --replSet +
+  # auth (MONGO_INITDB_ROOT_USERNAME/PASSWORD activan --auth automáticamente
+  # en la imagen oficial); sin él mongod se niega a arrancar.
   # ============================================
   mongo:
     image: mongo:7
-    container_name: rfid-games-mongo
     restart: unless-stopped
+    command: >
+      mongod --replSet rs0 --bind_ip_all --keyFile /keyfile/mongo-keyfile
+    # ⚠️ FUENTE ÚNICA de las credenciales root de Mongo. `MONGO_URI` en
+    # `backend`/`worker` (más abajo) DERIVA su valor por defecto de estas
+    # mismas dos variables (interpolación anidada de Compose), así que en el
+    # caso normal (sin `MONGO_URI` explícito en el `.env`) rotar la
+    # contraseña aquí YA actualiza `MONGO_URI` sin tocar nada más. La única
+    # forma de que se desincronicen es definir `MONGO_URI` explícito en el
+    # `.env` (p. ej. para apuntar a un Mongo distinto): en ese caso ES
+    # independiente de estas variables y hay que mantenerlo sincronizado a
+    # mano si cambias una u otra.
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:-eduplay}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-devMongo123!}
     deploy:
       resources:
         limits:
@@ -163,12 +231,19 @@ services:
       - "${MONGO_PORT:-27017}:27017"
     volumes:
       - mongo-data:/data/db
+      - mongo-keyfile-data:/keyfile:ro
+    depends_on:
+      mongo-keyfile-init:
+        condition: service_completed_successfully
     networks:
       - rfid-games-network
     labels:
       - "com.rfid-games.service=database"
-      - "com.rfid-games.description=MongoDB database"
+      - "com.rfid-games.description=MongoDB database (replica set de un solo nodo, auth con keyFile)"
     healthcheck:
+      # `db.adminCommand('ping')` está exento de autenticación en MongoDB
+      # incluso con --auth activo (verificado): el healthcheck no necesita
+      # credenciales.
       test: ["CMD", "mongosh", "--eval", "db.adminCommand('ping')"]
       interval: 30s
       timeout: 10s
@@ -176,11 +251,128 @@ services:
       start_period: 20s
 
   # ============================================
+  # MONGO-USER-BOOTSTRAP — crea el usuario root vía la "localhost exception"
+  # de MongoDB si (y solo si) todavía no existe ningún usuario en el servidor.
+  #
+  # Por qué existe: el entrypoint oficial de la imagen mongo:7 solo crea el
+  # usuario de MONGO_INITDB_ROOT_USERNAME/PASSWORD cuando el directorio de
+  # datos está REALMENTE vacío/nuevo. Si el volumen de datos ya existía de una
+  # instalación previa SIN auth (p. ej. el volumen local de este proyecto
+  # antes de esta tarea), la imagen añade --auth al arrancar igualmente
+  # (las credenciales root no están vacías) pero NUNCA crea el usuario ->
+  # `mongo-init` no podría autenticar nunca y todo el stack se quedaría sin
+  # arrancar (mongo queda "healthy" porque el ping no necesita auth, lo que
+  # hace el fallo confuso). Este servicio cierra ese hueco.
+  #
+  # Mecanismo: la "localhost exception" permite ejecutar SIN autenticar
+  # `rs.initiate`/`createUser` (no operaciones arbitrarias) desde una
+  # conexión que el propio mongod ve como localhost, y solo mientras no
+  # exista ningún usuario en el servidor. `network_mode: "service:mongo"`
+  # hace que este contenedor comparta el network namespace del contenedor
+  # `mongo`, así que "127.0.0.1" aquí es localhost DE VERDAD para ese
+  # proceso mongod (a través de la red bridge, con el nombre de servicio
+  # `mongo`, la excepción NO aplica).
+  #
+  # Idempotente: si ya existe un usuario (volumen nuevo que el propio
+  # entrypoint ya inicializó, o un arranque posterior de este mismo
+  # servicio), tanto `rs.initiate` como `createUser` fallan con "requiere
+  # autenticación" (verificado empíricamente) y no hacen nada -> `mongo-init`
+  # (ya autenticado) se encarga del resto exactamente igual que hasta ahora.
+  # ============================================
+  mongo-user-bootstrap:
+    image: mongo:7
+    network_mode: "service:mongo"
+    depends_on:
+      mongo:
+        condition: service_healthy
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:-eduplay}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-devMongo123!}
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    restart: "no"
+    entrypoint:
+      - bash
+      - -c
+      - >
+        mongosh --host 127.0.0.1:27017 --quiet --eval "
+          (function () {
+            try {
+              rs.initiate({ _id: 'rs0', members: [{ _id: 0, host: 'mongo:27017' }] });
+              print('bootstrap: rs.initiate ejecutado sin auth (excepción localhost)');
+            } catch (e) {
+              print('bootstrap: rs.initiate omitido (' + (e.codeName || e.message) + ')');
+            }
+            let creado = false;
+            for (let i = 0; i < 20 && !creado; i++) {
+              try {
+                db.getSiblingDB('admin').createUser({
+                  user: '$$MONGO_INITDB_ROOT_USERNAME',
+                  pwd: '$$MONGO_INITDB_ROOT_PASSWORD',
+                  roles: [{ role: 'root', db: 'admin' }]
+                });
+                print('bootstrap: usuario root creado vía excepción localhost');
+                creado = true;
+              } catch (e) {
+                if (e.codeName === 'Unauthorized' || /requires authentication/i.test(e.message)) {
+                  print('bootstrap: creación de usuario omitida, ya existe (' + (e.codeName || 'auth requerida') + ')');
+                  break;
+                }
+                sleep(500);
+              }
+            }
+          })();
+        "
+    labels:
+      - "com.rfid-games.service=init-job"
+      - "com.rfid-games.description=Bootstrap idempotente del usuario root vía excepción localhost (cubre volúmenes preexistentes sin auth)"
+
+  # ============================================
+  # MONGO-INIT — inicializa el replica set de un solo nodo (una vez)
+  # Requerido por withTransaction (session.startTransaction necesita replica
+  # set). Idempotente: si rs.status() ya responde ok, no hace nada. Corre
+  # DESPUÉS de `mongo-user-bootstrap`, que garantiza que el usuario root ya
+  # existe (recién creado, o ya existía) antes de que este servicio intente
+  # autenticar.
+  # ============================================
+  mongo-init:
+    image: mongo:7
+    depends_on:
+      mongo:
+        condition: service_healthy
+      mongo-user-bootstrap:
+        condition: service_completed_successfully
+    environment:
+      - MONGO_INITDB_ROOT_USERNAME=${MONGO_INITDB_ROOT_USERNAME:-eduplay}
+      - MONGO_INITDB_ROOT_PASSWORD=${MONGO_INITDB_ROOT_PASSWORD:-devMongo123!}
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+    volumes:
+      - mongo-keyfile-data:/keyfile:ro
+    networks:
+      - rfid-games-network
+    restart: "no"
+    entrypoint:
+      - bash
+      - -c
+      - >
+        mongosh --host mongo:27017 -u $$MONGO_INITDB_ROOT_USERNAME -p $$MONGO_INITDB_ROOT_PASSWORD --authenticationDatabase admin --eval "
+          try { rs.status(); print('replica set ya inicializado'); }
+          catch (e) { rs.initiate({_id: 'rs0', members: [{_id: 0, host: 'mongo:27017'}]}); print('replica set inicializado'); }
+        "
+    labels:
+      - "com.rfid-games.service=init-job"
+      - "com.rfid-games.description=Inicializa el replica set rs0 (idempotente)"
+
+  # ============================================
   # REDIS - Caché, tokens y estado de partidas
   # ============================================
   redis:
     image: redis:7-alpine
-    container_name: rfid-games-redis
     restart: unless-stopped
     read_only: true
     deploy:
@@ -219,7 +411,6 @@ services:
   # ============================================
   redis-commander:
     image: rediscommander/redis-commander:latest
-    container_name: rfid-games-redis-ui
     restart: unless-stopped
     ports:
       - "${REDIS_COMMANDER_PORT:-8081}:8081"
@@ -242,12 +433,13 @@ services:
   # ============================================
   mongo-express:
     image: mongo-express:latest
-    container_name: rfid-games-mongo-ui
     restart: unless-stopped
     ports:
       - "${MONGO_EXPRESS_PORT:-8082}:8081"
     environment:
-      - ME_CONFIG_MONGODB_URL=mongodb://mongo:27017/
+      # Mongo exige auth siempre (ver servicio `mongo`) — sin credenciales
+      # Mongo Express no podría ni conectar.
+      - ME_CONFIG_MONGODB_URL=mongodb://${MONGO_INITDB_ROOT_USERNAME:-eduplay}:${MONGO_INITDB_ROOT_PASSWORD:-devMongo123!}@mongo:27017/?authSource=admin
       - ME_CONFIG_BASICAUTH=true
       - ME_CONFIG_BASICAUTH_USERNAME=${MONGO_EXPRESS_USER:-admin}
       - ME_CONFIG_BASICAUTH_PASSWORD=${MONGO_EXPRESS_PASSWORD:-devAdm1n!}
@@ -268,10 +460,13 @@ services:
 volumes:
   redis-data:
     driver: local
-    name: rfid-games-redis-data
+    name: ${REDIS_VOLUME_NAME:-rfid-games-redis-data}
   mongo-data:
     driver: local
-    name: rfid-games-mongo-data
+    name: ${MONGO_VOLUME_NAME:-rfid-games-mongo-data}
+  mongo-keyfile-data:
+    driver: local
+    name: ${MONGO_KEYFILE_VOLUME_NAME:-rfid-games-mongo-keyfile-data}
 
 # ============================================
 # RED INTERNA
@@ -279,4 +474,4 @@ volumes:
 networks:
   rfid-games-network:
     driver: bridge
-    name: rfid-games-network
+    name: ${NETWORK_NAME:-rfid-games-network}

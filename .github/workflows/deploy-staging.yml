@@ -1,8 +1,11 @@
 name: Deploy Staging
 
-# Dispara el redeploy de api-staging + worker-staging en Koyeb cuando el
-# workflow CI (build.yml) finaliza con éxito en la rama Maintenance.
-# Encadenar con workflow_run evita disparar deploys si los tests fallan.
+# Dispara el redeploy del stack "eduplay-staging" en la VPS Contabo cuando el
+# workflow CI (build.yml) finaliza con éxito en la rama Maintenance. Se
+# ejecuta en el runner self-hosted registrado en la propia VPS — por eso el
+# trigger sigue siendo `workflow_run` (nunca `pull_request`): así un fork no
+# puede colar un workflow que ejecute código en la VPS. Ver
+# documentation/SECURITY.md#runner-self-hosted.
 on:
   workflow_run:
     workflows: ["CI"]
@@ -15,107 +18,86 @@ permissions:
   actions: read
 
 concurrency:
-  # Un solo deploy a staging en curso. Si llega otro push, cancela el anterior:
-  # el nuevo trae más cambios y vamos a redeployar de todas formas.
   group: deploy-staging
   cancel-in-progress: true
 
 jobs:
   deploy:
-    name: Redeploy a Koyeb (staging)
-    runs-on: ubuntu-latest
+    name: Redeploy en VPS (staging)
+    runs-on: [self-hosted, linux, contabo-vps]
     timeout-minutes: 15
 
-    # Sólo cuando CI verde en Maintenance, no en cualquier completed.
     if: >-
       github.event_name == 'workflow_dispatch' ||
       (github.event.workflow_run.conclusion == 'success' &&
        github.event.workflow_run.head_branch == 'Maintenance')
 
     steps:
-      - name: Verificar secrets y variables requeridos
-        # KOYEB_STAGING_URL es Variable (no Secret) — las URLs operativas no son
-        # confidenciales. Tokens y nombres de servicio sí son secretos.
-        env:
-          KOYEB_API_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
-          KOYEB_API_STAGING_NAME: ${{ secrets.KOYEB_API_STAGING_NAME }}
-          KOYEB_WORKER_STAGING_NAME: ${{ secrets.KOYEB_WORKER_STAGING_NAME }}
-          KOYEB_STAGING_URL: ${{ vars.KOYEB_STAGING_URL }}
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # Sin `ref` explícito, `actions/checkout` en un trigger `workflow_run`
+          # haría checkout de la rama por defecto (main), NO de la rama
+          # (Maintenance) cuyo run de CI disparó este workflow. El fallback
+          # `|| github.ref` cubre el trigger manual (`workflow_dispatch`), donde
+          # `github.event.workflow_run` no existe.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - name: Copiar el .env persistente del entorno
+        run: cp /opt/eduplay/secrets/staging.env .env
+
+      - name: Levantar el stack (build + up)
         run: |
           set -e
-          for var in KOYEB_API_TOKEN KOYEB_API_STAGING_NAME KOYEB_WORKER_STAGING_NAME KOYEB_STAGING_URL; do
-            if [ -z "${!var}" ]; then
-              echo "::error::Variable/secret $var no está configurado"
-              exit 1
-            fi
-          done
-          echo "Todos los secrets y variables están presentes"
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+            -p eduplay-staging up -d --build
 
-      - name: Instalar Koyeb CLI
-        run: |
-          curl -fsSL https://raw.githubusercontent.com/koyeb/koyeb-cli/master/install.sh | sh
-          echo "$HOME/.koyeb/bin" >> "$GITHUB_PATH"
-
-      - name: Redeploy api-staging + worker-staging (paralelo)
-        env:
-          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
-        run: |
-          set -e
-          API_NAME="${{ secrets.KOYEB_API_STAGING_NAME }}"
-          WORKER_NAME="${{ secrets.KOYEB_WORKER_STAGING_NAME }}"
-          # Disparamos ambos en paralelo. Koyeb procesa el redeploy en su lado;
-          # esto sólo encola la operación, vuelve rápido.
-          koyeb services redeploy "$API_NAME" --token "$KOYEB_TOKEN" &
-          koyeb services redeploy "$WORKER_NAME" --token "$KOYEB_TOKEN" &
-          wait
-          echo "Redeploy disparado para $API_NAME y $WORKER_NAME"
-
-      - name: Smoke test /health/ready (8 intentos × 15s)
+      - name: Smoke test /api/health/ready (8 intentos × 15s, directo por loopback)
         id: smoke
-        env:
-          STAGING_URL: ${{ vars.KOYEB_STAGING_URL }}
         run: |
           set +e
           OK=0
+          PORT=$(grep -oP 'FRONTEND_PORT_BINDING=127\.0\.0\.1:\K[0-9]+' .env)
           for i in $(seq 1 8); do
             sleep 15
-            HTTP_CODE=$(curl -sS -o /tmp/health.json -w "%{http_code}" "${STAGING_URL}/health/ready" || echo "000")
+            HTTP_CODE=$(curl -sS -o /tmp/health.json -w "%{http_code}" "http://127.0.0.1:${PORT}/api/health/ready" || echo "000")
             echo "Intento $i: HTTP $HTTP_CODE"
-            if [ "$HTTP_CODE" = "200" ]; then
-              OK=$((OK + 1))
-            fi
+            [ "$HTTP_CODE" = "200" ] && OK=$((OK + 1))
             cat /tmp/health.json || true
             echo ""
           done
           echo "ok_count=$OK" >> "$GITHUB_OUTPUT"
-          # Necesitamos al menos 3 de 8 intentos verdes para considerar
-          # el deploy exitoso (los primeros 1-2 pueden caer durante el reroute).
           if [ "$OK" -lt 3 ]; then
             echo "::error::Smoke test falló: sólo $OK/8 intentos devolvieron 200"
             exit 1
           fi
           echo "Smoke test OK: $OK/8 intentos verdes"
 
-      - name: Auto-rollback si smoke test falla
+      - name: Rollback al commit anterior si el smoke test falla
         if: failure() && steps.smoke.outcome == 'failure'
-        env:
-          KOYEB_TOKEN: ${{ secrets.KOYEB_API_TOKEN }}
         run: |
           set +e
-          API_NAME="${{ secrets.KOYEB_API_STAGING_NAME }}"
-          WORKER_NAME="${{ secrets.KOYEB_WORKER_STAGING_NAME }}"
-          echo "::warning::Disparando rollback automático en $API_NAME y $WORKER_NAME"
-          koyeb services rollback "$API_NAME" --token "$KOYEB_TOKEN"
-          koyeb services rollback "$WORKER_NAME" --token "$KOYEB_TOKEN"
+          echo "::warning::Smoke test falló — volviendo al commit desplegado previamente"
+          PREV_SHA=$(cat /opt/eduplay/secrets/staging.last-good-sha 2>/dev/null || echo "")
+          if [ -n "$PREV_SHA" ]; then
+            git fetch origin "$PREV_SHA"
+            git checkout "$PREV_SHA"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              -p eduplay-staging up -d --build
+          else
+            echo "::error::No hay SHA anterior registrado — rollback manual requerido"
+          fi
+
+      - name: Registrar este SHA como "último bueno" si el smoke test pasa
+        if: success()
+        run: echo "${{ github.sha }}" > /opt/eduplay/secrets/staging.last-good-sha
 
       - name: Resumen del despliegue
         if: always()
         run: |
           {
-            echo "## Deploy a staging"
-            echo "- API: ${{ secrets.KOYEB_API_STAGING_NAME }}"
-            echo "- Worker: ${{ secrets.KOYEB_WORKER_STAGING_NAME }}"
-            echo "- URL: ${{ vars.KOYEB_STAGING_URL }}/health/ready"
+            echo "## Deploy a staging (VPS)"
+            echo "- SHA: ${{ github.sha }}"
+            echo "- /api/health/ready 200 hits: ${{ steps.smoke.outputs.ok_count }}/8"
             echo "- Outcome smoke test: ${{ steps.smoke.outcome }}"
-            echo "- /health/ready 200 hits: ${{ steps.smoke.outputs.ok_count }}/8"
           } >> "$GITHUB_STEP_SUMMARY"

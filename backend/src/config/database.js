@@ -24,21 +24,35 @@ const logger = require('../utils/logger');
  */
 /**
  * Opciones de pool y resiliencia para producción.
- * Tuneadas para MongoDB Atlas M0 free tier (replica set de 3 nodos en red compartida).
- * - maxPoolSize 10: holgado para 1 instancia api free tier; M0 permite hasta 500 conexiones.
+ * Tuneadas originalmente para MongoDB Atlas M0 free tier (replica set de 3
+ * nodos en red compartida); siguen aplicando con Mongo autoalojado en el
+ * mismo host (VPS) porque gobiernan el pool y los timeouts, no el transporte.
+ * - maxPoolSize 10: holgado para 1 instancia api; M0 permitía hasta 500 conexiones.
  * - minPoolSize 2: mantiene 2 conexiones calientes para evitar cold start en cada query tras idle.
- * - serverSelectionTimeoutMS 10s: tolera cold start ocasional de M0.
+ * - serverSelectionTimeoutMS 10s: tolera cold start ocasional (Atlas M0 o arranque del contenedor).
  * - socketTimeoutMS 45s: corta queries colgadas sin matar la conexión.
  * - heartbeatFrequencyMS 30s: detecta failover del replica set sin saturar.
- * - retryReads/Writes + w:'majority': requiere replica set (Atlas siempre lo tiene).
- * - A.7 (pre-v1.0.0) — compressors ['snappy','zstd']: Atlas M0 acepta ambos. El
- *   driver negocia transparentemente; si el cluster los rechaza cae a wire sin
- *   compresión. Reduce 30-50% bytes wire-level en aggregations grandes
- *   (`$lookup` con cardMappings[], etc.).
+ * - retryReads/Writes + w:'majority': requiere replica set (Atlas y el rs0 de un
+ *   solo nodo autoalojado lo cumplen).
  * - A.7 — maxIdleTimeMS 60s: libera conexiones idle del pool tras 60s sin
  *   uso. Bajo carga normal mantiene minPoolSize=2 vivas; bajo carga puntual
  *   permite re-uso eficiente sin acaparar el budget de 100 conn del cluster.
  *   Relevante para escala horizontal futura (T-908 multi-pod).
+ *
+ * NO hay `compressors` (a diferencia de la versión pre-VPS, ADR-176): el
+ * driver `mongodb` v7 exige que el módulo nativo opcional del compresor
+ * negociado (`snappy` / `@mongodb-js/zstd`) esté instalado — si no lo está,
+ * NO degrada a wire sin comprimir, lanza `MongoMissingDependencyError` en el
+ * primer comando real (verificado: `GameSession.updateMany` reventaba en
+ * cada arranque de `migrate:sessions` bajo NODE_ENV=production). Esos módulos
+ * son `peerDependencies` opcionales del propio paquete `mongodb`
+ * (`peerDependenciesMeta.optional: true`) — npm NUNCA los instala
+ * automáticamente en ningún modo de instalación (no es un efecto de `npm ci
+ * --only=production`; ni siquiera un `npm install` completo con devDependencies
+ * los trae). Con Mongo autoalojado en la misma red Docker que el backend (sin
+ * el salto WAN de Atlas que motivó ADR-176) el ahorro de bytes ya no compensa
+ * el coste de añadir esa dependencia nativa opcional a mano (toolchain de
+ * compilación en la imagen Alpine, superficie de código nativo adicional).
  *
  * En desarrollo y test se usan defaults de Mongoose para no asumir replica set
  * (mongodb-memory-server y MongoDB local single-node pueden no soportar w:'majority').
@@ -52,8 +66,7 @@ const productionConnectOptions = {
   heartbeatFrequencyMS: 30_000,
   retryReads: true,
   retryWrites: true,
-  w: 'majority',
-  compressors: ['snappy', 'zstd']
+  w: 'majority'
 };
 
 const connectDB = async () => {

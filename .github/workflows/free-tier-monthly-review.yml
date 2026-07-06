@@ -1,12 +1,13 @@
 name: Free-tier monthly review
 
 # Abre una issue con una checklist mensual de las cuotas free-tier de los
-# proveedores que NO tenemos instrumentados internamente vía SmartAlert.
-# Los servicios con telemetría interna (Upstash commands, Atlas storage,
-# rate-limit fallback, LRU hit ratio) los vigilan los detectores; este
-# workflow cubre los que requieren login manual al panel del proveedor:
-# Sentry quota, Supabase egress, Cloudflare bandwidth, GitHub Actions
-# minutes y Grafana Cloud Loki ingest.
+# proveedores que NO tenemos instrumentados internamente vía SmartAlert, más
+# una comprobación de recursos de la VPS Contabo autoalojada (Mongo+Redis
+# dejaron de depender de Atlas/Upstash tras la migración a VPS).
+# Los servicios con telemetría interna (rate-limit fallback, LRU hit ratio)
+# los vigilan los detectores; este workflow cubre los que requieren login
+# manual al panel del proveedor: Sentry quota, Supabase egress, GitHub
+# Actions minutes y Grafana Cloud Loki ingest.
 #
 # Trigger: día 1 de cada mes a las 09:00 UTC (≈10:00 Europa/Madrid).
 # También invocable manualmente vía workflow_dispatch para verificar el
@@ -54,19 +55,19 @@ jobs:
               '`SystemAlert` y que por tanto requieren revisión manual una',
               'vez al mes.',
               '',
-              '> Los servicios con detector interno automático (Upstash',
-              '> commands, Atlas storage, rate-limit fallback, hit ratio LRU)',
-              '> NO necesitan checklist: el motor `systemAlertDetectionService`',
-              '> ya emite alertas continuamente al cruzar el 80%.',
+              '> Los servicios con detector interno automático (rate-limit',
+              '> fallback, hit ratio LRU) NO necesitan checklist: el motor',
+              '> `systemAlertDetectionService` ya emite alertas continuamente',
+              '> al cruzar el 80%.',
               '',
               '## Checklist',
               '',
               '- [ ] **Sentry** → [Stats → Quotas](https://sentry.io/settings/account/notifications/quota/) — verificar errores (<5 K) y transacciones (<10 K) mensuales por debajo del 80%.',
               '- [ ] **Supabase Storage** → Studio → Project Settings → Usage — verificar storage (<800 MB) y egress mensual (<4 GB).',
-              '- [ ] **Cloudflare** → [Pages Analytics](https://dash.cloudflare.com/) — verificar builds del mes (<300) y traffic sin anomalías.',
-              '- [ ] **GitHub Actions** → [Settings → Billing](https://github.com/settings/billing) — sólo si el repo es privado: verificar minutos consumidos (<1500 sobre 2000).',
+              '- [ ] **GitHub Actions** → [Settings → Billing](https://github.com/settings/billing) — sólo si el repo es privado: verificar minutos consumidos (<1500 sobre 2000) en los jobs que corren en runners de GitHub (el deploy usa el runner self-hosted `contabo-vps` y no consume minutos).',
               '- [ ] **Grafana Cloud Loki** → Stack `eduplay-rfid` → Usage — verificar ingest mensual (<40 GB sobre 50 GB).',
               '- [ ] **UptimeRobot** → [Dashboard](https://uptimerobot.com/dashboard) — verificar que los 4 monitors están en verde y que la [status page pública](https://stats.uptimerobot.com/eduplay-rfid) responde.',
+              '- [ ] **VPS Contabo** → uso de disco (`df -h /`) y memoria (`free -h`) dentro de rango — ver documentation/Free_Tier_Budget.md.',
               '',
               '## Si algún servicio cruza el 80%',
               '',
@@ -74,7 +75,7 @@ jobs:
               '',
               '- Sentry → [Runbook §13d](../../documentation/Runbook_Operacional.md#13d-sentry-quota-al-80).',
               '- Supabase egress → [Runbook §13c](../../documentation/Runbook_Operacional.md#13c-supabase-egress-al-80).',
-              '- Cloudflare / GitHub Actions / Grafana → caso a caso (sin playbook dedicado al ser raramente alcanzables).',
+              '- GitHub Actions / Grafana / VPS Contabo → caso a caso (sin playbook dedicado al ser raramente alcanzables).',
               '',
               '## Cierre',
               '',

@@ -65,17 +65,17 @@ Si has detectado una vulnerabilidad en EduPlay RFID, **no la publiques** y avís
 ```
 Internet
    │
-   ▼ TLS termination + DDoS edge
-[Cloudflare] (futuro: WAF + rate limit edge)
+   ▼ TLS termination (Let's Encrypt, sin proxy de terceros por delante — decisión explícita)
+[Nginx del host] (reverse proxy, limit_req zone, security headers, redirect HTTP→HTTPS)
+   │
+   ▼ 127.0.0.1:8090 (prod) / 127.0.0.1:8080 (staging)
+[Nginx del contenedor frontend] (SPA + proxy /api, /socket.io → backend — mismo origen, sin CORS)
    │
    ▼
-[Nginx] (limit_req zone, security headers, CSP)
-   │
-   ▼
-[Express backend Koyeb]
-   ├── trust proxy = 1
+[Express backend] (contenedor Docker, misma VPS)
+   ├── trust proxy = 1 (Nginx del host + Nginx del contenedor delante)
    ├── helmet (CSP strict, HSTS preload, frame-ancestors none)
-   ├── CORS whitelist dinámico
+   ├── CORS whitelist dinámico (`CORS_WHITELIST`, dominio real por entorno)
    ├── CSRF double-submit cookie (skip: login/register/refresh/csp-report)
    ├── noStoreSensitive — Cache-Control anti-leak
    ├── securityPayloadGuard — bloquea $/__proto__
@@ -85,12 +85,14 @@ Internet
    ├── validateBody/Query/Params (Zod)
    └── controllers → services → repositories
        │
-       ├── MongoDB Atlas (TLS, queries parametrizadas Mongoose)
-       ├── Redis Upstash (TLS, blacklist + lockout + cache + counters)
-       └── Supabase Storage (service_role server-side, path determinista)
+       ├── MongoDB self-hosted (replica set `rs0`, auth con keyFile, red interna Docker — sin salto WAN)
+       ├── Redis self-hosted (auth `requirepass`, red interna Docker, blacklist + lockout + cache + counters)
+       └── Supabase Storage (service_role server-side, path determinista — único servicio cloud que sigue externo)
 ```
 
-Frontend SPA (React + Vite) corre detrás de Cloudflare → Nginx (en frontend container). El backend Koyeb es directo (sin Nginx propio en backend container).
+Frontend y backend comparten origen (mismo dominio público, mismo contenedor Nginx los sirve):
+sin CORS entre ellos. El runner de GitHub Actions que ejecuta los deploys es self-hosted y vive
+en la propia VPS — ver [§23 "Runner self-hosted"](#runner-self-hosted).
 
 ---
 
@@ -226,8 +228,11 @@ Whitelist dinámico desde `CORS_WHITELIST` env (split por coma). En prod FALLA-F
 ## 8. Rate limiting y abuse prevention
 
 ### 8.1 Capas
-1. **Cloudflare (futuro):** WAF + rate limit edge planificado en T-907.
-2. **Nginx (frontend container, T-905 B4):** `limit_req_zone api_limit 20r/s burst=40` para `/api/*`; `ws_limit 10r/s burst=20` para `/socket.io/*`.
+1. **Cloudflare WAF + rate limit edge (planificado en T-907): descartado.** La migración a la
+   VPS Contabo (06-07-2026) elimina Cloudflare del camino de red — TLS termina directo en
+   Nginx del host (ver `Deploy_VPS.md` §4). Las capas 2-6 de abajo cubren la protección sin
+   depender de un edge de terceros.
+2. **Nginx (host + frontend container, T-905 B4):** `limit_req_zone api_limit 20r/s burst=40` para `/api/*`; `ws_limit 10r/s burst=20` para `/socket.io/*`.
 3. **Express express-rate-limit:** 8 limiters distintos (T-905 B4 recalibrados).
 4. **Socket.IO Lua+ZSET distribuido:** ADR-072.
 5. **Account lockout per-user (B1):** §4.7.
@@ -418,7 +423,8 @@ La medida está **operativa end-to-end** (firmware firma → navegador reenvía 
 
 ### 13.4 Provisionado del secret
 1. `node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"` → genera secret.
-2. Backend Koyeb: añadir env var `RFID_HMAC_SECRET=<secret>` (y `RFID_HMAC_ENABLED=true`).
+2. Añadir `RFID_HMAC_SECRET=<secret>` (y `RFID_HMAC_ENABLED=true`) a
+   `/opt/eduplay/secrets/{staging,prod}.env` y relanzar `docker compose ... up -d`.
 3. PlatformIO build: `RFID_HMAC_SECRET=<secret> pio run --target upload` (variable inyectada vía build_flags en `rfid_scanner_NEW/rfid_scanner/platformio.ini`).
 4. El secret del firmware y el del backend deben coincidir; en caso contrario el sensor recibe `HMAC_INVALID`.
 
@@ -499,7 +505,7 @@ Resumen tras T-905. El proyecto cubre actualmente:
 | Path traversal upload | ✅ Supabase + key sanitization | §9.4 |
 | SSRF | ✅ no backend hace requests con URL user-controlled | review |
 | CORS misconfig | ✅ whitelist dinámico + Referer check | §7.1 |
-| Cache leak Cloudflare | ✅ Cache-Control no-store global /api | §10.3 |
+| Cache leak (edge/proxy intermedio) | ✅ Cache-Control no-store global /api | §10.3 |
 | MFA bypass | ✅ requireMfa middleware + emergency disable | §4.8 |
 | Unicode homograph + RTL spoofing | ✅ `sanitizedString` rechaza invisibles/direccionales (ADR-164) | §9.4 |
 | RFID socket starvation por lock colgado | ✅ `Promise.race(timeout)` + `rfidLockTimeouts` (ADR-164) | §13.5 |
@@ -566,9 +572,9 @@ npm test -- --testPathPatterns=security
 1. Usar uno de los 8 backup codes en el modal challenge (botón "Usar código de respaldo").
 2. Cada código es single-use. Tras consumir varios, regenerar con `POST /api/auth/mfa/backup-codes/regenerate` (requiere MFA reciente).
 3. Si perdió phone + todos los backup codes:
-   - Configurar env `MFA_EMERGENCY_DISABLE_USER_ID=<userId>` en backend Koyeb.
-   - Redesplegar — al arrancar el server resetea `mfa.enabled=false` para ese user.
-   - Login normal, re-setup MFA, **quitar** la env var y redesplegar (cerrar la puerta).
+   - Añadir `MFA_EMERGENCY_DISABLE_USER_ID=<userId>` a `/opt/eduplay/secrets/prod.env`.
+   - `docker compose -p eduplay-prod up -d` — al arrancar el server resetea `mfa.enabled=false` para ese user.
+   - Login normal, re-setup MFA, **quitar** la variable de `prod.env` y volver a `up -d` (cerrar la puerta).
 
 ### 16.3 OWASP ZAP scan
 **Workflow CI:**
@@ -688,54 +694,62 @@ Detalle operativo: [`Secrets_Rotation.md`](Secrets_Rotation.md).
 | `MFA_ENCRYPTION_KEY` (B2/B7) | Anual / on-incident | Si se rota, MFA secrets cifrados quedan ilegibles → super_admins deben re-setup |
 | `RFID_HMAC_SECRET` (B8) | On-firmware-update | Re-flashear todos los sensores |
 | `SUPABASE_SERVICE_KEY` | Anual | Re-deploy backend con key nueva |
-| `MONGO_URI` (password) | On-incident | Cambio en Atlas |
-| `REDIS_URL` (password) | On-incident | Cambio en Upstash |
+| `MONGO_INITDB_ROOT_PASSWORD` | On-incident | Cambio dentro de Mongo (`db.changeUserPassword`) + `/opt/eduplay/secrets/*.env` (self-hosted, ver `Secrets_Rotation.md`) |
+| `REDIS_PASSWORD` | On-incident | Cambio en `/opt/eduplay/secrets/*.env` + redeploy (self-hosted) |
 | `SENTRY_DSN` | On-incident | Cambio en Sentry project |
 | `TURNSTILE_SECRET` (B6) | Anual | Cambio en Cloudflare |
 | `ACCOUNT_LOCKOUT_*` (B1) | No rotable (config) | Cambio inmediato sin impacto |
 
 **Procedimiento canónico (cualquier secret):**
 1. Generar nuevo: `node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"` (ajustar bytes según secret).
-2. Configurar en staging → validar.
-3. Rolling deploy a prod (Koyeb env var → instance restart).
-4. Revocar/eliminar el viejo.
+2. Configurar en `/opt/eduplay/secrets/staging.env` → validar con smoke test.
+3. Editar `/opt/eduplay/secrets/prod.env` y relanzar `docker compose ... -p eduplay-prod up -d` (recrea el contenedor con el valor nuevo).
+4. Revocar/eliminar el viejo en el proveedor externo si aplica.
+
+Detalle completo por secreto (incluida la particularidad de Mongo, que no rota solo con el `.env`): [`Secrets_Rotation.md`](Secrets_Rotation.md).
 
 ---
 
-## 18. Compatibilidad cloud (Koyeb / Cloudflare / Atlas / Upstash / Supabase)
+## 18. Compatibilidad de infraestructura (VPS self-hosted + Supabase)
+
+> Hasta el 06-07-2026 esta sección describía las restricciones de Koyeb, Cloudflare Pages,
+> MongoDB Atlas y Upstash Redis. La migración a una VPS Contabo autoalojada (backend, worker,
+> frontend, Mongo y Redis en Docker Compose en la misma máquina — ver `Deploy_VPS.md`) elimina
+> la mayoría de esas restricciones de proveedor cloud; las que quedan son del propio modelo
+> self-hosted. Supabase Storage sigue siendo el único servicio cloud de terceros en el camino
+> crítico.
 
 ### 18.1 Restricciones por componente
 
 | Componente | Restricción | Mitigación nuestra |
 |---|---|---|
-| Koyeb backend | TLS terminator delante, FS efímero | `app.set('trust proxy', 1)`, logs stdout, secrets env |
-| Koyeb healthcheck | < 5s respuesta a `/api/health/ready` | Endpoint optimizado, sin queries pesadas |
-| Cloudflare frontend | TLS terminator, WAF, edge cache | `Cache-Control no-store /api/*`, CSP compatible |
-| Atlas M0 Mongo | Sin backup automático fiable, conexiones máx ~500 | T-906 backup script pendiente; pool size limitado |
-| Atlas TLS | `mongodb+srv://` obligatorio | `MONGO_URI` validator acepta ambos |
-| Upstash Redis TLS | `rediss://` obligatorio | `REDIS_URL` validator acepta ambos |
-| Upstash 10K cmds/día | Soft limit free tier | T-907 PROP-123 optimización pendiente; pipelines done |
-| Upstash Lua scripts | Soportados en plan paid | WS rate limit Lua tiene fallback in-memory |
+| Nginx del host + Docker (backend) | Backend detrás de dos capas de proxy inverso (Nginx del host → Nginx del contenedor frontend) | `app.set('trust proxy', 1)`, logs stdout/journalctl del contenedor, secretos en `/opt/eduplay/secrets/*.env` (fuera del checkout git) |
+| Smoke test del deploy | < 15s por intento × 8 intentos contra `127.0.0.1:{8080,8090}/api/health/ready` | Endpoint optimizado, sin queries pesadas; ejecutado directo por loopback (el runner vive en la misma VPS) |
+| Nginx del host + Certbot | Único terminador TLS — sin Cloudflare por delante (decisión explícita, ver `Deploy_VPS.md` §4) | Renovación automática por el `systemd timer` del propio paquete `certbot` |
+| Mongo self-hosted (replica set `rs0`, auth con keyFile) | El backup ya no lo cubre un proveedor externo — es responsabilidad propia | Cron/systemd timer de `mongodump` + copia semanal a un bucket de Supabase Storage (`Deploy_VPS.md` §7 — documentado, pendiente de instalar) |
+| Mongo self-hosted, rotación de password | Cambiar solo el `.env` no rota la password de un volumen ya inicializado | Procedimiento con `db.changeUserPassword()` antes de tocar el `.env` — ver `Secrets_Rotation.md` |
+| Redis self-hosted | Sin cuota de comandos de un proveedor externo; el límite real es la RAM del contenedor (512 MB, `docker-compose.prod.yml`) | El invariante `scale=1` se mantiene por el motivo arquitectónico original (motor de partidas stateful en memoria), no por cuota — ver `Free_Tier_Budget.md` |
 | Supabase Storage | URL pública del bucket en CSP | `imgSrc/mediaSrc` incluye `https://*.supabase.co` |
-| Supabase service key | NUNCA en frontend | Solo backend env, redact en logs |
-| Cross-domain cookies | `SameSite=None; Secure` si frontend ≠ backend domain | Configurable en `buildRefreshCookieOptions` |
+| Supabase service key | NUNCA en frontend | Solo backend env (`/opt/eduplay/secrets/*.env`), redact en logs |
+| Cross-domain cookies | No aplica en el modelo actual — frontend y backend comparten origen (mismo dominio público, mismo contenedor Nginx) | `buildRefreshCookieOptions` conserva el soporte `SameSite=None; Secure` por si en el futuro se separan dominios |
+| Runner self-hosted del CD | Ejecuta código real en la VPS ante cada deploy | Restringido a triggers no-PR + usuario `deploy` sin privilegios — ver [§23](#runner-self-hosted) |
 
 ### 18.2 Pre-deploy checklist
 
-- [ ] `JWT_SECRET` y `JWT_REFRESH_SECRET` ≥ 64 chars distintos en Koyeb env.
+- [ ] `JWT_SECRET` y `JWT_REFRESH_SECRET` ≥ 64 chars distintos en `/opt/eduplay/secrets/{staging,prod}.env`.
 - [ ] `MFA_ENCRYPTION_KEY` y `JWT_MFA_SECRET` configurados.
 - [ ] `MFA_REQUIRED_FOR_SUPER_ADMIN=true` (default prod).
 - [ ] `CSP_REPORT_ONLY=true` para primer deploy a staging (1 semana, recoger violaciones).
-- [ ] `WSS_DOMAIN=wss://api-prod.koyeb.app` (o equivalente).
+- [ ] `WSS_DOMAIN=wss://eduplay-tfg.duckdns.org` (o `wss://eduplay-tfg-staging.duckdns.org` en staging).
 - [ ] `RFID_HMAC_ENABLED=true` (estado operativo actual); el guard de arranque exige `RFID_HMAC_SECRET` con el flag activo.
-- [ ] `RFID_HMAC_SECRET` configurado en backend env Y el MISMO secret inyectado en firmware en build (de lo contrario el sensor recibe `HMAC_INVALID`).
-- [ ] `TURNSTILE_SECRET` + `VITE_TURNSTILE_SITEKEY` configurados (opt-in).
+- [ ] `RFID_HMAC_SECRET` configurado en `/opt/eduplay/secrets/*.env` Y el MISMO secret inyectado en firmware en build (de lo contrario el sensor recibe `HMAC_INVALID`).
+- [ ] `TURNSTILE_SECRET` + `VITE_TURNSTILE_SITEKEY` configurados (opt-in — Cloudflare Turnstile sigue en uso como producto standalone, independiente del hosting retirado).
 - [ ] `ACCOUNT_LOCKOUT_MAX_ATTEMPTS=5` (default OK).
-- [ ] Cloudflare Bot Fight Mode revisado contra CSP `scriptSrc` (no inyectar scripts inline).
 - [ ] Sentry release upload con sourcemaps `hidden` (no expuestos en cliente).
-- [ ] Healthcheck Koyeb apunta a `/api/health/ready`, NO `/api/health` (que tiene info más completa).
-- [ ] `CORS_WHITELIST` incluye dominio frontend real (no `localhost`).
-- [ ] Tests pasan: `cd backend && npm test` (1249/1249) + `cd frontend && npx vitest run`.
+- [ ] El smoke test del workflow de deploy apunta a `/api/health/ready`, NO al `/health` de
+  Nginx (liveness estático "OK", sin tocar el backend — el endpoint con detalle es `/api/health`).
+- [ ] `CORS_WHITELIST` incluye el dominio real (`https://eduplay-tfg.duckdns.org` / `https://eduplay-tfg-staging.duckdns.org`), no `localhost`.
+- [ ] Tests pasan: `cd backend && npm test` + `cd frontend && npx vitest run`.
 
 ---
 
@@ -770,7 +784,9 @@ Detalle operativo: [`Secrets_Rotation.md`](Secrets_Rotation.md).
 - ✅ MaxListenersExceededWarning en tests → `process.setMaxListeners(50)` en `tests/setup.js`.
 
 ### 19.7 Diferidos a sprints futuros (documentados, no implementados)
-- **PROP-120 Cloudflare WAF + rate limit edge** → T-907 (sprint 6 cloud).
+- **PROP-120 Cloudflare WAF + rate limit edge** → T-907 (sprint 6 cloud). **Obsoleto tras la
+  migración a VPS (06-07-2026):** Cloudflare ya no está en el camino de red (§8.1, §18); esta
+  capa no se implementará bajo ese diseño.
 - **B11 QA E2E sensor simulado con script automatizado** → manual procedure documentado en §16.8; script de simulación HMAC backend pendiente.
 - **DTO refactor con factories** → mejora cobertura idorCrossTeacher test (actualmente skipped).
 - **OAuth2 / SSO** → fuera de scope hasta v2.
@@ -898,6 +914,82 @@ La dirección publica avisos visibles como banner top en `AppLayout` para `role:
 ### 22.5 Endpoint debug protegido
 
 `POST /api/admin/system-alerts/_debug/run-now` dispara una corrida de detección inmediata. 403 si `NODE_ENV === 'production'`. Solo super_admin. Útil para QA y nuevos detectores.
+
+---
+
+<a id="runner-self-hosted"></a>
+## 23. Runner self-hosted (GitHub Actions autoalojado en la VPS)
+
+Desde la migración a la VPS Contabo (06-07-2026), los deploys de staging y producción ya no
+los ejecuta un proveedor cloud vía API — los ejecuta un **runner de GitHub Actions self-hosted**
+instalado en la propia VPS, como servicio systemd, bajo el label `contabo-vps` y el nombre
+`contabo-vps-runner` (repo `Samuel-Prog-CSec/TFG-IoT`). Esto introduce una superficie de
+ataque distinta a la de un runner gestionado por GitHub, y requiere una regla de seguridad
+explícita.
+
+### 23.1 El riesgo: repo público + runner self-hosted
+
+El repositorio de este proyecto es **público**. GitHub advierte explícitamente contra el uso
+de runners self-hosted en repositorios públicos: cualquier persona puede abrir un Pull Request
+desde un fork, y si un workflow que corre en ese runner se disparase con el código de esa PR,
+el runner ejecutaría ese código **con acceso real a la VPS de producción** — credenciales en
+`/opt/eduplay/secrets/`, capacidad de `docker compose` sobre los stacks reales, red interna de
+la máquina. Es, en la práctica, ejecución de código arbitrario en infraestructura de producción
+a partir de un fork no confiable.
+
+### 23.2 Regla de seguridad no negociable
+
+**El label `contabo-vps` (o cualquier label de este runner self-hosted) solo puede usarse en
+workflows disparados por `push`, `tags`, `workflow_run` o `workflow_dispatch`. Nunca en un
+workflow con trigger `pull_request` o `pull_request_target`.**
+
+Motivo: estos cuatro triggers permitidos requieren o bien que el código ya esté en una rama del
+propio repo (push/tags), o bien que dispare tras un workflow que ya corrió en `ubuntu-latest`
+sobre una rama del repo (`workflow_run`), o bien que lo dispare manualmente alguien con permiso
+de escritura (`workflow_dispatch`). Ninguno de los tres permite que el contenido de un fork
+externo llegue a ejecutarse en el runner sin que un colaborador del repo lo haya fusionado o
+disparado antes.
+
+**Cumplimiento actual (verificado en este mismo cambio):**
+
+| Workflow | Trigger | Runner |
+|---|---|---|
+| `deploy-staging.yml` | `workflow_run` (sobre `build.yml` en `Maintenance`) + `workflow_dispatch` | `contabo-vps` |
+| `deploy-production.yml` | `push: tags: ["v*"]` + `workflow_dispatch` | `contabo-vps` (tras `validate-tag` en `ubuntu-latest`) |
+| `build.yml`, `codeql.yml`, `dependency-review.yml`, `gitleaks.yml`, `zap-scan.yml` | `push`/`pull_request`/`schedule` | `ubuntu-latest` (runner gestionado por GitHub, sin acceso a la VPS) |
+
+`preview-deploy.yml` (que sí se disparaba con `pull_request`) se retiró junto con Koyeb — su
+existencia previa ya no es relevante para esta regla, pero confirma por qué el patrón de
+triggers importa: un workflow con `on: pull_request` apuntando a un runner con acceso a
+infraestructura real es exactamente el escenario que hay que evitar.
+
+### 23.3 Privilegio del runner: usuario `deploy`, nunca root
+
+El servicio systemd del runner (`./svc.sh install` en `Deploy_VPS.md` §5) se instala con `sudo`
+porque crear el servicio requiere privilegios de root, pero el propio servicio queda
+**configurado para ejecutarse como el usuario `deploy`** — sin privilegios de root, miembro
+únicamente de los grupos `sudo` y `docker`. Verificable en la VPS con:
+
+```bash
+systemctl show actions.runner.*.service -p User
+# Esperado: User=deploy
+```
+
+Esto acota el daño potencial de cualquier comando que el workflow ejecute: el proceso del
+runner puede administrar contenedores Docker (necesario para `docker compose up -d --build`) y
+leer `/opt/eduplay/secrets/` (propiedad de `deploy`, `chmod 600`/`700`), pero no puede modificar
+la configuración del sistema, otros usuarios, ni el propio `sshd_config` sin pasar por `sudo`
+explícito (y ningún workflow de este repo invoca `sudo`).
+
+### 23.4 Qué NO cubre esta regla
+
+- No protege contra un colaborador con permiso de escritura que decida (por error o mala fe)
+  añadir el label a un workflow con `pull_request`. La defensa aquí es la revisión de código de
+  cualquier cambio a `.github/workflows/*.yml` (mismo proceso de PR + review que el resto del
+  repo) y esta sección como referencia explícita a comprobar en dicha revisión.
+- No sustituye el aislamiento de red del propio Docker (los contenedores de `mongo`/`redis`
+  nunca publican puertos al host, ver `Deploy_VPS.md` §1) ni el resto de defensas de esta VPS
+  (`ufw`, `fail2ban`, usuario sin password root intacto porque la máquina es del tutor).
 
 ---
 

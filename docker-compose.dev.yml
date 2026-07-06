@@ -80,7 +80,7 @@ services:
     # el worker recargue los cambios de detectores/servicios sin rebuild ni
     # restart manual. Sin el `command` con nodemon heredaba `node worker.js` del
     # base y NO recargaba: un cambio en un detector solo surtía efecto tras
-    # `docker restart rfid-games-worker` — confusión real en QA 2026-06-27 (las
+    # `docker compose restart worker` — confusión real en QA 2026-06-27 (las
     # alertas de un detector recién corregido seguían usando el código viejo).
     volumes:
       - ./backend:/app

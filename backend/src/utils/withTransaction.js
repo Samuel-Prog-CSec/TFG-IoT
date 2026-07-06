@@ -3,8 +3,11 @@
  * Envuelve el patrón session/startTransaction/commit/abort/endSession.
  *
  * REQUISITO: Las transacciones requieren un replica set de MongoDB.
- * En desarrollo local con Docker, el docker-compose configura un replica set.
- * En entornos standalone (algunos tests), las transacciones no están disponibles.
+ * `docker-compose.yml` configura Mongo como replica set de un solo nodo
+ * (`rs0`, inicializado por el servicio `mongo-init`) en desarrollo local Y en
+ * despliegue. En entornos standalone (tests con mongodb-memory-server sin
+ * replSet), las transacciones no están disponibles y este módulo degrada con
+ * gracia a ejecución sin sesión (ver `isTransactionNotSupportedError`).
  *
  * @module utils/withTransaction
  */

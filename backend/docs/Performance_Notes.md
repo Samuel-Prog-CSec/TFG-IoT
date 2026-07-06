@@ -682,7 +682,7 @@ Aplicado en `backend/src/services/analyticsService.js`:
 ### A.7 + A.10 — Pool MongoDB Atlas
 
 `backend/src/config/database.js` `productionConnectOptions`:
-- `compressors: ['snappy', 'zstd']` — 30-50% menos bytes wire-level en aggregations grandes.
+- ~~`compressors: ['snappy', 'zstd']` — 30-50% menos bytes wire-level en aggregations grandes.~~ **Retirado (ADR-233, migración a VPS autoalojada)**: el driver `mongodb` v7 lanza `MongoMissingDependencyError` en vez de degradar con gracia cuando falta el módulo nativo opcional del compresor negociado, y el Dockerfile de producción (`npm ci --only=production`) nunca lo instaló. Con Mongo autoalojado en la misma red Docker que el backend ya no hay salto WAN a Atlas que justifique el riesgo.
 - `maxIdleTimeMS: 60_000` — libera conexiones idle tras 60s. Importante para escala horizontal.
 - Índices T-931 (`{sessionId:1, status:1, completedAt:-1}`) ya existían — auditados via `explain` en A.8.
 

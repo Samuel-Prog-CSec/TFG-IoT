@@ -53,6 +53,7 @@ const {
 const asyncHandler = require('./utils/asyncHandler');
 const { registerSocketHandlers, registerRfidHandlers, stopCacheCleanup } = require('./realtime');
 const { setReady, setShuttingDown, getIsShuttingDown } = require('./utils/serverState');
+const { resolveTrustProxyHops } = require('./utils/trustProxyConfig');
 const swaggerUi = require('swagger-ui-express');
 const { swaggerSpec, requiresAuthForDocs } = require('./config/swagger');
 const { authenticate, requireRole } = require('./middlewares/auth');
@@ -86,13 +87,17 @@ app.set('etag', false);
 // cabecera expuesta — detectado en QA en vivo (ADR-196).
 app.disable('x-powered-by');
 
-// Trust proxy en producción (Koyeb antepone un reverse proxy a cada servicio).
-// Sin esto, Express ve la IP del proxy en `req.ip` y los rate limiters basados
-// en IP confunden a todos los clientes con un único "atacante". En desarrollo
-// se omite a propósito: confiar en `X-Forwarded-For` sin proxy real abre la
-// puerta a bypass de rate limit suplantando la cabecera desde el cliente.
+// Trust proxy en producción: uno o más reverse proxies delante del backend
+// (Nginx de host + Nginx del contenedor frontend en la VPS, o el proxy de
+// borde que corresponda). Sin esto, Express ve la IP del último proxy en
+// `req.ip` y los rate limiters basados en IP confunden a todos los clientes
+// con un único "atacante". En desarrollo se omite a propósito: confiar en
+// `X-Forwarded-For` sin proxy real abre la puerta a bypass de rate limit
+// suplantando la cabecera desde el cliente. TRUST_PROXY_HOPS indica cuántos
+// saltos de proxy confiar (por defecto 1; la VPS con doble Nginx usa 2 — ver
+// utils/trustProxyConfig.js).
 if (process.env.TRUST_PROXY === 'true' || process.env.NODE_ENV === 'production') {
-  app.set('trust proxy', 1);
+  app.set('trust proxy', resolveTrustProxyHops(process.env));
 }
 
 const server = http.createServer(app);
