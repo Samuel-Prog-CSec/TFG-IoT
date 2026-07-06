@@ -88,6 +88,7 @@ describe('useOnboarding', () => {
         profile: { onboarding: { teacherCompleted: false, currentStep: 0 } },
       },
       isLoading: false,
+      updateUser: vi.fn(),
     });
 
     const { result } = renderHook(() => useOnboarding({ totalSteps: 6 }));
@@ -105,6 +106,76 @@ describe('useOnboarding', () => {
     });
   });
 
+  it('completeOnboarding propaga el estado completado al AuthContext', () => {
+    const updateUser = vi.fn();
+    useAuth.mockReturnValue({
+      user: {
+        role: 'teacher',
+        name: 'María',
+        profile: { onboarding: { teacherCompleted: false, currentStep: 3 } },
+      },
+      isLoading: false,
+      updateUser,
+    });
+
+    const { result } = renderHook(() => useOnboarding({ totalSteps: 6 }));
+
+    act(() => {
+      result.current.completeOnboarding();
+    });
+
+    // El user del context debe reflejar el completado (sin perder otros
+    // campos) para que la marca sobreviva a un remount de AppLayout.
+    expect(updateUser).toHaveBeenCalledWith(
+      expect.objectContaining({
+        name: 'María',
+        profile: expect.objectContaining({
+          onboarding: expect.objectContaining({
+            teacherCompleted: true,
+            currentStep: 0,
+            currentTrack: null,
+          }),
+        }),
+      }),
+    );
+  });
+
+  it('no re-muestra el tour tras completar y remontar (salida de partida)', () => {
+    // Reproduce el bug: al entrar en una partida, /game usa GameLayout y
+    // desmonta AppLayout (donde vive useOnboarding); al salir con la "X",
+    // AppLayout se remonta. AuthProvider está por encima, así que su `user`
+    // sobrevive. Simulamos ese context con un `user` mutable que updateUser
+    // reemplaza — igual que el reducer real de AuthContext.
+    let currentUser = {
+      role: 'teacher',
+      profile: { onboarding: { teacherCompleted: false, currentStep: 0 } },
+    };
+    const updateUser = vi.fn((next) => {
+      currentUser = next;
+    });
+    useAuth.mockImplementation(() => ({
+      user: currentUser,
+      isLoading: false,
+      updateUser,
+    }));
+
+    const first = renderHook(() => useOnboarding({ totalSteps: 6 }));
+    expect(first.result.current.isVisible).toBe(true);
+
+    act(() => {
+      first.result.current.completeOnboarding();
+    });
+    expect(first.result.current.isVisible).toBe(false);
+    expect(currentUser.profile.onboarding.teacherCompleted).toBe(true);
+
+    // Desmonta (entrar en la partida) y remonta (salir con la "X").
+    first.unmount();
+    const second = renderHook(() => useOnboarding({ totalSteps: 6 }));
+
+    expect(second.result.current.isVisible).toBe(false);
+    expect(second.result.current.hasCompleted).toBe(true);
+  });
+
   it('migra el flag legacy de localStorage al backend', async () => {
     localStorage.setItem('eduplay:onboarding-completed', 'true');
     useAuth.mockReturnValue({
@@ -113,6 +184,7 @@ describe('useOnboarding', () => {
         profile: { onboarding: { teacherCompleted: false, currentStep: 0 } },
       },
       isLoading: false,
+      updateUser: vi.fn(),
     });
 
     renderHook(() => useOnboarding({ totalSteps: 6 }));

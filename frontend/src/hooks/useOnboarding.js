@@ -61,7 +61,7 @@ function readInitialState(user) {
 }
 
 export function useOnboarding({ totalSteps = 0 } = {}) {
-  const { user, isLoading } = useAuth();
+  const { user, isLoading, updateUser } = useAuth();
 
   const [isVisible, setIsVisible] = useState(false);
   const [currentStep, setCurrentStep] = useState(0);
@@ -70,6 +70,31 @@ export function useOnboarding({ totalSteps = 0 } = {}) {
 
   const initializedRef = useRef(false);
   const syncTimerRef = useRef(null);
+
+  // Propaga el estado del onboarding al `user` del AuthContext además de
+  // persistirlo en backend. Sin esto, la marca de "completado" solo vive en
+  // el estado local del hook: al entrar en una partida (/game usa GameLayout
+  // y desmonta AppLayout, donde vive este hook) y salir con la "X", AppLayout
+  // se remonta, el hook se re-inicializa desde `user.profile.onboarding` y,
+  // al seguir stale con `completed: false`, vuelve a mostrar el tour.
+  // AuthProvider está por encima de AppLayout, así que este `user`
+  // actualizado sobrevive al remount y el tour ya no reaparece.
+  const syncUserOnboarding = useCallback(
+    (patch) => {
+      if (!user || typeof updateUser !== 'function') return;
+      updateUser({
+        ...user,
+        profile: {
+          ...user.profile,
+          onboarding: {
+            ...user.profile?.onboarding,
+            ...patch,
+          },
+        },
+      });
+    },
+    [user, updateUser],
+  );
 
   // Inicialización única tras tener `user` disponible. Evita el bug del
   // hook anterior (estado inicial leía localStorage antes de tener user).
@@ -105,6 +130,7 @@ export function useOnboarding({ totalSteps = 0 } = {}) {
           }
           setHasCompleted(true);
           setIsVisible(false);
+          syncUserOnboarding({ teacherCompleted: true });
           return null;
         })
         .catch((error) => {
@@ -117,7 +143,7 @@ export function useOnboarding({ totalSteps = 0 } = {}) {
     if (!initial.completed) {
       setIsVisible(true);
     }
-  }, [user, isLoading]);
+  }, [user, isLoading, syncUserOnboarding]);
 
   // Sincroniza el paso actual con el backend (debounced 500ms para evitar
   // un PATCH por click). El último paso disparado en la ventana gana.
@@ -170,10 +196,14 @@ export function useOnboarding({ totalSteps = 0 } = {}) {
         ? { teacherCompleted: true }
         : { superAdminCompleted: true }),
     };
+    // Sincroniza el `user` del AuthContext para que el completado sobreviva a
+    // un remount de AppLayout (p. ej. al salir de una partida) — ver
+    // `syncUserOnboarding`.
+    syncUserOnboarding(payload);
     usersAPI.updateMyOnboarding(payload).catch((error) => {
       warnOnboarding('complete falló', error);
     });
-  }, [track]);
+  }, [track, syncUserOnboarding]);
 
   const skipOnboarding = useCallback(() => {
     completeOnboarding();
