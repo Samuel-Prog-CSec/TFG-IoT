@@ -111,32 +111,33 @@ jobs:
           set -e
 
           # ───── Backend ─────
-          # Exclusiones documentadas (no alcanzables en nuestra cadena de dependencias):
-          # - GHSA-58qx-3vcg-4xpx: ws 8.0.0-8.20.0 uninitialized memory disclosure en parsing
-          #   de fragmentos malformados. Consumidores transitivos: socket.io@4.8.3 → ws@8.20.0,
-          #   engine.io, socket.io-adapter. Fix disponible (ws 8.20.1+) pero requiere bump de
-          #   socket.io. Mitigación operativa: socket.io exige JWT válido antes de aceptar
-          #   mensajes, reduciendo superficie. Pendiente: override "ws":">=8.20.1" en ventana
-          #   de mantenimiento dedicada (no bloquear cierre de cloud foundation).
+          # Sin exclusiones activas.
           #
           # Histórico (resueltas por `npm audit fix` el 2026-05-22, eliminadas del lockfile):
           # GHSA-w5hq-g745-h8pq (uuid), GHSA-v2v4-37r5-5v8g (ip-address),
-          # GHSA-jxxr-4gwj-5jf2 (brace-expansion). Si volvieran a aparecer, restaurar entrada
-          # con justificación renovada y mover aquí.
-          BACKEND_EXCLUDED="GHSA-58qx-3vcg-4xpx"
+          # GHSA-jxxr-4gwj-5jf2 (brace-expansion).
+          # Histórico (resueltas por `npm audit fix` el 2026-07-06, ws 8.20.1→8.21.0 vía bump
+          # de @sentry/node/@opentelemetry sin --force, sin cambios de código):
+          # GHSA-58qx-3vcg-4xpx (ws uninitialized memory disclosure), GHSA-96hv-2xvq-fx4p (ws
+          # memory exhaustion DoS), GHSA-8988-4f7v-96qf (@opentelemetry/core unbounded alloc),
+          # GHSA-h67p-54hq-rp68 (js-yaml quadratic DoS), GHSA-72gw-mp4g-v24j y
+          # GHSA-3p4h-7m6x-2hcm (multer DoS). Si volvieran a aparecer, restaurar entrada con
+          # justificación renovada y mover aquí.
+          BACKEND_EXCLUDED=""
           node backend/scripts/audit-with-exclusions.js \
             --workspace backend \
             --label "Backend" \
             --excluded "$BACKEND_EXCLUDED"
 
           # ───── Frontend ─────
-          # Mismo análisis que en backend para ws transitivo (engine.io-client).
-          # - GHSA-58qx-3vcg-4xpx: no alcanzable en browser cliente, fix en socket.io-client ≥4.8.4.
+          # Sin exclusiones activas.
           #
           # Histórico (resueltas por `npm audit fix` el 2026-05-22, axios subió de 1.14.0
           # a 1.15.2 al regenerar el lockfile): GHSA-3p68-rc4w-qgx5 (axios SSRF),
           # GHSA-fvcv-3m26-pcqx (axios cloud metadata), GHSA-r4q5-vmmm-2653 (follow-redirects).
-          FRONTEND_EXCLUDED="GHSA-58qx-3vcg-4xpx"
+          # Histórico (resuelta por `npm audit fix` el 2026-07-06, ws transitivo vía
+          # engine.io-client): GHSA-58qx-3vcg-4xpx, GHSA-96hv-2xvq-fx4p.
+          FRONTEND_EXCLUDED=""
           node backend/scripts/audit-with-exclusions.js \
             --workspace frontend \
             --label "Frontend" \
@@ -187,11 +188,20 @@ jobs:
         working-directory: ./backend
 
       - name: Ejecutar tests
+        # NODE_OPTIONS con más heap: jest.config.js fija maxWorkers=1 a propósito
+        # (los tests comparten una única instancia de DB/servidor — correr en
+        # paralelo produce 401/500 flaky por drops de DB entre workers, ver
+        # comentario en jest.config.js). Con un solo proceso Node acumulando
+        # cobertura de ~150 suites, el heap por defecto de V8 revienta
+        # ("Ineffective mark-compacts... heap out of memory") antes de agotar
+        # la RAM real del runner — el fix es subir el techo de V8, no repartir
+        # en más workers (eso reintroduciría la flakiness original).
         run: npm test
         working-directory: ./backend
         env:
           JWT_SECRET: "test_secret"
           MONGODB_URI: "mongodb://localhost:27017/rfid_games_test"
+          NODE_OPTIONS: "--max-old-space-size=6144"
 
       - name: Normalizar rutas LCOV para SonarCloud
         if: always()
