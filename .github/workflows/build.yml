@@ -379,7 +379,14 @@ jobs:
   sonar:
     name: SonarCloud Analysis (informativo)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 20 min (no 10): observado en vivo que el análisis se queda esperando al
+    # procesamiento del lado de SonarCloud tras completar el escaneo local
+    # (85% → colgado varios minutos antes de cancelarse por timeout). Además,
+    # `continue-on-error: true` NO evita que una cancelación por timeout (a
+    # diferencia de un fallo normal) haga que la conclusión del workflow CI
+    # completo pase a "cancelled" en vez de "success" — y eso bloqueaba el
+    # disparo de deploy-staging.yml (exige CI conclusion == success).
+    timeout-minutes: 20
     continue-on-error: true
     needs: [backend-tests, frontend-checks]
     permissions:
