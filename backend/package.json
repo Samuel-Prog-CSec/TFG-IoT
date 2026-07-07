@@ -1,6 +1,6 @@
 {
   "name": "rfid-games-backend",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Backend server for RFID educational games - MERN stack",
   "main": "src/server.js",
   "scripts": {
