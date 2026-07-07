@@ -34,13 +34,13 @@ const buildServers = () => {
 
   if (APP_ENV === 'production') {
     servers.push({
-      url: process.env.PUBLIC_API_URL || 'https://api.eduplay.example.com/api',
-      description: 'Producción'
+      url: process.env.PUBLIC_API_URL || 'https://eduplay-tfg.duckdns.org/api',
+      description: 'Producción (VPS Contabo)'
     });
   } else if (APP_ENV === 'staging') {
     servers.push({
-      url: process.env.PUBLIC_API_URL || 'https://api-staging.eduplay.example.com/api',
-      description: 'Staging'
+      url: process.env.PUBLIC_API_URL || 'https://eduplay-tfg-staging.duckdns.org/api',
+      description: 'Staging (VPS Contabo)'
     });
   }
 
@@ -67,7 +67,8 @@ const definition = {
       'Socket.IO 4 + Redis 7. Autenticación basada en JWT (access 15min + refresh 7d) con ',
       'rotación, blacklist en Redis y CSRF double-submit cookie.',
       '',
-      'Convenciones de respuesta documentadas en `documentation/Architecture_Decisions.md` (ADR-003).'
+      'Convención de respuesta: éxito como `{ success: true, data: {...} }`; error como ',
+      '`{ success: false, error: { code, message } }` (ver esquema `ApiError`).'
     ].join('\n'),
     contact: {
       name: 'Samuel Blanchart Pérez',
@@ -117,11 +118,18 @@ const definition = {
         type: 'object',
         properties: {
           success: { type: 'boolean', example: false },
-          error: {
-            type: 'object',
-            properties: {
-              code: { type: 'string', example: 'BAD_REQUEST' },
-              message: { type: 'string' }
+          message: { type: 'string', example: 'Descripción del error' },
+          code: { type: 'string', example: 'BAD_REQUEST', nullable: true },
+          errors: {
+            type: 'array',
+            nullable: true,
+            description: 'Detalle por campo (errores de validación Zod)',
+            items: {
+              type: 'object',
+              properties: {
+                field: { type: 'string' },
+                message: { type: 'string' }
+              }
             }
           }
         }
@@ -147,15 +155,14 @@ const definition = {
           createdAt: { type: 'string', format: 'date-time' }
         }
       },
-      Card: {
+      CardMapping: {
         type: 'object',
+        description:
+          'Mapeo de un token RFID fungible (no existe un modelo Card independiente) a un valor dentro del mazo.',
         properties: {
-          _id: { type: 'string' },
-          name: { type: 'string' },
-          value: { type: 'string' },
-          context: { type: 'string', description: 'ID del contexto al que pertenece la carta' },
-          imageUrl: { type: 'string', format: 'uri', nullable: true },
-          audioUrl: { type: 'string', format: 'uri', nullable: true }
+          uid: { type: 'string', description: 'UID físico de la tarjeta (8 o 14 hex, mayúsculas)' },
+          assignedValue: { type: 'string', description: 'Valor semántico asignado (ej: "España")' },
+          displayData: { type: 'object', description: 'Datos de visualización para el frontend' }
         }
       },
       Mechanic: {
@@ -183,13 +190,14 @@ const definition = {
         properties: {
           _id: { type: 'string' },
           name: { type: 'string' },
-          context: { type: 'string' },
-          mechanic: { type: 'string' },
-          cards: {
+          description: { type: 'string', nullable: true },
+          contextId: { type: 'string', description: 'ID del contexto temático' },
+          cardMappings: {
             type: 'array',
-            items: { type: 'string' },
-            description: 'IDs de cartas asignadas'
+            items: { $ref: '#/components/schemas/CardMapping' },
+            description: 'Entre 2 y 20 tokens RFID mapeados (UID único por mazo)'
           },
+          status: { type: 'string', enum: ['active', 'archived'] },
           createdBy: { type: 'string' },
           createdAt: { type: 'string', format: 'date-time' }
         }
@@ -252,13 +260,8 @@ const definition = {
               type: 'object',
               properties: {
                 success: { type: 'boolean', example: false },
-                error: {
-                  type: 'object',
-                  properties: {
-                    code: { type: 'string', example: 'UNAUTHORIZED' },
-                    message: { type: 'string', example: 'Token inválido o expirado' }
-                  }
-                }
+                message: { type: 'string', example: 'Token inválido o expirado' },
+                code: { type: 'string', example: 'UNAUTHORIZED' }
               }
             }
           }
@@ -272,12 +275,17 @@ const definition = {
               type: 'object',
               properties: {
                 success: { type: 'boolean', example: false },
-                error: {
-                  type: 'object',
-                  properties: {
-                    code: { type: 'string', example: 'VALIDATION_ERROR' },
-                    message: { type: 'string' },
-                    issues: { type: 'array' }
+                message: { type: 'string' },
+                code: { type: 'string', example: 'VALIDATION_ERROR' },
+                errors: {
+                  type: 'array',
+                  description: 'Detalle por campo',
+                  items: {
+                    type: 'object',
+                    properties: {
+                      field: { type: 'string' },
+                      message: { type: 'string' }
+                    }
                   }
                 }
               }

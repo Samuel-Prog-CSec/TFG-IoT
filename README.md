@@ -23,7 +23,7 @@ Para centros sin lector RFID, todas las mecánicas funcionan también con un pan
 
 ---
 
-## Arquitectura cloud
+## Arquitectura de despliegue
 
 ```mermaid
 graph TB
@@ -33,21 +33,18 @@ graph TB
         webserial -.-> ui
     end
 
-    subgraph "Cloudflare Pages"
-        cf[eduplay-frontend]
-    end
+    subgraph "VPS Contabo — Ubuntu 24.04 (autoalojado)"
+        nginx["Nginx (host)<br/>reverse proxy + TLS Certbot"]
 
-    subgraph "Koyeb (fra)"
-        api[api-prod<br/>Node 24 + Express 5]
-        worker[worker-prod<br/>BullMQ]
-    end
+        subgraph "Docker Compose — eduplay-prod / eduplay-staging"
+            fe[frontend<br/>Nginx + build React]
+            api[backend<br/>Node 24 + Express 5]
+            worker[worker<br/>BullMQ]
+            mongo[(MongoDB 7)]
+            redis[(Redis 7)]
+        end
 
-    subgraph "MongoDB Atlas (eu-central-1)"
-        atlas[(M0 free tier<br/>replica set 3 nodos)]
-    end
-
-    subgraph "Upstash Redis (eu-west-1)"
-        upstash[(rediss:// TLS)]
+        runner[Runner self-hosted<br/>GitHub Actions]
     end
 
     subgraph "Supabase Storage"
@@ -56,23 +53,26 @@ graph TB
 
     subgraph "Observabilidad"
         sentry[Sentry]
-        logs[Pino JSON → stdout]
+        loki[Grafana Cloud Loki]
     end
 
-    ui -->|HTTPS| cf
-    ui -->|WSS Socket.IO| api
-    cf -.->|REST API| api
-    api --> atlas
-    api --> upstash
+    ui -->|HTTPS| nginx
+    ui -->|WSS Socket.IO| nginx
+    nginx -->|proxy_pass| fe
+    fe -->|"/api, /socket.io"| api
+    api --> mongo
+    api --> redis
     api --> supabase
     api -->|errors| sentry
-    api -->|logs| logs
-    worker --> atlas
-    worker --> upstash
+    api -->|logs| loki
+    worker --> mongo
+    worker --> redis
     worker -->|errors| sentry
+    runner -.->|"docker compose up -d --build"| fe
+    runner -.-> api
 ```
 
-El stack staging es idéntico (con `api-staging`, `worker-staging`, DB `rfid_games_staging` en Atlas y `eduplay-staging` en Upstash). Despliegues vía GitHub Actions con approval gate para producción.
+`eduplay-staging` y `eduplay-prod` corren en la misma VPS como proyectos Docker Compose independientes (Mongo/Redis propios, sin compartir volúmenes ni red), aislados por nombre de proyecto y puerto interno (`127.0.0.1:8080` staging / `127.0.0.1:8090` prod). Nginx en el host hace de reverse proxy con TLS (Let's Encrypt vía Certbot) hacia cada stack según el dominio. El despliegue lo dispara un runner self-hosted de GitHub Actions instalado en la propia VPS — ver [`documentation/Deploy_VPS.md`](documentation/Deploy_VPS.md).
 
 ---
 
@@ -86,19 +86,19 @@ El stack staging es idéntico (con `api-staging`, `worker-staging`, DB `rfid_gam
 | **Validación** | Zod | 4.x |
 | **Logging** | Pino structured | 10.x |
 | **Queues** | BullMQ + Redis 7 | 5.x / 7 |
-| **Frontend** | React + Vite | 19 / 7.x |
+| **Frontend** | React + Vite | 19 / 8.x |
 | **Routing** | React Router | 7.x |
 | **Styling** | Tailwind CSS | 4.x |
-| **Animations** | Framer Motion | 11.x |
-| **Charts** | Recharts | 2.x |
-| **Database** | MongoDB Atlas | 8 (M0 free tier) |
-| **Cache + queues** | Upstash Redis | 7 (free tier) |
-| **Backend host** | Koyeb | Eco (free tier) |
-| **Frontend host** | Cloudflare Pages | Free |
+| **Animations** | Framer Motion | 12.x |
+| **Charts** | Recharts | 3.x |
+| **Database** | MongoDB | 7 (contenedor Docker en la VPS) |
+| **Cache + queues** | Redis | 7 (contenedor Docker en la VPS) |
+| **Hosting** | VPS Contabo (autoalojado) | Ubuntu 24.04 |
+| **Reverse proxy / TLS** | Nginx + Certbot (Let's Encrypt) | — |
 | **Storage** | Supabase | Free |
-| **Observability** | Sentry + Pino | Free 5K events/mes |
+| **Observability** | Sentry + Pino + Grafana Cloud Loki | — |
 | **IoT** | ESP8266 + RC522 RFID | PlatformIO (C++) |
-| **CI/CD** | GitHub Actions + release-please + SonarCloud | — |
+| **CI/CD** | GitHub Actions (runner self-hosted) + release-please + SonarCloud | — |
 
 ---
 
@@ -186,19 +186,19 @@ npm run audit:prod   # desde el root
 
 ## Quickstart — deploy
 
-El stack se despliega autoalojado en una VPS (Docker Compose + Nginx + Certbot). La guía completa, incluido el aprovisionamiento desde cero, está en [`documentation/Deploy_VPS.md`](documentation/Deploy_VPS.md).
+El stack se despliega autoalojado en una VPS Contabo (Docker Compose + Nginx + Certbot), con un runner self-hosted de GitHub Actions instalado en la propia máquina. La guía completa, incluido el aprovisionamiento desde cero, está en [`documentation/Deploy_VPS.md`](documentation/Deploy_VPS.md).
 
 **Resumen del flujo CD:**
 
 ```
-Push a Maintenance → CI verde → deploy-staging.yml → api-staging.koyeb.app
-Push de tag v*     → approval gate → deploy-production.yml → api-prod.koyeb.app
+Push a Maintenance → CI verde → deploy-staging.yml    (runner self-hosted) → eduplay-tfg-staging.duckdns.org
+Push de tag v*     → approval gate → deploy-production.yml (runner self-hosted) → eduplay-tfg.duckdns.org
 ```
 
 - **Release**: bot `release-please` mantiene un PR "chore: release vX.Y.Z" con CHANGELOG generado. Al mergearlo se crea el tag y dispara el deploy a producción.
-- **Rollback**: automático si `/health/ready` devuelve 503 en ≥5/8 intentos post-deploy. Manual con `koyeb services rollback` desde el dashboard.
+- **Rollback**: automático si el smoke test contra `/api/health/ready` falla en ≥5/8 intentos tras el deploy — el propio workflow vuelve al SHA/tag anterior registrado y reconstruye el stack (`docker compose up -d --build`). Manual: SSH a la VPS, `git checkout <sha-o-tag-anterior>` y repetir el `docker compose up -d --build` del stack afectado.
 - **Rotación de secretos**: política en [`documentation/Secrets_Rotation.md`](documentation/Secrets_Rotation.md).
-- **Runbook operacional**: [`documentation/Runbook_Operacional.md`](documentation/Runbook_Operacional.md) con 15 playbooks (deploy, rollback, GDPR, incidentes, etc.).
+- **Runbook operacional**: [`documentation/Runbook_Operacional.md`](documentation/Runbook_Operacional.md) con playbooks (deploy, rollback, GDPR, incidentes, etc.).
 
 ---
 
@@ -228,7 +228,7 @@ TFG-IoT/
 ├── frontend/         # SPA (React/Vite)
 ├── rfid_scanner/     # Firmware ESP8266 + RC522 (PlatformIO, C++)
 ├── memoria/          # Memoria académica del TFG (LaTeX)
-├── documentation/    # Sprints, requisitos, ADRs, runbooks
+├── documentation/    # Sprints, requisitos, seguridad, runbooks operacionales
 ├── docker/           # Configuración Docker/Nginx
 └── .github/workflows/# CI, deploy-staging, deploy-production, release-please
 ```
@@ -237,18 +237,18 @@ TFG-IoT/
 
 - **Backend** ([`backend/docs/`](backend/docs/)): arquitectura Redis, WebSockets, RFID, performance, logging, seguridad JWT.
 - **Frontend** ([`frontend/docs/`](frontend/docs/)): patrones de diseño, gameplay realtime, mazos, optimización Vite.
-- **Decisiones arquitectónicas**: [`documentation/Architecture_Decisions.md`](documentation/Architecture_Decisions.md) (166 ADRs documentados).
+- **Despliegue**: [`documentation/Deploy_VPS.md`](documentation/Deploy_VPS.md) (aprovisionamiento VPS, DNS, TLS, runner).
 - **OpenAPI 3.1**: en staging accesible públicamente en `/api/docs`; en producción requiere super admin.
 
 ---
 
 ## Operational status
 
-- **Status page pública**: https://stats.uptimerobot.com/eduplay-rfid — estado en tiempo real de API y frontend (prod + staging). _URL definitiva confirmada al activarla en T-904 Bloque 8.3._
-- **Hub observabilidad**: [`documentation/Operational_Dashboard.md`](documentation/Operational_Dashboard.md) — Atlas, Upstash, Koyeb, Cloudflare, Sentry, Grafana Cloud Loki, UptimeRobot. Saved queries LogQL incluidas.
+- **Status page pública**: https://stats.uptimerobot.com/eduplay-rfid — estado en tiempo real de API y frontend (prod + staging).
+- **Hub observabilidad**: [`documentation/Operational_Dashboard.md`](documentation/Operational_Dashboard.md) — VPS Contabo, Sentry, Grafana Cloud Loki, UptimeRobot. Saved queries LogQL incluidas.
 - **Playbooks ante incidente**: [`documentation/Runbook_Operacional.md`](documentation/Runbook_Operacional.md) — procedimientos (deploys, rollbacks, alertas Sentry y UptimeRobot, RGPD, slow queries, cuotas free-tier).
-- **Presupuesto free-tier**: [`documentation/Free_Tier_Budget.md`](documentation/Free_Tier_Budget.md) — límites por servicio, consumo estimado, alertas tempranas y plan B (ADR-167).
-- **Observabilidad técnica**: traces en Sentry Performance (`op:gameplay`, `op:rfid.scan`, `op:analytics`); logs estructurados en Grafana Cloud Loki con retención 14 días (ADR-165, ADR-166).
+- **Presupuesto free-tier**: [`documentation/Free_Tier_Budget.md`](documentation/Free_Tier_Budget.md) — límites por servicio de terceros (GitHub Actions, Sentry, Grafana Loki, UptimeRobot, Supabase), consumo estimado, alertas tempranas y plan B.
+- **Observabilidad técnica**: traces en Sentry Performance (`op:gameplay`, `op:rfid.scan`, `op:analytics`); logs estructurados en Grafana Cloud Loki con retención 14 días.
 
 ---
 

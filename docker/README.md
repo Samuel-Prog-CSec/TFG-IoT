@@ -247,8 +247,9 @@ set `rs0` una sola vez (idempotente) ya autenticado con esas credenciales.
 `MONGO_URI` (en `backend`/`worker`) deriva su valor por defecto de
 `MONGO_INITDB_ROOT_USERNAME`/`PASSWORD` — si solo cambias la contraseña root
 en el `.env`, `MONGO_URI` se actualiza sola. Solo hace falta sincronizar
-ambas a mano si defines `MONGO_URI` explícita (p. ej. para un Mongo Atlas
-externo en vez del contenedor local).
+ambas a mano si defines `MONGO_URI` explícita (p. ej. para un servicio MongoDB gestionado
+externo en vez del contenedor local — no es el caso de este proyecto, que usa siempre el
+contenedor `mongo` tanto en desarrollo como en la VPS de despliegue).
 
 ---
 

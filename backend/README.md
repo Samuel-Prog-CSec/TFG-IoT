@@ -22,7 +22,7 @@ Sistema backend profesional con Express.js, MongoDB y Socket.IO con ingesta RFID
 
 ### Core
 
-- **API REST** completa con 48 endpoints CRUD
+- **API REST** completa (auth, usuarios, mazos, mecánicas, contextos, sesiones, partidas, analytics, notificaciones, admin)
 - **WebSocket en tiempo real** con Socket.IO para gameplay
 - **Ingesta RFID Web Serial** desde el navegador
 - **Autenticación JWT** con refresh tokens y token rotation
@@ -35,7 +35,7 @@ Sistema backend profesional con Express.js, MongoDB y Socket.IO con ingesta RFID
 - **CORS** con whitelist dinámica de orígenes
 - **Rate limiting** granular por endpoint y tipo de operación
 - **Device fingerprinting** para protección contra robo de tokens
-- **Token blacklist** en memoria para revocación instantánea
+- **Token blacklist** en Redis para revocación instantánea
 - **Bcrypt** para hash de contraseñas (rounds configurables)
 
 ### Rendimiento
@@ -49,58 +49,52 @@ Sistema backend profesional con Express.js, MongoDB y Socket.IO con ingesta RFID
 ### Monitoreo
 
 - **Sentry** para tracking de errores y profiling
-- **Winston** para logging estructurado
+- **Pino** para logging estructurado (JSON a stdout, shipping a Grafana Cloud Loki vía `pino-loki`)
 - **Métricas en tiempo real** de gameEngine y rfidService
 - **Health checks** con uptime y estadísticas
 
 ### Arquitectura
 
-- **Patrón MVC** con Services layer
-- **Principios SOLID** aplicados
-- **Validación con Zod** en todas las entradas
-- **Error handling** centralizado
-- **Graceful shutdown** con cleanup completo
+No es un MVC simple: es un pipeline con capas separadas por responsabilidad.
+
+- **Controllers** — orquestación delgada, delegan a services/repositories
+- **Services** — lógica de negocio y coordinación cross-modelo (`gameEngine` para orquestación stateful de partidas)
+- **Repositories** — capa de acceso a datos (`baseRepository` + repos especializados por entidad)
+- **DTOs** — obligatorios en toda respuesta de dominio; nunca se devuelven documentos Mongoose crudos
+- **Validators** — schemas Zod en `validators/`, aplicados vía middleware
+- **State pattern** — gestión de estados RFID (`states/`)
+- **Strategy pattern** — mecánicas de juego (`strategies/`, `gameMechanics/`)
+- **Command pattern** — handlers de eventos de socket (`commands/`)
+- **Principios SOLID**, error handling centralizado (`AppError` + Sentry) y graceful shutdown con cleanup completo
 
 ## 🏗️ Arquitectura
 
 ```
 backend/
 ├── src/
-│   ├── config/
-│   │   ├── database.js       # Conexión MongoDB
-│   │   ├── sentry.js          # Configuración Sentry v10
-│   │   └── security.js        # CORS, Helmet, Rate Limiting
-│   ├── models/                # Mongoose schemas (6 modelos)
-│   │   ├── User.js
-│   │   ├── Card.js
-│   │   ├── GameMechanic.js
-│   │   ├── GameContext.js
-│   │   ├── GameSession.js
-│   │   └── GamePlay.js
-│   ├── controllers/           # Lógica de negocio (7 controllers, 48 endpoints)
-│   │   ├── authController.js
-│   │   ├── userController.js
-│   │   ├── cardController.js
-│   │   ├── gameMechanicController.js
-│   │   ├── gameContextController.js
-│   │   ├── gameSessionController.js
-│   │   └── gamePlayController.js
-│   ├── routes/                # Rutas Express (7 archivos)
-│   ├── services/              # Servicios core
-│   │   ├── gameEngine.js      # Motor de juego stateful
-│   │   └── rfidService.js     # Ingesta RFID (Web Serial)
-│   ├── middlewares/
-│   │   ├── auth.js            # JWT con refresh tokens
-│   │   ├── validation.js      # Validación con Zod
-│   │   └── errorHandler.js    # Manejo centralizado de errores
-│   ├── validators/            # Esquemas Zod (6 archivos)
-│   ├── utils/
-│   │   ├── errors.js          # Clases de error personalizadas
-│   │   └── logger.js          # Winston logger
-│   └── server.js              # Punto de entrada
-├── logs/
+│   ├── config/          # database, redis, security (CORS/Helmet/rate-limit), sentry, swagger (OpenAPI)
+│   ├── models/           # Mongoose schemas (User, GameMechanic, GameContext, GameSession,
+│   │                     #   GamePlay, CardDeck, Notification, SmartAlert, SystemAlert, ...)
+│   ├── controllers/      # Orquestación delgada por dominio (auth, users, cardDeck,
+│   │                     #   gameContext, gameSession, gamePlay, analytics, admin, ...)
+│   ├── routes/           # Rutas Express (auth, users, decks, mechanics, contexts, sessions,
+│   │                     #   plays, analytics, notifications, admin, reports, health, metrics)
+│   ├── services/         # Lógica de negocio (gameEngine/, analytics/, rfidService, redisService, ...)
+│   ├── repositories/     # Acceso a datos (baseRepository + repos especializados)
+│   ├── realtime/         # Handlers Socket.IO, pub/sub multi-instancia
+│   ├── commands/         # Command pattern para eventos de socket
+│   ├── states/           # State pattern (estados RFID)
+│   ├── strategies/       # Strategy pattern (mecánicas: association, memory, sequence)
+│   ├── workers/          # Jobs BullMQ (retención de datos, detección de alertas, analytics)
+│   ├── queues/           # Registro central de queues BullMQ
+│   ├── middlewares/      # auth (JWT), validation (Zod), errorHandler, rate limiting, MFA
+│   ├── validators/       # Esquemas Zod por dominio
+│   ├── utils/            # dtos.js, errors.js, logger.js (Pino), cacheHelper, cryptoUtils, ...
+│   ├── worker.js         # Punto de entrada del proceso worker (BullMQ)
+│   └── server.js         # Punto de entrada de la API HTTP/WebSocket
+├── seeders/              # Datos deterministas de desarrollo/demo
+├── scripts/              # Migraciones, auditorías, benchmarks
 ├── tests/
-├── .env
 ├── .env.example
 ├── package.json
 └── README.md
@@ -108,10 +102,10 @@ backend/
 
 ## 📦 Requisitos
 
-- **Node.js** ≥ 22.0.0
-- **MongoDB** ≥ 6.0 (local o Atlas)
-- **ESP8266 NodeMCU** + RC522 RFID (opcional, para hardware)
-- **Puerto serie** disponible (COM3 en Windows, /dev/ttyUSB0 en Linux)
+- **Node.js** ≥ 24.14.0
+- **MongoDB** 7 (contenedor Docker en desarrollo y en despliegue; no se usa MongoDB Atlas)
+- **Redis** 7 (contenedor Docker; caché, rate limiting, blacklist de tokens, colas BullMQ)
+- **ESP8266 NodeMCU** + RC522 RFID (opcional, para hardware — la lectura real llega por Web Serial desde el navegador, no por puerto serie del backend)
 
 ## 📥 Instalación
 
@@ -137,8 +131,11 @@ cp .env.example .env
 PORT=5000
 NODE_ENV=development
 
-# MongoDB
+# MongoDB (contenedor Docker local; en despliegue apunta al contenedor mongo de la VPS)
 MONGODB_URI=mongodb://localhost:27017/rfid_games
+
+# Redis (contenedor Docker; caché, rate limiting, blacklist de tokens, colas BullMQ)
+REDIS_URL=redis://localhost:6379
 
 # JWT (CAMBIAR EN PRODUCCIÓN)
 JWT_SECRET=tu-secret-super-seguro
@@ -182,16 +179,32 @@ npm start
 ### Scripts Disponibles
 
 ```bash
-npm run dev                   # Desarrollo con hot-reload
+npm run dev                   # Desarrollo con hot-reload (nodemon)
 npm start                     # Producción
-npm run seed                  # Ejecutar seeders (próximamente)
-npm test                      # Tests
-npm run security:check-&-fix  # Auditoría de seguridad
-npm run audit:prod                # Auditoría runtime/prod (sin devDependencies)
-npm run audit:full                # Auditoría completa (incluye tooling)
-npm run deps:update-minor     # Actualizar dependencias menores
-npm run deps:update-major     # Actualizar dependencias mayores
-npm run deps:analyze          # Analizar dependencias
+npm run worker                # Proceso worker BullMQ (producción)
+npm run worker:dev            # Worker con hot-reload
+
+npm test                      # Tests (Jest)
+npm run lint                  # ESLint
+npm run format                # Prettier
+
+npm run seed                  # Seed de la base de datos (idempotente)
+npm run seed:reset            # Reset completo + re-seed
+npm run seed:if-empty         # Seed solo si la BD está vacía (usado por Docker)
+npm run seed:storage          # Seed de assets en Supabase Storage
+
+npm run migrate:sessions              # Migración de estado de sesiones
+npm run migrate:birthdate             # Migración de campo birthdate
+npm run migrate:dominant-colors       # Backfill de colores dominantes
+# Ver package.json para el resto de migraciones puntuales (migrate:*)
+
+npm run data:audit             # Auditoría de datos (PII en modelos Mongoose)
+npm run data:retention         # Ejecutar política de retención de datos (RGPD)
+npm run data:retention:dry-run # Retención en modo simulación
+
+npm run audit:prod            # Auditoría de dependencias runtime/prod (sin devDependencies)
+npm run audit:full            # Auditoría completa (incluye tooling)
+npm run deps:analyze          # Analizar dependencias desactualizadas
 npm run drop-db               # Eliminar base de datos (solo desarrollo)
 ```
 
@@ -240,17 +253,19 @@ npm run drop-db               # Eliminar base de datos (solo desarrollo)
   - Alumno cambia de profesor: `POST /api/users/:id/transfer` con `{ "newTeacherId": "<nuevoProfesorId>", "newClassroom": "B" }`
   - Corrección de nombre: `PUT /api/users/:id` con `{ "name": "Nombre Correcto" }` (valida duplicados)
 
-### Tarjetas RFID (`/api/cards`)
+### Mazos (`/api/decks`)
 
-| Método | Endpoint | Descripción              | Rol     |
-| ------ | -------- | ------------------------ | ------- |
-| GET    | `/`      | Listar tarjetas          | Teacher |
-| GET    | `/:id`   | Obtener tarjeta          | Teacher |
-| POST   | `/`      | Crear tarjeta            | Teacher |
-| PUT    | `/:id`   | Actualizar tarjeta       | Teacher |
-| DELETE | `/:id`   | Desactivar tarjeta       | Teacher |
-| POST   | `/batch` | Crear múltiples tarjetas | Teacher |
-| GET    | `/stats` | Estadísticas de tarjetas | Teacher |
+> No existe un modelo `Card` independiente ni endpoints `/api/cards`: las tarjetas RFID son
+> tokens fungibles (`cardMappings` dentro de un mazo), no entidades con registro propio.
+
+| Método | Endpoint          | Descripción                                        | Rol     |
+| ------ | ----------------- | --------------------------------------------------- | ------- |
+| GET    | `/`               | Listar mazos                                       | Teacher |
+| GET    | `/:id`            | Obtener mazo                                       | Teacher |
+| POST   | `/`               | Crear mazo (cartas + mapeo RFID)                   | Teacher |
+| PUT    | `/:id`            | Actualizar mazo                                    | Teacher |
+| DELETE | `/:id`            | Archivar mazo (soft delete)                        | Teacher |
+| GET    | `/check-card`     | Verificar si un UID ya existe en otro mazo activo  | Teacher |
 
 ### Mecánicas (`/api/mechanics`)
 
@@ -305,10 +320,19 @@ npm run drop-db               # Eliminar base de datos (solo desarrollo)
 
 ### Sistema
 
-| Método | Endpoint       | Descripción                     |
-| ------ | -------------- | ------------------------------- |
-| GET    | `/api/health`  | Health check                    |
-| GET    | `/api/metrics` | Métricas del sistema (dev only) |
+| Método | Endpoint       | Descripción                                        |
+| ------ | -------------- | --------------------------------------------------- |
+| GET    | `/api/health`  | Health check (Mongo, Redis, RFID, memoria, uptime)  |
+| GET    | `/api/metrics` | Métricas runtime (Teacher/super_admin)              |
+
+### Otros grupos de rutas
+
+Esta sección es un resumen orientativo, no exhaustivo. También existen `/api/analytics`
+(dashboards y detección de patrones), `/api/notifications` (notificaciones en tiempo real),
+`/api/admin` (auditoría, RGPD, alertas de sistema, anuncios) y `/api/reports`. La referencia
+completa y actualizada de todos los endpoints está en
+[`backend/docs/API_v0.5.0.md`](docs/API_v0.5.0.md); la spec **OpenAPI 3.1** generada desde el
+código vive en `GET /api/docs` (UI) y `GET /api/openapi.json` (JSON descargable).
 
 ## 🔌 WebSocket Events
 
@@ -346,7 +370,7 @@ npm run drop-db               # Eliminar base de datos (solo desarrollo)
 ### JWT con Refresh Tokens
 
 - **Access tokens**: Corta duración (15 min), para operaciones diarias
-- **Refresh tokens**: Larga duración (30 días), para renovar access tokens
+- **Refresh tokens**: Larga duración (7 días), para renovar access tokens
 - **Token rotation**: Al refrescar, se revoca el antiguo refresh token
 - **Device fingerprinting**: Tokens vinculados al navegador/dispositivo
 - **Token blacklist**: Revocación instantánea al logout
@@ -389,19 +413,19 @@ Tracking automático de:
 - Request tracing
 - User context en errores
 
-### Winston Logger
+### Pino Logger
 
-Niveles de log:
+Logging estructurado JSON a stdout (nunca a fichero ni `console.log`), con redacción
+automática de datos sensibles (passwords, tokens, cookies, headers de auth). En producción,
+opcionalmente se envía también a Grafana Cloud Loki (`pino-loki`) si `LOG_SHIPPING_ENABLED=true`;
+si falta la configuración, degrada de forma silenciosa a solo-stdout.
 
-- **error**: Errores críticos → `logs/error.log`
-- **warn**: Advertencias
-- **info**: Información general → `logs/combined.log`
-- **debug**: Debugging (solo dev)
+Niveles: `error`, `warn`, `info`, `debug` (nivel por defecto `info` en producción, `debug` en desarrollo).
 
 ### Métricas en Tiempo Real
 
 ```bash
-# Endpoint de métricas (solo dev)
+# Endpoint de métricas (requiere rol teacher o super_admin)
 GET /api/metrics
 
 Response:
@@ -451,12 +475,11 @@ const getResource = async (req, res, next) => {
 4. Montar ruta en `src/server.js`
 5. Documentar en este README
 
-### Testing (Próximamente)
+### Testing
 
 ```bash
-npm test                 # Ejecutar todos los tests
-npm run test:watch       # Modo watch
-npm run test:coverage    # Cobertura de código
+npm test                          # Ejecutar todos los tests (Jest)
+npm test -- --findRelatedTests <file>  # Tests relacionados con un archivo
 ```
 
 #### RFIDService: arquitectura Web Serial
@@ -472,42 +495,42 @@ Motivos:
 
 ## 🚢 Despliegue
 
+El backend se despliega autoalojado en una VPS Contabo, como parte del stack Docker Compose
+completo (frontend + backend + worker + Mongo + Redis) — no hay despliegue independiente del
+backend suelto. Guía completa de aprovisionamiento en
+[`documentation/Deploy_VPS.md`](../documentation/Deploy_VPS.md).
+
 ### Pre-Despliegue
 
-1. **Actualizar secretos**: Cambiar JWT_SECRET, JWT_REFRESH_SECRET
-2. **Configurar Sentry**: Añadir SENTRY_DSN de producción
-3. **Configurar MongoDB**: Usar MongoDB Atlas
-4. **Whitelist CORS**: Añadir dominio de producción
-5. **Rate limits**: Ajustar según tráfico esperado
-6. **Node version**: Verificar >=22.0.0
+1. **Secretos por entorno**: `JWT_SECRET`/`JWT_REFRESH_SECRET`, credenciales de Mongo/Redis y
+   demás secretos viven en `/opt/eduplay/secrets/{staging,prod}.env` en la VPS (fuera del
+   checkout de git), nunca en el repositorio.
+2. **Configurar Sentry**: Añadir `SENTRY_DSN` de producción/staging.
+3. **MongoDB/Redis**: Contenedores Docker del propio stack (`docker-compose.yml` +
+   `docker-compose.prod.yml`), no servicios gestionados externos.
+4. **Whitelist CORS / `WSS_DOMAIN`**: Apuntar al dominio real de cada entorno.
+5. **Rate limits**: Ajustar según tráfico esperado.
+6. **Node version**: Verificar >=24.14.0 (fijado en `engines` de `package.json`).
 
-### Variables de Entorno (Producción)
+### Cómo se levanta (lo ejecuta el pipeline de CI/CD, no a mano)
 
-```env
-NODE_ENV=production
-MONGODB_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/rfid_games
-JWT_SECRET=<secret-super-seguro-produccion>
-JWT_REFRESH_SECRET=<refresh-secret-super-seguro>
-CORS_WHITELIST=https://app.com
-SENTRY_DSN=<sentry-dsn>
-SENTRY_ENVIRONMENT=production
-SENTRY_TRACES_SAMPLE_RATE=0.1  # 10% en prod
+```bash
+cp /opt/eduplay/secrets/<entorno>.env .env
+docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+  -p eduplay-<entorno> up -d --build
 ```
 
 ### Healthcheck
 
 ```bash
-curl https://app.com/api/health
+curl https://eduplay-tfg.duckdns.org/api/health/ready
 
 # Response esperado:
 {
-  "status": "ok",
-  "timestamp": "2025-11-24T...",
-  "environment": "production",
-  "rfid": {
-    "connected": true,
-    "uptime": "5h 23m"
-  }
+  "ready": true,
+  "shuttingDown": false,
+  "checks": { "mongo": "ok", "redis": "ok", "redisCircuit": "closed" },
+  "timestamp": "2026-07-07T10:09:40.773Z"
 }
 ```
 

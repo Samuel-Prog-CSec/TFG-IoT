@@ -14,11 +14,16 @@ Una plataforma de juegos educativos con tecnología RFID para niños de 4-8 año
 
 ## Stack Tecnológico
 
-- **React 19.2** - Biblioteca de UI con Hooks
-- **Vite 7.3** - Build tool y dev server
-- **Tailwind CSS 4.2** - Estilos utility-first
-- **Framer Motion 12.34** - Animaciones declarativas
-- **React Router 7.13** - Navegación SPA
+- **React 19** - Biblioteca de UI con Hooks
+- **Vite 8** - Build tool y dev server
+- **Tailwind CSS 4** - Estilos utility-first
+- **Framer Motion 12** - Animaciones declarativas
+- **React Router 7** - Navegación SPA
+
+En desarrollo/QA local, el frontend se sirve vía Docker + Nginx (`docker compose up -d`,
+puerto 80) o con `npm run dev` (Vite, puerto 5173). En despliegue, se sirve igual —
+contenedor Nginx dentro del stack Docker Compose de la VPS— sin depender de ningún hosting
+estático de terceros.
 
 ## Inicio Rápido
 
@@ -53,4 +58,4 @@ npm run audit:full
 
 ---
 
-*Última actualización: Enero 2026*
+*Última actualización: Julio 2026*
