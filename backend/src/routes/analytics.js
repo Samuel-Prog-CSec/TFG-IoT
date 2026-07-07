@@ -7,16 +7,19 @@ const express = require('express');
 const router = express.Router();
 const analyticsController = require('../controllers/analyticsController');
 const { authenticate, requireRole } = require('../middlewares/auth');
-const { analyticsRateLimiter } = require('../config/security');
-const { validateParams, validateQuery } = require('../middlewares/validation');
+const { analyticsRateLimiter, reportExportRateLimiter } = require('../config/security');
+const { validateParams, validateQuery, validateBody } = require('../middlewares/validation');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const {
   analyticsStudentParamsSchema,
   analyticsTimeRangeQuerySchema,
   classroomStudentsQuerySchema,
+  classroomSummaryQuerySchema,
   classroomDistributionQuerySchema,
   classroomTrendsQuerySchema,
+  classroomComparisonQuerySchema,
   studentSummaryQuerySchema,
+  studentGamesQuerySchema,
   classroomHeatmapQuerySchema,
   classroomRankingsQuerySchema,
   // Schemas avanzados (Analytics Expansion)
@@ -34,12 +37,21 @@ const {
   contentEffectivenessQuerySchema,
   cardDifficultyQuerySchema,
   learningCurvesQuerySchema,
-  alertsQuerySchema,
   reportQuerySchema,
   reportExportQuerySchema
 } = require('../validators/analyticsValidator');
+const {
+  alertIdParamsSchema,
+  listAlertsQuerySchema,
+  alertsSummaryQuerySchema,
+  alertsEffectivenessQuerySchema,
+  dismissAlertBodySchema,
+  snoozeAlertBodySchema,
+  bulkAlertActionBodySchema
+} = require('../validators/alertsValidator');
 const asyncHandler = require('../utils/asyncHandler');
 const analyticsAdvancedController = require('../controllers/analyticsAdvancedController');
+const alertsController = require('../controllers/alertsController');
 
 // Todas las rutas requieren estar autenticado como profesor o super admin
 router.use(authenticate, requireRole('teacher', 'super_admin'), analyticsRateLimiter);
@@ -60,15 +72,41 @@ router.get(
   asyncHandler(analyticsController.getStudentDifficulties)
 );
 
+/**
+ * @openapi
+ * /analytics/classroom/summary:
+ *   get:
+ *     tags: [Analytics]
+ *     summary: KPIs agregados del aula del profesor autenticado
+ *     description: Devuelve totalStudents, averageScore, studentsInRisk y métricas globales.
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: Resumen del aula
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: object
+ *                   properties:
+ *                     totalStudents: { type: integer }
+ *                     averageScore: { type: number }
+ *                     studentsInRisk: { type: integer }
+ *                     activeStudents: { type: integer }
+ *       401: { $ref: '#/components/responses/UnauthorizedError' }
+ */
 // Rutas de clase (profesor)
 router.get(
   '/classroom/summary',
-  validateQuery(emptyObjectSchema),
+  validateQuery(classroomSummaryQuerySchema),
   asyncHandler(analyticsController.getClassroomSummary)
 );
 router.get(
   '/classroom/comparison',
-  validateQuery(analyticsTimeRangeQuerySchema),
+  validateQuery(classroomComparisonQuerySchema),
   asyncHandler(analyticsController.getClassroomComparison)
 );
 router.get(
@@ -84,6 +122,49 @@ router.get(
  * @desc    Lista de estudiantes con métricas agregadas, filtrable por tier y classroom
  * @access  Private (Teacher/Super Admin)
  */
+
+/**
+ * @openapi
+ * /analytics/classroom/students:
+ *   get:
+ *     tags: [Analytics]
+ *     summary: Estudiantes del aula con métricas agregadas
+ *     description: Incluye `studentMetrics.maxSequenceLengthAchieved` (T-922) para la columna comparativa "Mejor Secuencia".
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: tier
+ *         schema: { type: string, enum: [excellent, good, average, risk] }
+ *       - in: query
+ *         name: classroom
+ *         schema: { type: string }
+ *       - in: query
+ *         name: sort
+ *         schema: { type: string, enum: [name, score, lastPlayed, accuracy] }
+ *     responses:
+ *       200:
+ *         description: Lista con métricas
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     allOf:
+ *                       - $ref: '#/components/schemas/User'
+ *                       - type: object
+ *                         properties:
+ *                           studentMetrics:
+ *                             type: object
+ *                             properties:
+ *                               maxSequenceLengthAchieved: { type: integer }
+ *                               sequencesCompleted: { type: integer }
+ *                               averageScore: { type: number }
+ *       401: { $ref: '#/components/responses/UnauthorizedError' }
+ */
 router.get(
   '/classroom/students',
   validateQuery(classroomStudentsQuerySchema),
@@ -94,6 +175,32 @@ router.get(
  * @route   GET /api/analytics/classroom/distribution
  * @desc    Distribución de rendimiento en 4 rangos (riesgo, promedio, bueno, excelente)
  * @access  Private (Teacher/Super Admin)
+ */
+
+/**
+ * @openapi
+ * /analytics/classroom/distribution:
+ *   get:
+ *     tags: [Analytics]
+ *     summary: Distribución de rendimiento en 4 tiers
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     responses:
+ *       200:
+ *         description: 4 buckets con count y porcentaje
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data:
+ *                   type: array
+ *                   items:
+ *                     type: object
+ *                     properties:
+ *                       range: { type: string }
+ *                       count: { type: integer }
+ *                       percentage: { type: number }
  */
 router.get(
   '/classroom/distribution',
@@ -139,11 +246,53 @@ router.get(
  * @desc    Resumen completo de un estudiante (últimas partidas, rendimiento, comparativa)
  * @access  Private (Teacher/Super Admin)
  */
+
+/**
+ * @openapi
+ * /analytics/student/{id}/summary:
+ *   get:
+ *     tags: [Analytics]
+ *     summary: Resumen completo de un alumno con métricas por mecánica
+ *     description: Incluye desglose por mecánica (memoria, asociación, secuencia con `maxSequenceLengthAchieved` y `sequencesCompleted`).
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *       - in: query
+ *         name: timeRange
+ *         schema: { type: string, enum: ['7d', '30d', '90d'] }
+ *     responses:
+ *       200:
+ *         description: Resumen del alumno
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: object, description: 'Resumen complejo con KPIs y serie temporal' }
+ *       403: { $ref: '#/components/responses/ForbiddenError' }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
+ */
 router.get(
   '/student/:id/summary',
   validateParams(analyticsStudentParamsSchema),
   validateQuery(studentSummaryQuerySchema),
   asyncHandler(analyticsController.getStudentSummary)
+);
+
+/**
+ * @route   GET /api/analytics/student/:id/games
+ * @desc    Historial completo de partidas del alumno, paginado («Cargar más»)
+ * @access  Private (Teacher propietario / Super Admin)
+ */
+router.get(
+  '/student/:id/games',
+  validateParams(analyticsStudentParamsSchema),
+  validateQuery(studentGamesQuerySchema),
+  asyncHandler(analyticsController.getStudentGames)
 );
 
 // ──────────────── Resolución de identidad seudonimizada (T-703) ────────────────
@@ -331,28 +480,121 @@ router.get(
   asyncHandler(analyticsAdvancedController.getLearningCurves)
 );
 
-// — Alertas inteligentes (E15-E16) —
+// ──────────── Alertas inteligentes persistidas (T-941) ────────────
+//
+// Sustituye el sistema legacy de alertsService.getAlerts() on-the-fly por
+// SmartAlerts con ciclo de vida (active|resolved|dismissed|snoozed),
+// historial, pinning, audit y dashboard de eficacia. ADR-169.
 
 /**
  * @route   GET /api/analytics/alerts
- * @desc    Alertas inteligentes computadas server-side (E15)
- * @access  Private (Teacher/Super Admin)
+ * @desc    Listado paginado de alertas con filtros por estado/severidad/tipo
  */
-router.get(
-  '/alerts',
-  validateQuery(alertsQuerySchema),
-  asyncHandler(analyticsAdvancedController.getAlerts)
-);
+router.get('/alerts', validateQuery(listAlertsQuerySchema), asyncHandler(alertsController.list));
 
 /**
  * @route   GET /api/analytics/alerts/summary
- * @desc    Resumen de alertas (conteos) para badges del sidebar (E16)
- * @access  Private (Teacher/Super Admin)
+ * @desc    Conteos para badges (por severidad, estado y tipo)
  */
 router.get(
   '/alerts/summary',
-  validateQuery(emptyObjectSchema),
-  asyncHandler(analyticsAdvancedController.getAlertsSummary)
+  validateQuery(alertsSummaryQuerySchema),
+  asyncHandler(alertsController.summary)
+);
+
+/**
+ * @route   GET /api/analytics/alerts/effectiveness
+ * @desc    Dashboard interno del sistema de alertas (H.3)
+ */
+router.get(
+  '/alerts/effectiveness',
+  validateQuery(alertsEffectivenessQuerySchema),
+  asyncHandler(alertsController.effectiveness)
+);
+
+/**
+ * @route   GET /api/analytics/alerts/:id
+ * @desc    Detalle individual de una alerta
+ */
+router.get(
+  '/alerts/:id',
+  validateParams(alertIdParamsSchema),
+  asyncHandler(alertsController.getById)
+);
+
+/**
+ * @route   GET /api/analytics/alerts/:id/history
+ * @desc    Audit log / timeline lifecycle (H.2)
+ */
+router.get(
+  '/alerts/:id/history',
+  validateParams(alertIdParamsSchema),
+  asyncHandler(alertsController.history)
+);
+
+/**
+ * @route   PATCH /api/analytics/alerts/:id/dismiss
+ * @desc    Marca como descartada con motivo
+ */
+router.patch(
+  '/alerts/:id/dismiss',
+  validateParams(alertIdParamsSchema),
+  validateBody(dismissAlertBodySchema),
+  asyncHandler(alertsController.dismiss)
+);
+
+/**
+ * @route   PATCH /api/analytics/alerts/:id/resolve
+ * @desc    Marca manualmente como resuelta
+ */
+router.patch(
+  '/alerts/:id/resolve',
+  validateParams(alertIdParamsSchema),
+  validateBody(emptyObjectSchema),
+  asyncHandler(alertsController.resolve)
+);
+
+/**
+ * @route   PATCH /api/analytics/alerts/:id/snooze
+ * @desc    Pausa hasta una fecha futura (días o ISO)
+ */
+router.patch(
+  '/alerts/:id/snooze',
+  validateParams(alertIdParamsSchema),
+  validateBody(snoozeAlertBodySchema),
+  asyncHandler(alertsController.snooze)
+);
+
+/**
+ * @route   PATCH /api/analytics/alerts/:id/pin
+ * @desc    Fija al principio (límite 3 por teacher)
+ */
+router.patch(
+  '/alerts/:id/pin',
+  validateParams(alertIdParamsSchema),
+  validateBody(emptyObjectSchema),
+  asyncHandler(alertsController.pin)
+);
+
+/**
+ * @route   PATCH /api/analytics/alerts/:id/unpin
+ * @desc    Quita la fijación
+ */
+router.patch(
+  '/alerts/:id/unpin',
+  validateParams(alertIdParamsSchema),
+  validateBody(emptyObjectSchema),
+  asyncHandler(alertsController.unpin)
+);
+
+/**
+ * @route   POST /api/analytics/alerts/bulk-action
+ * @desc    Acciones lifecycle en lote (dismiss/resolve/snooze)
+ */
+router.post(
+  '/alerts/bulk-action',
+  validateBody(bulkAlertActionBodySchema),
+  asyncHandler(alertsController.bulkAction)
 );
 
 // — Reportes y exportación (E17-E19) —
@@ -364,6 +606,7 @@ router.get(
  */
 router.get(
   '/reports/student/:id',
+  reportExportRateLimiter,
   validateParams(analyticsStudentParamsSchema),
   validateQuery(reportQuerySchema),
   asyncHandler(analyticsAdvancedController.getStudentReport)
@@ -376,6 +619,7 @@ router.get(
  */
 router.get(
   '/reports/classroom',
+  reportExportRateLimiter,
   validateQuery(reportQuerySchema),
   asyncHandler(analyticsAdvancedController.getClassroomReport)
 );
@@ -387,6 +631,7 @@ router.get(
  */
 router.get(
   '/reports/classroom/export',
+  reportExportRateLimiter,
   validateQuery(reportExportQuerySchema),
   asyncHandler(analyticsAdvancedController.getClassroomExport)
 );

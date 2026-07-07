@@ -1,6 +1,7 @@
 const request = require('supertest');
 const { app } = require('../src/server');
 const User = require('../src/models/User');
+const Notification = require('../src/models/Notification');
 
 describe('Super Admin Approval Flow', () => {
   let superAdminToken;
@@ -26,6 +27,7 @@ describe('Super Admin Approval Flow', () => {
 
   beforeEach(async () => {
     await User.deleteMany({});
+    await Notification.deleteMany({});
     superAdminToken = await loginSuperAdmin();
   });
 
@@ -55,6 +57,40 @@ describe('Super Admin Approval Flow', () => {
 
     expect(loginRes.statusCode).toBe(200);
     expect(loginRes.body.data).toHaveProperty('accessToken');
+  });
+
+  it('crea una notificación account_approved para el docente al aprobarlo', async () => {
+    await request(app).post('/api/auth/register').send({
+      name: 'Teacher To Notify',
+      email: 'notify-teacher@test.com',
+      password: 'Password123'
+    });
+    const teacher = await User.findOne({ email: 'notify-teacher@test.com' });
+
+    const approveRes = await request(app)
+      .post(`/api/admin/users/${teacher._id}/approve`)
+      .set('Authorization', `Bearer ${superAdminToken}`);
+    expect(approveRes.statusCode).toBe(200);
+
+    // La notify es fire-and-forget (no bloquea la respuesta), así que la
+    // persistencia puede completarse justo después del 200 → poll corto.
+    let notif = null;
+    for (let i = 0; i < 20 && !notif; i += 1) {
+      notif = await Notification.findOne({ userId: teacher._id, type: 'account_approved' });
+      if (!notif) {
+        await new Promise(resolve => setTimeout(resolve, 25));
+      }
+    }
+
+    // Se persiste aunque el docente esté offline (la verá en su primer acceso).
+    expect(notif).toBeTruthy();
+    expect(notif.userId.toString()).toBe(teacher._id.toString()); // destinatario = docente, no el admin
+    expect(notif.title).toMatch(/aprobada/i);
+    expect(notif.link).toBe('/dashboard');
+    expect(notif.priority).toBe('info');
+    expect(notif.read).toBe(false);
+    // Minimización: no se filtra el id del super_admin que aprobó.
+    expect(notif.metadata?.approvedBy).toBeUndefined();
   });
 
   it('should allow super_admin to reject a pending teacher, blocking login', async () => {

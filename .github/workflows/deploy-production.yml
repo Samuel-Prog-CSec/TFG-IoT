@@ -1,0 +1,139 @@
+name: Deploy Production
+
+# Dispara el redeploy del stack "eduplay-prod" en la VPS Contabo cuando se
+# publica un tag semver `v*`. El environment `production` mantiene el
+# approval gate manual. Se ejecuta en el runner self-hosted de la VPS — el
+# trigger sigue siendo `tags`/`workflow_dispatch` (nunca `pull_request`): ver
+# documentation/SECURITY.md#runner-self-hosted.
+#
+# Rollback: sin API de Koyeb, "rollback automático" es volver al SHA anterior
+# y reconstruir. Más lento (~1-2 min) que un revert de Koyeb, sin infra nueva.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Tag a desplegar (ej. v1.0.0)"
+        required: true
+        type: string
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: deploy-production
+  cancel-in-progress: false
+
+jobs:
+  validate-tag:
+    name: Validar tag semver
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+
+    outputs:
+      version: ${{ steps.parse.outputs.version }}
+
+    steps:
+      - name: Parsear y validar tag
+        id: parse
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          if ! echo "$TAG" | grep -qE '^v[0-9]+\.[0-9]+\.[0-9]+(-[a-zA-Z0-9.-]+)?$'; then
+            echo "::error::Tag '$TAG' no cumple semver vMAJOR.MINOR.PATCH(-prerelease)"
+            exit 1
+          fi
+          VERSION="${TAG#v}"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "Tag válido: $TAG (versión: $VERSION)"
+
+  deploy:
+    name: Redeploy en VPS (producción)
+    needs: validate-tag
+    runs-on: [self-hosted, linux, contabo-vps]
+    timeout-minutes: 20
+    environment:
+      name: production
+      url: ${{ vars.PROD_URL }}
+
+    steps:
+      - name: Checkout del tag
+        uses: actions/checkout@v7
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref_name }}
+
+      - name: Copiar el .env persistente del entorno
+        run: cp /opt/eduplay/secrets/prod.env .env
+
+      - name: Levantar el stack (build + up)
+        run: |
+          set -e
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+            -p eduplay-prod up -d --build
+
+      - name: Smoke test /api/health/ready (8 intentos × 15s, directo por loopback)
+        id: smoke
+        run: |
+          set +e
+          OK=0
+          FAIL=0
+          PORT=$(grep -oP 'FRONTEND_PORT_BINDING=127\.0\.0\.1:\K[0-9]+' .env)
+          for i in $(seq 1 8); do
+            sleep 15
+            HTTP_CODE=$(curl -sS -o /tmp/health.json -w "%{http_code}" "http://127.0.0.1:${PORT}/api/health/ready" || echo "000")
+            echo "Intento $i: HTTP $HTTP_CODE"
+            if [ "$HTTP_CODE" = "200" ]; then OK=$((OK + 1)); else FAIL=$((FAIL + 1)); fi
+          done
+          echo "ok_count=$OK" >> "$GITHUB_OUTPUT"
+          echo "fail_count=$FAIL" >> "$GITHUB_OUTPUT"
+          if [ "$FAIL" -ge 5 ]; then
+            echo "::error::Smoke test fallido: $FAIL/8 intentos devolvieron != 200 → rollback"
+            exit 1
+          fi
+          echo "Smoke test OK: $OK/8 intentos verdes"
+
+      - name: Rollback al SHA anterior si el smoke test falla
+        if: failure() && steps.smoke.outcome == 'failure'
+        run: |
+          set +e
+          echo "::warning::Smoke test falló — volviendo al tag desplegado previamente"
+          PREV_TAG=$(cat /opt/eduplay/secrets/prod.last-good-tag 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            git fetch origin "refs/tags/$PREV_TAG"
+            git checkout "$PREV_TAG"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              -p eduplay-prod up -d --build
+          else
+            echo "::error::No hay tag anterior registrado — rollback manual requerido"
+          fi
+
+      - name: Registrar este tag como "último bueno" si el smoke test pasa
+        if: success()
+        run: echo "${{ github.event.inputs.tag || github.ref_name }}" > /opt/eduplay/secrets/prod.last-good-tag
+
+      - name: Crear GitHub Release
+        if: success()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG ya existe — actualizando con notas de despliegue"
+            gh release edit "$TAG" --notes-append $'\n\n**Desplegado a producción:** '$(date -u +"%Y-%m-%dT%H:%M:%SZ")
+          else
+            gh release create "$TAG" --title "$TAG" --generate-notes
+          fi
+
+      - name: Resumen del despliegue
+        if: always()
+        run: |
+          {
+            echo "## Deploy a producción (VPS)"
+            echo "- Tag: ${{ github.event.inputs.tag || github.ref_name }}"
+            echo "- Versión: ${{ needs.validate-tag.outputs.version }}"
+            echo "- /api/health/ready 200 hits: ${{ steps.smoke.outputs.ok_count }}/8"
+            echo "- /api/health/ready fallos: ${{ steps.smoke.outputs.fail_count }}/8"
+            echo "- Outcome smoke test: ${{ steps.smoke.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"

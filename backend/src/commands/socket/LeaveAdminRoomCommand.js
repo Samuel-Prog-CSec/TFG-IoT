@@ -3,10 +3,11 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { adminRoomEventSchema } = require('../../validators/socketCommandsValidator');
 
 class LeaveAdminRoomCommand extends BaseSocketCommand {
   constructor() {
-    super('leave_admin_room');
+    super('leave_admin_room', { schema: adminRoomEventSchema });
   }
 
   async execute({ socket }) {

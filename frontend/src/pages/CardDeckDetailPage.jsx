@@ -7,15 +7,16 @@
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { ArrowLeft, Pencil, Layers, CreditCard, Calendar, Archive } from 'lucide-react';
-import { toast } from 'sonner';
+import { m as motion } from 'framer-motion';
+import { ArrowLeft, Pencil, Layers, CreditCard, Calendar, Archive, Lock } from 'lucide-react';
 import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { getId } from '../lib/entityId';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import EmptyState from '../components/ui/EmptyState';
+import ErrorState from '../components/ui/ErrorState';
 import GlassCard from '../components/ui/GlassCard';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import StatusBadge from '../components/ui/StatusBadge';
@@ -23,6 +24,7 @@ import Breadcrumb from '../components/ui/Breadcrumb';
 import { pageVariants, formatDate } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useSharedLayoutTransition } from '../hooks/useSharedLayoutTransition';
 
 function isDeckArchived(deck) {
   if (!deck) return false;
@@ -64,11 +66,11 @@ function getCardInfo(deckCard, index) {
   const asset = deckCard?.assignedAsset;
 
   if (!asset && !displayData) {
-    return { uid, label, assetLabel: 'Sin asset asignado', displayData: null };
+    return { uid, label, assetLabel: 'Sin recurso asignado', displayData: null };
   }
 
   if (displayData) {
-    return { uid, label, assetLabel: displayData.value || displayData.display || 'Asset', displayData };
+    return { uid, label, assetLabel: displayData.value || displayData.display || 'Recurso', displayData };
   }
 
   if (typeof asset === 'string') {
@@ -82,7 +84,7 @@ function getCardInfo(deckCard, index) {
     asset.name ||
     asset.label ||
     asset._id ||
-    'Asset asignado';
+    'Recurso asignado';
 
   return { uid, label, assetLabel: displayAsset, displayData: asset.displayData || null };
 }
@@ -91,9 +93,13 @@ export default function CardDeckDetailPage() {
   const { deckId } = useParams();
   const navigate = useNavigate();
   useDocumentTitle('Detalle del Mazo');
+  // T-954 Fase B: receptor del shared layout id emitido por DeckCard.
+  const heroLayoutId = useSharedLayoutTransition('deck', deckId);
 
   const [deck, setDeck] = useState(null);
   const [loading, setLoading] = useState(true);
+  // (D2) 404 real (mazo inexistente) vs fallo de red/servidor (reintentable).
+  const [error, setError] = useState(null);
 
   const loadDeck = useCallback(async (signal) => {
     if (!deckId) {
@@ -107,14 +113,17 @@ export default function CardDeckDetailPage() {
       const response = await decksAPI.getDeckById(deckId, signal ? { signal } : {});
       const deckData = extractData(response);
       setDeck(deckData || null);
-    } catch (error) {
-      if (isAbortError(error)) {
+      setError(null);
+    } catch (err) {
+      if (isAbortError(err)) {
         return;
       }
 
       setDeck(null);
-      toast.error('No se pudo cargar el mazo', {
-        description: extractErrorMessage(error),
+      setError({
+        isNotFound: err?.response?.status === 404,
+        isForbidden: err?.response?.status === 403,
+        message: extractErrorMessage(err)
       });
     } finally {
       if (!signal?.aborted) {
@@ -139,13 +148,13 @@ export default function CardDeckDetailPage() {
   const archived = isDeckArchived(deck);
   const statusLabel = archived ? 'Archivado' : 'Activo';
   const contextName = getContextName(deck);
-  const currentDeckId = deck?.id || deck?._id;
+  const currentDeckId = getId(deck);
 
   if (loading && !deck) {
     return (
-      <div className="p-6 lg:p-8 max-w-6xl mx-auto space-y-6">
+      <div className="page-container py-[var(--space-fluid-section)] space-y-6">
         <SkeletonCard className="h-28" />
-        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+        <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
           <SkeletonCard className="lg:col-span-2 h-64" />
           <SkeletonCard className="h-64" />
         </div>
@@ -154,12 +163,32 @@ export default function CardDeckDetailPage() {
   }
 
   if (!deck) {
+    // Error transitorio real (red/servidor) → ErrorState con reintento.
+    if (error && !error.isNotFound && !error.isForbidden) {
+      return (
+        <div className="page-container py-[var(--space-fluid-section)]">
+          <ErrorState
+            title="No pudimos cargar el mazo"
+            message={error.message || 'Hubo un problema al cargar el mazo. Inténtalo de nuevo.'}
+            onRetry={() => loadDeck()}
+          />
+        </div>
+      );
+    }
+    // 403 (sin permiso) y 404 (no existe) comparten el patrón "vuelve": estado
+    // calmado con acción de salida y SIN reintento (reintentar no cambia el
+    // resultado). El icono y el texto distinguen ambos casos.
+    const forbidden = Boolean(error?.isForbidden);
     return (
-      <div className="p-6 lg:p-8 max-w-6xl mx-auto">
+      <div className="page-container py-[var(--space-fluid-section)]">
         <EmptyState
-          title="Mazo no encontrado"
-          description="El mazo solicitado no existe o no está disponible."
-          icon={<Layers size={28} />}
+          title={forbidden ? 'Sin acceso' : 'Mazo no encontrado'}
+          description={
+            forbidden
+              ? 'No tienes permiso para ver este mazo. Solo puedes acceder a los mazos que has creado.'
+              : 'El mazo solicitado no existe o no está disponible.'
+          }
+          icon={forbidden ? <Lock size={28} /> : <Layers size={28} />}
           action={(
             <ButtonPremium variant="secondary" onClick={() => navigate(ROUTES.CARD_DECKS)}>
               <ArrowLeft size={16} />
@@ -173,7 +202,11 @@ export default function CardDeckDetailPage() {
 
   return (
     <motion.div
-      className="p-6 lg:p-8 max-w-6xl mx-auto"
+      // El hero transition aterriza en el motion.div principal de la
+      // página: cuando DeckCard pulsa, su layoutId hace que Framer
+      // anime el rectángulo de la card hasta el contenedor del detalle.
+      layoutId={heroLayoutId}
+      className="page-container py-[var(--space-fluid-section)]"
       variants={pageVariants}
       initial="initial"
       animate="animate"
@@ -216,7 +249,7 @@ export default function CardDeckDetailPage() {
             </span>
           </div>
 
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-[var(--space-fluid-gutter)]">
             <div className="bg-accent-indigo/10 rounded-xl p-4">
               <div className="flex items-center gap-2 text-text-muted">
                 <CreditCard size={16} className="text-accent-indigo" />
@@ -280,7 +313,9 @@ export default function CardDeckDetailPage() {
                   >
                     <div>
                       <p className="text-text-primary font-medium">{label}</p>
-                      <p className="text-xs text-text-muted">UID: {uid}</p>
+                      {/* "Chip" en vez de "UID": mismo dato, sin jerga técnica
+                          en una vista de solo lectura para docentes. */}
+                      <p className="text-xs text-text-muted">Chip: {uid}</p>
                     </div>
                     <div className="flex items-center gap-3">
                       {displayData ? (

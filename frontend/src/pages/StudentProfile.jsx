@@ -1,6 +1,6 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { ArrowLeft, User, ShieldX } from 'lucide-react';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
@@ -19,6 +19,10 @@ import TrajectoryChart from '../components/analytics/TrajectoryChart';
 import NarrativeCard from '../components/analytics/NarrativeCard';
 import PerformanceByDimension from '../components/analytics/PerformanceByDimension';
 import GameHistoryTable from '../components/analytics/GameHistoryTable';
+import SequenceProgressChart from '../components/analytics/SequenceProgressChart';
+import SequenceHighlightCard from '../components/analytics/SequenceHighlightCard';
+import MemoryHighlightCard from '../components/analytics/MemoryHighlightCard';
+import AssociationHighlightCard from '../components/analytics/AssociationHighlightCard';
 import StrengthsWeaknesses from '../components/analytics/StrengthsWeaknesses';
 import EngagementRadar from '../components/analytics/EngagementRadar';
 import ScrollRevealSection from '../components/ui/ScrollRevealSection';
@@ -50,6 +54,9 @@ const getActivityColor = (dateStr) => {
 
 const STUDENT_PROFILE_STAT_KEYS = ['stat-a', 'stat-b', 'stat-c', 'stat-d', 'stat-e', 'stat-f'];
 
+// Tamaño de página del historial completo de partidas (endpoint paginado).
+const GAMES_PAGE_SIZE = 20;
+
 const getInitials = (name) => {
   if (!name) return '?';
   const parts = name.trim().split(/\s+/);
@@ -78,6 +85,13 @@ export default function StudentProfile() {
   const [analyticsDisabled, setAnalyticsDisabled] = useState(false);
   const abortRef = useRef(null);
 
+  // Historial COMPLETO de partidas, paginado e independiente del timeRange
+  // (a diferencia de summary.lastGames, cap 10 y filtrado por rango).
+  const [games, setGames] = useState([]);
+  const [gamesPagination, setGamesPagination] = useState({ page: 1, total: 0, totalPages: 1 });
+  const [gamesLoadingMore, setGamesLoadingMore] = useState(false);
+  const gamesAbortRef = useRef(null);
+
   const fetchData = useCallback(() => {
     abortRef.current?.abort();
     const controller = new AbortController();
@@ -87,24 +101,30 @@ export default function StudentProfile() {
       try {
         setLoading(true);
 
-        // Fetch principal: summary contiene datos basicos, partidas, rendimiento, comparativa
-        const summaryData = await analyticsService.getStudentSummary(
-          studentId, { timeRange }, { signal: controller.signal }
-        );
-        if (controller.signal.aborted) return;
-        setSummary(summaryData);
-
-        // Fetches secundarios en paralelo (no bloqueantes si fallan)
-        const [trajectoryData, engagementData] = await Promise.all([
+        // (E4) summary, trayectoria y engagement dependen de las MISMAS entradas
+        // (studentId, timeRange): se lanzan en PARALELO en vez de esperar al summary.
+        // Los secundarios degradan a null si fallan (reportando a Sentry, no
+        // tragándolos: antes `.catch(()=>null)` hacía indistinguible un 500 de un
+        // alumno sin datos). Un fallo del summary (fetch primario) SÍ rechaza el
+        // Promise.all → estado de error.
+        const swallowSecondary = e => {
+          if (!isAbortError(e)) captureException(e);
+          return null;
+        };
+        const [summaryData, trajectoryData, engagementData] = await Promise.all([
+          analyticsService.getStudentSummary(
+            studentId, { timeRange }, { signal: controller.signal }
+          ),
           analyticsService.getStudentTrajectory(
             studentId, { timeRange, granularity: 'daily' }, { signal: controller.signal }
-          ).catch(() => null),
+          ).catch(swallowSecondary),
           analyticsService.getStudentEngagement(
             studentId, { timeRange }, { signal: controller.signal }
-          ).catch(() => null),
+          ).catch(swallowSecondary),
         ]);
 
         if (controller.signal.aborted) return;
+        setSummary(summaryData);
         setTrajectory(trajectoryData);
         setEngagement(engagementData);
         setError(null);
@@ -133,6 +153,52 @@ export default function StudentProfile() {
 
   useRefetchOnFocus({ refetch: fetchData, isLoading: loading, hasData: Boolean(summary), hasError: Boolean(error) });
 
+  // Primera página del historial completo. Atada a `studentId` (no a `timeRange`):
+  // el historial no se filtra por rango, así que cambiar el selector no lo reinicia.
+  useEffect(() => {
+    if (!studentId) return undefined;
+    gamesAbortRef.current?.abort();
+    const controller = new AbortController();
+    gamesAbortRef.current = controller;
+    (async () => {
+      try {
+        const data = await analyticsService.getStudentGames(
+          studentId, { page: 1, limit: GAMES_PAGE_SIZE }, { signal: controller.signal }
+        );
+        if (controller.signal.aborted) return;
+        setGames(Array.isArray(data?.games) ? data.games : []);
+        setGamesPagination(data?.pagination || { page: 1, total: 0, totalPages: 1 });
+      } catch (err) {
+        if (isAbortError(err)) return;
+        // Silencioso: el historial es secundario; summary.lastGames sirve de fallback.
+      }
+    })();
+    return () => controller.abort();
+  }, [studentId]);
+
+  const loadMoreGames = useCallback(async () => {
+    if (gamesLoadingMore || gamesPagination.page >= gamesPagination.totalPages) return;
+    const nextPage = gamesPagination.page + 1;
+    setGamesLoadingMore(true);
+    try {
+      const data = await analyticsService.getStudentGames(studentId, {
+        page: nextPage,
+        limit: GAMES_PAGE_SIZE
+      });
+      const more = Array.isArray(data?.games) ? data.games : [];
+      // Dedupe defensivo por gameplayId/_id (un borrado entre páginas podría solapar).
+      setGames((prev) => {
+        const seen = new Set(prev.map((g) => g.gameplayId || g._id || `${g.completedAt}-${g.score}`));
+        return [...prev, ...more.filter((g) => !seen.has(g.gameplayId || g._id || `${g.completedAt}-${g.score}`))];
+      });
+      setGamesPagination(data?.pagination || { ...gamesPagination, page: nextPage });
+    } catch (err) {
+      captureException(err);
+    } finally {
+      setGamesLoadingMore(false);
+    }
+  }, [studentId, gamesLoadingMore, gamesPagination]);
+
   const student = summary?.student;
   const metrics = student?.studentMetrics || {};
   const classComparison = summary?.classComparison || {};
@@ -142,15 +208,15 @@ export default function StudentProfile() {
   // Skeleton loading
   if (loading && !summary) {
     return (
-      <main className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6">
+      <main className="page-container py-[var(--space-fluid-section)] space-y-6">
         <div className="flex items-center gap-4 pt-14 lg:pt-0">
-          <SkeletonShimmer className="h-14 w-14 rounded-full" />
+          <SkeletonShimmer className="size-14 rounded-full" />
           <div className="space-y-2">
             <SkeletonShimmer className="h-7 w-52 rounded-md" />
             <SkeletonShimmer className="h-4 w-36 rounded-md" />
           </div>
         </div>
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-[var(--space-fluid-gutter)]">
           {STUDENT_PROFILE_STAT_KEYS.map(key => <SkeletonStatCard key={key} />)}
         </div>
         <div className="grid grid-cols-1 lg:grid-cols-5 gap-6">
@@ -163,8 +229,8 @@ export default function StudentProfile() {
 
   if (error && !summary) {
     return (
-      <main className="p-6 lg:p-8 max-w-7xl mx-auto">
-        <ErrorState title="Error al cargar perfil" message={error} onRetry={fetchData} />
+      <main className="page-container py-[var(--space-fluid-section)]">
+        <ErrorState title="No pudimos cargar el perfil" message={error} onRetry={fetchData} />
       </main>
     );
   }
@@ -172,7 +238,7 @@ export default function StudentProfile() {
   // Art. 21 RGPD — el tutor ha ejercido su derecho de oposición a analytics
   if (analyticsDisabled) {
     return (
-      <main className="p-6 lg:p-8 max-w-7xl mx-auto">
+      <main className="page-container py-[var(--space-fluid-section)]">
         <ButtonPremium
           variant="ghost"
           size="sm"
@@ -203,7 +269,7 @@ export default function StudentProfile() {
 
   if (!student) {
     return (
-      <main className="p-6 lg:p-8 max-w-7xl mx-auto text-center py-20">
+      <main className="page-container py-20 text-center">
         <User size={48} className="text-text-muted mx-auto mb-4" />
         <h1 className="text-xl font-bold text-text-primary">Estudiante no encontrado</h1>
         <p className="text-text-muted mt-2">No se encontraron datos para este estudiante.</p>
@@ -212,18 +278,40 @@ export default function StudentProfile() {
     );
   }
 
-  const accuracyRate = metrics.totalCorrectAnswers != null && (metrics.totalCorrectAnswers + metrics.totalErrors) > 0
+  // KPIs reactivas al rango temporal: el backend devuelve `overallStats`
+  // (avgScore/avgAccuracy/avgResponseTime/totalGames DEL RANGO). Antes las 6 KPIs
+  // leían `studentMetrics` (lifetime) y no cambiaban al mover el selector mientras
+  // los gráficos sí (disonancia). Caen a lifetime si no hay `overallStats`.
+  const ranged = summary?.overallStats || {};
+  const rangedScore = Number.isFinite(ranged.avgScore) ? ranged.avgScore : (metrics.averageScore || 0);
+  const rangedResponseTime = Number.isFinite(ranged.avgResponseTime)
+    ? ranged.avgResponseTime
+    : (metrics.averageResponseTime || 0);
+  const rangedTotalGames = Number.isFinite(ranged.totalGames)
+    ? ranged.totalGames
+    : (metrics.totalGamesPlayed || 0);
+
+  const lifetimeAccuracy = metrics.totalCorrectAnswers != null && (metrics.totalCorrectAnswers + metrics.totalErrors) > 0
     ? Math.round((metrics.totalCorrectAnswers / (metrics.totalCorrectAnswers + metrics.totalErrors)) * 100)
     : 0;
+  const accuracyRate = Number.isFinite(ranged.avgAccuracy) ? ranged.avgAccuracy : lifetimeAccuracy;
 
+  // Completado: tasa lifetime del alumno (el resumen no expone completado por
+  // rango). Se mantiene como histórico; las abandonadas se muestran en la pastilla.
   const completionRate = metrics.totalGamesPlayed > 0
     ? Math.round(((metrics.totalGamesPlayed - (metrics.totalAbandonedGames || 0)) / metrics.totalGamesPlayed) * 100)
     : 0;
 
+  // Sin datos → semáforo NEUTRO (gris), no verde/rojo. Un alumno sin partidas en
+  // el rango (o que nunca ha jugado) no debe leerse como "0% rojo" ni como
+  // "0.0s verde / tiempo perfecto": eso es AUSENCIA de dato, no rendimiento.
+  const hasRangedData = rangedTotalGames > 0;
+  const hasLifetimeGames = (metrics.totalGamesPlayed || 0) > 0;
+
   return (
     <motion.section
       {...(shouldReduceMotion ? {} : crossfadeVariants)}
-      className="p-6 lg:p-8 max-w-7xl mx-auto space-y-6"
+      className="page-container py-[var(--space-fluid-section)] space-y-6"
     >
       <ChartErrorBoundary>
       {/* ═══════ HEADER ═══════ */}
@@ -235,7 +323,7 @@ export default function StudentProfile() {
 
           <div className="size-14 rounded-full bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center text-xl font-bold text-white shadow-lg">
             {student.avatar
-              ? <img src={student.avatar} alt="" className="size-full rounded-full object-cover" />
+              ? <img src={student.avatar} alt="" width={56} height={56} loading="lazy" decoding="async" className="size-full rounded-full object-cover" />
               : <span>{getInitials(student.name)}</span>
             }
           </div>
@@ -243,9 +331,15 @@ export default function StudentProfile() {
           <div>
             <div className="flex items-center gap-3 flex-wrap">
               <h1 className="text-2xl font-bold text-text-primary font-display">{student.name}</h1>
-              <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${tierConfig.className}`} aria-label={`Nivel de rendimiento: ${tierConfig.label}`}>
-                {tierConfig.label}
-              </span>
+              {hasLifetimeGames ? (
+                <span className={`text-xs font-semibold px-2.5 py-1 rounded-lg border ${tierConfig.className}`} aria-label={`Nivel de rendimiento: ${tierConfig.label}`}>
+                  {tierConfig.label}
+                </span>
+              ) : (
+                <span className="text-xs font-semibold px-2.5 py-1 rounded-lg border border-border-subtle text-text-muted bg-background-surface/60" aria-label="Sin partidas registradas">
+                  Sin partidas
+                </span>
+              )}
             </div>
             <div className="flex items-center gap-3 mt-1">
               {student.classroom && <span className="text-sm text-text-muted">Aula: {student.classroom}</span>}
@@ -276,15 +370,15 @@ export default function StudentProfile() {
         animate="visible"
         aria-label="KPIs del estudiante"
       >
-        <div className="grid grid-cols-2 lg:grid-cols-3 xl:grid-cols-6 gap-3 lg:gap-4">
+        <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 2xl:grid-cols-6 gap-[var(--space-fluid-gutter)]">
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Puntuación Media"
-              value={Math.round(metrics.averageScore || 0)}
+              value={Math.round(rangedScore)}
               suffix="%"
-              ragStatus={scoreToRAG(metrics.averageScore || 0)}
+              ragStatus={hasRangedData ? scoreToRAG(rangedScore) : 'gray'}
               comparison={classComparison.averageScore != null ? `vs clase: ${Math.round(classComparison.averageScore)}%` : null}
-              comparisonPositive={metrics.averageScore > (classComparison.averageScore || 0)}
+              comparisonPositive={rangedScore > (classComparison.averageScore || 0)}
             />
           </motion.div>
 
@@ -293,7 +387,7 @@ export default function StudentProfile() {
               label="Tasa de Acierto"
               value={accuracyRate}
               suffix="%"
-              ragStatus={scoreToRAG(accuracyRate)}
+              ragStatus={hasRangedData ? scoreToRAG(accuracyRate) : 'gray'}
               comparison={classComparison.accuracy != null ? `vs clase: ${Math.round(classComparison.accuracy)}%` : null}
               comparisonPositive={accuracyRate > (classComparison.accuracy || 0)}
             />
@@ -302,22 +396,27 @@ export default function StudentProfile() {
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
               label="Tiempo Respuesta"
-              value={((metrics.averageResponseTime || 0) / 1000).toFixed(1)}
+              value={(rangedResponseTime / 1000).toFixed(1)}
               suffix="s"
               ragStatus={(() => {
-                if (metrics.averageResponseTime <= 4000) return 'green';
-                if (metrics.averageResponseTime <= 8000) return 'amber';
+                if (!hasRangedData) return 'gray';
+                if (rangedResponseTime <= 4000) return 'green';
+                if (rangedResponseTime <= 8000) return 'amber';
                 return 'red';
               })()}
               comparison={classComparison.responseTime != null ? `vs clase: ${(classComparison.responseTime / 1000).toFixed(1)}s` : null}
-              comparisonPositive={metrics.averageResponseTime < (classComparison.responseTime || Infinity)}
+              comparisonPositive={rangedResponseTime < (classComparison.responseTime || Infinity)}
             />
           </motion.div>
 
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
             <StudentKPICard
-              label="Engagement"
+              label="Implicación"
               value={engagement?.engagementScore != null ? Math.round(engagement.engagementScore) : '—'}
+              // suffix "/100" desambigua la escala: el engagement es un score
+              // 0-100, pero sin sufijo "61" parecía un conteo (auditoría
+              // 24/05/2026). Solo se muestra cuando hay dato real.
+              suffix={engagement?.engagementScore != null ? '/100' : undefined}
               ragStatus={(() => {
                 if (engagement?.engagementScore >= 60) return 'green';
                 if (engagement?.engagementScore >= 35) return 'amber';
@@ -328,11 +427,14 @@ export default function StudentProfile() {
           </motion.div>
 
           <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="h-full">
+            {/* Sin "Mejor: X pts": `bestScore` es score CRUDO y varía por mecánica
+                (Secuencia 210-420 vs Memoria 90), así que "147 pts" no es
+                comparable ni interpretable. La media normalizada (%) ya vive en su
+                propio KPI y el historial muestra el % por partida. */}
             <StudentKPICard
               label="Total Partidas"
-              value={metrics.totalGamesPlayed || 0}
+              value={rangedTotalGames}
               ragStatus="gray"
-              comparison={`Mejor: ${metrics.bestScore || 0} pts`}
             />
           </motion.div>
 
@@ -342,6 +444,7 @@ export default function StudentProfile() {
               value={completionRate}
               suffix="%"
               ragStatus={(() => {
+                if (!hasLifetimeGames) return 'gray';
                 if (completionRate >= 85) return 'green';
                 if (completionRate >= 60) return 'amber';
                 return 'red';
@@ -361,7 +464,7 @@ export default function StudentProfile() {
         <div className="lg:col-span-3 h-full">
           <TrajectoryChart
             trajectoryData={trajectory}
-            classComparison={summary?.classProgressComparison}
+            classComparison={trajectory?.classDataPoints}
           />
         </div>
         <div className="lg:col-span-2 h-full">
@@ -396,9 +499,55 @@ export default function StudentProfile() {
         </div>
       </ScrollRevealSection>
 
+      {/* ═══════ Evolución en Secuencia (T-922 fase D) ═══════
+          Sólo se renderiza si el alumno ha jugado al menos una partida
+          de Secuencia en el rango temporal. El bloque bySequence viene
+          de analyticsService.getStudentSummary (T-921 fase F). */}
+      {summary?.bySequence?.totalGames > 0 && (
+        <ScrollRevealSection delay={0.12}>
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+            <div className="lg:col-span-2">
+              {/* Serie temporal real por partida (backend `bySequence.progression`).
+                  Antes se filtraba `lastGames` (últimas 10, sin el dato por partida)
+                  → la evolución salía vacía o como línea plana. */}
+              <SequenceProgressChart
+                data={summary.bySequence.progression || []}
+              />
+            </div>
+            <SequenceHighlightCard summary={summary.bySequence} />
+          </div>
+        </ScrollRevealSection>
+      )}
+
+      {/* ═══════ Highlights por mecánica (ADR-F, sesión 04/05/2026) ═══════
+          Renderiza MemoryHighlightCard y AssociationHighlightCard en paralelo
+          al SequenceHighlightCard cuando el alumno ha jugado al menos una
+          partida de esa mecánica en el rango temporal. Cada card muestra
+          una hero metric (peakStreak) y 3 filas de detalle. Los datos vienen
+          de los nuevos campos `byMemory` / `byAssociation` del endpoint
+          `/student/:id/summary` (analyticsService A9). */}
+      {(summary?.byMemory?.totalGames > 0 || summary?.byAssociation?.totalGames > 0) && (
+        <ScrollRevealSection delay={0.13}>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {summary?.byMemory?.totalGames > 0 && (
+              <MemoryHighlightCard summary={summary.byMemory} />
+            )}
+            {summary?.byAssociation?.totalGames > 0 && (
+              <AssociationHighlightCard summary={summary.byAssociation} />
+            )}
+          </div>
+        </ScrollRevealSection>
+      )}
+
       {/* ═══════ Historial de Partidas ═══════ */}
       <ScrollRevealSection delay={0.15}>
-        <GameHistoryTable games={summary?.lastGames} />
+        <GameHistoryTable
+          games={games.length > 0 ? games : summary?.lastGames}
+          onLoadMore={loadMoreGames}
+          hasMore={gamesPagination.page < gamesPagination.totalPages}
+          loadingMore={gamesLoadingMore}
+          total={gamesPagination.total}
+        />
       </ScrollRevealSection>
       </ChartErrorBoundary>
     </motion.section>

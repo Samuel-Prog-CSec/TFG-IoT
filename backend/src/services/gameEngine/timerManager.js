@@ -13,8 +13,14 @@ const PLAY_TIMEOUT_MS = Number.parseInt(process.env.PLAY_TIMEOUT_MS, 10) || 3600
 const CLEANUP_INTERVAL_MS = 300000; // 5 minutos
 const DISTRIBUTED_LOCK_TTL_SECONDS =
   Number.parseInt(process.env.GAME_ENGINE_LOCK_TTL_SECONDS, 10) || 90;
+// Heartbeat a 45s (antes 30s): con TTL de 90s mantiene un margen 2× de seguridad
+// ante blips de red, pero renueva el lease de cada partida ~10 veces (en vez de
+// ~20) por partida de 10 min. En `scale=1` el lease solo sirve para recovery tras
+// reinicio de Koyeb, no para coordinación entre instancias; su renovación es el
+// consumidor DOMINANTE de comandos Upstash por partida — recortarlo a la mitad
+// alivia el techo free-tier de 10k comandos/día sin coste funcional real.
 const LOCK_HEARTBEAT_INTERVAL_MS =
-  Number.parseInt(process.env.GAME_ENGINE_LOCK_HEARTBEAT_MS, 10) || 30000;
+  Number.parseInt(process.env.GAME_ENGINE_LOCK_HEARTBEAT_MS, 10) || 45000;
 
 // ============================================================================
 // CLEANUP DE PARTIDAS ABANDONADAS
@@ -68,8 +74,23 @@ async function cleanupAbandonedPlays(engine) {
       playIds: abandonedPlays
     });
 
+    // endPlay bajo el lock de la partida (WS-5): el cron corre FUERA de cualquier
+    // lock, así que sin esto podía finalizar una partida mientras un scan seguía
+    // en vuelo bajo el lock → validation_result emitido DESPUÉS de game_over y
+    // escritura sobre un playDoc ya completado. El lock serializa cleanup con el
+    // scan en curso. Un fallo/timeout de lock de una partida no debe abortar el
+    // resto del batch.
     await engine.processInBatches(abandonedPlays, async playId => {
-      await engine.endPlay(playId, { abandoned: true });
+      try {
+        await engine.executeWithPlayLock(playId, 'cleanup_end_play', () =>
+          engine.endPlay(playId, { abandoned: true })
+        );
+      } catch (err) {
+        logger.warn('Cleanup: no se pudo finalizar partida abandonada bajo lock', {
+          playId,
+          error: err?.message
+        });
+      }
     });
   }
 
@@ -193,6 +214,16 @@ function clearPlayTimers(playState) {
   if (playState.playTimer) {
     clearTimeout(playState.playTimer);
     playState.playTimer = null;
+  }
+  if (playState.sequenceMemorizingTimer) {
+    clearTimeout(playState.sequenceMemorizingTimer);
+    playState.sequenceMemorizingTimer = null;
+  }
+  // WS-2: watchdog de board_ready. Se cancela al pausar/finalizar para que su
+  // callback no auto-confirme board_ready sobre una partida ya pausada o cerrada.
+  if (playState.boardReadyWatchdog) {
+    clearTimeout(playState.boardReadyWatchdog);
+    playState.boardReadyWatchdog = null;
   }
   if (playState.transientTimers) {
     for (const timer of playState.transientTimers) {

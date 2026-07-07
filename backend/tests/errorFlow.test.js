@@ -107,7 +107,7 @@ describe('Validación Zod → errorHandler centralizado', () => {
     expect(res.statusCode).toBe(405);
     expect(res.headers.allow).toBe('GET');
     expect(res.body.success).toBe(false);
-    expect(res.body.error).toBe('Method Not Allowed');
+    expect(res.body.code).toBe('METHOD_NOT_ALLOWED');
   });
 
   it('query inválida devuelve 400 con mensaje de parámetros de consulta', async () => {

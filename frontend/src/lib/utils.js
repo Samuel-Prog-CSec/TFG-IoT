@@ -1,5 +1,36 @@
 import { clsx } from "clsx";
-import { twMerge } from "tailwind-merge";
+import { extendTailwindMerge } from "tailwind-merge";
+
+// tailwind-merge extendido con los tamaños de fuente CUSTOM del design system
+// (`--text-*` de index.css). Sin registrarlos, tailwind-merge no sabe que
+// `text-nano`/`text-micro`/`text-fluid-*` son font-size y los trata como un
+// `text-{color}`: al fusionar `cn('text-white text-nano')` descartaba
+// `text-white` (conserva solo el último «text-*»), dejando el texto con el color
+// heredado del ancestro (p.ej. el contador del badge de notificaciones caía a
+// ~1.7:1 de contraste — ADR-191/PROP-135). Registrarlos en el grupo `font-size`
+// los separa del grupo de color y ambos sobreviven al merge.
+const twMerge = extendTailwindMerge({
+  extend: {
+    classGroups: {
+      'font-size': [
+        {
+          text: [
+            'micro',
+            'nano',
+            'fluid-xs',
+            'fluid-sm',
+            'fluid-base',
+            'fluid-lg',
+            'fluid-xl',
+            'fluid-2xl',
+            'fluid-3xl',
+            'fluid-hero',
+          ],
+        },
+      ],
+    },
+  },
+});
 
 /**
  * Utility function to merge tailwind classes effectively.
@@ -241,10 +272,19 @@ const DATE_PRESETS = {
  * formatDate('2026-03-28', 'short')  // "28 mar 2026"
  * formatDate('2026-03-28', 'long')   // "sábado, 28 de marzo de 2026"
  */
+// Cache por variante: cada `new Intl.DateTimeFormat` reserva docenas de
+// objetos, asi que cacheamos la instancia por variant (medium/short/long).
+const DATE_FMT_CACHE = new Map();
+
 export function formatDate(date, variant = 'medium') {
   const d = date instanceof Date ? date : new Date(date);
   const options = DATE_PRESETS[variant] || DATE_PRESETS.medium;
-  return new Intl.DateTimeFormat('es-ES', options).format(d);
+  let fmt = DATE_FMT_CACHE.get(variant);
+  if (!fmt) {
+    fmt = new Intl.DateTimeFormat('es-ES', options);
+    DATE_FMT_CACHE.set(variant, fmt);
+  }
+  return fmt.format(d);
 }
 
 /**
@@ -276,20 +316,45 @@ export function getRandomAccentColor() {
 }
 
 /**
- * Calcula las estrellas basado en el porcentaje de aciertos
+ * Número máximo de estrellas en la escala canónica de puntuación.
+ */
+export const MAX_STARS = 5;
+
+/**
+ * Calcula las estrellas (1-5) a partir del porcentaje de aciertos.
+ * Escala canónica: 90/75/60/40; mínimo 1⭐ (motivador para 4-8 años).
+ * Misma escala que el backend (gamePlayService.scorePercentToStars).
  * @param {number} correctPercentage - Porcentaje de respuestas correctas (0-100)
- * @returns {number} - Número de estrellas (0-3)
+ * @returns {number} - Número de estrellas (1-5)
  */
 export function calculateStars(correctPercentage) {
-  if (correctPercentage >= 90) return 3;
-  if (correctPercentage >= 70) return 2;
-  if (correctPercentage >= 50) return 1;
-  return 0;
+  if (correctPercentage >= 90) return MAX_STARS;
+  if (correctPercentage >= 75) return 4;
+  if (correctPercentage >= 60) return 3;
+  if (correctPercentage >= 40) return 2;
+  return 1;
+}
+
+/**
+ * Clase de alineación horizontal para un tooltip in-situ según la posición de
+ * la celda en su fila. Las celdas de los extremos anclan el tooltip a su borde
+ * (`right-0` / `left-0`) para que no se salga de un contenedor con overflow
+ * (heatmaps con scroll horizontal → `overflow-x:auto` recorta los lados); el
+ * resto lo centra. Evita el recorte lateral del tooltip.
+ *
+ * @param {number} index - Índice de la celda en la fila
+ * @param {number} lastIndex - Índice de la última celda (columna derecha)
+ * @returns {string} Clases Tailwind de posicionamiento horizontal
+ */
+export function tooltipEdgeAlignX(index, lastIndex) {
+  if (index === lastIndex) return 'right-0';
+  if (index === 0) return 'left-0';
+  return 'left-1/2 -translate-x-1/2';
 }
 
 /**
  * Delay helper para async/await
- * @param {number} ms 
+ * @param {number} ms
  * @returns {Promise<void>}
  */
 export function delay(ms) {
@@ -383,13 +448,22 @@ export function exportToCSV(data, filename, columns) {
   if (!data?.length || !columns?.length) return;
 
   const separator = ',';
-  const header = columns.map(c => `"${c.label}"`).join(separator);
+  // Neutraliza inyeccion de formulas (CSV/formula injection): una celda que empieza
+  // por = + - @ TAB o CR la interpretan Excel/Sheets/LibreOffice como formula
+  // (HYPERLINK/WEBSERVICE/DDE) al abrir el CSV, permitiendo exfiltrar datos de otras
+  // celdas. Como las celdas incluyen nombres reales de menores (texto libre del
+  // profesor), prefijamos con apostrofo cualquier valor con prefijo peligroso.
+  const sanitizeCell = value => {
+    const str = String(value);
+    const safe = /^[=+\-@\t\r]/.test(str) ? `'${str}` : str;
+    return `"${safe.replace(/"/g, '""')}"`;
+  };
+  const header = columns.map(c => sanitizeCell(c.label)).join(separator);
   const rows = data.map(row =>
     columns.map(c => {
       const val = row[c.key];
       if (val == null) return '""';
-      const str = String(val).replace(/"/g, '""');
-      return `"${str}"`;
+      return sanitizeCell(val);
     }).join(separator)
   );
 

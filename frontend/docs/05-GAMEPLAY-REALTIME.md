@@ -79,6 +79,16 @@ Estado adicional de conectividad realtime:
 - Cada tap emite `rfid_scan_from_client` con payload validado (`uid`, `type`, `sensorId`, `timestamp`, `source`).
 - Se muestra aviso docente y CTA para pausar/revisar sensor sin perder control de sesión.
 
+## Layout fit-to-viewport — sin scroll (ADR-207)
+
+Invariante de las pantallas de partida y de fin de partida: **caben enteras en el viewport sin scroll desde 720p**, reajustando el tamaño de sus componentes para aprovechar el espacio.
+
+- **Presupuesto vertical por reparto flex.** La columna de juego llena el alto del `main` (`h-full min-h-0`) y reparte el espacio entre la **región de referencia** (reto en Asociación / board en Memoria y Secuencia) y la **región de input táctil** como hermanas `flex-1 min-h-0` (reparto equilibrado). No se usa `justify-center` sobre contenido que pueda desbordar: el panel táctil ya **nunca empuja ni recorta** el reto, porque son hermanos con cuota de alto fija, no elementos apilados.
+- **Rejillas dirigidas por ALTO, no por ancho.** Las cartas de los paneles táctiles (`FallbackTouchPanel`, `FallbackTouchPanelSequence`) y de los boards (`MemoryBoard`, `SequenceBoard`) escalan por **alto disponible**: la rejilla es `flex-1 min-h-0 auto-rows-fr content-center justify-center` y la carta `aspect-square max-h-full max-w-full mx-auto` con suelo `min-h-[2.75rem]` (44px, WCAG 2.5.8). El `max-w-full` es **imprescindible**: sin él, a viewports altos la carta se dimensiona por la fila y desborda la columna, solapándose con las vecinas.
+- **Columnas adaptativas por aspect-ratio (`useSquareGridColumns`).** El nº de columnas NO es estático: el hook mide la región con `ResizeObserver` y elige el recuento que **maximiza el lado de carta** (`pickSquareColumns` en `lib/squareGrid.js`). Región ancha-baja (720p) → más columnas/menos filas (cartas ~2× mayores que con columnas fijas); región más cuadrada (4K con el cap) → menos columnas que llenan el alto. Mantiene el reparto 50/50 y da la carta máxima en toda la escalera.
+- **GameOver vh-aware.** `GameOverScreen` y los `GameOverStats{Association,Memory,Sequence}` usan `clamp` con `vh` en paddings, márgenes y tamaños para comprimirse en viewports bajos; el `max-h-[98dvh] overflow-y-auto` queda solo como red de seguridad extrema. El caso más alto (Secuencia con badge de récord) cabe sin scroll a 1280×720.
+- **Antipatrón a evitar.** Cartas `aspect-square` dirigidas por ancho dentro de una rejilla cuyo ancho escala con `vh`/viewport: crecen en alto al ensanchar la pantalla y desbordan el presupuesto vertical.
+
 ## Refinado visual infantil (Sprint gameplay core)
 
 - Copy de estado realtime simplificado para niños (`Juego listo`, `Conectando`, `Sin conexión`).
@@ -236,3 +246,137 @@ Cuando el backend devuelve un error con `retryAfterMs` (`RATE_LIMITED`, `TEMP_BL
 - Respeta `prefers-reduced-motion`: barra estática proporcional al tiempo restante en vez de animación CSS.
 
 El toast legacy se mantiene para errores sin `retryAfterMs` (mensajes informativos sin countdown).
+
+---
+
+## Mecánica Secuencia (T-921 / T-922)
+
+La tercera mecánica usa eventos socket dedicados en lugar del `validation_result` genérico. La razón: una ronda se compone de dos fases con timings y semántica distintas, y la lógica de scan responde con tipos compuestos (correct, incorrect, incorrect_with_hint, blocked, timedOut).
+
+### Eventos del namespace `/game` para Secuencia
+
+| Evento | Dirección | Payload (campos relevantes) |
+|---|---|---|
+| `sequence_phase_memorizing` | server → cliente | `{ playId, roundNumber, totalRounds, sequence, length, displaySeconds, score }` |
+| `sequence_phase_reproducing` | server → cliente | `{ playId, roundNumber, length, timeLimitMs }` |
+| `sequence_card_result` | server → cliente | `{ type, uid, expectedUid, hint?, attemptsForCurrent, cursor, length, score, points }` |
+| `sequence_round_result` | server → cliente | `{ playId, roundNumber, length, results, durationMs, completed, timedOut, score }` |
+
+`type` en `sequence_card_result` puede ser `correct`, `incorrect`, `incorrect_with_hint`, `blocked` o `timedOut`. La pista (`hint`) sólo viaja cuando `type === 'incorrect_with_hint'` y tiene la forma `{ type: 'partial' | 'full', text }`.
+
+### Orquestación cliente (`SequenceGameplayPanel`)
+
+- Mantiene `sequence`, `length`, `phase`, `cursor`, `cardStatuses`, `highlightIndex`, `displaySeconds` y `roundNumber` como estado local.
+- Al recibir `sequence_phase_memorizing`: muestra el board, dispara la animación signature de reparto (stagger 90 ms con spring), arranca el "highlight numerado" 1, 2, 3... y reproduce SFX `cardDeal` en cada aterrizaje.
+- Al recibir `sequence_phase_reproducing`: oculta los números, abre la espera de scans, muestra el `PhaseTransitionOverlay` con cuenta atrás 2 s ("Reproduce la secuencia").
+- Al recibir `sequence_card_result`: actualiza `cardStatuses[uid]` (correct/blocked/timedOut), avanza el `cursor`, muestra toast de pista si `hint` viene.
+- Al recibir `sequence_round_result`: aplica los status finales, dispara la animación de recogida (stagger inverso) tras 500 ms, reproduce `cardSweep`, y espera a que el backend envíe el siguiente `sequence_phase_memorizing` o `game_over`.
+
+### FallbackTouchPanelSequence
+
+Cuando no hay sensor RFID, el alumno ve un panel táctil con todas las cartas del mazo (no se reordenan entre rondas — la pista espacial es importante). El cooldown anti-spam es de 250 ms, alineado con `useGameSocket.DEDUPE_MS_BY_SOURCE.touch_fallback`. El feedback visual de scan correcto / fallo se muestra en el board (no en el panel) cuando llega `sequence_card_result`.
+
+### Reduced motion
+
+El `SequenceBoard` consulta `useReducedMotion` y reemplaza:
+- Reparto crupier → fade en cascada (50 ms stagger).
+- Recogida crupier → fade salida directa.
+- Highlight numerado animado → cambio de borde sin scale/pulse.
+
+Los SFX se mantienen siempre (sound y motion son ejes a11y independientes según WCAG 2.5).
+
+---
+
+## Alertas inteligentes en tiempo real (T-941 / ADR-161)
+
+Hasta T-941, el docente solo se enteraba de una alerta crítica si abría `/analytics/insights → Alertas`. T-941 conecta el motor de detección con la infraestructura de notificaciones realtime existente (T-955).
+
+### Flujo end-to-end
+
+1. **Worker BullMQ** `alertDetectionWorker` se ejecuta cada 15 minutos (`*/15 * * * *`, env `ALERT_DETECTION_CRON`) e invoca `alertDetectionService.runForAllTeachers()`.
+2. Para cada docente, el orquestador ejecuta los 13 detectores en paralelo. Cada finding se reconcilia con las `SmartAlert` activas existentes (insert / update + severity escalation / auto-resolve).
+3. **Cuando aparece una alerta `critical` nueva** — o cuando una `warning` se promueve a `critical` por escalation automática (≥ 7 días activa con ≥ 3 ocurrencias) — el servicio invoca `notificationService.notify({ type: 'student_at_risk', priority: 'critical', metadata: { alertId, studentId, alertType } })`.
+4. `notificationService` aplica dedup window 60 s (Redis SET NX) y emite `notification:created` al room `user_${teacherId}` con DTO V1.
+5. **Frontend** (`hooks/useNotifications.js`) recibe el evento, lo añade al panel y, si `type === 'student_at_risk'`, dispara un evento DOM custom:
+
+   ```js
+   window.dispatchEvent(
+     new CustomEvent('smartalert:created', {
+       detail: { alertId: payload.metadata?.alertId, payload }
+     })
+   );
+   ```
+
+6. **Dashboard** (`pages/Dashboard.jsx`) y **AlertsHub** (`pages/InsightsReports.jsx > AlertsTabContent`) escuchan el evento y refetchan las alertas sin recarga de página.
+
+### Política "solo critical"
+
+`warning` e `info` NO emiten notificación realtime. Razón: evitar fatiga del docente. Se actualizan en el siguiente refresco natural de la lista (cache `cache:alerts` TTL 60 s + cualquier acción lifecycle que invalide).
+
+### Enlace contextual
+
+El `link` de la notificación es `/students/<studentId>?alertId=<smartAlertId>`. Click navega al perfil del alumno; el `alertId` en query queda disponible para que una futura iteración abra directamente el modal `AlertHistoryModal`.
+
+## Sprint 0 pre-v1.0.0 — Descomposición incremental de `GameSession.jsx` (ADR-164)
+
+Tras la auditoría pre-v1.0.0 que identificó el componente como kitchen-sink (1847 líneas, 9 hooks personalizados, 4 mecanismos de feedback, 3 mecánicas de juego), se aplicó una descomposición **incremental** en lugar del split monolítico Container/View. Razones:
+
+1. **El render JSX ya está bien compuesto**: cada mecánica se renderiza desde su propio sub-componente (`AssociationGameplayPanel`, `MemoryGameplayPanel`, `SequenceGameplayPanel`), el GameOver vive en `GameOverScreen`, la mascota en `CharacterMascot`, el touch fallback en `FallbackTouchPanel`. No hay duplicación lógica visible que se pueda extraer trivialmente.
+2. **Los tests existentes son contrato, no isolation**: 636 líneas de `GameSession.test.jsx` cubren comportamiento end-to-end con socket simulado y eventos mockeados. Pasarlos NO garantiza que el refactor sea visualmente idéntico (timings, layouts).
+3. **Prioridad real para v1.0.0:** que las 3 mecánicas se jueguen sin regresión y las estadísticas se recojan correctamente. Estilo de código es secundario.
+
+### Lo que SÍ se extrajo (testeable como unidad pura)
+
+- **`hooks/useGameSessionState.js`**: reducer + custom hook que expone `{game, dispatch, gameStateRef}`. El `gameStateRef` permite que los callbacks de socket lean el último valor sin re-suscripción.
+- **`lib/finalSummary.js`**: `normalizeFinalSummary(metrics, score, correctAnswers, mechanicMode, gameStartTime, maxScore)` puro, sin dependencias React. Tests cubren las 3 mecánicas y los edge cases.
+
+### Lo que NO se extrajo (diferido a Sprint 1)
+
+- División Container (orquestación + side effects) vs View (render puro memoizable).
+- Extracción de sub-componentes adicionales tipo `<GameSessionHUD>`, `<GameSessionBackdrop>`, `<GameSessionMascotPanel>`. Si en Sprint 1 hay margen para QA dedicada de las 3 mecánicas tras el split, se aborda. Mientras tanto, el archivo queda con `eslint-disable cyclomatic-complexity` documentado.
+
+### Flujos no afectados
+
+Los eventos socket (`new_round`, `validation_result`, `game_over`, `play_state`, `play_paused`, `play_resumed`, `sequence_phase_*`, `sequence_card_result`, `sequence_round_result`) y el flujo RFID (handlers en `useGameSocket` ya extraído desde antes) NO cambian de contrato. El refactor C2 parcial es transparente para el backend y el resto del frontend.
+
+## Fiabilidad de escaneos y arranque de ronda (Auditoría de partidas 2026-07-02, ADR-225)
+
+Correcciones tras jugar las 3 mecánicas en vivo (táctil + sensor simulado), centradas en el requisito «ni retrasos ni escaneos perdidos»:
+
+- **`board_ready` para las 3 mecánicas.** El efecto que emite `board_ready` en `GameSession.jsx` cubre ahora también **Asociación** (antes solo Memoria/Secuencia). Sin él, el backend armaba el `roundTimer` de la ronda 1 de Asociación en el bootstrap y el niño perdía 1-3s de reloj mientras el frontend cargaba. El backend difiere el timer hasta `confirmBoardReady` (simétrico con Memoria); el frontend emite `board_ready` al renderizar el reto (`gameState==='playing'`).
+- **Toast espurio «Tarjeta no reconocida» en Secuencia eliminado.** Los wrappers `wrappedOnSequenceCardResult`/`wrappedOnSequenceRoundResult` cancelan ahora el timeout client-side de 3s (como los de Memoria/Asociación). Antes, tras la última carta de cada ronda, saltaba el toast ~3s después aunque la carta se había aceptado.
+- **Timeout de escaneo no se arma si el socket está caído.** `handleLocalScan` no programa el timeout de «Tarjeta no reconocida» cuando `!isGameSocketConnected()` (la lectura se encoló, no se perdió; el feedback correcto lo dan la cola + `scan_expired`).
+- **Flush de scans encolados al reconectar `/game`.** `handleGameSocketReconnected` hace `flushPendingScans()` tras re-emitir `JOIN_PLAY` (la reconexión independiente del namespace `/game` antes solo re-unía la sala, dejando los scans varados hasta el siguiente escaneo hardware).
+- **Dedupe reseteado al retirar la carta** (`webSerialService.js`): un `card_removed` invalida el cooldown del UID, de modo que reacercar la misma carta rápido (Secuencia con carta repetida) no se traga como chattering.
+
+## Overlay de reconexión y timer congelado (ADR-225)
+
+Cuando `realtimeStatus` no es `connected` durante `playing`:
+- **El timer visual se congela** (`useGameTimer` recibe `isRealtimeConnected`): la barra no se vacía sola durante la reconexión y el niño no «gasta» la ronda. Al reconectar, el backend re-sincroniza `remainingTimeMs`.
+- **Un overlay suave no-modal «Reconectando…»** cubre el tablero (para que el niño no siga tocando cartas cuyas respuestas no se enviarían) sin atrapar el foco (el docente sigue pudiendo pausar/salir desde el HUD).
+
+## Asset de la carta de Memoria: carga-en-volteo y el bug de "imagen invisible" (ADR-225)
+
+El backend **redacta** `displayData` de las cartas de Memoria boca abajo (`MemoryStrategy`, anti-trampa): una carta oculta llega al cliente con `assignedValue`/`displayData` a `null`. La URL de la imagen aparece **en el momento del volteo** (`memory_turn_state`), y ahí monta el `<img>` de `CardAssetPreview`. El cache del navegador ya está caliente por `prefetchDeckImages` (thumbnails del mazo, precargados al entrar en la partida), así que la imagen suele estar `complete` cuando la carta se voltea.
+
+**Bug corregido:** `CardAssetPreview` ponía `imageLoading=true` (opacity-0) al aparecer la URL, pero para una imagen ya `complete` en cache el `onLoad` NO se vuelve a disparar → la imagen quedaba **cargada pero invisible** de forma intermitente (según el timing del cache). Fix: el efecto de cambio de URL consulta el nodo `<img>` real (`imgNodeRef`) y solo muestra "cargando" si la imagen NO está ya completa. Verificado: la firma `naturalWidth>0 + opacity:0` desaparece (0 casos tras el fix, 30 antes). Afecta a todo uso de `CardAssetPreview`, pero se notaba sobre todo en Memoria por la carga-en-volteo.
+
+## Blindaje del arranque de partida — nunca un skeleton infinito (ADR-225)
+
+Si el arranque falla, el docente NUNCA debe quedarse ante «Preparando cartas…» sin explicación (efecto «no entiendo qué ocurre»). El hook `useStartupGuard` (común a las 3 mecánicas) vigila el arranque mientras `gameState==='playing'` y el gameplay aún no está listo:
+
+- **Señal `gameplayReady` por mecánica**: Memoria `memoryBoard.length>0`, Secuencia `sequenceState.length>0`, Asociación `Boolean(challenge)`.
+- **Error fatal del backend**: `startPlay` emite un `error` con mensaje legible (tarjeta en uso, config/plan inválido, límite de partidas). Si llega durante el arranque → se muestra de inmediato. Los códigos transitorios (`SOCKET_DISCONNECTED`, `RATE_LIMITED`, `RFID_MODE_TAKEN_OVER`…) NO cuentan como fallo de arranque.
+- **Watchdog**: si no llega tablero/reto NI error en 10 s, el arranque se considera colgado → mensaje genérico.
+
+En ambos casos se pinta un **overlay `z-30`** (patrón del overlay de reconexión) con `ErrorState` + Otto (`mood="worried"`) + «Reintentar», tapando el skeleton. «Reintentar» limpia el estado y re-emite `start_play`.
+
+**Causa raíz (backend, `GameEngine._reclaimOrphanedPlay`)**: una partida interrumpida dejaba sus tarjetas reservadas hasta 1 h. Ahora `startPlay`, ante un conflicto de tarjetas, reclama la partida en conflicto si está **huérfana** (sin cliente conectado en su sala, superada una gracia de 10 s) → el reintento del docente arranca solo. Una partida realmente en curso (con cliente) no se reclama.
+
+## Fallback táctil gateado por el estado del sensor (ADR-225)
+
+Regla de las 3 mecánicas: **el fallback táctil desaparece cuando el sensor está conectado y el RFID en juego** (se escanea la carta física) y **aparece cuando se pierde el RFID** (para poder seguir jugando). La señal es `rfidConnected` (`deviceState === 'ready'`), que ya se pone a false al desconectar el sensor (`handleDisconnect`) o degradar a `stale`.
+
+- **Asociación**: `{!rfidConnected && <FallbackTouchPanel/>}` (las cartas de respuesta táctiles solo con el sensor perdido).
+- **Secuencia**: `{!rfidConnected && phase === REPRODUCING && <FallbackTouchPanelSequence/>}`. El `SequenceBoard` es siempre solo-visualización (`onCardTap={null}`) para no filtrar el orden de la secuencia.
+- **Memoria**: el tablero está SIEMPRE visible (es el juego), pero su interacción se gatea: `onCardTap={rfidConnected ? undefined : handleMemoryCardTap}`. Con el sensor activo las cartas no son tappables (sin cursor/tabIndex/click); al perder el RFID el tap se reactiva como fallback. (Antes el tap era incondicional — única mecánica inconsistente.)

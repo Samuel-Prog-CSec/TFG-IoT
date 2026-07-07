@@ -8,8 +8,8 @@ import { render, screen } from '@testing-library/react';
 import { MemoryRouter } from 'react-router-dom';
 
 // ── Mock framer-motion ──
-vi.mock('framer-motion', () => ({
-  motion: new Proxy({}, {
+vi.mock('framer-motion', () => {
+  const motionProxy = new Proxy({}, {
     get: (_, tag) => {
       const Component = (props) => {
         const { children, initial, animate, exit, variants, transition, whileHover, whileTap, layout, ...rest } = props;
@@ -25,15 +25,34 @@ vi.mock('framer-motion', () => ({
       Component.displayName = `motion.${String(tag)}`;
       return Component;
     }
-  }),
-  AnimatePresence: ({ children }) => <>{children}</>,
-  useInView: () => true,
-  useReducedMotion: () => false,
-}));
+  });
+  return {
+    motion: motionProxy,
+    m: motionProxy,
+    AnimatePresence: ({ children }) => <>{children}</>,
+    useInView: () => true,
+    useReducedMotion: () => false,
+  };
+});
 
 // Mock de hooks del proyecto (PrivacyPage es standalone pero por si acaso)
 vi.mock('../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => ({ shouldReduceMotion: false })
+}));
+
+// Mock de useTheme — PrivacyPage ahora monta ThemeToggle (fix QA 2026-05-10
+// para paridad con Login/Register), que requiere contexto. Stubear el hook
+// evita tener que envolver con ThemeProvider en cada test.
+vi.mock('../../context/ThemeContext', () => ({
+  useTheme: () => ({
+    mode: 'auto',
+    resolvedTheme: 'dark',
+    systemPrefersLight: false,
+    setMode: vi.fn(),
+    isLight: false,
+    isDark: true,
+  }),
+  ThemeProvider: ({ children }) => children,
 }));
 
 import PrivacyPage from '../PrivacyPage';

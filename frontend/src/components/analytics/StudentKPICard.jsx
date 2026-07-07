@@ -71,7 +71,7 @@ function StudentKPICard({
       padding="none"
       className={cn(
         "p-4 border-l-4 transition-[box-shadow,border-color] duration-300",
-        "hover:shadow-[0_4px_16px_rgba(0,0,0,0.2)]",
+        "hover:shadow-[var(--shadow-md)]",
         // h-full + flex-col para que todas las cards de la fila igualen su
         // altura al más alto (las que tienen `comparison` llevan +1 línea).
         // Sin esto, en el grid de KPIs hay cards más altas que otras y el
@@ -100,7 +100,9 @@ function StudentKPICard({
               {icon}
             </div>
           )}
-          <div className={cn("size-2.5 rounded-full", rag.dot, ragStatus !== 'gray' && rag.glow)} aria-label={`Estado: ${ragStatus}`} />
+          {/* BUG-A11Y-KPI-DOT (QA Sprint 0): div con aria-label sin role
+              provoca aria-prohibited-attr. role="img" legitima la etiqueta. */}
+          <div role="img" className={cn("size-2.5 rounded-full", rag.dot, ragStatus !== 'gray' && rag.glow)} aria-label={`Estado: ${ragStatus}`} />
         </div>
       </div>
 

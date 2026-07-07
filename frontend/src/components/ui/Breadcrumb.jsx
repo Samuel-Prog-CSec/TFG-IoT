@@ -6,7 +6,7 @@
 
 import { Link } from 'react-router-dom';
 import { ChevronRight, ArrowLeft } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
@@ -24,7 +24,11 @@ export default function Breadcrumb({ items, className }) {
       initial={shouldReduceMotion ? false : { opacity: 0, y: -4 }}
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: DURATION.stateChange, ease: EASING.outQuart }}
-      className={cn('mb-4', className)}
+      // BUG-A11Y-BREADCRUMB-BG (QA Sprint 0): el breadcrumb se mostraba sobre
+      // la aurora atmosférica del AppLayout (amber/púrpura según mecánica),
+      // rompiendo contraste de los enlaces. Añadido bg sólido + padding
+      // ligero para que el texto siempre tenga contraste estable.
+      className={cn('mb-4 inline-flex items-center gap-2 px-3 py-1.5 rounded-lg bg-background-elevated/85 backdrop-blur-sm border border-border-subtle/40', className)}
     >
       {/* Mobile: boton volver simplificado */}
       {backItem?.to && (

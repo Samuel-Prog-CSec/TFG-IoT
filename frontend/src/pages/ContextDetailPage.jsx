@@ -1,6 +1,6 @@
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useId } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   Palette,
   Image as ImageIcon,
@@ -12,7 +12,8 @@ import {
   AlertTriangle,
   Trash2,
   Loader2,
-  RefreshCw
+  RefreshCw,
+  Lock
 } from 'lucide-react';
 import { toast } from 'sonner';
 
@@ -23,12 +24,18 @@ import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioMiniPlayer from '../components/ui/AudioMiniPlayer';
 import AudioUploadModal from '../components/ui/AudioUploadModal';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
+import ErrorState from '../components/ui/ErrorState';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import StatusBadge from '../components/ui/StatusBadge';
 import { cn } from '../lib/utils';
+import { getId } from '../lib/entityId';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useReducedMotion } from '../hooks/useReducedMotion';
+import { useSharedLayoutTransition } from '../hooks/useSharedLayoutTransition';
+import useModalA11y from '../hooks/useModalA11y';
 import Breadcrumb from '../components/ui/Breadcrumb';
 
 const TAB_BUTTON_VARIANTS = {
@@ -46,6 +53,8 @@ export default function ContextDetailPage() {
   const navigate = useNavigate();
   const { user: currentUser } = useAuth();
   useDocumentTitle('Detalle del Contexto');
+  // T-954 Fase B: receptor del shared layout id emitido por ContextCard.
+  const heroLayoutId = useSharedLayoutTransition('context', contextId);
 
   const [context, setContext] = useState(null);
   const [loading, setLoading] = useState(true);
@@ -63,15 +72,26 @@ export default function ContextDetailPage() {
   const deleteAssetConfirm = useConfirmationModal();
   const deleteAudioConfirm = useConfirmationModal();
 
-  const fetchContext = async () => {
+  // D.1 (pre-v1.0.0): AbortController propagado. Una navegación rápida
+  // entre contextos (sidebar profesor) dejaba la primera request colgada;
+  // el setContext del primer fetch llegaba después y mostraba el contexto
+  // anterior. Ahora se aborta limpiamente al cambio de `contextId`.
+  const fetchContext = async (signal) => {
     try {
       setLoading(true);
       setError(null);
-      const res = await contextsAPI.getContextById(contextId);
+      const res = await contextsAPI.getContextById(contextId, { signal });
       const data = extractData(res);
       setContext(data);
     } catch (err) {
-      setError(extractErrorMessage(err));
+      if (err?.code === 'ERR_CANCELED') return;
+      // (D5) Distinguir 404 (contexto inexistente) y 403 (sin permiso) de un fallo
+      // de red/servidor (reintentable) en vez de un "Error" crudo sin reintento.
+      setError({
+        isNotFound: err?.response?.status === 404,
+        isForbidden: err?.response?.status === 403,
+        message: extractErrorMessage(err)
+      });
     } finally {
       setLoading(false);
     }
@@ -79,20 +99,20 @@ export default function ContextDetailPage() {
 
   // Eliminar asset completo (imagen + audio)
   const performDeleteAsset = async (asset) => {
-    const contextDocId = context._id || context.id;
+    const contextDocId = getId(context);
 
     setIsDeletingAsset(asset.key);
     try {
       // deleteImage elimina el asset completo incluyendo audio si lo tiene
       await contextsAPI.deleteImage(contextDocId, asset.key);
-      toast.success(`Asset "${asset.value}" eliminado`);
+      toast.success(`Recurso "${asset.value}" eliminado`);
       await fetchContext();
     } catch (err) {
       const msg = extractErrorMessage(err);
       if (err?.response?.status === 409) {
-        toast.error('No se puede eliminar: el asset está en uso por un mazo activo', { description: msg });
+        toast.error('No se puede eliminar: el recurso está en uso por un mazo activo', { description: msg });
       } else {
-        toast.error('Error al eliminar el asset', { description: msg });
+        toast.error('No pudimos eliminar el recurso', { description: msg });
       }
     } finally {
       setIsDeletingAsset(null);
@@ -101,18 +121,18 @@ export default function ContextDetailPage() {
 
   const handleDeleteAsset = (asset) => {
     deleteAssetConfirm.openModal({
-      title: 'Eliminar asset',
-      description: `Vas a eliminar "${asset.value}" (${asset.key}). Se borrará la imagen, los audios asociados y los archivos en Supabase Storage. Si está en uso por un mazo activo, la operación se rechazará.`,
+      title: 'Eliminar recurso',
+      description: `Vas a eliminar "${asset.value}". Se borrará la imagen, los audios asociados y los archivos del almacenamiento del centro. Si está en uso por un mazo activo, la operación se rechazará.`,
       confirmText: 'Eliminar definitivamente',
       cancelText: 'Cancelar',
-      variant: 'destructive',
+      variant: 'danger',
       onConfirm: () => performDeleteAsset(asset),
     });
   };
 
   // Eliminar solo el audio de un asset (conservar imagen)
   const performDeleteAudio = async (asset) => {
-    const contextDocId = context._id || context.id;
+    const contextDocId = getId(context);
 
     setIsDeletingAudio(asset.key);
     try {
@@ -120,7 +140,7 @@ export default function ContextDetailPage() {
       toast.success(`Audio de "${asset.value}" eliminado`);
       await fetchContext();
     } catch (err) {
-      toast.error('Error al eliminar el audio', { description: extractErrorMessage(err) });
+      toast.error('No pudimos eliminar el audio', { description: extractErrorMessage(err) });
     } finally {
       setIsDeletingAudio(null);
     }
@@ -132,24 +152,33 @@ export default function ContextDetailPage() {
       description: `Se eliminará el audio asociado a "${asset.value}". La imagen se mantiene.`,
       confirmText: 'Eliminar audio',
       cancelText: 'Cancelar',
-      variant: 'destructive',
+      variant: 'danger',
       onConfirm: () => performDeleteAudio(asset),
     });
   };
 
   useEffect(() => {
-    fetchContext();
+    const controller = new AbortController();
+    fetchContext(controller.signal);
+    return () => controller.abort();
   // eslint-disable-next-line react-hooks/exhaustive-deps -- fetchContext is not memoized; only re-run when contextId changes
   }, [contextId]);
 
-  if (loading) {
+  // El skeleton de página completa solo debe aparecer en la carga INICIAL
+  // (context aún null). En refrescos tras mutación (borrar/subir asset) `loading`
+  // vuelve a true pero ya hay datos: mantenemos el contenido para evitar un flash
+  // brusco y la pérdida de scroll.
+  if (loading && !context) {
     return (
-      <div className="min-h-full bg-background-deep p-4 lg:p-8">
-        <div className="max-w-5xl mx-auto">
+      <div className="page-container py-[var(--space-fluid-section)]">
+        <div>
           <div className="h-8 w-32 bg-background-elevated rounded animate-pulse mb-6" />
           <div className="h-24 bg-background-elevated rounded-2xl animate-pulse mb-8" />
-          <div className="grid grid-cols-2 md:grid-cols-3 gap-6">
-            {Array.from({ length: 6 }, (_, i) => `ctx-detail-skeleton-${i}`).map(id => <SkeletonCard key={id} />)}
+          {/* El skeleton replica la rejilla real de assets (hasta 5 columnas) y
+              rinde 10 placeholders para ocupar el mismo footprint y evitar el
+              salto de layout al llegar los datos. */}
+          <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 gap-4">
+            {Array.from({ length: 10 }, (_, i) => `ctx-detail-skeleton-${i}`).map(id => <SkeletonCard key={id} />)}
           </div>
         </div>
       </div>
@@ -157,16 +186,40 @@ export default function ContextDetailPage() {
   }
 
   if (error || !context) {
+    // (D5) Fallo de red/servidor (no 404 ni 403): ErrorState con reintento. Un 404
+    // (no existe) o un 403 (sin permiso) muestran un estado calmado con salida y
+    // sin reintento; icono y texto distinguen ambos casos.
+    const isRetriable = error && !error.isNotFound && !error.isForbidden;
+    const forbidden = Boolean(error?.isForbidden);
     return (
-      <div className="min-h-full bg-background-deep p-4 lg:p-8 flex items-center justify-center">
-        <GlassCard className="p-8 text-center max-w-md">
-          <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
-          <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
-          <p className="text-text-muted mb-6">{error || 'Contexto no encontrado'}</p>
-          <ButtonPremium onClick={() => navigate(ROUTES.CONTEXTS)}>
-            Volver a Contextos
-          </ButtonPremium>
-        </GlassCard>
+      <div className="page-container py-[var(--space-fluid-section)] flex items-center justify-center">
+        {isRetriable ? (
+          <ErrorState
+            title="No pudimos cargar el contexto"
+            message={error.message || 'Hubo un problema al cargar el contexto. Inténtalo de nuevo.'}
+            onRetry={() => fetchContext()}
+            className="max-w-md"
+          />
+        ) : (
+          <GlassCard className="p-8 text-center max-w-md">
+            {forbidden ? (
+              <Lock size={48} className="text-error-base mx-auto mb-4" />
+            ) : (
+              <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
+            )}
+            <h2 className="text-xl font-semibold text-text-primary mb-2">
+              {forbidden ? 'Sin acceso' : 'Contexto no encontrado'}
+            </h2>
+            <p className="text-text-muted mb-6">
+              {forbidden
+                ? 'No tienes permiso para ver este contexto.'
+                : error?.message || 'El contexto solicitado no existe o no está disponible.'}
+            </p>
+            <ButtonPremium onClick={() => navigate(ROUTES.CONTEXTS)}>
+              Volver a Contextos
+            </ButtonPremium>
+          </GlassCard>
+        )}
       </div>
     );
   }
@@ -174,12 +227,13 @@ export default function ContextDetailPage() {
   const assets = context.assets || [];
 
   return (
-    <div className="min-h-full bg-background-deep p-4 lg:p-8">
-      {/* Header */}
+    <div className="page-container py-[var(--space-fluid-section)]">
+      {/* Header — recibe el hero transition desde ContextCard. */}
       <motion.div
+        layoutId={heroLayoutId}
         initial={{ opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-5xl mx-auto mb-8"
+        className="mb-8"
       >
         <Breadcrumb items={[
           { label: 'Contextos', to: ROUTES.CONTEXTS },
@@ -198,8 +252,17 @@ export default function ContextDetailPage() {
                   <span className="text-sm font-mono text-text-muted bg-background-elevated/50 px-2.5 py-1 rounded-md">
                     {context.contextId}
                   </span>
+                  {/* Estado activo/inactivo del contexto, coherente con el
+                      detalle de mazo (CardDeckDetailPage). */}
+                  <StatusBadge
+                    status={context.isActive ? 'active' : 'inactive'}
+                    size="sm"
+                    pulse={Boolean(context.isActive)}
+                  >
+                    {context.isActive ? 'Activo' : 'Inactivo'}
+                  </StatusBadge>
                   <span className="text-sm text-text-muted">
-                    {assets.length} assets en total
+                    {assets.length} recursos en total
                   </span>
                 </div>
               </div>
@@ -221,7 +284,7 @@ export default function ContextDetailPage() {
       </motion.div>
 
       {/* Grid de Assets */}
-      <div className="max-w-5xl mx-auto">
+      <div>
         <h2 className="text-xl font-semibold text-text-primary mb-6">Contenido del Contexto</h2>
         
         {assets.length === 0 ? (
@@ -230,7 +293,7 @@ export default function ContextDetailPage() {
             <h3 className="text-lg font-medium text-text-primary mb-2">Este contexto está vacío</h3>
             <p className="text-text-muted mb-6">Añade imágenes o audios para usarlos en los mazos de cartas.</p>
             <ButtonPremium onClick={() => setShowUploadModal(true)} variant="secondary">
-              Añadir el primer asset
+              Añadir el primer recurso
             </ButtonPremium>
           </GlassCard>
         ) : (
@@ -241,13 +304,13 @@ export default function ContextDetailPage() {
                   key={asset.key}
                   asset={asset}
                   index={i}
-                  contextId={context._id || context.id}
+                  contextId={getId(context)}
                   onDelete={handleDeleteAsset}
                   isDeleting={isDeletingAsset === asset.key}
                   onDeleteAudio={handleDeleteAudio}
                   isDeletingAudio={isDeletingAudio === asset.key}
                   onManageAudio={(a) => setAudioModalAsset(a)}
-                  currentUserId={currentUser?.id || currentUser?._id}
+                  currentUserId={getId(currentUser)}
                 />
               ))}
             </AnimatePresence>
@@ -271,7 +334,7 @@ export default function ContextDetailPage() {
           <AudioUploadModal
             assetKey={audioModalAsset.key}
             assetValue={audioModalAsset.value}
-            contextId={context._id || context.id}
+            contextId={getId(context)}
             currentAudioUrl={audioModalAsset.audioUrl || null}
             onClose={() => setAudioModalAsset(null)}
             onSuccess={() => {
@@ -308,7 +371,7 @@ function computeAssetOwnership(asset, currentUserId) {
     return {
       canManage: true,
       ownershipLabel: 'Subido por ti',
-      ownershipTooltip: 'Eres el creador del asset y puedes gestionarlo.'
+      ownershipTooltip: 'Eres el creador del recurso y puedes gestionarlo.'
     };
   }
 
@@ -316,15 +379,15 @@ function computeAssetOwnership(asset, currentUserId) {
     return {
       canManage: false,
       ownershipLabel: `Subido por ${ownerName}`,
-      ownershipTooltip: `Solo ${ownerName} puede eliminar o reemplazar este asset.`
+      ownershipTooltip: `Solo ${ownerName} puede eliminar o reemplazar este recurso.`
     };
   }
 
   return {
     canManage: false,
-    ownershipLabel: 'Asset del sistema',
+    ownershipLabel: 'Recurso del sistema',
     ownershipTooltip:
-      'Este asset es parte de la base del contexto y no puede eliminarse individualmente. Para borrarlo, elimina el contexto entero desde el panel de administración.'
+      'Este recurso es parte de la base del contexto y no puede eliminarse individualmente. Para borrarlo, elimina el contexto entero desde el panel de administración.'
   };
 }
 
@@ -342,7 +405,7 @@ function AssetCardAudioSection({
         onClick={(e) => { e.stopPropagation(); if (canManage) onManageAudio(asset); }}
         disabled={!canManage}
         aria-disabled={!canManage}
-        title={canManage ? 'Adjuntar un archivo de audio MP3/OGG a este asset' : audioActionsTooltip}
+        title={canManage ? 'Añade un audio (MP3/OGG) que sonará al pasar esta tarjeta en una partida' : audioActionsTooltip}
         className={cn(
           'flex items-center justify-center gap-1.5 py-2 rounded-lg text-xs font-medium border border-dashed transition-colors duration-200',
           canManage
@@ -372,7 +435,7 @@ function AssetCardAudioSection({
           disabled={!canManage}
           aria-disabled={!canManage}
           className={cn(
-            'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors',
+            'flex items-center gap-1 px-2 py-1 rounded-lg text-nano font-medium transition-colors',
             replaceClass
           )}
           title={canManage ? 'Reemplazar audio' : audioActionsTooltip}
@@ -385,7 +448,7 @@ function AssetCardAudioSection({
           disabled={isDeletingAudio || !canManage}
           aria-disabled={!canManage}
           className={cn(
-            'flex items-center gap-1 px-2 py-1 rounded-lg text-[10px] font-medium transition-colors disabled:opacity-50',
+            'flex items-center gap-1 px-2 py-1 rounded-lg text-nano font-medium transition-colors disabled:opacity-50',
             deleteAudioClass
           )}
           title={canManage ? 'Eliminar solo el audio' : audioActionsTooltip}
@@ -400,18 +463,27 @@ function AssetCardAudioSection({
 
 function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, isDeletingAudio = false, onManageAudio, currentUserId }) {
   const { canManage, ownershipLabel, ownershipTooltip } = computeAssetOwnership(asset, currentUserId);
-  const deleteTooltip = canManage ? 'Eliminar asset completo' : ownershipTooltip;
+  const deleteTooltip = canManage ? 'Eliminar recurso completo' : ownershipTooltip;
   const audioActionsTooltip = canManage ? null : ownershipTooltip;
+  const { shouldReduceMotion } = useReducedMotion();
 
   return (
     <motion.div
-      initial={{ opacity: 0, scale: 0.9 }}
+      // Stagger acotado (Math.min(index, 8)) para que grids grandes no acumulen
+      // un retardo perceptible; sin animación de entrada si reduced-motion.
+      initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.9 }}
       animate={{ opacity: 1, scale: 1 }}
-      transition={{ delay: index * 0.05 }}
-      whileHover={{ y: -4 }}
+      transition={{ delay: shouldReduceMotion ? 0 : Math.min(index, 8) * 0.04 }}
+      whileHover={shouldReduceMotion ? undefined : { y: -4 }}
       className="group"
     >
       <GlassCard
+        // `padding="none"`: la card gestiona su propio layout (preview a sangre +
+        // franja de detalles con `p-3`). Sin esto heredaba el `p-6 lg:p-8` por
+        // defecto de GlassCard, que SUMADO al `p-3` de los detalles estrechaba el
+        // contenido a ~112px y hacía que el mini-reproductor de audio se saliera del
+        // recuadro. El `overflow-hidden` recorta el preview a sangre a los bordes.
+        padding="none"
         className={cn(
           "h-full overflow-hidden flex flex-col relative border-border-subtle transition-[border-color,box-shadow] duration-300",
           "hover:border-accent-indigo/30"
@@ -467,7 +539,7 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
                     : 'text-text-disabled cursor-not-allowed opacity-60'
                 )}
                 title={deleteTooltip}
-                aria-label={canManage ? 'Eliminar asset completo' : `Bloqueado: ${ownershipTooltip}`}
+                aria-label={canManage ? 'Eliminar recurso completo' : `Bloqueado: ${ownershipTooltip}`}
               >
                 {isDeleting
                   ? <Loader2 size={14} className="animate-spin" />
@@ -478,7 +550,7 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
 
           {/* Linea de autoría (ADR-052): muestra quien subio el asset */}
           <p
-            className="text-[10px] text-text-muted truncate"
+            className="text-nano text-text-muted truncate"
             title={ownershipTooltip}
           >
             {ownershipLabel}
@@ -503,14 +575,29 @@ function AssetCard({ asset, index, onDelete, isDeleting = false, onDeleteAudio, 
 function UploadAssetModal({ context, onClose, onSuccess }) {
   const [file, setFile] = useState(null);
   const [preview, setPreview] = useState(null);
+  const [isDragging, setIsDragging] = useState(false);
   const fileInputRef = useRef(null);
-  
+
+  // Libera el object URL del preview al cambiar o al desmontar el modal: cada
+  // selección creaba un blob (hasta 8MB) que nunca se revocaba → fuga de memoria
+  // por cada imagen elegida en una sesión de subida de assets.
+  useEffect(() => {
+    if (!preview) return undefined;
+    return () => URL.revokeObjectURL(preview);
+  }, [preview]);
+
+  // A11y del modal (paridad con ConfirmationModal): role/aria, Escape, focus-trap
+  // por Tab, foco inicial al dropzone, restauración de foco y bloqueo de scroll.
+  const titleId = useId();
+  const panelRef = useRef(null);
+  const dropzoneRef = useRef(null);
+
   const [formData, setFormData] = useState({
     key: '',
     value: '',
     display: ''
   });
-  
+
   const [isSubmitting, setIsSubmitting] = useState(false);
   const [uploadConfig, setUploadConfig] = useState({
     image: { maxInputSizeMB: 8, allowedFormats: ['PNG', 'JPG', 'JPEG', 'GIF', 'WebP'] }
@@ -538,8 +625,14 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
     };
   }, []);
 
-  const handleFileChange = (e) => {
-    const selected = e.target.files[0];
+  // Scaffolding accesible del modal (foco inicial al dropzone, focus-trap por
+  // Tab, Escape, lock de scroll y restauración de foco) centralizado en el
+  // hook compartido. El modal solo se monta cuando está abierto → isOpen true.
+  useModalA11y({ isOpen: true, onClose, panelRef, initialFocusRef: dropzoneRef, escapeDisabled: isSubmitting });
+
+  // Procesa un archivo elegido — vía input (clic) O arrastrar/soltar: valida
+  // tamaño/tipo, actualiza estado y autocompleta. Reutilizado por ambos caminos.
+  const processImageFile = (selected) => {
     if (!selected) return;
 
     const maxSizeMB = uploadConfig?.image?.maxInputSizeMB || 8;
@@ -565,6 +658,20 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
         setFormData(prev => ({ ...prev, value: capitalize }));
       }
     }
+  };
+
+  const handleFileChange = (e) => processImageFile(e.target.files[0]);
+
+  // Arrastrar y soltar (paridad con AudioUploadModal, que sí lo tenía). El
+  // `preventDefault` en dragOver es OBLIGATORIO: sin él el navegador nunca dispara
+  // el evento `drop`, y arrastrar la imagen no hacía nada.
+  const handleDragOver = (e) => e.preventDefault();
+  const handleDragEnter = (e) => { e.preventDefault(); setIsDragging(true); };
+  const handleDragLeave = (e) => { e.preventDefault(); setIsDragging(false); };
+  const handleDrop = (e) => {
+    e.preventDefault();
+    setIsDragging(false);
+    processImageFile(e.dataTransfer.files?.[0]);
   };
 
   const handleSubmit = async (e) => {
@@ -594,11 +701,11 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
       // `toGameContextDTOV1` expone `id` (no `_id`), por lo que sin este
       // fallback el upload caia al `contextId` (slug) y el backend respondia
       // 400 "ID de MongoDB invalido" (QA 26/04/2026).
-      await contextsAPI.uploadImage(context._id || context.id || context.contextId, data);
+      await contextsAPI.uploadImage(getId(context) || context.contextId, data);
       toast.success('Imagen subida correctamente');
       onSuccess();
     } catch (err) {
-      toast.error('Error al subir imagen', {
+      toast.error('No pudimos subir la imagen', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -609,6 +716,10 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm">
       <motion.div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
@@ -619,7 +730,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
             <div className="size-10 rounded-xl bg-accent-indigo/20 flex items-center justify-center">
               <Upload size={20} className="text-accent-indigo" />
             </div>
-            <h3 className="text-lg font-semibold text-text-primary">Subir imagen</h3>
+            <h3 id={titleId} className="text-lg font-semibold text-text-primary">Subir imagen</h3>
           </div>
           <button
             onClick={onClose}
@@ -630,26 +741,24 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
         </div>
 
         <div className="p-6 overflow-y-auto">
-          <form onSubmit={handleSubmit} className="space-y-5">
+          <form onSubmit={handleSubmit} noValidate className="space-y-5">
             {/* File Dropzone */}
             <div
+              ref={dropzoneRef}
               role="button"
               tabIndex={0}
               onClick={() => fileInputRef.current?.click()}
-              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') fileInputRef.current?.click(); }}
+              onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); fileInputRef.current?.click(); } }}
+              onDragOver={handleDragOver}
+              onDragEnter={handleDragEnter}
+              onDragLeave={handleDragLeave}
+              onDrop={handleDrop}
+              aria-label="Zona para arrastrar o seleccionar una imagen"
               className={cn(
                 'w-full h-40 rounded-xl border-2 border-dashed flex flex-col items-center justify-center cursor-pointer transition-colors relative overflow-hidden',
-                file ? DROPZONE_VARIANTS.withFile : DROPZONE_VARIANTS.empty
+                (file || isDragging) ? DROPZONE_VARIANTS.withFile : DROPZONE_VARIANTS.empty
               )}
             >
-              <input
-                type="file"
-                ref={fileInputRef}
-                onChange={handleFileChange}
-                accept=".png,.jpg,.jpeg,.gif,.webp,image/*"
-                className="hidden"
-              />
-              
               {/* Contenido del area de subida */}
               {(() => {
                 if (preview) return (
@@ -676,7 +785,7 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
                 return (
                   <div className="text-center px-4">
                     <ImageIcon size={32} className="mx-auto text-text-muted mb-3" />
-                    <p className="text-sm font-medium text-text-primary mb-1">Click para seleccionar imagen</p>
+                    <p className="text-sm font-medium text-text-primary mb-1">Haz clic para seleccionar una imagen</p>
                     <p className="text-xs text-text-muted">
                       {uploadConfig?.image?.allowedFormats?.join(', ')} (Max {uploadConfig?.image?.maxInputSizeMB}MB)
                     </p>
@@ -684,6 +793,19 @@ function UploadAssetModal({ context, onClose, onSuccess }) {
                 );
               })()}
             </div>
+
+            {/* Input file HERMANO del dropzone (NO hijo): si vive dentro, el clic
+                programático `fileInputRef.click()` vuelve a burbujear al `onClick`
+                del dropzone → segundo `click()` → el navegador cancela la apertura del
+                explorador (por eso "no se abría"). Fuera, se dispara una sola vez. */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              onChange={handleFileChange}
+              accept=".png,.jpg,.jpeg,.gif,.webp,image/*"
+              className="hidden"
+              tabIndex={-1}
+            />
 
             <div className="grid grid-cols-2 gap-4 mt-2">
               <InputPremium

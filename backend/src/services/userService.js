@@ -6,7 +6,6 @@
  */
 
 const userRepository = require('../repositories/userRepository');
-const gamePlayRepository = require('../repositories/gamePlayRepository');
 const {
   NotFoundError,
   ValidationError,
@@ -14,29 +13,6 @@ const {
   ForbiddenError
 } = require('../utils/errors');
 const logger = require('../utils/logger').child({ component: 'userService' });
-const { invalidateUserCache } = require('../middlewares/auth');
-
-/**
- * Valida que un email no esté duplicado al crear o actualizar usuarios.
- *
- * @param {string} email - Email a validar
- * @param {string} [excludeUserId] - ID del usuario a excluir de la búsqueda (para updates)
- * @returns {Promise<void>}
- * @throws {ConflictError} Si el email ya existe
- */
-async function validateEmailUniqueness(email, excludeUserId = null) {
-  const query = { email };
-
-  if (excludeUserId) {
-    query._id = { $ne: excludeUserId };
-  }
-
-  const existingUser = await userRepository.findOne(query);
-
-  if (existingUser) {
-    throw new ConflictError('El email ya está en uso');
-  }
-}
 
 /**
  * Valida que un nombre no esté duplicado para estudiantes del mismo profesor.
@@ -247,84 +223,16 @@ async function updateConsent(studentId, consentData, requestingUser) {
     });
   }
 
-  // Usar $set + $push en una sola operación atómica
+  // Usar $set + $push en una sola operación atómica.
+  // A.6 (pre-v1.0.0): cap con sliding window a las últimas 100 entradas.
+  // RGPD Art. 7.1 exige trazabilidad del consentimiento; 100 entradas
+  // cubren holgadamente >10 años de uso normal (revisión anual + cambios
+  // ocasionales) y previenen runaway document growth si un bug o un
+  // tutor en bucle dispara revoke/grant masivos.
   return userRepository.updateById(studentId, {
     $set: updates,
-    $push: { consentHistory: historyEntry }
+    $push: { consentHistory: { $each: [historyEntry], $slice: -100 } }
   });
-}
-
-/**
- * Actualiza un usuario existente con validaciones.
- *
- * @param {string} userId - ID del usuario a actualizar
- * @param {Object} updates - Campos a actualizar
- * @param {string} [updates.name] - Nuevo nombre
- * @param {string} [updates.email] - Nuevo email (solo profesores)
- * @param {Object} [updates.profile] - Nuevos datos de perfil
- * @param {string} [updates.status] - Nuevo estado
- * @param {string} requestingUserId - ID del usuario que solicita la actualización
- * @returns {Promise<Object>} Usuario actualizado
- * @throws {NotFoundError} Si el usuario no existe
- * @throws {ValidationError} Si intenta modificar el role o actualizar datos inválidos
- */
-async function updateUser(userId, updates, requestingUserId) {
-  const user = await userRepository.findById(userId);
-
-  if (!user) {
-    throw new NotFoundError('Usuario');
-  }
-
-  // Validar que no se intente cambiar el role
-  if (updates.role && updates.role !== user.role) {
-    throw new ValidationError('No se puede cambiar el rol de un usuario');
-  }
-
-  // Si actualiza email, validar unicidad
-  if (updates.email && updates.email !== user.email) {
-    if (user.role !== 'teacher') {
-      throw new ValidationError('Los estudiantes no pueden tener email');
-    }
-    await validateEmailUniqueness(updates.email, userId);
-  }
-
-  // Si actualiza nombre de estudiante, validar unicidad con el mismo profesor
-  if (updates.name && updates.name !== user.name && user.role === 'student') {
-    await validateStudentNameUniqueness(
-      updates.name,
-      user.createdBy,
-      updates.profile?.classroom,
-      userId
-    );
-  }
-
-  // Actualizar campos
-  if (updates.name) {
-    user.name = updates.name;
-  }
-  if (updates.email) {
-    user.email = updates.email;
-  }
-  if (updates.status) {
-    user.status = updates.status;
-  }
-
-  if (updates.profile) {
-    user.profile = { ...user.profile.toObject(), ...updates.profile };
-  }
-
-  await user.save();
-
-  // Invalidar cache de slim-user para reflejar cambios en el siguiente request autenticado.
-  await invalidateUserCache(user._id);
-
-  logger.info('Usuario actualizado via service', {
-    userId: user._id,
-    role: user.role,
-    updatedBy: requestingUserId
-  });
-
-  return user;
 }
 
 /**
@@ -482,7 +390,9 @@ async function validateUserDeletion(userId) {
  *
  * Cascada de eliminación:
  * 1. Todos los GamePlays del estudiante
- * 2. Documento User de MongoDB
+ * 2. GeneratedReport y SmartAlert que lo referencian (copias de PII/identificadores)
+ * 3. Documento User de MongoDB
+ * 4. Materialización Redis (Hash + leaderboards)
  *
  * @param {string} studentId - ID del estudiante a eliminar
  * @param {Object} requestingUser - Usuario que solicita la eliminación
@@ -505,35 +415,80 @@ async function hardDeleteStudent(studentId, requestingUser) {
     throw new ForbiddenError('No tienes permiso para eliminar los datos de este estudiante');
   }
 
-  // 1. Eliminar todos los GamePlays del estudiante
-  const deletedPlays = await gamePlayRepository.deleteMany({ playerId: studentId });
+  // (H3) Los borrados cross-colección (GamePlay + GeneratedReport + SmartAlert +
+  // User) DEBEN ser ATÓMICOS. Sin transacción, un fallo intermedio dejaba PII del
+  // alumno huérfana y re-identificable en las colecciones no borradas — una
+  // supresión PARCIAL que viola el derecho al olvido (Art. 17 RGPD). `withTransaction`
+  // degrada con gracia a ejecución sin sesión en Mongo standalone (algunos tests) y
+  // es transaccional en replica set (Atlas M0 / Docker compose). Los deletes son
+  // idempotentes, por lo que un reintento por WriteConflict es seguro.
+  //
+  // Cascada Art. 17: GeneratedReport persiste nombre/aula/edad en su payload (TTL
+  // 30d) y SmartAlert referencia al alumno (studentId + pseudoId). Notification NO
+  // se incluye: su `userId` es el docente destinatario (el alumno no recibe
+  // notificaciones) y cualquier referencia al alumno iría en `metadata` sin índice.
+  const GeneratedReport = require('../models/GeneratedReport');
+  const SmartAlert = require('../models/SmartAlert');
+  const GamePlay = require('../models/GamePlay');
+  const User = require('../models/User');
+  const { withTransaction } = require('../utils/withTransaction');
 
-  // 2. Eliminar el documento User
-  await userRepository.deleteById(studentId);
+  let deletedPlays;
+  let deletedReports;
+  let deletedAlerts;
+  await withTransaction(async session => {
+    // IMPORTANTE: dentro de una transacción las operaciones sobre la MISMA sesión
+    // deben ejecutarse SECUENCIALMENTE (MongoDB no admite operaciones concurrentes
+    // sobre una sesión transaccional). Por eso NO se usa Promise.all aquí — el
+    // coste secuencial de 4 deletes es irrelevante frente a la atomicidad.
+    deletedPlays = await GamePlay.deleteMany({ playerId: studentId }, { session });
+    deletedReports = await GeneratedReport.deleteMany({ studentId }, { session });
+    deletedAlerts = await SmartAlert.deleteMany({ studentId }, { session });
+    await User.findOneAndDelete({ _id: studentId }, { session });
+  });
+
+  // 3. T-931 (pre-v1.0.0): purgar materialización Redis del alumno
+  // (Hash `student:metrics:*` + entradas en leaderboards). Fire-and-forget
+  // — si Redis cae, la reconciliación nocturna no resucita estos datos
+  // porque el alumno ya no existe en Mongo.
+  try {
+    const materializedAnalytics = require('./analytics/materializedAnalyticsService');
+    await materializedAnalytics.purgeStudentMaterialization({
+      studentId,
+      teacherId: student.createdBy
+    });
+  } catch (purgeErr) {
+    logger.warn('hardDeleteStudent: fallo al purgar materialización Redis (no bloquea)', {
+      studentId,
+      error: purgeErr.message
+    });
+  }
 
   // Log sin PII del estudiante — Art. 5.2 RGPD (accountability)
   logger.warn('Borrado efectivo de estudiante completado (Art. 17 RGPD)', {
     deletedStudentId: studentId,
     deletedBy: requestingUser._id,
     deletedByRole: requestingUser.role,
-    gamePlaysDeleted: deletedPlays?.deletedCount || 0
+    gamePlaysDeleted: deletedPlays?.deletedCount || 0,
+    reportsDeleted: deletedReports?.deletedCount || 0,
+    smartAlertsDeleted: deletedAlerts?.deletedCount || 0
   });
 
   return {
     userId: studentId,
-    gamePlaysDeleted: deletedPlays?.deletedCount || 0
+    gamePlaysDeleted: deletedPlays?.deletedCount || 0,
+    reportsDeleted: deletedReports?.deletedCount || 0,
+    smartAlertsDeleted: deletedAlerts?.deletedCount || 0
   };
 }
 
 module.exports = {
   createStudent,
-  updateUser,
   updateConsent,
   hardDeleteStudent,
   getStudentComparativeStats,
   getTeacherStudents,
   validateUserDeletion,
-  validateEmailUniqueness,
   validateStudentNameUniqueness,
   findDuplicateStudent,
   validateTeacher

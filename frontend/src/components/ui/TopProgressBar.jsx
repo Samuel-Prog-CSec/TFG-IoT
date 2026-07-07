@@ -16,7 +16,7 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 const ASYMPTOTIC_LIMIT = 0.92;
@@ -31,6 +31,11 @@ export default function TopProgressBar() {
   const [progress, setProgress] = useState(0);
   const [visible, setVisible] = useState(false);
   const tickRef = useRef(null);
+  // Timer del "hold" antes de ocultar la barra. Se guarda en ref para poder
+  // cancelarlo en el cleanup: antes era un setTimeout anidado sin limpiar, así
+  // que dos navegaciones en <220ms dejaban vivo el hide de la primera y ocultaba
+  // la barra de la segunda a media animación.
+  const hideTimerRef = useRef(null);
   const lastPathRef = useRef(location.pathname);
 
   // Iniciar barra cuando cambia el pathname. Cubre Suspense lazy load y cambios
@@ -47,9 +52,12 @@ export default function TopProgressBar() {
     if (shouldReduceMotion) {
       const t = setTimeout(() => {
         setProgress(1);
-        setTimeout(() => setVisible(false), COMPLETION_HOLD_MS);
+        hideTimerRef.current = setTimeout(() => setVisible(false), COMPLETION_HOLD_MS);
       }, 80);
-      return () => clearTimeout(t);
+      return () => {
+        clearTimeout(t);
+        clearTimeout(hideTimerRef.current);
+      };
     }
 
     // Trickle: aproximacion asintotica al limite
@@ -66,12 +74,13 @@ export default function TopProgressBar() {
     const completionTimer = setTimeout(() => {
       clearInterval(tickRef.current);
       setProgress(1);
-      setTimeout(() => setVisible(false), COMPLETION_HOLD_MS);
+      hideTimerRef.current = setTimeout(() => setVisible(false), COMPLETION_HOLD_MS);
     }, 600);
 
     return () => {
       clearInterval(tickRef.current);
       clearTimeout(completionTimer);
+      clearTimeout(hideTimerRef.current);
     };
   }, [location.pathname, shouldReduceMotion]);
 

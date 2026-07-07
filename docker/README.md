@@ -1,6 +1,17 @@
-# 🐳 Docker - Plataforma de Juegos Educativos con RFID
+# 🐳 Docker — Plataforma de Juegos Educativos con RFID
 
-Este documento describe la configuración de Docker para el entorno de desarrollo y producción del proyecto.
+> **`docker-compose.yml` + `docker-compose.prod.yml` son el mecanismo real de
+> despliegue.** Además de cubrir desarrollo local (perfil default/debug, ver
+> abajo), este mismo par de ficheros levanta los dos entornos reales —
+> `eduplay-staging` y `eduplay-prod` — en la VPS Contabo, uno por proyecto
+> Compose (`-p eduplay-staging` / `-p eduplay-prod`), cada uno con su propio
+> Mongo/Redis aislado. El despliegue lo ejecuta un runner de GitHub Actions
+> self-hosted instalado en la propia VPS (`deploy-staging.yml` /
+> `deploy-production.yml`). Aprovisionamiento completo de la VPS, dominios y
+> TLS en [`documentation/Deploy_VPS.md`](../documentation/Deploy_VPS.md).
+
+Este documento describe la configuración de Docker del proyecto: tanto el
+uso en desarrollo local como el overlay de producción real (`docker-compose.prod.yml`).
 
 ## Índice
 
@@ -11,7 +22,7 @@ Este documento describe la configuración de Docker para el entorno de desarroll
 - [Perfiles de Ejecución](#perfiles-de-ejecución)
 - [Configuración](#configuración)
 - [Desarrollo con Hot Reload](#desarrollo-con-hot-reload)
-- [Producción](#producción)
+- [Testing local pre-deploy](#testing-local-pre-deploy)
 - [Persistencia de Datos](#persistencia-de-datos)
 - [Health Checks](#health-checks)
 - [Troubleshooting](#troubleshooting)
@@ -148,8 +159,8 @@ docker compose exec backend npm run seed
 # Reset completo de base de datos
 docker compose exec backend npm run seed:reset
 
-# Acceder a shell de MongoDB
-docker compose exec mongo mongosh rfid_games_db
+# Acceder a shell de MongoDB (auth siempre activa, ver sección Configuración)
+docker compose exec mongo mongosh rfid_games_db -u eduplay -p devMongo123! --authenticationDatabase admin
 
 # Acceder a Redis CLI
 docker compose exec redis redis-cli
@@ -159,7 +170,7 @@ docker compose exec redis redis-cli
 
 ## Perfiles de Ejecución
 
-### Perfil Default (Producción)
+### Perfil Default (Desarrollo)
 
 ```bash
 docker compose up -d
@@ -208,6 +219,38 @@ JWT_REFRESH_SECRET=otro_secret_seguro
 | `maxmemory`        | 256mb       | Límite de memoria         |
 | `maxmemory-policy` | noeviction  | Sin evicción: BullMQ, JWT blacklist e idempotencia requieren persistencia (los caches usan TTL) |
 
+### Configuración de MongoDB
+
+Igual que Redis, Mongo tiene **autenticación siempre activa** (no hay modo
+sin auth, ni en local ni en despliegue). Sin `.env`, `docker-compose.yml`
+usa por defecto `MONGO_INITDB_ROOT_USERNAME=eduplay` /
+`MONGO_INITDB_ROOT_PASSWORD=devMongo123!` — cambia ambos valores en
+producción.
+
+Auth + `--replSet` exige `security.keyFile` (requisito de MongoDB, incluso
+con un solo miembro): el servicio `mongo-keyfile-init` genera un keyfile
+aleatorio en el volumen `rfid-games-mongo-keyfile-data` la primera vez
+(`openssl rand -base64 756`) y no lo regenera en arranques posteriores —
+regenerarlo invalidaría la autenticación interna de un replica set ya
+inicializado.
+
+`mongo-user-bootstrap` corre justo después y crea el usuario root vía la
+"localhost exception" de MongoDB si todavía no existe ninguno — cubre el
+caso de actualizar un volumen de datos que ya existía SIN auth (la imagen
+oficial solo crea el usuario ella misma en un volumen recién creado/vacío;
+en un volumen preexistente añade `--auth` igualmente pero nunca crea el
+usuario, y sin este paso el stack no arrancaría nunca). Es idempotente: en
+un volumen nuevo (donde la imagen ya creó el usuario) o en un arranque
+posterior, no hace nada. `mongo-init` corre después y inicializa el replica
+set `rs0` una sola vez (idempotente) ya autenticado con esas credenciales.
+
+`MONGO_URI` (en `backend`/`worker`) deriva su valor por defecto de
+`MONGO_INITDB_ROOT_USERNAME`/`PASSWORD` — si solo cambias la contraseña root
+en el `.env`, `MONGO_URI` se actualiza sola. Solo hace falta sincronizar
+ambas a mano si defines `MONGO_URI` explícita (p. ej. para un servicio MongoDB gestionado
+externo en vez del contenedor local — no es el caso de este proyecto, que usa siempre el
+contenedor `mongo` tanto en desarrollo como en la VPS de despliegue).
+
 ---
 
 ## Desarrollo con Hot Reload
@@ -226,15 +269,25 @@ Esto monta los directorios `frontend/` y `backend/` como volúmenes, permitiendo
 
 ---
 
-## Producción
+## Testing local pre-deploy
 
-Para desplegar en producción:
+`docker-compose.prod.yml` (en la raíz del repositorio) es el overlay de producción — el mismo
+que ejecutan `deploy-staging.yml`/`deploy-production.yml` en la VPS real (con
+`-p eduplay-staging`/`-p eduplay-prod` y su propio `--env-file`, ver
+[`documentation/Deploy_VPS.md`](../documentation/Deploy_VPS.md)). Levantarlo en local sirve
+tanto para depurar el propio fichero como para validar un build representativo de producción
+(restart policies, límites de recursos, puertos internos no expuestos, logging rotado) antes de
+empujar un tag de release:
 
 ```bash
 docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
 ```
 
-Características del modo producción:
+> Usa un nombre de proyecto distinto (`-p verify-local`) y un `.env` de prueba si no quieres
+> tocar los volúmenes del stack de desarrollo que puedas tener levantado en la misma máquina —
+> por defecto Compose reutiliza los nombres de volumen/red del `docker-compose.yml` base.
+
+Características del modo testing local de producción:
 
 - ✅ `restart: always` en todos los servicios
 - ✅ Límites de recursos (memoria y CPU)
@@ -277,24 +330,24 @@ docker volume ls | grep rfid-games
 
 ```bash
 # Backup de MongoDB
-docker compose exec mongo mongodump --out /data/backup
-docker cp rfid-games-mongo:/data/backup ./backups/mongo-$(date +%Y%m%d)
+docker compose exec mongo mongodump -u eduplay -p devMongo123! --authenticationDatabase admin --out /data/backup
+docker compose cp mongo:/data/backup ./backups/mongo-$(date +%Y%m%d)
 
 # Backup de Redis
 docker compose exec redis redis-cli BGSAVE
-docker cp rfid-games-redis:/data/dump.rdb ./backups/redis-$(date +%Y%m%d).rdb
+docker compose cp redis:/data/dump.rdb ./backups/redis-$(date +%Y%m%d).rdb
 ```
 
 ### Restaurar
 
 ```bash
 # Restaurar MongoDB
-docker cp ./backups/mongo-20240101 rfid-games-mongo:/data/backup
-docker compose exec mongo mongorestore /data/backup
+docker compose cp ./backups/mongo-20240101 mongo:/data/backup
+docker compose exec mongo mongorestore -u eduplay -p devMongo123! --authenticationDatabase admin /data/backup
 
 # Restaurar Redis
 docker compose stop redis
-docker cp ./backups/redis-20240101.rdb rfid-games-redis:/data/dump.rdb
+docker compose cp ./backups/redis-20240101.rdb redis:/data/dump.rdb
 docker compose start redis
 ```
 
@@ -370,8 +423,8 @@ docker compose up -d
 # Verificar estado
 docker compose logs mongo
 
-# Acceder manualmente
-docker compose exec mongo mongosh --eval "db.adminCommand('ping')"
+# Acceder manualmente (auth siempre activa)
+docker compose exec mongo mongosh -u eduplay -p devMongo123! --authenticationDatabase admin --eval "db.adminCommand('ping')"
 ```
 
 ### Redis lleno

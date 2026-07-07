@@ -15,8 +15,13 @@ const { objectIdSchema } = require('../validators/commonValidator');
 const { getRfidState } = require('../states/rfid');
 const { getSocketCommand, getCommandNames } = require('../commands/socket');
 const { findDangerousPayloadPath } = require('../utils/payloadSecurity');
+const rfidHmacValidator = require('../utils/rfidHmacValidator'); // T-905 B8
 const { socketConnectionLimits } = require('../config/socketRateLimits');
-const { getRedis } = require('../config/redis');
+const { getRedis, onReconnect: onRedisReconnect } = require('../config/redis');
+// B.3 (pre-v1.0.0): pipeline para coalescer setex/del + publish en una
+// única RTT a Upstash en persistRfidModeToRedis.
+const redisService = require('../services/redisService');
+const { isMultiInstanceEnabled } = require('../config/scaling');
 const Sentry = require('@sentry/node');
 const logger = require('../utils/logger').child({ component: 'socketHandlers' });
 const { authEventBus } = require('../utils/authEvents');
@@ -52,6 +57,27 @@ const connectionCountByUserId = new Map();
 const rfidModeLocks = new Map();
 
 /**
+ * Timeout en milisegundos para una operación dentro del lock RFID.
+ *
+ * Sin este timeout, una operación colgada (query Mongo sin índice, Redis
+ * bloqueado, deadlock) deja `releaseLock` sin invocarse y la cola del
+ * userId queda esperando indefinidamente; el socket RFID muere en silencio
+ * y el cliente no recibe `rfid_mode_*` hasta que cierre el navegador.
+ *
+ * 10s cubre con holgura la operación realista más cara (write Mongo +
+ * Redis SET con TTL + emit). Configurable vía env para QA.
+ */
+const RFID_OPERATION_TIMEOUT_MS =
+  Number.parseInt(process.env.RFID_OPERATION_TIMEOUT_MS, 10) || 10_000;
+
+/**
+ * Símbolo opaco para distinguir el rechazo por timeout de cualquier otro
+ * `Error` lanzado por la operación. Evita falsos positivos si la operación
+ * lanza un `Error` cuyo mensaje contenga "timeout".
+ */
+const RFID_LOCK_TIMEOUT_SENTINEL = Symbol('RFID_LOCK_TIMEOUT');
+
+/**
  * Devuelve el número de conexiones Socket.IO activas para un usuario.
  * @param {string} userId
  * @returns {number}
@@ -59,29 +85,62 @@ const rfidModeLocks = new Map();
 const getConnectionCount = userId => connectionCountByUserId.get(userId) || 0;
 
 /**
- * Incrementa el contador de conexiones del usuario.
+ * C.4 (pre-v1.0.0): tracking de socketIds por usuario para soportar
+ * single-cast a la "primary tab" cuando se quiera evitar amplificación
+ * en multi-tab. La set se mantiene en orden inserción (Set nativo) por lo
+ * que el primer socketId es siempre la conexión más antigua viva.
+ *
+ * El uso típico: para eventos críticos que NO deban duplicarse en multi-
+ * tab (ej. `game_over` con score animation), el caller puede hacer
+ * `socketServerRef.to(getPrimarySocketId(userId)).emit(...)` en lugar de
+ * `io.to('play_X').emit(...)`. Los demás callers de la set reciben el
+ * estado via state-sync posterior.
+ *
+ * NO se cambian las emisiones existentes en esta sesión (sería breaking
+ * para los tests UI). Helper queda disponible para futuros eventos.
+ */
+const socketIdsByUserId = new Map();
+
+/**
+ * Incrementa el contador de conexiones del usuario. Mantiene también
+ * el set de socketIds por usuario (C.4).
  * @param {string} userId
+ * @param {string} [socketId] - Opcional; si se pasa se añade al tracking.
  * @returns {number} Nuevo valor del contador.
  */
-const incrementConnectionCount = userId => {
+const incrementConnectionCount = (userId, socketId) => {
   if (!userId) {
     return 0;
   }
   const next = (connectionCountByUserId.get(userId) || 0) + 1;
   connectionCountByUserId.set(userId, next);
+  if (socketId) {
+    if (!socketIdsByUserId.has(userId)) {
+      socketIdsByUserId.set(userId, new Set());
+    }
+    socketIdsByUserId.get(userId).add(socketId);
+  }
   return next;
 };
 
 /**
  * Decrementa el contador de conexiones del usuario, eliminando la entrada
- * si llega a cero. No baja de cero ante llamadas espurias.
+ * si llega a cero. No baja de cero ante llamadas espurias. También limpia
+ * el socketId del set (C.4).
  *
  * @param {string} userId
+ * @param {string} [socketId] - Opcional; si se pasa se quita del tracking.
  * @returns {number} Nuevo valor del contador.
  */
-const decrementConnectionCount = userId => {
+const decrementConnectionCount = (userId, socketId) => {
   if (!userId) {
     return 0;
+  }
+  if (socketId && socketIdsByUserId.has(userId)) {
+    socketIdsByUserId.get(userId).delete(socketId);
+    if (socketIdsByUserId.get(userId).size === 0) {
+      socketIdsByUserId.delete(userId);
+    }
   }
   const current = connectionCountByUserId.get(userId) || 0;
   if (current <= 1) {
@@ -94,16 +153,38 @@ const decrementConnectionCount = userId => {
 };
 
 /**
+ * C.4 (pre-v1.0.0): devuelve el primer socketId activo del usuario
+ * (orden inserción del Set). null si no tiene conexiones activas.
+ *
+ * Útil para single-cast: `io.to(getPrimarySocketId(userId)).emit(...)`.
+ *
+ * @param {string} userId
+ * @returns {string|null}
+ */
+const getPrimarySocketId = userId => {
+  if (!userId) {
+    return null;
+  }
+  const set = socketIdsByUserId.get(userId);
+  if (!set || set.size === 0) {
+    return null;
+  }
+  return set.values().next().value;
+};
+
+/**
  * Resetea por completo el contador de conexiones. Solo para tests.
  * @returns {void}
  */
 const resetConnectionCountsForTests = () => {
   connectionCountByUserId.clear();
+  socketIdsByUserId.clear();
 };
 let socketServerRef = null;
-/** Referencia al namespace /game para emitir eventos de gameplay (reservado para uso interno futuro). */
-// eslint-disable-next-line no-unused-vars -- referencia almacenada para uso interno por funciones del módulo
+/** Referencia al namespace /game para emitir a sockets de gameplay por su id. */
 let gameNspRef = null;
+/** C.5 (pre-v1.0.0): ref al GameEngine para liberar play:init locks en disconnect. */
+let gameEngineRef = null;
 
 /**
  * Referencia al intervalo de limpieza periódica de caches.
@@ -135,9 +216,19 @@ const rfidModeTimers = new Map();
  * Ejecuta una operación RFID con exclusión mutua por userId.
  * Serializa operaciones concurrentes sobre el mismo usuario para evitar race conditions.
  *
+ * Aplica un timeout duro (`RFID_OPERATION_TIMEOUT_MS`) sobre la operación
+ * para que una query/await colgada NO bloquee la cola del usuario de forma
+ * permanente. Si el timeout se dispara:
+ *   1. Se libera el lock (siguiente operación puede arrancar).
+ *   2. Se incrementa la métrica `rfidLockTimeouts`.
+ *   3. Se registra un `SECURITY_EVENT` con `securityLogger` para auditoría.
+ *   4. Se emite `rfid_mode_error` al room del usuario con copy en español.
+ *   5. El caller recibe un `Error` con `code: 'RFID_LOCK_TIMEOUT'`.
+ *
  * @param {string} userId - ID del usuario
  * @param {Function} operation - Operación async a ejecutar
  * @returns {Promise<*>} Resultado de la operación
+ * @throws {Error} Con `code='RFID_LOCK_TIMEOUT'` si la operación supera el límite.
  */
 const executeWithRfidLock = async (userId, operation) => {
   const prevLock = rfidModeLocks.get(userId) || Promise.resolve();
@@ -147,10 +238,46 @@ const executeWithRfidLock = async (userId, operation) => {
   });
   rfidModeLocks.set(userId, lockPromise);
 
+  let timeoutHandle;
+  const timeoutPromise = new Promise((_resolve, reject) => {
+    timeoutHandle = setTimeout(() => {
+      reject(RFID_LOCK_TIMEOUT_SENTINEL);
+    }, RFID_OPERATION_TIMEOUT_MS);
+  });
+
   try {
     await prevLock;
-    return await operation();
+    return await Promise.race([operation(), timeoutPromise]);
+  } catch (error) {
+    if (error === RFID_LOCK_TIMEOUT_SENTINEL) {
+      runtimeMetrics.recordRfidLockTimeout();
+      logger.error(
+        {
+          userId,
+          timeoutMs: RFID_OPERATION_TIMEOUT_MS,
+          alert: true
+        },
+        'executeWithRfidLock superó el timeout — liberando lock'
+      );
+      logSecurityEvent('RFID_LOCK_TIMEOUT', {
+        userId,
+        timeoutMs: RFID_OPERATION_TIMEOUT_MS
+      });
+      if (socketServerRef) {
+        socketServerRef.to(`user_${userId}`).emit('rfid_mode_error', {
+          code: 'RFID_LOCK_TIMEOUT',
+          message: 'La operación RFID tardó demasiado y se ha cancelado. Vuelve a intentarlo.'
+        });
+      }
+      const timeoutError = new Error('Operación RFID excedió el timeout');
+      timeoutError.code = 'RFID_LOCK_TIMEOUT';
+      throw timeoutError;
+    }
+    throw error;
   } finally {
+    if (timeoutHandle) {
+      clearTimeout(timeoutHandle);
+    }
     releaseLock();
     // Limpiar lock si no hay operaciones pendientes posteriores
     if (rfidModeLocks.get(userId) === lockPromise) {
@@ -227,6 +354,13 @@ const refreshRfidModeActivity = (userId, socketId) => {
     return;
   }
   const state = rfidModeByUserId.get(userId);
+  // Solo el socket DUEÑO actual refresca la actividad (invariante anti-hijack,
+  // con test de regresión). La ventana de reconexión de /game donde el socket.id
+  // cambia ya la cubre F-01: `game_socket_reconnected` re-emite JOIN_PLAY, que
+  // hace takeover del modo y actualiza `state.socketId` al socket nuevo, de modo
+  // que los heartbeats posteriores vuelven a casar. (Auditoría 2026-06-28:
+  // refrescar por userId rompía el invariante anti-hijack y la ventana real es
+  // despreciable; revertido.)
   if (state?.socketId !== socketId) {
     return;
   }
@@ -289,14 +423,28 @@ const getAuthCacheEntry = accessToken => {
 
   const cached = authRevalidationCache.get(accessToken);
   if (!cached) {
+    runtimeMetrics.recordSocketRevalidationCache('miss');
     return null;
   }
 
   if (cached.expiresAt <= Date.now()) {
     authRevalidationCache.delete(accessToken);
+    runtimeMetrics.recordSocketRevalidationCache('miss');
     return null;
   }
 
+  // El TTL del cache (30s) es INDEPENDIENTE del `exp` del propio JWT: un access
+  // token puede haber caducado hace <30s y seguir en cache. Sin esta comprobación,
+  // un token expirado autorizaría eventos sensibles del socket hasta 30s (el
+  // cache-hit hacía short-circuit sin re-verificar `exp`). Si el JWT ya expiró,
+  // tratamos la entrada como miss → `verifyAccessToken` lo rechaza limpiamente.
+  if (cached.tokenExp && cached.tokenExp * 1000 <= Date.now()) {
+    authRevalidationCache.delete(accessToken);
+    runtimeMetrics.recordSocketRevalidationCache('miss');
+    return null;
+  }
+
+  runtimeMetrics.recordSocketRevalidationCache('hit');
   return cached;
 };
 
@@ -330,14 +478,17 @@ const buildOwnershipCacheKey = ({ userId, userRole, playId, includeSessionRuntim
 const getOwnershipCacheEntry = cacheKey => {
   const cached = playOwnershipCache.get(cacheKey);
   if (!cached) {
+    runtimeMetrics.recordPlayOwnershipCache('miss');
     return null;
   }
 
   if (cached.expiresAt <= Date.now()) {
     playOwnershipCache.delete(cacheKey);
+    runtimeMetrics.recordPlayOwnershipCache('miss');
     return null;
   }
 
+  runtimeMetrics.recordPlayOwnershipCache('hit');
   return cached.value;
 };
 
@@ -347,11 +498,26 @@ const setOwnershipCacheEntry = (cacheKey, value) => {
   // Hard cap: si tras el sweep el cache sigue al límite, forzar limpieza completa
   if (playOwnershipCache.size >= CACHE_SWEEP_THRESHOLD) {
     sweepAllExpiredEntries(playOwnershipCache);
+    // (D7-010) Eviction FIFO post-sweep: si el sweep completo todavía deja el
+    // cache al límite, eliminamos las entradas más antiguas en orden de
+    // inserción. JavaScript Map preserva orden de inserción, así que la
+    // primera key del iterator es la más vieja. Eliminamos un 10% del cap
+    // para no entrar en un ciclo cap→sweep→cap en cada nueva entrada bajo
+    // churn alto.
     if (playOwnershipCache.size >= CACHE_SWEEP_THRESHOLD) {
-      logger.warn('Play ownership cache al límite tras sweep completo, descartando entrada', {
-        cacheSize: playOwnershipCache.size
+      const toEvict = Math.max(1, Math.floor(CACHE_SWEEP_THRESHOLD * 0.1));
+      const it = playOwnershipCache.keys();
+      for (let i = 0; i < toEvict; i += 1) {
+        const oldest = it.next();
+        if (oldest.done) {
+          break;
+        }
+        playOwnershipCache.delete(oldest.value);
+      }
+      logger.warn('Play ownership cache eviction FIFO tras sweep completo', {
+        cacheSize: playOwnershipCache.size,
+        evicted: toEvict
       });
-      return;
     }
   }
 
@@ -432,6 +598,68 @@ const getUserIdBySensorId = sensorId => {
 };
 
 /**
+ * B.4 (pre-v1.0.0): queue local de invalidaciones pendientes cuando
+ * Redis está caído. Sin esto, una caída breve (15-30s) pierde TODAS las
+ * invalidaciones pub/sub que ocurrieron durante la ventana — el resto de
+ * instancias del cluster quedan con cache stale hasta el TTL del modo.
+ *
+ * Cap 100 con dedup por `channel:message` (Map). En reconnect flushea en
+ * orden FIFO. Si la queue desborda (caída larga + mucho tráfico),
+ * descarta las más antiguas con Sentry warning — la reconciliación
+ * nocturna (T-931) recuperará consistencia eventual.
+ */
+const MAX_PENDING_INVALIDATIONS = 100;
+const pendingInvalidations = new Map();
+
+const enqueuePendingInvalidation = (channel, message) => {
+  const key = `${channel}:${message}`;
+  if (pendingInvalidations.has(key)) {
+    return;
+  }
+  if (pendingInvalidations.size >= MAX_PENDING_INVALIDATIONS) {
+    const oldestKey = pendingInvalidations.keys().next().value;
+    if (oldestKey) {
+      pendingInvalidations.delete(oldestKey);
+      Sentry.captureMessage('B.4: pendingInvalidations overflow — discarding oldest', {
+        level: 'warning',
+        tags: { component: 'socketHandlers', kind: 'pubsub-queue' }
+      });
+    }
+  }
+  pendingInvalidations.set(key, { channel, message, queuedAt: Date.now() });
+};
+
+const flushPendingInvalidations = async () => {
+  if (pendingInvalidations.size === 0) {
+    return;
+  }
+  const redis = getRedis();
+  if (!redis) {
+    return;
+  }
+  const entries = [...pendingInvalidations.entries()];
+  logger.info('B.4: flush invalidaciones pendientes tras reconnect Redis', {
+    count: entries.length
+  });
+  for (const [key, { channel, message }] of entries) {
+    try {
+      await redis.publish(channel, message);
+      pendingInvalidations.delete(key);
+    } catch (err) {
+      logger.warn('B.4: fallo al republicar invalidación, dejando en queue', {
+        channel,
+        error: err.message
+      });
+      break;
+    }
+  }
+};
+
+// Registrar flush en el onReconnect global (B.4 — múltiples callbacks
+// soportados tras el refactor de config/redis.js).
+onRedisReconnect(() => flushPendingInvalidations());
+
+/**
  * Persiste estado RFID en Redis (fire-and-forget) y publica el cambio en el
  * canal pub/sub para que otras instancias del backend invaliden su cache local.
  *
@@ -444,51 +672,58 @@ const persistRfidModeToRedis = (userId, state) => {
     return;
   }
 
-  if (!state) {
-    redis
-      .del(`${REDIS_RFID_MODE_PREFIX}${userId}`)
-      .catch(err =>
-        logger.warn('Error al borrar estado RFID en Redis', { userId, error: err.message })
-      );
-    publishRfidModeChange(userId, null);
-    return;
+  // (D7-002) Serializamos `state` UNA sola vez y lo reutilizamos tanto en el
+  // `setex` como dentro del mensaje pub/sub. Antes había dos `JSON.stringify`
+  // del mismo objeto en cada transición RFID (≥4/sesión × N sesiones activas
+  // × M instancias cluster); en hot path eso suma latencia y CPU evitable.
+  const stateJson = state === null || state === undefined ? 'null' : JSON.stringify(state);
+
+  // El `setex`/`del` persiste el estado (sirve para recovery tras reinicio) y
+  // se ejecuta SIEMPRE. El `publish` en el canal rfid-mode-changes solo tiene
+  // consumidor con >1 instancia del backend; en single-instance (invariante
+  // scale=1, ver config/scaling.js) el propio proceso recibe y descarta el
+  // mensaje → coste puro de comandos Upstash. Por eso se gatea igual que el
+  // adapter Socket.IO. Construimos el envelope pubsub a mano para embeber
+  // `stateJson` literal sin re-serializar solo cuando hace falta.
+  const multiInstance = isMultiInstanceEnabled();
+  let message = null;
+  if (multiInstance) {
+    const hostnameJson = JSON.stringify(process.env.HOSTNAME || 'unknown');
+    const userIdJson = JSON.stringify(userId);
+    message = `{"userId":${userIdJson},"state":${stateJson},"from":${hostnameJson},"at":${Date.now()}}`;
   }
 
-  redis
-    .setex(`${REDIS_RFID_MODE_PREFIX}${userId}`, REDIS_RFID_MODE_TTL, JSON.stringify(state))
-    .catch(err =>
-      logger.warn('Error al persistir estado RFID en Redis', { userId, error: err.message })
-    );
-  publishRfidModeChange(userId, state);
+  // B.3 (pre-v1.0.0): unimos `setex`/`del` + `publish` en un único pipeline
+  // para ahorrar 1 round-trip por transición RFID cuando el publish aplica.
+  redisService
+    .runPipeline(p => {
+      if (state) {
+        p.setex(`${REDIS_RFID_MODE_PREFIX}${userId}`, REDIS_RFID_MODE_TTL, stateJson);
+      } else {
+        p.del(`${REDIS_RFID_MODE_PREFIX}${userId}`);
+      }
+      if (multiInstance) {
+        p.publish(RFID_MODE_PUBSUB_CHANNEL, message);
+      }
+    }, 'ws')
+    .catch(err => {
+      // B.4: si el pipeline falla, encolar la invalidación para
+      // reintentar al reconnect. Sin esto, las otras instancias del
+      // cluster quedaban con cache stale hasta el TTL del modo (60min).
+      // Solo aplica con pub/sub activo (multi-instancia).
+      logger.warn('Error al persistir cambio RFID mode (pipeline) — encolando para retry', {
+        userId,
+        error: err.message
+      });
+      if (multiInstance) {
+        enqueuePendingInvalidation(RFID_MODE_PUBSUB_CHANNEL, message);
+      }
+    });
 };
 
-/**
- * Publica un cambio de modo RFID en el canal pub/sub. El instance ID se
- * envía como `from` para que el suscriptor pueda ignorar mensajes propios
- * (la instancia que escribe ya tiene el estado correcto en su cache).
- *
- * @param {string} userId
- * @param {Object|null} state
- */
-const publishRfidModeChange = (userId, state) => {
-  const redis = getRedis();
-  if (!redis) {
-    return;
-  }
-
-  const message = JSON.stringify({
-    userId,
-    state,
-    from: process.env.HOSTNAME || 'unknown',
-    at: Date.now()
-  });
-
-  redis
-    .publish(RFID_MODE_PUBSUB_CHANNEL, message)
-    .catch(err =>
-      logger.warn('Error al publicar cambio RFID mode', { userId, error: err.message })
-    );
-};
+// (Deprecated B.3 pre-v1.0.0) `publishRfidModeChange` se eliminó: el
+// publish ahora se hace dentro del pipeline de `persistRfidModeToRedis`,
+// evitando un round-trip extra a Upstash por cada transición RFID.
 
 /**
  * Aplica un cambio recibido por pub/sub al cache local. Esta función no
@@ -551,9 +786,16 @@ const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
   const modeChangedAt = Date.now();
 
   if (current?.socketId && current.socketId !== socketId) {
-    socketServerRef?.to(current.socketId).emit('error', {
-      code: 'RFID_MODE_TAKEN_OVER',
-      message: 'Otro cliente tomó el control del modo RFID para este usuario'
+    // El socketId puede ser del namespace raíz o de /game (los takeovers de
+    // gameplay vienen de Join/ResumePlay, que corren en /game). Un socket.id es
+    // por-namespace: `io.to(id)` en el namespace equivocado no entrega nada — el
+    // bug previo emitía solo en raíz y el aviso de takeover se perdía. Emitir en
+    // AMBOS namespaces garantiza la entrega sea cual sea el origen del socket.
+    [socketServerRef, gameNspRef].forEach(nsp => {
+      nsp?.to(current.socketId).emit('error', {
+        code: 'RFID_MODE_TAKEN_OVER',
+        message: 'Otro cliente tomó el control del modo RFID para este usuario'
+      });
     });
   }
 
@@ -599,7 +841,32 @@ const setRfidModeState = (userId, mode, socketId, metadata = {}) => {
 
 const setRfidSensorBinding = (userId, sensorId, socketId) => {
   if (!userId || !sensorId) {
-    return;
+    return false;
+  }
+
+  // Anti-robo de binding (WS-3): si el sensorId ya pertenece a OTRO usuario con
+  // un modo RFID ACTIVO (no idle), no permitir el secuestro. El sensorId lo
+  // genera el cliente (localStorage) sin autenticidad y el HMAC firma UID:counter
+  // (no el sensorId), así que un docente podría emitir un scan con el sensorId de
+  // otro y robar su binding (los scans del sensor físico de la víctima pasarían
+  // a la sala del atacante). Si el otro modo ya no existe / es idle (limpiado por
+  // el watchdog o desconexión), sí se permite el handoff legítimo del sensor.
+  const existingOwner = sensorIdToUserId.get(sensorId);
+  if (existingOwner && existingOwner !== userId) {
+    const existingOwnerState = rfidModeByUserId.get(existingOwner);
+    if (
+      existingOwnerState &&
+      existingOwnerState.mode &&
+      existingOwnerState.mode !== RFID_MODES.IDLE
+    ) {
+      logSecurityEvent('SECURITY_RFID_SENSOR_BINDING_DENIED', {
+        userId,
+        sensorId,
+        currentOwner: existingOwner,
+        currentOwnerMode: existingOwnerState.mode
+      });
+      return false;
+    }
   }
 
   const current = rfidModeByUserId.get(userId);
@@ -628,6 +895,7 @@ const setRfidSensorBinding = (userId, sensorId, socketId) => {
     socketId: nextState.socketId || null,
     updatedAt: nextUpdatedAt
   });
+  return true;
 };
 
 const clearRfidModeState = (userId, socketId) => {
@@ -720,7 +988,7 @@ const validatePlayId = (socket, playId, eventName) => {
 
   socket.emit('error', {
     code: 'VALIDATION_ERROR',
-    message: 'playId invalido'
+    message: 'playId inválido'
   });
   logSocketSecurityEvent('SECURITY_SOCKET_EVENT_INVALID', socket, {
     eventName,
@@ -732,7 +1000,7 @@ const validatePlayId = (socket, playId, eventName) => {
 
 const requireSocketRole = (socket, allowedRoles, eventName) => {
   if (!socket?.data?.userId) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       eventName,
       reason: 'AUTH_REQUIRED'
@@ -756,7 +1024,7 @@ const requireSocketRole = (socket, allowedRoles, eventName) => {
 const revalidateSocketAuth = async (socket, eventName) => {
   const accessToken = socket.data.accessToken;
   if (!accessToken) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       eventName,
       reason: 'TOKEN_MISSING'
@@ -782,7 +1050,12 @@ const revalidateSocketAuth = async (socket, eventName) => {
     // Usar cache-aside Redis (slim-user, TTL 60s) en vez de hit directo a Mongo
     // por cada revalidación WebSocket. El cache local authRevalidationCache
     // sigue actuando como primer nivel (TTL 30s, per-process).
-    const user = await fetchUserForAuth(decoded.id, 'role status accountStatus +currentSessionId');
+    // T-905 B7 fix: usamos el select por defecto para compartir entrada de
+    // `authUserCache` con `authenticate` HTTP. Si pasamos un select inclusivo
+    // (`role status …`) Mongoose responde solo esos campos y la entrada cacheada
+    // pierde `mfa`, rompiendo `requireMfa` cuando luego entra una request HTTP
+    // del mismo usuario y consume el cache slim del socket.
+    const user = await fetchUserForAuth(decoded.id);
 
     if (!user) {
       throw new Error('Usuario no encontrado');
@@ -801,7 +1074,7 @@ const revalidateSocketAuth = async (socket, eventName) => {
     }
 
     if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
-      throw new Error('Sesion invalida');
+      throw new Error('Sesión inválida');
     }
 
     socket.data.userId = user._id.toString();
@@ -811,12 +1084,15 @@ const revalidateSocketAuth = async (socket, eventName) => {
     setAuthCacheEntry(accessToken, {
       userId: user._id.toString(),
       userRole: user.role,
-      tokenExp: decoded.exp
+      tokenExp: decoded.exp,
+      // `jti` para poder purgar esta entrada en una revocación individual del
+      // token (`token_revoked`) sin esperar al TTL de 30 s del cache.
+      jti: decoded.jti
     });
 
     return true;
   } catch (error) {
-    socket.emit('error', { code: 'AUTH_INVALID', message: 'Autenticacion invalida' });
+    socket.emit('error', { code: 'AUTH_INVALID', message: 'Autenticación inválida' });
     logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
       eventName,
       reason: error.message
@@ -830,7 +1106,7 @@ const requirePlayOwnership = async (socket, playId, eventName, options = {}) => 
   const includeSessionRuntime = options.includeSessionRuntime === true;
 
   if (!socket?.data?.userId) {
-    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticacion requerida' });
+    socket.emit('error', { code: 'AUTH_REQUIRED', message: 'Autenticación requerida' });
     logSocketSecurityEvent('AUTHZ_ACCESS_DENIED', socket, {
       playId,
       eventName,
@@ -920,6 +1196,27 @@ const isRfidClientSourceEnabled = socket => {
   return false;
 };
 
+// Mapea el primer issue de validación del payload RFID a {code, reason, message}
+// de cara al usuario. El desfase de reloj (issue con path `timestamp`, ±30s)
+// recibe trato propio: es la causa más común y opaca — si el equipo tiene la hora
+// mal, TODOS los scans fallan, y el mensaje Zod ("timestamp fuera de ventana…") no
+// le dice al docente qué hacer. Le damos un código y un mensaje accionable.
+const mapRfidPayloadError = firstError => {
+  if (firstError?.path?.[0] === 'timestamp') {
+    return {
+      code: 'RFID_CLIENT_CLOCK_SKEW',
+      reason: 'CLIENT_CLOCK_SKEW',
+      message:
+        'La fecha y hora de este equipo están desincronizadas. Ajusta el reloj del ordenador (o sincronízalo por internet) para poder escanear tarjetas.'
+    };
+  }
+  return {
+    code: 'VALIDATION_ERROR',
+    reason: 'ZOD_VALIDATION_ERROR',
+    message: firstError?.message || 'Payload RFID inválido'
+  };
+};
+
 const parseRfidClientPayload = (socket, data) => {
   const parsed = rfidClientEventSchema.safeParse(data || {});
   if (parsed.success) {
@@ -927,13 +1224,11 @@ const parseRfidClientPayload = (socket, data) => {
   }
 
   const firstError = parsed.error.issues?.[0];
-  socket.emit('error', {
-    code: 'VALIDATION_ERROR',
-    message: firstError?.message || 'Payload RFID invalido'
-  });
+  const mapped = mapRfidPayloadError(firstError);
+  socket.emit('error', { code: mapped.code, message: mapped.message });
   logSocketSecurityEvent('SECURITY_RFID_EVENT_INVALID', socket, {
     eventName: 'rfid_scan_from_client',
-    reason: 'ZOD_VALIDATION_ERROR',
+    reason: mapped.reason,
     details: parsed.error.issues
   });
   return null;
@@ -1081,48 +1376,109 @@ const ensureRfidSensorConsistency = (socket, modeState, payload) => {
   // sobreescribir el binding con `touch_fallback_sensor`, porque dejaría al
   // próximo scan de un sensor físico atascado en consistency mismatch.
   if (!modeState.sensorId && !isTouchFallback) {
-    setRfidSensorBinding(socket.data.userId, payload.sensorId, socket.id);
+    const bound = setRfidSensorBinding(socket.data.userId, payload.sensorId, socket.id);
+    if (!bound) {
+      // El sensorId pertenece a otro usuario con modo activo (WS-3): rechazar
+      // el scan en vez de robar el binding.
+      socket.emit('error', {
+        code: 'RFID_SENSOR_UNAUTHORIZED',
+        message: 'Este sensor ya está en uso por otra sesión activa'
+      });
+      return false;
+    }
   }
 
   return true;
 };
 
-const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, logger) => {
-  if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'rfid_scan_from_client')) {
-    return;
-  }
+const handleRfidScanFromClient = async (socket, data, gameEngine, rfidService, logger) =>
+  // T-904 Fase A: span manual para el procesamiento completo del scan
+  // (HMAC, mode lookup, validación de owner, ingest). Atributos básicos sin PII.
+  Sentry.startSpan(
+    {
+      name: 'rfid_scan_from_client',
+      op: 'rfid.scan',
+      attributes: {
+        'user.id': socket.data?.userId?.toString(),
+        'rfid.sensorId': data?.sensorId,
+        'rfid.hasHmac': Boolean(data?.hmac)
+      }
+    },
+    async () => {
+      if (!requireSocketRole(socket, ['teacher', 'super_admin'], 'rfid_scan_from_client')) {
+        return;
+      }
 
-  if (!isRfidClientSourceEnabled(socket)) {
-    return;
-  }
+      if (!isRfidClientSourceEnabled(socket)) {
+        return;
+      }
 
-  const payload = parseRfidClientPayload(socket, data);
-  if (!payload) {
-    return;
-  }
+      const payload = parseRfidClientPayload(socket, data);
+      if (!payload) {
+        return;
+      }
 
-  const { modeState, state } = await getRfidStateForSocket(socket, logger);
-  if (!validateRfidStateForRead(socket, modeState, state)) {
-    return;
-  }
+      // T-905 B8: validación HMAC + counter anti-replay (gated por RFID_HMAC_ENABLED).
+      // Si la flag está off, retorna `valid:true` siempre — coexisten firmware
+      // viejo y nuevo durante la migración.
+      const hmacResult = await rfidHmacValidator.validate(payload);
+      if (!hmacResult.valid) {
+        logSecurityEvent('SECURITY_RFID_EVENT_INVALID', {
+          userId: socket.data?.userId,
+          reason: hmacResult.reason,
+          sensorId: payload.sensorId,
+          uid: payload.uid
+        });
+        socket.emit('rfid_scan_error', {
+          code: 'RFID_HMAC_INVALID',
+          reason: hmacResult.reason
+        });
+        return;
+      }
 
-  if (!validateRfidSensorAuthorization(socket, modeState, payload, gameEngine)) {
-    return;
-  }
+      const { modeState, state } = await getRfidStateForSocket(socket, logger);
+      if (!validateRfidStateForRead(socket, modeState, state)) {
+        return;
+      }
 
-  if (!ensureRfidSensorConsistency(socket, modeState, payload)) {
-    return;
-  }
+      if (!validateRfidSensorAuthorization(socket, modeState, payload, gameEngine)) {
+        return;
+      }
 
-  // Refrescar el watchdog: actividad legítima del modo RFID.
-  refreshRfidModeActivity(socket.data.userId, modeState.socketId || socket.id);
+      if (!ensureRfidSensorConsistency(socket, modeState, payload)) {
+        return;
+      }
 
-  rfidService.ingestEvent({
-    event: 'card_detected',
-    mode: modeState.mode,
-    ...payload
-  });
-};
+      // Refrescar el watchdog: actividad legítima del modo RFID.
+      refreshRfidModeActivity(socket.data.userId, modeState.socketId || socket.id);
+
+      rfidService.ingestEvent({
+        event: 'card_detected',
+        mode: modeState.mode,
+        // playId del MODO del emisor: el destino legítimo del scan. El ruteo
+        // aguas abajo (getPlayIdByCardUid) es global por UID; sin este ancla, un
+        // docente con partida propia activa podría inyectar un scan (por
+        // touch_fallback, exento de HMAC) en la partida de OTRO docente que tenga
+        // reservado ese UID. handleCardScan descarta el scan si el playId del UID
+        // no coincide con este `expectedPlayId`.
+        expectedPlayId: modeState.metadata?.playId || null,
+        ...payload
+      });
+    }
+  );
+/**
+ * Construye un Error de handshake con un `code` estructurado en `error.data`.
+ * Socket.IO propaga `error.data` al `connect_error` del cliente, de modo que el
+ * frontend puede decidir por CÓDIGO (no por el texto en español del mensaje) si
+ * el fallo es de autenticación y debe forzar logout. Antes el cliente comparaba
+ * el mensaje contra `'auth'`/`'token'` en inglés → nunca hacía match con
+ * "Token inválido"/"Sesión inválida" y el evento UNAUTHORIZED no se disparaba.
+ *
+ * @param {string} message - Mensaje legible (español, para logs/depuración)
+ * @param {string} code - Código estable en MAYÚSCULAS (contrato con el cliente)
+ * @returns {Error}
+ */
+const makeAuthError = (message, code) => Object.assign(new Error(message), { data: { code } });
 
 /**
  * Crea middleware de autenticación reutilizable para namespaces Socket.IO.
@@ -1151,7 +1507,7 @@ const createAuthMiddleware =
           reason: 'TOKEN_MISSING',
           tokenSource
         });
-        return next(new Error('Token requerido'));
+        return next(makeAuthError('Token requerido', 'TOKEN_MISSING'));
       }
 
       const originValidation = validateSocketOrigin(socket);
@@ -1161,7 +1517,7 @@ const createAuthMiddleware =
           origin: originValidation.origin,
           tokenSource
         });
-        return next(new Error('Origin no autorizado'));
+        return next(makeAuthError('Origin no autorizado', 'ORIGIN_INVALID'));
       }
 
       const mockReq = { headers: socket.handshake.headers };
@@ -1172,22 +1528,21 @@ const createAuthMiddleware =
           reason: 'TOKEN_INVALID',
           tokenSource
         });
-        return next(new Error('Token invalido'));
+        return next(makeAuthError('Token inválido', 'TOKEN_INVALID'));
       }
 
       // Cache-aside Redis (slim-user, TTL 60s) en el handshake de Socket.IO.
       // Reduce queries repetidas a Mongo en reconexiones rápidas (WiFi inestable de aulas).
-      const user = await fetchUserForAuth(
-        decoded.id,
-        'role status accountStatus +currentSessionId'
-      );
+      // T-905 B7 fix: select por defecto para compartir cache con `authenticate`
+      // HTTP (ver explicación en revalidatePerEvent).
+      const user = await fetchUserForAuth(decoded.id);
       if (!user) {
         logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
           reason: 'USER_NOT_FOUND',
           tokenSource,
           userId: decoded.id
         });
-        return next(new Error('Usuario no encontrado'));
+        return next(makeAuthError('Usuario no encontrado', 'USER_NOT_FOUND'));
       }
 
       if (user.status !== 'active') {
@@ -1197,7 +1552,7 @@ const createAuthMiddleware =
           userId: user._id,
           status: user.status
         });
-        return next(new Error('Usuario inactivo'));
+        return next(makeAuthError('Usuario inactivo', 'USER_INACTIVE'));
       }
 
       if (
@@ -1211,7 +1566,7 @@ const createAuthMiddleware =
           userId: user._id,
           accountStatus: user.accountStatus
         });
-        return next(new Error('Cuenta no aprobada'));
+        return next(makeAuthError('Cuenta no aprobada', 'ACCOUNT_NOT_APPROVED'));
       }
 
       if (decoded.sid && user.currentSessionId && decoded.sid !== user.currentSessionId) {
@@ -1220,7 +1575,7 @@ const createAuthMiddleware =
           tokenSource,
           userId: user._id
         });
-        return next(new Error('Sesion invalida'));
+        return next(makeAuthError('Sesión inválida', 'SESSION_INVALID'));
       }
 
       const userId = user._id.toString();
@@ -1236,9 +1591,10 @@ const createAuthMiddleware =
             currentCount,
             limit: socketConnectionLimits.maxConnectionsPerUser
           });
-          return next(new Error('Limite de conexiones alcanzado'));
+          return next(makeAuthError('Límite de conexiones alcanzado', 'CONNECTION_LIMIT'));
         }
-        incrementConnectionCount(userId);
+        // C.4: registrar socketId para soporte single-cast multi-tab.
+        incrementConnectionCount(userId, socket.id);
       }
 
       socket.data.userId = userId;
@@ -1254,7 +1610,7 @@ const createAuthMiddleware =
       logSocketSecurityEvent('WS_AUTH_FAILED', socket, {
         reason: error.message
       });
-      return next(new Error('Autenticacion invalida'));
+      return next(makeAuthError('Autenticación inválida', 'AUTH_FAILED'));
     }
   };
 
@@ -1268,6 +1624,7 @@ const registerSocketHandlers = ({
 }) => {
   socketServerRef = io;
   gameNspRef = gameNsp;
+  gameEngineRef = gameEngine; // C.5: ref para release lock en disconnect
 
   // Iniciar limpieza periódica de caches (cada 5 minutos)
   if (cacheCleanupIntervalRef) {
@@ -1307,7 +1664,8 @@ const registerSocketHandlers = ({
     // huérfano (leak que bloquea al usuario tras MAX_CONNECTIONS reconexiones).
     socket.on('disconnect', () => {
       const disconnUserId = socket.data.userId;
-      decrementConnectionCount(disconnUserId);
+      // C.4: pasar socketId para limpiar del set multi-tab.
+      decrementConnectionCount(disconnUserId, socket.id);
       // NOTA: la limpieza RFID se hace en el disconnect del namespace /game,
       // donde se registró el modo (con el socketId correcto de /game).
       logger.info(`Cliente desconectado [/]: ${socket.id}`, {
@@ -1349,6 +1707,39 @@ const registerSocketHandlers = ({
       role: socket.data.userRole
     });
 
+    // T-907 OP2: handlers de validación del Socket.IO Redis adapter en
+    // escenario multi-instancia. Solo activos fuera de producción para que
+    // el script `test:multi-instance` pueda usar el namespace `/game` real
+    // sin acoplarse a la lógica de juego ni añadir endpoints HTTP de test.
+    // En producción quedan desactivados — son rutas inertes que no exponen
+    // datos ni superficie de ataque.
+    if (process.env.NODE_ENV !== 'production') {
+      socket.on('test:join', (payload = {}, ack) => {
+        const room = typeof payload.room === 'string' ? payload.room : null;
+        if (!room) {
+          if (typeof ack === 'function') {
+            ack({ ok: false, error: 'room required' });
+          }
+          return;
+        }
+        socket.join(room);
+        if (typeof ack === 'function') {
+          ack({ ok: true, room, socketId: socket.id });
+        }
+      });
+
+      socket.on('test:broadcast', (payload = {}) => {
+        const room = typeof payload.room === 'string' ? payload.room : null;
+        const event = typeof payload.event === 'string' ? payload.event : null;
+        if (!room || !event) {
+          return;
+        }
+        // Adapter Redis publica este emit a todas las instancias y sus
+        // sockets en la room reciben el mensaje, esté donde esté cada uno.
+        gameNsp.to(room).emit(event, payload.data ?? null);
+      });
+    }
+
     const sensitiveEvents = new Set([
       'join_play',
       'leave_play',
@@ -1356,6 +1747,7 @@ const registerSocketHandlers = ({
       'pause_play',
       'resume_play',
       'next_round',
+      'board_ready',
       'join_card_assignment',
       'leave_card_assignment',
       'join_admin_room',
@@ -1386,10 +1778,37 @@ const registerSocketHandlers = ({
         return;
       }
 
+      // Validación Zod centralizada: si el command expone un `schema`,
+      // se aplica aquí antes de invocar `execute()`. Así cada handler recibe
+      // un payload ya tipado y los rechazos por payload malformado son
+      // uniformes (PAYLOAD_INVALID) en vez de cada command emitiendo su
+      // propio VALIDATION_ERROR ad-hoc. RFID scan se valida internamente
+      // con `rfidClientEventSchema` y NO declara `schema` aquí.
+      let payload = data;
+      const schema = typeof command.getSchema === 'function' ? command.getSchema() : null;
+      if (schema) {
+        const parsed = schema.safeParse(data ?? {});
+        if (!parsed.success) {
+          const issues = parsed.error.issues.map(i => ({
+            path: i.path.join('.'),
+            message: i.message
+          }));
+          logger.warn('Payload de comando Socket inválido', { eventName, issues });
+          socket.emit('error', {
+            code: 'PAYLOAD_INVALID',
+            message: 'Datos inválidos para el evento',
+            event: eventName,
+            issues
+          });
+          return;
+        }
+        payload = parsed.data;
+      }
+
       try {
         await command.execute({
           socket,
-          data,
+          data: payload,
           logger,
           io: gameNsp,
           gameEngine,
@@ -1444,21 +1863,69 @@ const registerSocketHandlers = ({
     // Heartbeat ligero del modo RFID: refresca el watchdog para evitar
     // que un modo activo se libere por timeout durante períodos de
     // inactividad legítima (p. ej. profesor leyendo la pantalla del alumno).
-    // No requiere rate limiting porque el cliente lo emite cada 60 s y la
-    // operación es sólo una actualización en memoria.
-    socket.on('rfid_mode_heartbeat', () => {
-      refreshRfidModeActivity(socket.data?.userId, socket.id);
-    });
+    // (F3) Se envuelve en el rate limiter igual que el resto de eventos: el
+    // cliente lo emite cada 60 s (muy por debajo del límite por defecto de 10/s),
+    // así que no afecta al tráfico legítimo, pero deja de ser un evento SIN acotar
+    // que un cliente malicioso/defectuoso pudiera spamear sin límite.
+    socket.on(
+      'rfid_mode_heartbeat',
+      socketRateLimiter.wrap(socket, 'rfid_mode_heartbeat', () => {
+        refreshRfidModeActivity(socket.data?.userId, socket.id);
+      })
+    );
 
     socket.on('disconnect', () => {
       // Limpiar estado RFID: el modo se registró con el socketId de /game,
       // por lo que debe limpiarse aquí (no en el namespace default).
       const gameUserId = socket.data.userId;
       if (gameUserId) {
-        clearRfidModeState(gameUserId, socket.id);
+        // Serializar con el MISMO mutex por-usuario que usan los comandos
+        // (join/leave/set RFID mode). Sin él, el `clearRfidModeState` del socket
+        // viejo podía interleavear con el `JOIN_PLAY` del socket nuevo en una
+        // reconexión rápida de /game, corrompiendo los mapas compartidos
+        // (rfidModeByUserId, sensorIdToUserId) y su persistencia en Redis.
+        // Fire-and-forget: el handler de disconnect no puede await, pero el lock
+        // garantiza el orden respecto a las operaciones de modo del socket nuevo.
+        executeWithRfidLock(gameUserId, () => clearRfidModeState(gameUserId, socket.id)).catch(
+          err =>
+            logger.warn('Fallo limpiando modo RFID en disconnect', {
+              userId: gameUserId,
+              err: err?.message
+            })
+        );
       }
       socket.data.playOwnershipCache = null;
       socketRateLimiter.cleanupForSocket(socket);
+
+      // C.5 (pre-v1.0.0): liberar proactivamente `play:init:{playId}` locks
+      // de partidas en estado 'created' donde el usuario es el creator y NO
+      // tiene otros sockets activos. Sin esto, si el usuario cierra pestaña
+      // antes de llamar a `startPlay`, el lock queda hasta TTL 60s impidiendo
+      // que el flujo de idempotencia capture un reintento legítimo. Solo
+      // libera si el set de sockets del usuario quedó vacío (en multi-tab,
+      // las otras tabs aún pueden estar jugando).
+      if (gameUserId) {
+        const remainingSockets = socketIdsByUserId.get(gameUserId);
+        const isLastSocket = !remainingSockets || remainingSockets.size === 0;
+        if (isLastSocket && gameEngineRef?.activePlays) {
+          for (const [playId, playState] of gameEngineRef.activePlays.entries()) {
+            const playerIdStr = playState?.playDoc?.playerId?.toString?.();
+            const ownerCreatedBy = playState?.sessionDoc?.createdBy?.toString?.();
+            if (
+              playState?.playDoc?.status === 'created' &&
+              (playerIdStr === gameUserId || ownerCreatedBy === gameUserId)
+            ) {
+              redisService.del(redisService.NAMESPACES.PLAY_INIT_LOCK, playId).catch(err =>
+                logger.debug('C.5: fallo al liberar play:init lock (TTL cubre)', {
+                  playId,
+                  error: err.message
+                })
+              );
+            }
+          }
+        }
+      }
+
       logger.info(`Cliente desconectado [/game]: ${socket.id}`, {
         userId: gameUserId,
         role: socket.data.userRole
@@ -1496,7 +1963,10 @@ const registerRfidHandlers = ({ io, gameNsp, gameEngine, rfidService, logger }) 
       case 'card_detected':
         logger.info(`Tarjeta detectada: ${event.uid} (${event.type})`);
         if (event.mode === RFID_MODES.GAMEPLAY) {
-          gameEngine.handleCardScan(event.uid, event.type);
+          // expectedPlayId ancla el scan a la partida del modo del emisor
+          // (anti cross-teacher injection). Si el UID pertenece a otra partida,
+          // handleCardScan lo descarta.
+          gameEngine.handleCardScan(event.uid, event.expectedPlayId);
         }
         break;
       case 'card_removed':
@@ -1551,6 +2021,29 @@ const purgeAuthCacheByUserId = userId => {
   return purged;
 };
 
+/**
+ * Purga del auth cache la entrada cuyo token tiene el `jti` indicado.
+ * Se ejecuta en la revocación individual de un token (logout de un dispositivo,
+ * rotación de refresh), cerrando la ventana de ≤30 s en la que un token revocado
+ * seguía validando eventos socket sensibles vía cache hit.
+ *
+ * @param {string} jti
+ * @returns {number} Número de entradas purgadas
+ */
+const purgeAuthCacheByJti = jti => {
+  if (!jti) {
+    return 0;
+  }
+  let purged = 0;
+  for (const [token, cached] of authRevalidationCache.entries()) {
+    if (cached.jti === jti) {
+      authRevalidationCache.delete(token);
+      purged++;
+    }
+  }
+  return purged;
+};
+
 // Registrar listeners para eventos de revocación de tokens
 authEventBus.on('all_tokens_revoked', ({ userId, reason }) => {
   const purged = purgeAuthCacheByUserId(userId);
@@ -1563,10 +2056,17 @@ authEventBus.on('all_tokens_revoked', ({ userId, reason }) => {
   }
 });
 
-authEventBus.on('token_revoked', () => {
-  // Para revocación individual no tenemos el token string (solo JTI).
-  // El impacto es mínimo: una sola entrada expirará en ≤30s.
-  // La purga por userId cubre el caso de seguridad importante.
+authEventBus.on('token_revoked', ({ jti } = {}) => {
+  // Revocación individual: purgamos la entrada por `jti`. El access cache de
+  // socket guarda el `jti` (ver setAuthCacheEntry), así que ya no dependemos
+  // del TTL de 30 s para invalidar un token revocado en la capa WebSocket.
+  const purged = purgeAuthCacheByJti(jti);
+  if (purged > 0) {
+    logger.info('Auth cache purgado por revocación de token individual', {
+      jti,
+      entriesPurged: purged
+    });
+  }
 });
 
 /**
@@ -1590,12 +2090,15 @@ module.exports = {
   getConnectionCount,
   incrementConnectionCount,
   decrementConnectionCount,
+  getPrimarySocketId,
   resetConnectionCountsForTests,
   setRfidModeState,
   clearRfidModeState,
   refreshRfidModeActivity,
   resetRfidModeTimersForTests,
   peekRfidModeStateForTests,
+  // Mapeo de errores de payload RFID a código/mensaje de usuario (testeable).
+  mapRfidPayloadError,
   // ADR-077: aplicación de cambios remotos vía pub/sub.
   applyRemoteRfidModeChange
 };

@@ -4,7 +4,7 @@
  */
 
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import GlassCard from './GlassCard';
@@ -15,10 +15,18 @@ import GlassCard from './GlassCard';
  *   - `first-use`   -> igual + CTA secundario opcional "Ver guia"
  *   - `filtered`    -> etiqueta visible "Sin resultados" y CTA orientado a limpiar filtros
  *
- * La prop `illustration` tiene prioridad sobre `icon`. Cuando se pasa una
- * ilustracion SVG (por ejemplo una de las del directorio `illustrations/`), esta
- * sustituye al contenedor circular del icono y se renderiza a tamaño completo
- * (hasta ~180px) para reforzar la identidad de la pagina.
+ * Slots para el "héroe" visual (mutuamente exclusivos, en orden de
+ * precedencia): `illustration` > `mascot` > `icon`.
+ *
+ *   - `illustration` — SVG ilustración a tamaño completo (~180px),
+ *     refuerza la identidad de la página (`EmptySessionsIllustration`,
+ *     `EmptyDecksIllustration`, …).
+ *   - `mascot` — `<CharacterMascot />` o un nodo equivalente (T-953
+ *     Fase 2.8). Útil en empty states donde queremos darle voz a la
+ *     mascota ("Crea tu primer mazo y empezamos a jugar"). Se renderiza
+ *     en el bloque hero con un float coordinado.
+ *   - `icon` — fallback discreto para cards densas; contenedor circular
+ *     con tinte glass.
  */
 export default function EmptyState({
   title,
@@ -26,6 +34,7 @@ export default function EmptyState({
   description,
   icon,
   illustration,
+  mascot,
   action,
   secondaryAction,
   variant = 'default',
@@ -36,6 +45,56 @@ export default function EmptyState({
 
   const isFiltered = variant === 'filtered';
 
+  // Héroe visual: precedencia illustration > mascot > icon (extraído del JSX
+  // para evitar ternarios anidados en el render).
+  let heroVisual = null;
+  if (illustration) {
+    heroVisual = (
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
+        className={cn(
+          'mx-auto mb-6 flex items-center justify-center',
+          // Float sutil sobre la ilustracion: refuerza la metafora "objeto fisico
+          // que descansa sobre la mesa". El reset global de prefers-reduced-motion
+          // en index.css lo neutraliza automaticamente si el usuario lo prefiere.
+          !shouldReduceMotion && 'animate-float'
+        )}
+      >
+        {illustration}
+      </motion.div>
+    );
+  } else if (mascot) {
+    heroVisual = (
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.85, y: 8 }}
+        animate={{ opacity: 1, scale: 1, y: 0 }}
+        transition={{ duration: DURATION.entrance, ease: EASING.outExpo, delay: 0.05 }}
+        // Bloque hero de mascota: alto reservado para que la burbuja
+        // de diálogo no recorte sobre el título. La mascota ya tiene
+        // su propio float interno, no aplicamos animate-float aquí.
+        className="relative mx-auto mb-7 flex h-32 items-end justify-center"
+      >
+        {mascot}
+      </motion.div>
+    );
+  } else if (icon) {
+    heroVisual = (
+      <motion.div
+        initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
+        animate={{ opacity: 1, scale: 1 }}
+        transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
+        className={cn(
+          "mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-glass-bg text-text-muted",
+          !shouldReduceMotion && "animate-float"
+        )}
+      >
+        {icon}
+      </motion.div>
+    );
+  }
+
   return (
     <GlassCard className={cn('p-10 text-center', className)}>
       {isFiltered && (
@@ -43,40 +102,13 @@ export default function EmptyState({
           initial={shouldReduceMotion ? false : { opacity: 0, y: -6 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: DURATION.stateChange, ease: EASING.outQuart }}
-          className="inline-flex items-center gap-1.5 rounded-full border border-warning-base/30 bg-warning-base/10 px-3 py-1 text-xs font-medium text-warning-base mb-4"
+          className="inline-flex items-center gap-1.5 rounded-full border border-warning-base/30 bg-warning-base/10 px-3 py-1 text-xs font-medium text-warning-on-alpha mb-4"
         >
-          Sin resultados para tu busqueda
+          Sin resultados para tu búsqueda
         </motion.span>
       )}
 
-      {illustration ? (
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.9 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
-          className={cn(
-            'mx-auto mb-6 flex items-center justify-center',
-            // Float sutil sobre la ilustracion: refuerza la metafora "objeto fisico
-            // que descansa sobre la mesa". El reset global de prefers-reduced-motion
-            // en index.css lo neutraliza automaticamente si el usuario lo prefiere.
-            !shouldReduceMotion && 'animate-float'
-          )}
-        >
-          {illustration}
-        </motion.div>
-      ) : icon && (
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, scale: 0.8 }}
-          animate={{ opacity: 1, scale: 1 }}
-          transition={{ duration: DURATION.entrance, ease: EASING.outExpo }}
-          className={cn(
-            "mx-auto mb-5 flex size-16 items-center justify-center rounded-2xl bg-glass-bg text-text-muted",
-            !shouldReduceMotion && "animate-float"
-          )}
-        >
-          {icon}
-        </motion.div>
-      )}
+      {heroVisual}
 
       {title && (
         <TitleTag
@@ -91,10 +123,14 @@ export default function EmptyState({
 
       {description && (
         <motion.p
+          // (D3-004) `text-text-disabled` da ~1.6:1 sobre bg-base en light
+          // (falla WCAG AA 4.5:1). Migrado a `text-text-muted` (~5:1 AA).
+          // El token `disabled` se reserva para inputs/botones inactivos,
+          // no para descripciones secundarias de body text.
           initial={shouldReduceMotion ? false : { opacity: 0, y: 8 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: DURATION.stateChange, ease: EASING.outQuart, delay: 0.15 }}
-          className="text-text-disabled mt-2 max-w-md mx-auto"
+          className="text-text-muted mt-2 max-w-md mx-auto"
         >
           {description}
         </motion.p>
@@ -121,6 +157,7 @@ EmptyState.propTypes = {
   description: PropTypes.node,
   icon: PropTypes.node,
   illustration: PropTypes.node,
+  mascot: PropTypes.node,
   action: PropTypes.node,
   secondaryAction: PropTypes.node,
   variant: PropTypes.oneOf(['default', 'first-use', 'filtered']),

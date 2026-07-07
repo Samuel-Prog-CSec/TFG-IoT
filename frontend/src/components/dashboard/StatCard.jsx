@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { ArrowUpRight, ArrowDownRight, ChevronRight } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, motionConfig } from '../../lib/utils';
@@ -45,7 +45,23 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
       transition={motionConfig.spring}
       onClick={onClick}
       aria-label={`${title}: ${value}`}
-      className="group cursor-pointer relative block h-full"
+      {...(onClick && {
+        role: 'button',
+        tabIndex: 0,
+        onKeyDown: (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(e);
+          }
+        },
+      })}
+      className={cn(
+        'group relative block h-full',
+        // Solo es clicable (cursor + foco por teclado + activación Enter/Espacio)
+        // cuando recibe onClick; si no, no debe parecer interactiva (WCAG 2.1.1).
+        onClick &&
+          'cursor-pointer rounded-2xl focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base'
+      )}
     >
       <GlassCard
         variant="default"
@@ -53,7 +69,14 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
         className={cn(
           "h-full transition-[box-shadow,border-color] duration-300",
           compact ? "p-4" : "p-6",
-          "hover:shadow-[0_8px_32px_rgba(0,0,0,0.3)] hover:border-border-strong"
+          // Hover usa --shadow-lg (token por tema) para que en light no
+          // aparezca una sombra negra agresiva sobre fondo blanco.
+          "hover:shadow-[var(--shadow-lg)] hover:border-border-strong",
+          // Sweep RFID en hover — refuerza la firma del producto (lector
+          // de tarjetas) en cada KPI sin invadir el resto del componente.
+          // La utility `.rfid-hover` vive en index.css y respeta
+          // prefers-reduced-motion.
+          "rfid-hover"
         )}
       >
         {/* Indicador de navegacion (solo si la tarjeta es clickable) */}
@@ -78,8 +101,11 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
 
         {/* Content */}
         <div className={cn("relative z-10", compact ? "pr-12" : "pr-14")}>
-          <h3 className={cn("text-text-muted font-semibold tracking-[0.08em] uppercase", compact ? "text-[11px] mb-1" : "text-xs mb-2")}>{title}</h3>
-          <div className={cn("font-bold text-text-primary font-display tracking-tight tabular-nums leading-none", compact ? "text-2xl mb-2" : "text-5xl mb-3")}>
+          {/* h2 (no h3): el contenedor padre (Dashboard, AdminDashboard) tiene
+              h1 como título de página. Las KPI cards son la segunda jerarquía;
+              saltar a h3 viola heading-order WCAG 1.3.1 (auditoría 24/05/2026). */}
+          <h2 className={cn("text-text-muted font-semibold tracking-[0.08em] uppercase", compact ? "text-micro mb-1" : "text-xs mb-2")}>{title}</h2>
+          <div className={cn("text-text-primary font-display tabular-nums leading-none", compact ? "font-bold tracking-tight text-2xl mb-2" : "font-extrabold text-5xl mb-3 text-display-hero")}>
             <AnimatedNumber value={value} />
           </div>
           {(() => {
@@ -102,9 +128,13 @@ function StatCard({ title, value, trend, icon, color, periodLabel = 'vs semana p
             return (
               <div className={cn(
                 "inline-flex items-center gap-1 text-sm font-semibold px-2.5 py-1 rounded-lg whitespace-nowrap ring-1 ring-inset",
+                // -on-alpha: el texto va sobre bg-{tone}/10 (alpha del mismo tono
+                // mezclado con la card). Con los tokens `-base` el rojo del delta
+                // negativo rendía ~3.5:1 (sub-AA); los `-on-alpha` están
+                // calibrados para AA sobre ese fondo alpha en ambos temas.
                 isPositive
-                  ? "text-success-base bg-success-base/10 ring-success-base/20"
-                  : "text-error-base bg-error-base/10 ring-error-base/20"
+                  ? "text-success-on-alpha bg-success-base/10 ring-success-base/20"
+                  : "text-error-on-alpha bg-error-base/10 ring-error-base/20"
               )}>
                 <TrendIcon size={14} strokeWidth={3} />
                 <span>{trend}</span>

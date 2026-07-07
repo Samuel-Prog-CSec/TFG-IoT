@@ -32,7 +32,7 @@ describe('FallbackTouchPanel', () => {
     expect(labels).toEqual(['Águila', 'búho', 'Caballo', 'Zorro']);
   });
 
-  it('limita a 12 cartas visibles aunque haya más', () => {
+  it('muestra TODAS las cartas del mazo (sin recorte a 12) para que la carta objetivo sea alcanzable en táctil', () => {
     const cards = Array.from({ length: 20 }, (_, i) => ({
       uid: `UID-${i}`,
       assignedValue: `Carta-${String(i).padStart(2, '0')}`,
@@ -46,7 +46,9 @@ describe('FallbackTouchPanel', () => {
       />
     );
 
-    expect(screen.getAllByTestId('asset')).toHaveLength(12);
+    // El mazo admite hasta 20 cartas; recortar a 12 dejaba rondas IMPOSIBLES de
+    // ganar en modo táctil (la carta objetivo podía quedar fuera del panel).
+    expect(screen.getAllByTestId('asset')).toHaveLength(20);
   });
 
   it('usa uid como fallback de sort si no hay assignedValue', () => {

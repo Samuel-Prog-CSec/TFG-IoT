@@ -37,38 +37,101 @@ const classroomStudentsQuerySchema = z
   .strict();
 
 /**
+ * Query params para GET /api/analytics/classroom/summary
+ *
+ * T-942 Fase E: el resumen de KPIs acepta los mismos filtros que el resto del
+ * Dashboard (contexto/mecánica/rango). Antes la ruta usaba `emptyObjectSchema`,
+ * que rechazaba cualquier query param.
+ */
+const classroomSummaryQuerySchema = z
+  .object({
+    timeRange: z.enum(['7d', '30d', '90d']).optional(),
+    contextId: objectIdSchema.optional(),
+    mechanicId: objectIdSchema.optional()
+  })
+  .strict();
+
+/**
  * Query params para GET /api/analytics/classroom/distribution
+ *
+ * T-942 Fase E: acepta filtros opcionales de contexto/mecánica y `90d`
+ * (el Dashboard mapea "Trimestre actual" → 90d).
  */
 const classroomDistributionQuerySchema = z
   .object({
-    timeRange: z.enum(['7d', '30d']).optional()
+    timeRange: z.enum(['7d', '30d', '90d']).optional(),
+    contextId: objectIdSchema.optional(),
+    mechanicId: objectIdSchema.optional()
   })
   .strict();
 
 /**
  * Query params para GET /api/analytics/classroom/trends
+ *
+ * T-942 Fase E: acepta filtros opcionales de contexto/mecánica y `90d`
+ * (el Dashboard mapea "Trimestre actual" → 90d).
  */
 const classroomTrendsQuerySchema = z
   .object({
-    timeRange: z.enum(['7d', '30d']).optional().default('7d')
+    timeRange: z.enum(['7d', '30d', '90d']).optional().default('7d'),
+    contextId: objectIdSchema.optional(),
+    mechanicId: objectIdSchema.optional()
+  })
+  .strict();
+
+/**
+ * Query params para GET /api/analytics/classroom/comparison
+ *
+ * QA 2026-05-30: la ruta usaba `analyticsTimeRangeQuerySchema` (7d/30d), pero el
+ * selector temporal del Dashboard ofrece 90d ("Trimestre actual" → 90d) y los
+ * filtros de contexto/mecánica. Sin este schema dedicado, elegir 90d devolvía
+ * 400 y la línea "Rendimiento de Clase (Tendencia)" quedaba vacía. Acepta 90d y
+ * los filtros de contenido para que la tendencia responda al mismo subconjunto
+ * que los KPIs (decisión de producto: la tendencia sí filtra).
+ */
+const classroomComparisonQuerySchema = z
+  .object({
+    timeRange: z.enum(['7d', '30d', '90d']).optional(),
+    contextId: objectIdSchema.optional(),
+    mechanicId: objectIdSchema.optional()
   })
   .strict();
 
 /**
  * Query params para GET /api/analytics/student/:id/summary
+ *
+ * QA 2026-05-30: el selector temporal del perfil de alumno ofrece 90d, pero el
+ * schema solo aceptaba 7d/30d → 400 al elegir "Últimos 90 días". `getDateRange`
+ * (servicio) ya soporta 90d, así que basta ampliar el enum.
  */
 const studentSummaryQuerySchema = z
   .object({
-    timeRange: z.enum(['7d', '30d']).optional().default('30d')
+    timeRange: z.enum(['7d', '30d', '90d']).optional().default('30d')
+  })
+  .strict();
+
+/**
+ * Query params para GET /api/analytics/student/:id/games (historial paginado).
+ * `limit` se acota a 50 para que una página no degenere en una descarga masiva
+ * del historial completo de un menor (minimización + coste de agregación).
+ */
+const studentGamesQuerySchema = z
+  .object({
+    page: z.coerce.number().int().min(1).optional().default(1),
+    limit: z.coerce.number().int().min(1).max(50).optional().default(20)
   })
   .strict();
 
 /**
  * Query params para GET /api/analytics/classroom/heatmap
+ *
+ * QA 2026-05-30: el selector del Dashboard ofrece 90d ("Trimestre actual"), pero
+ * el schema solo aceptaba 7d/30d → 400 y "Actividad Semanal" quedaba vacía.
+ * `getDateRange` (servicio) ya soporta 90d, así que basta ampliar el enum.
  */
 const classroomHeatmapQuerySchema = z
   .object({
-    timeRange: z.enum(['7d', '30d']).optional().default('30d')
+    timeRange: z.enum(['7d', '30d', '90d']).optional().default('30d')
   })
   .strict();
 
@@ -211,7 +274,8 @@ const playPatternsQuerySchema = z
 const contentEffectivenessQuerySchema = z
   .object({
     timeRange: z.enum(['30d', '90d']).optional().default('30d'),
-    groupBy: z.enum(['context', 'mechanic']).optional().default('context')
+    groupBy: z.enum(['context', 'mechanic', 'cross']).optional().default('context'),
+    includeEmpty: z.coerce.boolean().optional().default(false)
   })
   .strict();
 
@@ -237,26 +301,8 @@ const learningCurvesQuerySchema = z
   })
   .strict();
 
-/**
- * Query params para GET /api/analytics/alerts
- */
-const alertsQuerySchema = z
-  .object({
-    severity: z.enum(['critical', 'warning', 'info']).optional(),
-    type: z
-      .enum([
-        'declining_performance',
-        'inactivity',
-        'sudden_score_drop',
-        'consistent_timeout',
-        'improving_fast',
-        'plateau_detected',
-        'high_abandonment'
-      ])
-      .optional(),
-    limit: z.coerce.number().int().min(1).max(50).optional().default(20)
-  })
-  .strict();
+// (alertsQuerySchema reemplazado por listAlertsQuerySchema en
+//  validators/alertsValidator.js — T-941)
 
 /**
  * Query params para GET /api/analytics/reports/student/:id y /reports/classroom
@@ -282,9 +328,12 @@ module.exports = {
   analyticsStudentParamsSchema,
   analyticsTimeRangeQuerySchema,
   classroomStudentsQuerySchema,
+  classroomSummaryQuerySchema,
   classroomDistributionQuerySchema,
   classroomTrendsQuerySchema,
+  classroomComparisonQuerySchema,
   studentSummaryQuerySchema,
+  studentGamesQuerySchema,
   classroomHeatmapQuerySchema,
   classroomRankingsQuerySchema,
   // Schemas avanzados
@@ -303,7 +352,6 @@ module.exports = {
   contentEffectivenessQuerySchema,
   cardDifficultyQuerySchema,
   learningCurvesQuerySchema,
-  alertsQuerySchema,
   reportQuerySchema,
   reportExportQuerySchema
 };

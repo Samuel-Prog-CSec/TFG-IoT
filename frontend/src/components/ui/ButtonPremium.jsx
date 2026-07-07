@@ -1,4 +1,4 @@
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { cva } from 'class-variance-authority';
 import { cn, motionConfig } from '../../lib/utils';
 
@@ -19,12 +19,16 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
+        // T-954 Fase A: el gradient primary lee los tokens atmosféricos.
+        // Por defecto apuntan a brand→accent-indigo (mismo aspecto previo).
+        // Cuando hay `[data-atmosphere="key"]` activo, ambos extremos del
+        // gradient se tintan al contexto sin cambiar el componente.
         primary: [
-          'bg-gradient-to-r from-brand-base to-accent-indigo',
           'text-white font-semibold',
           'border border-white/10',
-          'shadow-[0_4px_16px_var(--color-brand-glow)]',
-          'hover:shadow-[0_4px_24px_var(--color-brand-glow),_inset_0_1px_0_rgba(255,255,255,0.2)]'
+          'bg-[linear-gradient(to_right,var(--color-atmosphere-primary),var(--color-atmosphere-primary-alt))]',
+          'shadow-[0_4px_16px_var(--color-atmosphere-glow)]',
+          'hover:shadow-[0_4px_24px_var(--color-atmosphere-glow),_inset_0_1px_0_rgba(255,255,255,0.2)]'
         ],
         secondary: [
           'bg-background-elevated/80 backdrop-blur-sm',
@@ -50,6 +54,19 @@ const buttonVariants = cva(
           'border border-white/10',
           'shadow-[0_4px_16px_var(--color-error-glow)]',
           'hover:shadow-[0_4px_24px_var(--color-error-glow)]'
+        ],
+        // Reservado a acciones de aviso reversibles (archivar, salir de partida,
+        // transferir alumnos). Distinto de `danger` (destructivo irreversible)
+        // y de `primary` (acción principal positiva). Sin esta variante,
+        // ConfirmationModal con variant="warning"|"archive" caía al default
+        // primary y el botón Confirmar mostraba color brand morado, perdiendo
+        // la señal cromática del modal (icono+tint amber, botón morado).
+        warning: [
+          'bg-gradient-to-r from-warning-dark to-accent-amber',
+          'text-white font-semibold',
+          'border border-white/10',
+          'shadow-[0_4px_16px_var(--color-warning-glow)]',
+          'hover:shadow-[0_4px_24px_var(--color-warning-glow)]'
         ]
       },
       size: {
@@ -72,7 +89,7 @@ const buttonVariants = cva(
  * @param {Object} props
  * @param {React.ReactNode} props.children - Texto o contenido del botón
  * @param {string} props.className - Clases de Tailwind adicionales de sobrescritura
- * @param {'primary'|'secondary'|'ghost'|'success'|'danger'} props.variant 
+ * @param {'primary'|'secondary'|'ghost'|'success'|'danger'|'warning'} props.variant
  * @param {'sm'|'md'|'lg'|'icon'} props.size 
  * @param {boolean} props.loading - Estado visual de carga (muestra spinner)
  * @param {React.ReactNode} props.icon - Componente de ícono (ej. <LucideIcon />)
@@ -99,12 +116,14 @@ const ButtonPremium = ({
       whileTap={!isDisabled ? { scale: 0.98 } : {}}
       transition={motionConfig.spring}
       disabled={isDisabled}
+      aria-disabled={isDisabled || undefined}
+      aria-busy={loading || undefined}
       className={cn(buttonVariants({ variant, size, className }))}
       {...props}
     >
       {loading && (
         <svg 
-          className="animate-spin h-5 w-5 mr-2" 
+          className="animate-spin size-5 mr-2"
           xmlns="http://www.w3.org/2000/svg" 
           fill="none" 
           viewBox="0 0 24 24"

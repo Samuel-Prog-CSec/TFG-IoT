@@ -3,21 +3,60 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { DndContext, DragOverlay, useSensor, useSensors, PointerSensor, defaultDropAnimationSideEffects, useDroppable } from '@dnd-kit/core';
 import { useSortable } from '@dnd-kit/sortable';
 import { CSS } from '@dnd-kit/utilities';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Layers, RotateCcw, Play, Shuffle, Info, X } from 'lucide-react';
 import clsx from 'clsx';
 import { useConfetti } from '../hooks/useConfetti';
 import { toast } from 'sonner';
-import { sessionsAPI, usersAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import {
+  sessionsAPI,
+  usersAPI,
+  playsAPI,
+  extractData,
+  extractErrorMessage,
+  isAbortError
+} from '../services/api';
 import { captureException } from '../lib/sentry';
 import { useAuth } from '../context/AuthContext';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { ROUTES } from '../constants/routes';
+import { getId } from '../lib/entityId';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import ErrorState from '../components/ui/ErrorState';
 import Tooltip from '../components/ui/Tooltip';
+import SkeletonShimmer from '../components/ui/SkeletonShimmer';
+
+/**
+ * Red de seguridad del bug #1: abandona las partidas huérfanas (in-progress / paused)
+ * de una sesión. Se invoca desde BoardSetup cuando la sesión está `active` al cargar
+ * — señal de que una partida quedó colgada (cierre de pestaña sin "Salir"). El docente
+ * está reconfigurando, no jugando, así que abandonarlas es seguro y desbloquea el
+ * `updateSession(boardLayout)` posterior. Best-effort: los fallos se tragan.
+ *
+ * @param {string} sessionId
+ * @param {AbortSignal} [signal]
+ */
+async function abandonOrphanPlays(sessionId, signal) {
+  try {
+    const requestOptions = signal ? { signal } : {};
+    const [inProgressRes, pausedRes] = await Promise.all([
+      playsAPI.getPlays({ sessionId, status: 'in-progress', limit: 5 }, requestOptions),
+      playsAPI.getPlays({ sessionId, status: 'paused', limit: 5 }, requestOptions)
+    ]);
+    const orphans = [
+      ...(extractData(inProgressRes) || []),
+      ...(extractData(pausedRes) || [])
+    ];
+    await Promise.all(
+      orphans.map(play => playsAPI.abandonPlay(getId(play)).catch(() => {}))
+    );
+  } catch {
+    // Best-effort: si no se pueden abandonar, el reclaim del motor / el cron actúan.
+  }
+}
 
 /** Fisher-Yates shuffle — returns a new shuffled copy of the array */
 function shuffleArray(array) {
@@ -40,6 +79,9 @@ export default function BoardSetup() {
   
   // Game Data
   const [session, setSession] = useState(null);
+  // (D4) Error de carga: sin esto, un fallo dejaba `session=null` y se pintaba
+  // un tablero vacío e inservible (0 huecos) sin explicación ni reintento.
+  const [error, setError] = useState(null);
   const [availableCards, setAvailableCards] = useState([]); // All cards in session
   const [availableStudents, setAvailableStudents] = useState([]);
 
@@ -82,16 +124,32 @@ export default function BoardSetup() {
                             throw new Error('No se encontró la sesión para configurar el tablero');
                         }
 
-                                                const sessionResponse = await sessionsAPI.getSessionById(sessionId, signal ? { signal } : {});
+                        // (E5) Sesión y alumnos son independientes (el teacherId
+                        // sale de `user`, no de la sesión) → cargarlos en paralelo
+                        // evita el round-trip encadenado.
+                        const teacherId = getId(user);
+                        const requestOptions = signal ? { signal } : {};
+                        const [sessionResponse, studentsResponse] = await Promise.all([
+                            sessionsAPI.getSessionById(sessionId, requestOptions),
+                            teacherId
+                                ? usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, requestOptions)
+                                : Promise.resolve({ data: { data: [] } })
+                        ]);
                         const currentSession = extractData(sessionResponse);
 
                         setSession(currentSession);
+                        setError(null);
 
-                        const teacherId = user?.id || user?._id;
-                        const requestOptions = signal ? { signal } : {};
-                        const studentsResponse = teacherId
-                            ? await usersAPI.getStudentsByTeacher(teacherId, { sortBy: 'name', order: 'asc' }, requestOptions)
-                            : { data: { data: [] } };
+                        // Red de seguridad bug #1 (caso cierre-de-pestaña): si la sesión
+                        // quedó 'active' con una partida huérfana (el docente cerró la
+                        // pestaña de juego sin pulsar "Salir"), abandonarla ANTES de que el
+                        // docente reconfigure. Está en BoardSetup —no jugando—, así que
+                        // cualquier partida in-progress/paused de esta sesión es huérfana.
+                        // Sin esto, `updateSession(boardLayout)` fallaría con 400 "sesión
+                        // activa" al pulsar Iniciar y quedaría bloqueado. Best-effort.
+                        if (currentSession?.status === 'active') {
+                            await abandonOrphanPlays(sessionId, signal);
+                        }
 
                         const students = extractData(studentsResponse) || [];
 
@@ -140,6 +198,9 @@ export default function BoardSetup() {
                             return;
                         }
                         captureException(e);
+                        // (D4) Persistir el error para que el render muestre un ErrorState
+                        // con reintento en vez de un tablero vacío (0 huecos) sin explicación.
+                        setError(extractErrorMessage(e) || 'No pudimos cargar la configuración del tablero');
                         toast.error(extractErrorMessage(e));
         } finally {
             if (!signal?.aborted) {
@@ -292,7 +353,73 @@ export default function BoardSetup() {
     }
   };
 
-  if (loading) return <div className="text-text-primary p-8">Cargando tablero...</div>;
+  // Skeleton que refleja la estructura real (header + librería + tablero) para
+  // evitar el Layout Shift cuando llegan los datos. Reemplaza el texto plano
+  // "Cargando tablero…" por placeholders animados con la misma geometría.
+  if (loading) {
+    return (
+      <div
+        className="h-screen flex flex-col p-6 bg-background-base overflow-hidden"
+        role="status"
+        aria-label="Cargando tablero…"
+      >
+        <header className="flex flex-wrap justify-between items-center gap-y-3 mb-6 shrink-0">
+          <div className="space-y-2">
+            <SkeletonShimmer className="h-8 w-72" />
+            <SkeletonShimmer className="h-4 w-96" />
+          </div>
+          <div className="flex flex-wrap gap-3 items-center">
+            <SkeletonShimmer className="h-10 w-64" />
+            <SkeletonShimmer className="h-10 w-32" />
+            <SkeletonShimmer variant="circle" className="size-10" />
+            <SkeletonShimmer className="h-10 w-40" />
+          </div>
+        </header>
+        <div className="flex gap-8 h-full overflow-hidden">
+          {/* Librería */}
+          <div className="w-80 bg-background-elevated/40 rounded-2xl border border-border-subtle p-4 flex flex-col gap-3 shrink-0">
+            <SkeletonShimmer className="h-6 w-40 mb-2" />
+            {['lib-1', 'lib-2', 'lib-3', 'lib-4'].map((key) => (
+              <SkeletonShimmer key={key} className="h-16 w-full" />
+            ))}
+          </div>
+          {/* Tablero */}
+          <div className="flex-1 bg-background-elevated/20 rounded-3xl border-2 border-dashed border-border-subtle p-8 flex items-center justify-center">
+            <div className="grid grid-cols-3 gap-6">
+              {['slot-1', 'slot-2', 'slot-3', 'slot-4', 'slot-5', 'slot-6'].map((key) => (
+                <SkeletonShimmer key={key} className="size-32" />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // (D4) Sin sesión cargada (fallo de red, 404, o entrada sin sessionId): mostrar
+  // un ErrorState con reintento y salida, no un tablero vacío e inservible.
+  if (!session) {
+    return (
+      <div className="h-screen flex flex-col items-center justify-center p-6 bg-background-base">
+        <div className="max-w-md w-full">
+          <ErrorState
+            title="No pudimos preparar el tablero"
+            message={
+              typeof error === 'string' && error
+                ? error
+                : 'La sesión no está disponible. Vuelve a Sesiones e inténtalo de nuevo.'
+            }
+            onRetry={() => init()}
+          />
+          <div className="mt-4 flex justify-center">
+            <ButtonPremium variant="ghost" onClick={() => navigate(ROUTES.SESSIONS)}>
+              Volver a sesiones
+            </ButtonPremium>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <DndContext sensors={sensors} onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
@@ -328,32 +455,35 @@ export default function BoardSetup() {
               )}
             </AnimatePresence>
 
-            <header className="flex justify-between items-center mb-6 shrink-0">
+            {/* flex-wrap evita que en viewports <1366px (peor caso del
+                tribunal del TFG) las 4 acciones compriman el título o
+                empujen el selector fuera de pantalla — bajan a una segunda
+                línea respetando el aire del header. */}
+            <header className="flex flex-wrap justify-between items-center gap-y-3 mb-6 shrink-0">
                 <div>
                     <h1 className="text-2xl font-bold text-text-primary font-display">Configuración del Tablero</h1>
                     <p className="text-text-muted">Arrastra las tarjetas a los huecos para configurar la partida.</p>
                 </div>
-                <div className="flex gap-3 items-center">
+                <div className="flex flex-wrap gap-3 items-center">
                     <SelectPremium
                         value={selectedStudentId}
                         onChange={(val) => setSelectedStudentId(val)}
                         placeholder="Asignar Estudiante"
                         options={availableStudents.map(student => ({
-                            value: student.id || student._id,
+                            value: getId(student),
                             label: student.name
                         }))}
                         className="w-64"
                     />
 
                     <Tooltip content="Distribuir aleatoriamente">
-                        <button
-                            type="button"
+                        <ButtonPremium
+                            variant="secondary"
                             onClick={handleRandomize}
-                            className="flex items-center gap-2 rounded-lg border border-accent-indigo/30 bg-accent-indigo/10 px-4 py-2 text-sm font-medium text-accent-indigo hover:bg-accent-indigo/20 transition-colors"
                         >
                             <Shuffle size={16} />
                             Aleatorio
-                        </button>
+                        </ButtonPremium>
                     </Tooltip>
                     <Tooltip content="Resetear Tablero">
                         <ButtonPremium
@@ -363,14 +493,29 @@ export default function BoardSetup() {
                             <RotateCcw size={20} />
                         </ButtonPremium>
                     </Tooltip>
-                    <ButtonPremium
-                        variant="success"
-                        onClick={handleStartPlay}
-                        disabled={!canStart || savingBoard}
-                        className="shadow-lg shadow-success-base/20"
+                    {/* Tooltip explica POR QUÉ el botón está deshabilitado.
+                        El ButtonPremium disabled tiene pointer-events-none, así
+                        que el wrapper del Tooltip (span) es quien recibe el hover
+                        y anuncia el motivo — antes el docente no sabía qué le
+                        faltaba (auditoría 24/05/2026). */}
+                    <Tooltip
+                        content={(() => {
+                            if (savingBoard) return 'Guardando el tablero…';
+                            if (!isBoardComplete && !selectedStudentId) return 'Coloca todas las tarjetas y elige un alumno para empezar';
+                            if (!isBoardComplete) return 'Coloca todas las tarjetas en el tablero para empezar';
+                            if (!selectedStudentId) return 'Elige un alumno para empezar la partida';
+                            return null;
+                        })()}
                     >
-                        <Play size={20} /> {savingBoard ? 'Guardando tablero…' : 'Iniciar Partida'}
-                    </ButtonPremium>
+                        <ButtonPremium
+                            variant="success"
+                            onClick={handleStartPlay}
+                            disabled={!canStart || savingBoard}
+                            className="shadow-lg shadow-success-base/20"
+                        >
+                            <Play size={20} /> {savingBoard ? 'Guardando tablero…' : 'Iniciar Partida'}
+                        </ButtonPremium>
+                    </Tooltip>
                 </div>
             </header>
 

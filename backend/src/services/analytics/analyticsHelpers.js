@@ -34,44 +34,10 @@ const PERFORMANCE_TIERS = [
   { tier: 'excellent', label: 'Excelente (90-100)', min: 90, max: 100 }
 ];
 
-/**
- * Tipos de alerta soportados con su configuración por defecto.
- */
-const ALERT_TYPES = {
-  declining_performance: {
-    label: 'Rendimiento en descenso',
-    thresholds: { warning: 10, critical: 20 }
-  },
-  inactivity: {
-    label: 'Inactividad',
-    thresholds: { info: 7, warning: 14 }
-  },
-  sudden_score_drop: {
-    label: 'Caída repentina de puntuación',
-    thresholds: { warning: 30 }
-  },
-  consistent_timeout: {
-    label: 'Timeouts consistentes',
-    thresholds: { warning: 0.3 }
-  },
-  improving_fast: {
-    label: 'Mejora rápida',
-    thresholds: { info: 15 }
-  },
-  plateau_detected: {
-    label: 'Estancamiento detectado',
-    thresholds: { info: 5 }
-  },
-  high_abandonment: {
-    label: 'Alto abandono',
-    thresholds: { warning: 0.25 }
-  }
-};
-
-/**
- * Severidades de alertas, ordenadas de mayor a menor urgencia.
- */
-const ALERT_SEVERITIES = ['critical', 'warning', 'info'];
+// ALERT_TYPES y ALERT_SEVERITIES se trasladaron a `config/alerts.js` (T-941).
+// Para conservar la API pública sin romper imports antiguos, re-exportamos
+// desde el nuevo módulo.
+const { ALERT_TYPES, ALERT_SEVERITIES } = require('../../config/alerts');
 
 // ══════════════════════════════════════════════════════════════════════
 // Funciones de clasificación
@@ -129,10 +95,14 @@ const getStartDate = (timeRange, from = new Date()) => {
  * para comparaciones período-sobre-período.
  *
  * @param {string} timeRange - '7d', '30d' o '90d'
+ * @param {Date} [from=new Date()] - Fecha de referencia ("ahora"). Por defecto la
+ *   fecha actual; los flujos de backfill/dry-run de los detectores la pasan
+ *   explícitamente para calcular ventanas relativas a una fecha histórica (antes
+ *   se ignoraba y siempre se usaba `new Date()`, rompiendo esos flujos).
  * @returns {{ currentStart: Date, previousStart: Date, now: Date }}
  */
-const getPeriodDates = timeRange => {
-  const now = new Date();
+const getPeriodDates = (timeRange, from = new Date()) => {
+  const now = from;
   const days = { '7d': 7, '30d': 30, '90d': 90 };
   const d = days[timeRange] || 30;
 
@@ -167,30 +137,6 @@ const getStartOfToday = () => {
  * @returns {mongoose.Types.ObjectId}
  */
 const toObjectId = id => new mongoose.Types.ObjectId(id);
-
-/**
- * Pipeline stages comunes para filtrar GamePlays por sesiones de un profesor.
- * Hace $lookup a game_sessions y filtra por createdBy.
- *
- * @param {string} teacherId - ID del profesor
- * @returns {Array} Stages de pipeline ($lookup + $unwind + $match)
- */
-const teacherSessionStages = teacherId => [
-  {
-    $lookup: {
-      from: 'game_sessions',
-      localField: 'sessionId',
-      foreignField: '_id',
-      as: 'session'
-    }
-  },
-  { $unwind: '$session' },
-  {
-    $match: {
-      'session.createdBy': toObjectId(teacherId)
-    }
-  }
-];
 
 /**
  * Calcula la pendiente (slope) de una regresión lineal simple.
@@ -664,19 +610,44 @@ const enrichMetric = (kpiKey, value, context = {}) => {
   };
 };
 
+/**
+ * Expresión de agregación: puntuación de una partida normalizada a PORCENTAJE
+ * real (`score / maxScore × 100`, 0 si maxScore=0). El `score` persistido son
+ * puntos crudos clampados a `maxScore`, que varía por mecánica (Asociación 50-90,
+ * Memoria 90, Secuencia 210-420); promediar/comparar el score crudo entre
+ * mecánicas y mostrarlo como "%" es engañoso. Aplíquese en cada `$avg`/`$push` de
+ * puntuación que la UI muestre como % o que se compare cross-mecánica (ADR-201).
+ */
+const SCORE_PERCENT_EXPR = {
+  // Suelo a 0 (OBS-5): un `score` crudo puede quedar negativo en BD si una
+  // partida en curso acumuló penalizaciones vía `$inc` (que salta el clamp
+  // `min:0` del modelo, aplicado solo en `.save()`). El % normalizado nunca debe
+  // ser negativo ni arrastrar las medias por debajo de 0.
+  $max: [
+    0,
+    {
+      $cond: [
+        { $gt: ['$maxScore', 0] },
+        { $multiply: [{ $divide: ['$score', '$maxScore'] }, 100] },
+        0
+      ]
+    }
+  ]
+};
+
 module.exports = {
   PERFORMANCE_TIERS,
   ALERT_TYPES,
   ALERT_SEVERITIES,
   KPI_DEFINITIONS,
   RAG,
+  SCORE_PERCENT_EXPR,
   classifyTier,
   calcAccuracyRate,
   getStartDate,
   getPeriodDates,
   getStartOfToday,
   toObjectId,
-  teacherSessionStages,
   linearRegression,
   classifyTrend,
   generateAlertId,

@@ -31,14 +31,18 @@ function DistributionChart({ data }) {
             backgroundColor: 'var(--color-background-elevated)', 
             border: '1px solid var(--color-border-default)', 
             borderRadius: '12px',
-            boxShadow: '0 8px 32px rgba(0,0,0,0.4)',
+            boxShadow: 'var(--shadow-lg)',
             backdropFilter: 'blur(16px)'
           }}
           itemStyle={{ color: 'var(--color-text-primary)', fontWeight: 600 }}
           labelStyle={{ color: 'var(--color-text-muted)', fontWeight: 500, marginBottom: '8px' }}
           formatter={(value) => [`${value} Estudiantes`, 'Cantidad']}
         />
-        <Bar dataKey="count" radius={[6, 6, 0, 0]}>
+        {/* isAnimationActive=false (OBS-4): la animación de `react-smooth` (Recharts 3.x)
+            es incompatible con la reconciliación de React 19 y crashea con
+            `NotFoundError: removeChild` en <Text> al actualizar los datos in-place al
+            cambiar de filtro. Sin la animación el histograma es estable. */}
+        <Bar dataKey="count" radius={[6, 6, 0, 0]} isAnimationActive={false}>
           {data.map((entry) => (
             <Cell
               key={`cell-${entry.range}`}

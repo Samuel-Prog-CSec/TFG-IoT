@@ -7,7 +7,7 @@
  */
 
 import { useState, useEffect, useRef, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { X, AlertTriangle, Archive, Trash2, Info, CheckCircle } from 'lucide-react';
 import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
@@ -133,6 +133,7 @@ const getIconAnimation = (variant, shouldReduceMotion) => {
  * @param {React.ComponentType} [props.icon] - Icono personalizado
  * @param {string} [props.subtitle] - Subtítulo opcional
  * @param {boolean} [props.loading=false] - Estado de carga del botón confirmar
+ * @param {boolean} [props.confirmDisabled=false] - Deshabilita el botón confirmar (ej: un bloqueante explicado en la descripción impide la acción)
  * @param {boolean} [props.closeOnOverlay=true] - Cerrar al hacer click en overlay
  * 
  * @example
@@ -158,6 +159,7 @@ export default function ConfirmationModal({
   icon: CustomIcon,
   subtitle,
   loading = false,
+  confirmDisabled = false,
   closeOnOverlay = true,
 }) {
   const modalRef = useRef(null);
@@ -271,8 +273,10 @@ export default function ConfirmationModal({
             style={useFlipEntry ? { transformStyle: 'preserve-3d', transformPerspective: 1000 } : undefined}
             onClick={(e) => e.stopPropagation()}
             className={cn(
-              'relative bg-background-base border rounded-2xl p-6 max-w-md w-full shadow-2xl overscroll-contain',
-              'overflow-hidden',
+              'relative bg-background-base border rounded-2xl p-6 w-full shadow-2xl overscroll-contain',
+              // Modal fluido: ancho responde al viewport (cap 560px), alto cap
+              // 88dvh con scroll interno cuando el contenido excede (1366×768).
+              'max-w-[min(560px,92vw)] max-h-[88dvh] overflow-y-auto custom-scrollbar',
               variantConfig.border
             )}
           >
@@ -345,13 +349,18 @@ export default function ConfirmationModal({
                 onClick={onClose}
                 disabled={loading}
                 className={cn(
-                  'p-2 rounded-lg transition-[colors,transform]',
+                  // (D3-008) `min-h-11 min-w-11` garantiza target táctil
+                  // ≥44px (WCAG 2.2 SC 2.5.8). `p-2` solo daba ~32px reales
+                  // entre padding+icono. Mantener `inline-flex` + centrado
+                  // para que el icono X siga visualmente centrado.
+                  'min-h-11 min-w-11 inline-flex items-center justify-center',
+                  'rounded-lg transition-[colors,transform]',
                   'hover:bg-border-default text-text-muted hover:text-text-primary active:scale-90',
                   'disabled:opacity-50 disabled:cursor-not-allowed'
                 )}
                 aria-label="Cerrar modal"
               >
-                <X size={18} />
+                <X size={18} aria-hidden="true" />
               </button>
             </motion.div>
 
@@ -388,6 +397,7 @@ export default function ConfirmationModal({
                 variant={variantConfig.button}
                 onClick={handleConfirm}
                 loading={loading}
+                disabled={confirmDisabled}
                 icon={<Icon size={16} />}
               >
                 {confirmText}
@@ -452,6 +462,7 @@ export function useConfirmationModal() {
     confirmText: config.confirmText,
     cancelText: config.cancelText,
     variant: config.variant,
+    confirmDisabled: config.confirmDisabled,
     onConfirm: handleConfirm,
   };
 

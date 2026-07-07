@@ -20,6 +20,15 @@ const SECURITY_EVENTS = {
     sentry: { threshold: 10, windowMs: 60 * 1000, level: 'warning' },
     severityThreshold: 5
   },
+  AUTH_ACCOUNT_LOCKED: {
+    level: 'warn',
+    message: 'Cuenta bloqueada temporalmente por intentos fallidos',
+    sentry: { threshold: 3, windowMs: 60 * 1000, level: 'warning' }
+  },
+  AUTH_ACCOUNT_LOCKOUT_BYPASS: {
+    level: 'info',
+    message: 'Cuenta desbloqueada manualmente por admin'
+  },
   AUTH_REGISTER_SUCCESS: {
     level: 'info',
     message: 'Registro de profesor exitoso'
@@ -85,6 +94,31 @@ const SECURITY_EVENTS = {
     message: 'Acceso denegado por autorización',
     sentry: { threshold: 20, windowMs: 60 * 1000, level: 'warning' }
   },
+  // MFA TOTP (super_admin) — eventos dedicados para no contaminar la taxonomía
+  // de login. Antes setup-init/backup-code/regenerate se logueaban como
+  // AUTH_LOGIN_SUCCESS, falseando los conteos de "logins" en SIEM/alertas.
+  MFA_SETUP_INIT: {
+    level: 'info',
+    message: 'Inicio de configuración MFA'
+  },
+  MFA_BACKUP_CODE_USED: {
+    level: 'info',
+    message: 'Backup code MFA utilizado'
+  },
+  MFA_BACKUP_CODES_REGENERATED: {
+    level: 'info',
+    message: 'Backup codes MFA regenerados'
+  },
+  MFA_CHALLENGE_FAILED: {
+    level: 'warn',
+    message: 'Verificación MFA fallida',
+    sentry: { threshold: 10, windowMs: 60 * 1000, level: 'warning' }
+  },
+  MFA_CHALLENGE_LOCKED: {
+    level: 'error',
+    message: 'Challenge MFA bloqueado por intentos fallidos',
+    sentry: { threshold: 1, windowMs: 60 * 1000, level: 'warning' }
+  },
   STUDENT_TRANSFER: {
     level: 'info',
     message: 'Transferencia de alumno registrada'
@@ -118,6 +152,11 @@ const SECURITY_EVENTS = {
     message: 'Payload WebSocket rechazado por tamaño',
     sentry: { threshold: 5, windowMs: 60 * 1000, level: 'warning' }
   },
+  SECURITY_FILE_TYPE_REJECTED: {
+    level: 'warn',
+    message: 'Archivo rechazado por tipo (magic bytes desconocidos o no permitidos)',
+    sentry: { threshold: 5, windowMs: 60 * 1000, level: 'warning' }
+  },
   SECURITY_RFID_DEDUPE: {
     level: 'info',
     message: 'Evento RFID duplicado bloqueado'
@@ -126,6 +165,14 @@ const SECURITY_EVENTS = {
     level: 'warn',
     message: 'Evento RFID inválido recibido',
     sentry: { threshold: 10, windowMs: 60 * 1000, level: 'warning' }
+  },
+  // C1 (pre-v1.0.0): el mutex de RFID por userId aborta una operación que
+  // excedió el timeout y libera el lock. Una espiga indica que algo en el
+  // pipeline está bloqueado (Mongo lento, Redis colgado, deadlock).
+  RFID_LOCK_TIMEOUT: {
+    level: 'error',
+    message: 'Operación RFID excedió el timeout y se liberó el lock',
+    sentry: { threshold: 3, windowMs: 60 * 1000, level: 'warning' }
   },
   // Protección de datos — Seudonimización y auditoría (Art. 5.2, 16, 20, 25 RGPD)
   DATA_RECTIFICATION: {
@@ -286,6 +333,35 @@ const resolveLevel = (baseLevel, correlationMissing, eventConfig, state) => {
   return level;
 };
 
+// T-942: mapeo de eventos de seguridad → contador sliding 1h consumido por
+// los detectores `auth_failed_spike`, `account_lockout_spike`, etc.
+// Fire-and-forget: el incremento en Redis nunca debe bloquear ni propagar.
+const COUNTER_MAP = {
+  AUTH_LOGIN_FAILED: 'auth_failed',
+  AUTH_REFRESH_FAILED: 'auth_failed',
+  AUTH_ACCOUNT_LOCKED: 'account_locked',
+  AUTH_TOKEN_THEFT_DETECTED: 'token_theft',
+  DATA_CONSENT_CHANGE: 'consent_withdrawn' // se filtra dentro: solo si action=withdrawn
+};
+
+const bumpSecurityCounter = (eventCode, meta) => {
+  const counterType = COUNTER_MAP[eventCode];
+  if (!counterType) {
+    return;
+  }
+  // Para DATA_CONSENT_CHANGE distinguimos withdrawn vs granted via meta.action
+  if (counterType === 'consent_withdrawn' && meta?.action && meta.action !== 'withdrawn') {
+    return;
+  }
+  try {
+    // Lazy require para evitar dependencia circular con redisService.
+    const securityCounters = require('../services/security/securityCountersService');
+    securityCounters.increment(counterType).catch(() => {});
+  } catch {
+    // Si el módulo no está disponible (durante boot), simplemente no contamos.
+  }
+};
+
 const logSecurityEvent = (eventCode, meta = {}) => {
   const eventConfig = SECURITY_EVENTS[eventCode] || {
     level: 'info',
@@ -294,6 +370,9 @@ const logSecurityEvent = (eventCode, meta = {}) => {
 
   const windowMs = eventConfig?.sentry?.windowMs || 60 * 1000;
   const { now, state } = updateCounter(eventCode, windowMs);
+
+  // Incrementa contadores sliding-window para detectores de SystemAlerts.
+  bumpSecurityCounter(eventCode, meta);
 
   const correlationMissing =
     (meta?.source === 'http' && !meta?.requestId) || (meta?.source === 'ws' && !meta?.socketId);

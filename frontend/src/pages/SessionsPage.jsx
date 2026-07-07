@@ -8,7 +8,7 @@
 import { memo, useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   CalendarClock,
   PlusCircle,
@@ -23,7 +23,7 @@ import {
   Timer,
   Award,
   RotateCcw,
-  BarChart3
+  ImageOff
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, mechanicsAPI, extractErrorMessage, extractData, isAbortError } from '../services/api';
@@ -32,6 +32,7 @@ import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { ROUTES } from '../constants/routes';
+import { getId, sameId, findById } from '../lib/entityId';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import HoverLiftCard from '../components/ui/HoverLiftCard';
@@ -40,15 +41,15 @@ import StatusBadge from '../components/ui/StatusBadge';
 import { SkeletonGrid } from '../components/ui/SkeletonShimmer';
 import Tooltip from '../components/ui/Tooltip';
 import EmptyState from '../components/ui/EmptyState';
+import CharacterMascot from '../components/game/CharacterMascot';
 import { EmptySessionsIllustration } from '../components/ui/illustrations';
 import ErrorState from '../components/ui/ErrorState';
 import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import PageHeader from '../components/ui/PageHeader';
 import ScanlineOverlay from '../components/ui/ScanlineOverlay';
-import SessionSparkline from '../components/common/SessionSparkline';
+import InlineEditableText from '../components/ui/InlineEditableText';
 import { cn, listContainerVariants, motionConfig, DURATION, EASING, toTitleCaseEs } from '../lib/utils';
-import { formatRelativeTime } from '../lib/dateUtils';
 
 // Mapeo de dificultad a indicador visual lateral derecho (PROP-5).
 // Se aplica como `after:bg-*` para no chocar con el `border-l-*` que indica el estado.
@@ -102,11 +103,13 @@ const STATUS_OPTIONS = [
   { value: 'completed', label: 'Completada' }
 ];
 
+// Derivado de DIFFICULTY_LABELS_ES para mantener una única fuente de verdad:
+// las cards y el detalle muestran 'Normal' para `medium`, así el filtro coincide.
 const DIFFICULTY_OPTIONS = [
   { value: '', label: 'Todas' },
-  { value: 'easy', label: 'Fácil' },
-  { value: 'medium', label: 'Media' },
-  { value: 'hard', label: 'Difícil' }
+  { value: 'easy', label: DIFFICULTY_LABELS_ES.easy },
+  { value: 'medium', label: DIFFICULTY_LABELS_ES.medium },
+  { value: 'hard', label: DIFFICULTY_LABELS_ES.hard }
 ];
 
 const statusToBadge = (status) => {
@@ -141,51 +144,93 @@ const BORDER_CLASSES = {
   completed: 'border-l-success-base/40',
 };
 
+// Jerarquía de juego: las sesiones accionables (borrador listo para jugar y
+// partida activa) "flotan" con una sombra brand tenue; las completadas quedan
+// planas y, por contraste, recogidas — sin atenuar opacidad ni tocar el
+// contraste del texto (eso rompería WCAG AA). El borrador suma el drop-shadow
+// brand sobre su borde discontinuo (sigue comunicando "borrador") para señalar
+// "esta es la que puedes lanzar"; la activa ya destaca con su anillo + glow.
 const STATUS_CARD_CLASSES = {
-  created: 'border-dashed border-warning-base/30',
+  created: 'border-dashed border-warning-base/30 shadow-[0_10px_28px_-16px_var(--color-brand-glow)]',
   active: 'ring-1 ring-brand-base/30 shadow-[0_0_12px_var(--color-brand-glow)]',
   completed: 'border-b-2 border-b-success-base/40',
 };
 
-// Bloque de stats con sparkline. Extraido para reducir la complejidad ciclomatica
-// del SessionCard (regla sonarjs/cyclomatic-complexity).
-function SessionPlayStats({ playStats }) {
-  if (!playStats || (playStats.playsCount ?? 0) <= 0) return null;
-  const playedLabel = playStats.playsCount === 1 ? 'partida jugada' : 'partidas jugadas';
-  const showSparkline =
-    Array.isArray(playStats.recentScores) && playStats.recentScores.length >= 2;
+// Valor de "Rondas" (genérico) o "Parejas" (Memoria). En Memoria no hay rondas:
+// las parejas se derivan de las cartas del tablero (boardLayout o numberOfCards)
+// entre 2; usar config.numberOfRounds (≈5 por defecto) mostraba un dato falso.
+const getRoundsOrPairsValue = (session, isMemoryMechanic) => {
+  if (!isMemoryMechanic) return session.config?.numberOfRounds;
+  const boardCards = Array.isArray(session.boardLayout) && session.boardLayout.length
+    ? session.boardLayout.length
+    : (session.config?.numberOfCards || session.cardMappingsCount || 0);
+  return Math.floor(boardCards / 2);
+};
+
+// ADR-231: motivo por el que la sesión no admite jugar/clonar cuando sus
+// recursos (contexto/mazo) ya no existen. Compartido por badge y tooltips.
+const UNAVAILABLE_TOOLTIP =
+  'El contexto o el mazo de esta sesión ya no están disponibles. Puedes consultar su historial, pero no volver a jugarla.';
+
+const getEditTooltip = (canEdit, resourcesUnavailable) => {
+  if (canEdit) return 'Editar sesión';
+  return resourcesUnavailable
+    ? UNAVAILABLE_TOOLTIP
+    : 'Las sesiones jugadas no se pueden editar; clónala para crear una nueva en borrador';
+};
+
+/**
+ * Botón primario de la card (Jugar / Volver a jugar). Extraído para que la
+ * degradación por recursos no disponibles (ADR-231) no infle la complejidad
+ * de SessionCard: aquí viven las tres variantes (deshabilitado con motivo,
+ * jugar directo, clonar).
+ */
+function SessionPrimaryAction({ session, primary, resourcesUnavailable, cloneLoading, onClone, onNavigate }) {
+  if (resourcesUnavailable) {
+    return (
+      <Tooltip content={UNAVAILABLE_TOOLTIP}>
+        <ButtonPremium variant="primary" disabled className="w-full">
+          {primary.action === 'play' ? <Play size={16} /> : <RefreshCw size={16} />}
+          <span className="truncate">{primary.label}</span>
+        </ButtonPremium>
+      </Tooltip>
+    );
+  }
+  if (primary.action === 'play') {
+    return (
+      <ButtonPremium
+        variant="primary"
+        onClick={() => onNavigate(getPlayRouteForSession(session))}
+        className="w-full"
+      >
+        <Play size={16} />
+        <span className="truncate">{primary.label}</span>
+      </ButtonPremium>
+    );
+  }
   return (
-    <div className="flex flex-col gap-2 rounded-lg bg-background-surface/50 px-3 py-2 text-xs text-text-muted">
-      <div className="flex items-center gap-2">
-        <BarChart3 size={14} className="text-text-muted/70 flex-shrink-0" />
-        <span>
-          {playStats.playsCount} {playedLabel}
-          {playStats.averageScore != null && (
-            <> · {playStats.averageScore} pts promedio</>
-          )}
-        </span>
-      </div>
-      {/* PROP-5: tiempo desde la ultima partida en formato relativo. */}
-      {playStats.lastPlayedAt && (
-        <p className="text-[11px] text-text-muted/80">
-          Última partida: {formatRelativeTime(playStats.lastPlayedAt)}
-        </p>
-      )}
-      {/* PROP-5: sparkline solo si hay >=2 puntuaciones. */}
-      {showSparkline && (
-        <SessionSparkline data={playStats.recentScores} height={42} />
-      )}
-    </div>
+    <ButtonPremium
+      variant="primary"
+      onClick={() => onClone(session)}
+      disabled={cloneLoading}
+      className="w-full"
+    >
+      <RefreshCw size={16} />
+      <span className="truncate">{primary.label}</span>
+    </ButtonPremium>
   );
 }
 
-SessionPlayStats.propTypes = {
-  playStats: PropTypes.shape({
-    playsCount: PropTypes.number,
-    averageScore: PropTypes.number,
-    lastPlayedAt: PropTypes.string,
-    recentScores: PropTypes.array
-  })
+SessionPrimaryAction.propTypes = {
+  session: PropTypes.object.isRequired,
+  primary: PropTypes.shape({
+    action: PropTypes.string.isRequired,
+    label: PropTypes.string.isRequired,
+  }).isRequired,
+  resourcesUnavailable: PropTypes.bool.isRequired,
+  cloneLoading: PropTypes.bool.isRequired,
+  onClone: PropTypes.func.isRequired,
+  onNavigate: PropTypes.func.isRequired,
 };
 
 const SessionCard = memo(function SessionCard({
@@ -193,7 +238,8 @@ const SessionCard = memo(function SessionCard({
   cloneLoading,
   onClone,
   onDelete,
-  onNavigate
+  onNavigate,
+  onRename,
 }) {
   const statusInfo = statusToBadge(session.status);
   // Normalizamos a Title Case español para que la lista sea visualmente
@@ -201,17 +247,32 @@ const SessionCard = memo(function SessionCard({
   // inconsistente (QA 22/04/2026).
   const rawTitle = session.name || session.deck?.name || 'Sesión sin mazo asignado';
   const title = toTitleCaseEs(rawTitle);
+
+  // Handler de rename estable por card. `onRename` es la versión currificada
+  // estable del padre; la aplicamos a esta `session` una sola vez (useMemo) en
+  // vez de currificar en el call site del padre, donde se recreaba en cada
+  // render y rompía el `memo()` de SessionCard al teclear en la búsqueda.
+  const handleRenameSave = useMemo(
+    () => (onRename ? onRename(session) : undefined),
+    [onRename, session]
+  );
   const mechanicLabel = session.mechanic?.displayName || session.mechanic?.name || 'Mecánica';
   // Memoria usa parejas (no rondas independientes). Adaptamos el copy del KPI
   // para no confundir al profesor cuando revisa sesiones guardadas.
   const isMemoryMechanic = String(session.mechanic?.name || '').toLowerCase() === 'memory';
   const roundsOrPairsLabel = isMemoryMechanic ? 'Parejas' : 'Rondas';
+  const roundsOrPairsValue = getRoundsOrPairsValue(session, isMemoryMechanic);
   const contextLabel = session.context?.name || 'Contexto';
-  const sessionId = session.id || session._id;
-  const canEdit = session.status === 'created';
+  const sessionId = getId(session);
+  // ADR-231: sesión degradada a "solo historial" — su contexto fue eliminado
+  // o su mazo está archivado. Solo el `false` explícito del backend degrada
+  // (undefined = el endpoint no calcula el flag).
+  const resourcesUnavailable = session.resourcesAvailable === false;
+  const canEdit = session.status === 'created' && !resourcesUnavailable;
   const canDelete = session.status === 'created';
   const borderClass = BORDER_CLASSES[session.status] || 'border-l-background-surface/50';
   const primary = getPrimaryActionForSession(session);
+  const editTooltip = getEditTooltip(canEdit, resourcesUnavailable);
   // Tint del glow segun dificultad configurada. Para sesiones activas damos
   // prioridad al tint brand (ya tienen ring-1 en STATUS_CARD_CLASSES).
   const glowTint = (() => {
@@ -232,7 +293,10 @@ const SessionCard = memo(function SessionCard({
   return (
     <HoverLiftCard glowTint={glowTint} className="group h-full">
       <GlassCard className={cn(
-        'relative overflow-hidden p-6 flex flex-col gap-5 h-full hover:border-border-strong transition-[border-color] border-l-4',
+        // `@container`: la card es contenedor de consulta para que los botones
+        // de acción se adapten al ANCHO DE LA CARD (no del viewport) y no se
+        // corten en rejillas estrechas (3 columnas) — QA 2026-06-04.
+        '@container relative overflow-hidden p-6 flex flex-col gap-5 h-full hover:border-border-strong transition-[border-color] border-l-4',
         // PROP-5: pseudo-elemento derecho coloreado por dificultad (1px de ancho).
         'after:absolute after:top-0 after:right-0 after:bottom-0 after:w-[3px] after:rounded-r',
         borderClass,
@@ -247,11 +311,58 @@ const SessionCard = memo(function SessionCard({
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0">
             {/* min-h reserva espacio para títulos de 1 o 2 líneas y mantiene la
-                altura del resto del card alineada entre items del grid (QA 22/04/2026). */}
-            <h3 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]">{title}</h3>
-            <p className="text-sm text-text-muted">{mechanicLabel} · {contextLabel}</p>
+                altura del resto del card alineada entre items del grid (QA 22/04/2026).
+                Las sesiones en estado `created` admiten rename inline (T-952 Fase C);
+                las activas/completas mantienen el h3 estático para evitar editar
+                un nombre que ya está referenciado en partidas en curso. */}
+            {onRename && session.status === 'created' ? (
+              <div className="min-h-[3.5rem]">
+                <InlineEditableText
+                  value={session.name || session.deck?.name || ''}
+                  onSave={handleRenameSave}
+                  validate={(v) => {
+                    const trimmed = (v || '').trim();
+                    if (!trimmed) return 'El nombre no puede estar vacío.';
+                    if (trimmed.length > 100) return 'Máximo 100 caracteres.';
+                    return null;
+                  }}
+                  ariaLabel={`nombre de la sesión ${title}`}
+                  maxLength={100}
+                  className="block w-full"
+                  textClassName="text-lg font-semibold text-text-primary line-clamp-2 block"
+                  inputClassName="text-lg font-semibold w-full"
+                  as="h2"
+                />
+              </div>
+            ) : (
+              // h2 (no h3): el <h1> es "Sesiones de juego"; saltar a h3 viola
+              // WCAG 1.3.1 / Lighthouse heading-order — cada card es la segunda
+              // jerarquía bajo el header de página (auditoría 24/05/2026).
+              <h2 className="text-lg font-semibold text-text-primary line-clamp-2 min-h-[3.5rem]" title={title}>{title}</h2>
+            )}
+            {/* BUG-A11Y-CONTRAST-SESSIONCARD-A (QA Sprint 0 post-v0.5.0):
+                text-text-muted sobre card bg daba 3.92:1. text-secondary
+                pasa AA y mantiene jerarquía visual. */}
+            {/* La dificultad acompaña al filete de color del borde derecho
+                (PROP-5): sin el texto, ese color era "mystery meat". */}
+            <p className="text-sm text-text-secondary">
+              {mechanicLabel} · {contextLabel}
+              {difficultyLabel && <> · {difficultyLabel}</>}
+            </p>
           </div>
-          <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
+          <div className="flex flex-col items-end gap-1.5 shrink-0">
+            <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
+            {/* ADR-231: los recursos (contexto/mazo) ya no existen — la sesión
+                queda como historial consultable, sin re-juego ni edición. */}
+            {resourcesUnavailable && (
+              <Tooltip content={UNAVAILABLE_TOOLTIP}>
+                <span className="inline-flex items-center gap-1 rounded-full border border-warning-base/30 bg-warning-base/15 px-2 py-0.5 text-[10px] font-medium text-warning-base whitespace-nowrap cursor-help">
+                  <ImageOff size={10} aria-hidden="true" />
+                  Recursos no disponibles
+                </span>
+              </Tooltip>
+            )}
+          </div>
         </div>
 
         <div className="grid grid-cols-2 gap-4 text-xs text-text-secondary">
@@ -270,7 +381,7 @@ const SessionCard = memo(function SessionCard({
             </div>
             <div>
               <p className="text-text-muted">{roundsOrPairsLabel}</p>
-              <p className="text-text-primary font-semibold font-display">{session.config?.numberOfRounds}</p>
+              <p className="text-text-primary font-semibold font-display">{roundsOrPairsValue}</p>
             </div>
           </div>
           <div className="bg-warning-base/5 rounded-lg p-3 flex items-center gap-3">
@@ -293,61 +404,57 @@ const SessionCard = memo(function SessionCard({
           </div>
         </div>
 
-        <SessionPlayStats playStats={session.playStats} />
-
         <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
-          <div className="flex gap-3">
+          {/* Los botones se apilan (1 col) cuando la card es estrecha y van en
+              fila (2 cols) cuando hay sitio. `@[24rem]` consulta el ancho de la
+              CARD (container query), no el viewport, así que se adaptan bien en
+              cualquier nº de columnas/resolución (QA 2026-06-04). */}
+          <div className="grid grid-cols-1 @[24rem]:grid-cols-2 gap-3">
             <ButtonPremium
               variant="secondary"
               onClick={() => onNavigate(ROUTES.SESSION_DETAIL(sessionId))}
-              className="flex-1"
+              className="w-full"
             >
               <Eye size={16} />
               Ver detalle
             </ButtonPremium>
-            {primary.action === 'play' ? (
-              <ButtonPremium
-                variant="primary"
-                onClick={() => onNavigate(getPlayRouteForSession(session))}
-                className="flex-1"
-              >
-                <Play size={16} />
-                <span>{primary.label}</span>
-              </ButtonPremium>
-            ) : (
-              <ButtonPremium
-                variant="primary"
-                onClick={() => onClone(session)}
-                disabled={cloneLoading}
-                className="flex-1"
-              >
-                <RefreshCw size={16} />
-                <span className="sm:hidden">Clonar</span>
-                <span className="hidden sm:inline">{primary.label}</span>
-              </ButtonPremium>
-            )}
+            <SessionPrimaryAction
+              session={session}
+              primary={primary}
+              resourcesUnavailable={resourcesUnavailable}
+              cloneLoading={cloneLoading}
+              onClone={onClone}
+              onNavigate={onNavigate}
+            />
           </div>
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-1 bg-glass-bg rounded-lg p-1">
-              <Tooltip content="Ver tablero y mapping">
-                <ButtonPremium
-                  variant="ghost"
-                  size="sm"
-                  onClick={() => onNavigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
-                  aria-label="Ver tablero y mapping de tarjetas"
-                >
-                  <LayoutGrid size={14} />
-                </ButtonPremium>
-              </Tooltip>
+              {/* QA 2026-05-06 (ADR-114): el "tablero / mapping" sólo aplica
+                  a Memoria, donde simula el orden físico de las tarjetas en
+                  el tablero digital. En Asociación y Secuencia no hay
+                  posición espacial relevante (Asociación elige una respuesta;
+                  Secuencia sigue un plan). Mostrarlo confundía al docente. */}
+              {isMemoryMechanic && (
+                <Tooltip content="Ver tablero y mapping">
+                  <ButtonPremium
+                    variant="ghost"
+                    size="sm"
+                    onClick={() => onNavigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+                    aria-label="Ver tablero y mapping de tarjetas"
+                  >
+                    <LayoutGrid size={14} />
+                  </ButtonPremium>
+                </Tooltip>
+              )}
               {/* Tooltip dinamico: explica el motivo cuando los botones estan disabled
                   para que el usuario sepa que solo las sesiones en borrador son editables. */}
-              <Tooltip content={canEdit ? 'Editar sesión' : 'Las sesiones jugadas no se pueden editar; clónala para crear una nueva en borrador'}>
+              <Tooltip content={editTooltip}>
                 <ButtonPremium
                   variant="ghost"
                   size="sm"
                   onClick={() => onNavigate(ROUTES.SESSION_EDIT(sessionId))}
                   disabled={!canEdit}
-                  aria-label={canEdit ? 'Editar sesión' : 'Editar sesión (deshabilitado: ya tiene partidas)'}
+                  aria-label={canEdit ? 'Editar sesión' : 'Editar sesión (deshabilitado)'}
                 >
                   <Pencil size={14} />
                 </ButtonPremium>
@@ -398,11 +505,13 @@ SessionCard.propTypes = {
       playsCount: PropTypes.number,
       averageScore: PropTypes.number,
     }),
+    resourcesAvailable: PropTypes.bool,
   }).isRequired,
   cloneLoading: PropTypes.bool.isRequired,
   onClone: PropTypes.func.isRequired,
   onDelete: PropTypes.func.isRequired,
   onNavigate: PropTypes.func.isRequired,
+  onRename: PropTypes.func,
 };
 
 const renderSessionsContent = ({
@@ -412,6 +521,7 @@ const renderSessionsContent = ({
   cloneLoading,
   handleClone,
   handleDelete,
+  handleRename,
   hasActiveFilters,
   clearFilters,
   shouldReduceMotion,
@@ -423,7 +533,8 @@ const renderSessionsContent = ({
   if (sessions.length === 0) {
     return (
       <EmptyState
-        illustration={<EmptySessionsIllustration size={180} />}
+        illustration={hasActiveFilters ? <EmptySessionsIllustration size={180} /> : undefined}
+        mascot={hasActiveFilters ? undefined : <CharacterMascot mood="encouraging" size="sm" noBubble />}
         variant={hasActiveFilters ? 'filtered' : 'first-use'}
         title={hasActiveFilters ? 'Ninguna sesión coincide con tus filtros' : 'Aún no tienes sesiones'}
         description={
@@ -454,22 +565,34 @@ const renderSessionsContent = ({
       initial="hidden"
       animate="visible"
     >
-      <AnimatePresence>
-        {sessions.map((session) => (
-          <motion.div
-            key={session.id || session._id}
-            variants={cardVariants}
-            exit="exit"
-          >
-            <SessionCard
-              session={session}
-              cloneLoading={cloneLoading}
-              onClone={handleClone}
-              onDelete={handleDelete}
-              onNavigate={navigate}
-            />
-          </motion.div>
-        ))}
+      {/* mode="popLayout" elimina el reflow del exit cuando se borra
+          una sesión: el item saliente sale de flujo inmediatamente, los
+          hermanos colapsan vía animación de layout sin saltar (T-952 Fase 2). */}
+      <AnimatePresence mode="popLayout">
+        {sessions.map((session) => {
+          const sessionId = getId(session);
+          return (
+            <motion.div
+              key={sessionId}
+              // T-954 Fase B: shared layout id para hero transition al detalle.
+              // Sólo en sessions navegables (status `created` o `active`).
+              // El receptor está en SessionDetail.jsx con el mismo prefix.
+              layoutId={`session-${sessionId}`}
+              layout
+              variants={cardVariants}
+              exit="exit"
+            >
+              <SessionCard
+                session={session}
+                cloneLoading={cloneLoading}
+                onClone={handleClone}
+                onDelete={handleDelete}
+                onNavigate={navigate}
+                onRename={handleRename}
+              />
+            </motion.div>
+          );
+        })}
       </AnimatePresence>
     </motion.div>
   );
@@ -527,7 +650,7 @@ export default function SessionsPage() {
   const mechanicOptions = useMemo(() => [
     { value: '', label: 'Todas' },
     ...mechanics.map((mechanic) => ({
-      value: mechanic.id || mechanic._id,
+      value: getId(mechanic),
       label: mechanic.displayName || mechanic.name
     }))
   ], [mechanics]);
@@ -535,7 +658,7 @@ export default function SessionsPage() {
   const contextOptions = useMemo(() => [
     { value: '', label: 'Todos' },
     ...contexts.map((context) => ({
-      value: context.id || context._id,
+      value: getId(context),
       label: context.name
     }))
   ], [contexts]);
@@ -602,7 +725,7 @@ export default function SessionsPage() {
       }
       const message = extractErrorMessage(err);
       setError(message);
-      toast.error('Error al cargar sesiones', { description: message });
+      toast.error('No pudimos cargar tus sesiones', { description: message });
     } finally {
       if (!signal?.aborted) {
         setLoading(false);
@@ -622,6 +745,10 @@ export default function SessionsPage() {
 
   useEffect(() => {
     sessionsAbortRef.current?.abort();
+    // Abortar también un "Cargar más" en vuelo: si la página siguiente del filtro
+    // anterior resuelve tras el reset, su setSessions(prev => [...prev, ...items])
+    // contamina la lista con sesiones que no cumplen el filtro activo.
+    loadMoreAbortRef.current?.abort();
     const controller = new AbortController();
     sessionsAbortRef.current = controller;
     loadSessions({ reset: true, signal: controller.signal });
@@ -631,6 +758,7 @@ export default function SessionsPage() {
 
   const refetchSessions = useCallback(() => {
     sessionsAbortRef.current?.abort();
+    loadMoreAbortRef.current?.abort();
     const controller = new AbortController();
     sessionsAbortRef.current = controller;
     loadSessions({ reset: true, signal: controller.signal });
@@ -664,12 +792,48 @@ export default function SessionsPage() {
     cloneModal.open();
   }, [cloneModal]);
 
+  // Inline rename — solo aplicable a sesiones en estado `created`. El
+  // InlineEditableText commitea (o autoguarda debounced) y dispara este
+  // handler. Optimistic update + rollback en error para que el usuario
+  // vea el cambio instantáneamente.
+  const handleRename = useCallback(
+    (session) => async (newName) => {
+      const sessionId = getId(session);
+      if (!sessionId) return;
+      const previousName = session.name || session.deck?.name || '';
+      const trimmed = (newName || '').trim();
+      if (!trimmed || trimmed === previousName) return;
+      setSessions((current) =>
+        current.map((s) =>
+          sameId(s, sessionId) ? { ...s, name: trimmed } : s,
+        ),
+      );
+      try {
+        await sessionsAPI.updateSession(sessionId, { name: trimmed });
+        toast.success('Nombre guardado', {
+          description: `Renombrada a "${trimmed}".`,
+        });
+      } catch (err) {
+        setSessions((current) =>
+          current.map((s) =>
+            sameId(s, sessionId) ? { ...s, name: previousName } : s,
+          ),
+        );
+        toast.error('No se pudo guardar el nombre', {
+          description: extractErrorMessage(err),
+        });
+        throw err;
+      }
+    },
+    [],
+  );
+
   const confirmDelete = async () => {
     if (!selectedSession) return;
 
     setDeleteLoading(true);
     try {
-      await sessionsAPI.deleteSession(selectedSession.id || selectedSession._id);
+      await sessionsAPI.deleteSession(getId(selectedSession));
       toast.success('Sesión eliminada', {
         description: 'La configuración se eliminó correctamente.'
       });
@@ -690,9 +854,9 @@ export default function SessionsPage() {
 
     setCloneLoading(true);
     try {
-      const response = await sessionsAPI.cloneSession(selectedSession.id || selectedSession._id);
+      const response = await sessionsAPI.cloneSession(getId(selectedSession));
       const clonedSession = extractData(response);
-      const clonedSessionId = clonedSession?.id || clonedSession?._id;
+      const clonedSessionId = getId(clonedSession);
       const clonedMechanicName = (clonedSession?.mechanic?.name || '').toString().toLowerCase();
 
       toast.success('Sesión clonada', {
@@ -726,6 +890,12 @@ export default function SessionsPage() {
 
   const hasActiveFilters = filters.statusFilter || filters.difficultyFilter || filters.mechanicFilter || filters.contextFilter;
 
+  // Los DTOs de mecánica y contexto exponen `id` (no `_id`); buscar por `_id`
+  // dejaba el chip de filtro activo en "Desconocida"/"Desconocido" aunque el
+  // filtro sí se aplicaba (al backend se envía el id correcto).
+  const mechanicMatch = findById(mechanics, filters.mechanicFilter);
+  const contextMatch = findById(contexts, filters.contextFilter);
+
   const activeFilterChips = [
     filters.statusFilter && {
       key: 'status',
@@ -739,12 +909,12 @@ export default function SessionsPage() {
     },
     filters.mechanicFilter && {
       key: 'mechanic',
-      label: `Mecánica: ${mechanics.find((m) => m._id === filters.mechanicFilter)?.name || 'Desconocida'}`,
+      label: `Mecánica: ${mechanicMatch?.displayName || mechanicMatch?.name || 'Desconocida'}`,
       onRemove: () => dispatchFilters({ type: 'SET_MECHANIC', payload: '' }),
     },
     filters.contextFilter && {
       key: 'context',
-      label: `Contexto: ${contexts.find((c) => c._id === filters.contextFilter)?.name || 'Desconocido'}`,
+      label: `Contexto: ${contextMatch?.name || 'Desconocido'}`,
       onRemove: () => dispatchFilters({ type: 'SET_CONTEXT', payload: '' }),
     },
   ].filter(Boolean);
@@ -756,6 +926,7 @@ export default function SessionsPage() {
     cloneLoading,
     handleClone,
     handleDelete,
+    handleRename,
     hasActiveFilters,
     clearFilters,
     shouldReduceMotion,
@@ -770,7 +941,7 @@ export default function SessionsPage() {
 
   return (
     <div
-      className="p-6 lg:p-8 max-w-7xl mx-auto"
+      className="page-container py-[var(--space-fluid-section)]"
     >
       <div className="flex flex-col gap-6">
         <PageHeader
@@ -847,7 +1018,7 @@ export default function SessionsPage() {
 
         {error && (
           <ErrorState
-            title="Error al cargar sesiones"
+            title="No pudimos cargar tus sesiones"
             message={`${error} Pulsa Reintentar o recarga la página.`}
             onRetry={refetchSessions}
           />

@@ -1,6 +1,6 @@
 import PropTypes from 'prop-types';
 import { cva } from 'class-variance-authority';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { cn, DURATION, EASING } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
@@ -16,17 +16,19 @@ const cardVariants = cva(
   {
     variants: {
       variant: {
-        // Por defecto: superficie ligeramente elevada del fondo principal
+        // Por defecto: superficie ligeramente elevada del fondo principal.
+        // Las shadows se delegan a los tokens semánticos `--shadow-*` que
+        // varían por tema (en dark son negras al 35%, en light al 8%).
         default: [
           'bg-background-elevated/40 backdrop-blur-xl saturate-150',
           'border border-border-subtle',
-          'shadow-[0_4px_24px_rgba(0,0,0,0.15),inset_0_1px_0_rgba(255,255,255,0.05)]'
+          'shadow-[var(--shadow-md),var(--shadow-inset-card)]'
         ],
         // Para contenidos que necesitan destacar fuertemente
         solid: [
           'bg-background-surface/80 backdrop-blur-2xl',
           'border border-border-default',
-          'shadow-[0_8px_32px_rgba(0,0,0,0.2),inset_0_1px_0_rgba(255,255,255,0.1)]'
+          'shadow-[var(--shadow-lg),var(--shadow-inset-card)]'
         ],
         // Para "vacíos" o espacios contenedores secundarios
         subtle: [
@@ -37,7 +39,7 @@ const cardVariants = cva(
         gradient: [
           'bg-background-surface/60 backdrop-blur-xl',
           'border border-brand-base/30',
-          'shadow-[0_4px_24px_var(--color-brand-glow)]'
+          'shadow-[var(--shadow-glow)]'
         ]
       },
       padding: {
@@ -55,8 +57,10 @@ const cardVariants = cva(
         false: ''
       },
       glow: {
-        // Solo aplica en hover si es interactive, o siempre si queremos que brille fijo
-        true: 'hover:shadow-[0_0_30px_var(--color-brand-glow),inset_0_1px_0_rgba(255,255,255,0.2)]',
+        // Solo aplica en hover si es interactive, o siempre si queremos que brille fijo.
+        // El glow grande usa el token --shadow-glow (24px brand-glow) y
+        // refuerza con un inset card sutil para sensación de "lift" táctil.
+        true: 'hover:shadow-[var(--shadow-glow),var(--shadow-inset-card)]',
         false: ''
       }
     },
@@ -82,7 +86,13 @@ const cardVariants = cva(
  *
  * @param {Object} props
  * @param {React.ReactNode} props.children - Contenido de la card
- * @param {string} props.className - Clases adicionales tailwind
+ * @param {string} props.className - Clases adicionales tailwind (van a la RAÍZ
+ *   de la card: padding, borde, hover, sombra…).
+ * @param {string} [props.contentClassName] - Clases de LAYOUT para el wrapper
+ *   interno que contiene a los children (flex/grid/items/justify/gap). NECESARIO
+ *   para alinear los hijos: GlassCard envuelve los children en un div propio, así
+ *   que las clases de layout pasadas por `className` se aplican a la raíz y NO
+ *   alinean a los hijos. Usa `contentClassName` para eso (QA 2026-06-04).
  * @param {'default'|'solid'|'subtle'|'gradient'} props.variant - Variante visual
  * @param {'none'|'sm'|'md'|'lg'} props.padding - Padding interno
  * @param {boolean} props.interactive - Activa efectos de hover (elevación y border)
@@ -94,6 +104,7 @@ const GlassCard = ({
   ref,
   children,
   className,
+  contentClassName,
   variant,
   padding,
   interactive,
@@ -126,8 +137,10 @@ const GlassCard = ({
         <div className="absolute inset-0 bg-gradient-to-br from-brand-base/20 to-transparent opacity-50 pointer-events-none" />
       )}
 
-      {/* Contenido principal posicionado jerárquicamente por encima de los decoradores */}
-      <div className="relative z-10 h-full w-full">
+      {/* Contenido principal posicionado jerárquicamente por encima de los
+          decoradores. `contentClassName` permite que las clases de layout
+          (flex/grid…) alineen a los children desde aquí (ver JSDoc). */}
+      <div className={cn('relative z-10 h-full w-full', contentClassName)}>
         {children}
       </div>
     </Component>
@@ -137,6 +150,7 @@ const GlassCard = ({
 GlassCard.propTypes = {
   children: PropTypes.node.isRequired,
   className: PropTypes.string,
+  contentClassName: PropTypes.string,
   variant: PropTypes.oneOf(['default', 'solid', 'subtle', 'gradient']),
   padding: PropTypes.oneOf(['none', 'sm', 'md', 'lg']),
   interactive: PropTypes.bool,

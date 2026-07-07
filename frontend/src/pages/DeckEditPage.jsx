@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useMemo, useReducer } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { useConfetti } from '../hooks/useConfetti';
 import {
   Eye,
@@ -20,9 +20,13 @@ import {
   Trash2,
   Plus,
   X,
-  RefreshCw
+  RefreshCw,
+  Wand2,
+  Check
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { getId } from '../lib/entityId';
+import { validateAssignmentCardinality } from '../lib/deckCardinality';
 import {
   buildCardMappingsPayload,
   normalizeCardMappingsFromDeck
@@ -35,6 +39,8 @@ import CardAssetPreview from '../components/ui/CardAssetPreview';
 import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
@@ -86,6 +92,10 @@ export default function DeckEditPage() {
   const navigate = useNavigate();
   useDocumentTitle('Editar Mazo');
   const { fireConfetti } = useConfetti();
+  // Micro-confirmación inline tras guardar (T-955). Coexiste con el toast,
+  // pero el badge vive junto al botón Save para que el docente registre el
+  // éxito sin recorrer la pantalla.
+  const saveBadge = useInlineSuccess();
 
   // Estados de carga
   const [loading, setLoading] = useState(true);
@@ -95,9 +105,15 @@ export default function DeckEditPage() {
   // Datos del mazo
   const [deck, setDeck] = useState(null);
   const [deckName, setDeckName] = useState('');
+  // Error inline del nombre (aria-invalid + role="alert" vía InputPremium),
+  // alineado con el backend (mínimo 2 caracteres) en vez de un toast al enviar.
+  const [nameError, setNameError] = useState('');
   const [selectedCards, setSelectedCards] = useState([]);
   const [selectedContext, setSelectedContext] = useState(null);
   const [cardAssignments, setCardAssignments] = useState({});
+  // Entrada manual de UID en el modal "Añadir cartas" (paridad con el wizard de
+  // creación, QA 2026-06-04): permite añadir tarjetas sin lector físico.
+  const [manualUid, setManualUid] = useState('');
   
   // Hook de contextos
   const { contexts, loading: contextsLoading, findContextById } = useContexts({ 
@@ -166,7 +182,7 @@ export default function DeckEditPage() {
         return;
       }
       setError(extractErrorMessage(err));
-      toast.error('Error al cargar mazo', {
+      toast.error('No pudimos cargar el mazo', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -195,19 +211,61 @@ export default function DeckEditPage() {
 
     const originalName = deck.name;
     const originalContext = deck.contextId?._id || deck.contextId;
-    const originalCardIds = (deck.cardMappings || []).map(c => c.uid).filter(Boolean).sort();
+    const originalCardIds = (deck.cardMappings || []).flatMap(c => c.uid ? [c.uid] : []).sort();
     const currentCardIds = selectedCards.map(c => c.uid).sort();
 
     const nameChanged = deckName !== originalName;
-    const contextChanged = effectiveContext?._id !== originalContext;
+    // El cambio de contexto se determina por la selección EXPLÍCITA del usuario
+    // (`selectedContext`), NO por `effectiveContext`: este último cae a `null`
+    // mientras la lista `contexts` aún no ha cargado —o si el contexto del mazo
+    // no está en ella—, de modo que `effectiveContext?._id !== originalContext`
+    // marcaba dirty en falso nada más montar la página y dejaba el banner
+    // "Tienes cambios sin guardar" + el guard de beforeunload activos sin que el
+    // usuario tocara nada (QA 2026-05-25; mismo síntoma que BUG-DECK-2 por la vía
+    // del contexto). `selectedContext` es null hasta que el usuario elige otro.
+    const selectedContextId = getId(selectedContext);
+    const contextChanged = selectedContextId != null && selectedContextId !== originalContext;
     const cardsChanged = JSON.stringify(originalCardIds) !== JSON.stringify(currentCardIds);
-    // Simplificado: cualquier cambio en asignaciones
-    const assignmentsChanged = Object.keys(cardAssignments).length > 0;
+
+    // BUG-DECK-2 (QA 2026-05-14): comparar el assignment ACTUAL contra el del
+    // mazo cargado del backend, no contra `{}` vacío. Antes se marcaba dirty
+    // desde mount porque la carga inicial pre-rellena cardAssignments con los
+    // displayData de cada mapping.
+    const originalAssignments = (deck.cardMappings || []).reduce((acc, mapping) => {
+      const key = mapping?.displayData?.key;
+      if (mapping?.uid && key) {
+        acc[mapping.uid] = key;
+      }
+      return acc;
+    }, {});
+    const currentAssignments = Object.entries(cardAssignments).reduce((acc, [uid, asset]) => {
+      if (asset?.key) {
+        acc[uid] = asset.key;
+      }
+      return acc;
+    }, {});
+    const assignmentsChanged =
+      JSON.stringify(originalAssignments) !== JSON.stringify(currentAssignments);
 
     return nameChanged || contextChanged || cardsChanged || assignmentsChanged;
-  }, [deck, deckName, effectiveContext, selectedCards, cardAssignments]);
+  }, [deck, deckName, selectedContext, selectedCards, cardAssignments]);
 
-  const { blocker, isBlocked } = useUnsavedChanges(hasChanges);
+  // T-957: confirmExit envuelve callbacks programáticos de navegación
+  // (botones "Ver detalle", "Volver", etc.) con un modal warning cuando
+  // hay cambios sin guardar. El `blocker`/`isBlocked` queda como stub
+  // hasta una eventual migración a Data Router.
+  const { confirmExit, confirmExitModalProps } = useUnsavedChanges(hasChanges);
+
+  // Cerrar el modal "Añadir cartas" con Escape (WCAG modal-escape). El modal ya
+  // cierra con click-fuera y la X, pero faltaba la tecla Escape (QA 2026-06-04).
+  useEffect(() => {
+    if (!ui.showAddCards) return undefined;
+    const onKey = (e) => {
+      if (e.key === 'Escape') dispatchUI({ type: 'HIDE_ADD_CARDS' });
+    };
+    document.addEventListener('keydown', onKey);
+    return () => document.removeEventListener('keydown', onKey);
+  }, [ui.showAddCards]);
 
   // Handlers
   const handleAddCard = useCallback((card) => {
@@ -239,6 +297,26 @@ export default function DeckEditPage() {
     });
   }, [selectedCards, deckId]);
 
+  // Añadir una carta escribiendo su UID a mano (sin lector físico).
+  const handleAddManualCard = useCallback(() => {
+    const uid = manualUid.trim().toUpperCase();
+    if (!/^[0-9A-F]{1,16}$/.test(uid)) {
+      toast.warning('UID no válido', { description: 'Introduce un identificador en hexadecimal (0-9, A-F).' });
+      return;
+    }
+    handleAddCard({ uid });
+    setManualUid('');
+  }, [manualUid, handleAddCard]);
+
+  // Generar el siguiente UID secuencial (8 dígitos hex) a partir de los existentes.
+  const handleGenerateUid = useCallback(() => {
+    const max = selectedCards.reduce((acc, c) => {
+      const n = parseInt(c.uid, 16);
+      return Number.isNaN(n) ? acc : Math.max(acc, n);
+    }, -1);
+    setManualUid((max + 1).toString(16).toUpperCase().padStart(8, '0'));
+  }, [selectedCards]);
+
   const handleRemoveCard = useCallback((uid) => {
     if (selectedCards.length <= MIN_CARDS) {
       toast.warning(`Mínimo ${MIN_CARDS} cartas por mazo`);
@@ -262,8 +340,8 @@ export default function DeckEditPage() {
   const handleContextChange = useCallback((context) => {
     // El DTO toGameContextDTOV1 expone `id`; mantenemos compat con `_id` por
     // si llegase un documento Mongoose crudo desde otro consumidor.
-    const incomingKey = context?._id || context?.id;
-    const currentKey = effectiveContext?._id || effectiveContext?.id;
+    const incomingKey = getId(context);
+    const currentKey = getId(effectiveContext);
     if (incomingKey && incomingKey === currentKey) return;
 
     setSelectedContext(context);
@@ -281,9 +359,10 @@ export default function DeckEditPage() {
 
   // Guardar cambios
   const handleSave = async () => {
-    // Validaciones
-    if (!deckName.trim() || deckName.trim().length < 3) {
-      toast.error('El nombre debe tener al menos 3 caracteres');
+    // Validaciones. El nombre se valida inline (no con toast) y con el mismo
+    // mínimo que el backend (2 caracteres) para no rechazar nombres válidos.
+    if (deckName.trim().length < 2) {
+      setNameError('El nombre debe tener al menos 2 caracteres');
       return;
     }
     
@@ -305,12 +384,24 @@ export default function DeckEditPage() {
       return;
     }
 
+    // Validar cardinalidad de recursos ANTES de llamar al backend (QA 2026-06-04):
+    // el servidor exige que cada valor aparezca 1 vez (Asociación/Secuencia) o
+    // exactamente 2 veces (parejas para Memoria). Si añades una carta de más a un
+    // mazo 1:1 y reutilizas un recurso, el estado queda "mixto" y el backend
+    // respondía con un 400 técnico. Aquí damos un mensaje claro y guiamos al tab.
+    const cardinality = validateAssignmentCardinality(selectedCards, cardAssignments);
+    if (!cardinality.valid) {
+      toast.error('Recursos repetidos sin formar parejas', { description: cardinality.reason });
+      dispatchUI({ type: 'SET_ACTIVE_TAB', payload: 'assign' });
+      return;
+    }
+
     setSaving(true);
     
     try {
       const updateData = {
         name: deckName.trim(),
-        contextId: effectiveContext._id || effectiveContext.id,
+        contextId: getId(effectiveContext),
         cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
@@ -323,6 +414,7 @@ export default function DeckEditPage() {
         origin: { y: 0.6 },
       });
 
+      saveBadge.trigger();
       toast.success('Mazo actualizado');
 
       // Resumen de tarjetas movidas cross-deck (ADR-022)
@@ -341,12 +433,12 @@ export default function DeckEditPage() {
       setDeck(prev => ({
         ...prev,
         name: deckName.trim(),
-        contextId: effectiveContext._id || effectiveContext.id,
+        contextId: getId(effectiveContext),
         cardMappings: updatedCardMappings
       }));
       
     } catch (err) {
-      toast.error('Error al guardar', {
+      toast.error('No pudimos guardar los cambios', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -363,7 +455,7 @@ export default function DeckEditPage() {
       deleteModal.close();
       navigate(ROUTES.CARD_DECKS);
     } catch (err) {
-      toast.error('Error al archivar', {
+      toast.error('No pudimos archivar el mazo', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -374,7 +466,7 @@ export default function DeckEditPage() {
   // Loading state
   if (loading) {
     return (
-      <div className="min-h-full bg-background-deep p-4 lg:p-8">
+      <div className="page-container py-[var(--space-fluid-section)]">
         <div className="max-w-5xl mx-auto">
           <div className="h-8 w-32 bg-background-elevated rounded animate-pulse mb-6" />
           <div className="h-12 w-64 bg-background-elevated rounded animate-pulse mb-8" />
@@ -387,7 +479,7 @@ export default function DeckEditPage() {
   // Error state
   if (error) {
     return (
-      <div className="min-h-full bg-background-deep p-4 lg:p-8 flex items-center justify-center">
+      <div className="page-container py-[var(--space-fluid-section)] flex items-center justify-center">
         <GlassCard className="p-8 max-w-md text-center">
           <AlertTriangle size={48} className="text-error-base mx-auto mb-4" />
           <h2 className="text-xl font-semibold text-text-primary mb-2">Error</h2>
@@ -417,10 +509,10 @@ export default function DeckEditPage() {
     if (asset?.key) acc.set(asset.key, (acc.get(asset.key) || 0) + 1);
     return acc;
   }, new Map());
-  const currentDeckId = deck?.id || deck?._id || deckId;
+  const currentDeckId = getId(deck) || deckId;
 
   return (
-    <div className="min-h-full bg-background-deep p-4 lg:p-8">
+    <div className="page-container py-[var(--space-fluid-section)]">
       {/* Header */}
       <motion.div
         initial={{ opacity: 0, y: -20 }}
@@ -449,7 +541,10 @@ export default function DeckEditPage() {
           <div className="flex items-center gap-3">
             <ButtonPremium
               variant="secondary"
-              onClick={() => currentDeckId && navigate(ROUTES.CARD_DECKS_DETAIL(currentDeckId))}
+              onClick={() =>
+                currentDeckId &&
+                confirmExit(() => navigate(ROUTES.CARD_DECKS_DETAIL(currentDeckId)))
+              }
               disabled={!currentDeckId}
               icon={<Eye size={16} />}
             >
@@ -463,14 +558,17 @@ export default function DeckEditPage() {
             >
               Archivar
             </ButtonPremium>
-            <ButtonPremium
-              onClick={handleSave}
-              disabled={!hasChanges || saving}
-              loading={saving}
-              icon={<Save size={16} />}
-            >
-              Guardar Cambios
-            </ButtonPremium>
+            <div className="relative">
+              <ButtonPremium
+                onClick={handleSave}
+                disabled={!hasChanges || saving}
+                loading={saving}
+                icon={<Save size={16} />}
+              >
+                Guardar Cambios
+              </ButtonPremium>
+              <InlineSuccessBadge visible={saveBadge.visible} label="Guardado" placement="left" />
+            </div>
           </div>
         </div>
       </motion.div>
@@ -481,7 +579,11 @@ export default function DeckEditPage() {
           <InputPremium
             label="Nombre del mazo"
             value={deckName}
-            onChange={(e) => setDeckName(e.target.value)}
+            onChange={(e) => {
+              setDeckName(e.target.value);
+              if (nameError) setNameError('');
+            }}
+            error={nameError}
             placeholder="Ej: Capitales de Europa"
             maxLength={50}
           />
@@ -501,16 +603,22 @@ export default function DeckEditPage() {
               onClick={() => dispatchUI({ type: 'SET_ACTIVE_TAB', payload: tab.id })}
               className={cn(
                 'flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-colors',
+                // BUG-A11Y-DECKEDIT-TAB (QA Sprint 0): accent-indigo a 60%
+                // luminancia da 4.07:1 con white. Subimos a indigo-700
+                // (Tailwind) que es más oscuro y cumple AA.
                 ui.activeTab === tab.id
-                  ? 'bg-accent-indigo text-text-primary'
-                  : 'text-text-muted hover:text-text-primary'
+                  ? 'bg-indigo-700 text-white'
+                  : 'text-text-secondary hover:text-text-primary'
               )}
             >
               <tab.icon size={16} />
               {tab.label}
               {tab.count && (
+                // BUG-A11Y-DECKEDIT-COUNT (QA Sprint 0): text-text-muted
+                // sobre bg-background-surface daba 4.23:1. text-secondary
+                // pasa AA y mantiene el rol terciario del badge.
                 <span className={cn(
-                  'text-xs px-1.5 py-0.5 rounded-full',
+                  'text-xs px-1.5 py-0.5 rounded-full text-text-secondary',
                   ui.activeTab === tab.id ? 'bg-border-strong' : 'bg-background-surface'
                 )}>
                   {tab.count}
@@ -556,18 +664,23 @@ export default function DeckEditPage() {
                       layout
                       className="relative p-4 rounded-xl bg-background-elevated/50 border border-border-default group"
                     >
+                      {/* BUG-A11Y-REMOVE-BUTTON (QA Sprint 0): el botón
+                          sólo contiene icono X — sin aria-label el botón no
+                          tiene nombre accesible (Tooltip aporta title visual
+                          pero no aria-labelledby). */}
                       <Tooltip content="Quitar carta">
                         <button
                           onClick={() => handleRemoveCard(card.uid)}
                           disabled={selectedCards.length <= MIN_CARDS}
+                          aria-label={`Quitar carta ${card.uid}`}
                           className={cn(
                             'absolute -top-2 -right-2 size-6 rounded-full',
-                            'bg-error-base text-text-primary flex items-center justify-center',
+                            'bg-error-base text-white flex items-center justify-center',
                             'opacity-0 group-hover:opacity-100 transition-opacity',
-                            'hover:bg-error-base/80 disabled:opacity-50 disabled:cursor-not-allowed'
+                            'hover:bg-error-dark disabled:opacity-50 disabled:cursor-not-allowed'
                           )}
                         >
-                          <X size={12} />
+                          <X size={12} aria-hidden="true" />
                         </button>
                       </Tooltip>
                       
@@ -618,15 +731,15 @@ export default function DeckEditPage() {
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
                     {contexts.map((context) => {
-                      const ctxKey = context._id || context.id;
-                      const effectiveKey = effectiveContext?._id || effectiveContext?.id;
+                      const ctxKey = getId(context);
+                      const effectiveKey = getId(effectiveContext);
                       const isSelected = Boolean(effectiveKey) && effectiveKey === ctxKey;
                       return (
                       <motion.button
                         key={ctxKey}
                         onClick={() => handleContextChange(context)}
                         className={cn(
-                          'relative p-4 rounded-xl border-2 transition-[border-color,background-color] text-left',
+                          'relative p-4 rounded-xl border-2 transition-[border-color,background-color] duration-200 text-left focus-ring',
                           isSelected
                             ? 'border-accent-indigo bg-accent-indigo/10'
                             : 'border-border-default bg-background-elevated/30 hover:border-border-strong'
@@ -636,17 +749,18 @@ export default function DeckEditPage() {
                       >
                         <div className="flex flex-wrap gap-1.5 mb-3 h-10 overflow-hidden">
                           {context.assets?.slice(0, 6).map((asset) => (
-                            <span
+                            <CardAssetPreview
                               key={asset?.key || asset?.value || asset?.id || asset?.display || `${ctxKey}-asset`}
-                              className="text-2xl"
-                            >
-                              {asset.display || '📦'}
-                            </span>
+                              asset={asset}
+                              className="size-8 rounded-lg flex-shrink-0"
+                              showSkeleton={false}
+                              fallbackLabel={asset.display}
+                            />
                           ))}
                         </div>
                         <h3 className="font-medium text-text-primary mb-1">{context.name}</h3>
                         <p className="text-xs text-text-muted">
-                          {context.assets?.length || 0} assets
+                          {context.assets?.length || 0} recursos
                         </p>
                       </motion.button>
                       );
@@ -717,7 +831,7 @@ export default function DeckEditPage() {
                   {ui.activeUid ? (
                     <>
                       <h3 className="font-medium text-text-primary mb-3">
-                        Assets de &quot;{effectiveContext?.name}&quot;
+                        Recursos de &quot;{effectiveContext?.name}&quot;
                       </h3>
                       <AssetSelector
                         assets={effectiveContext?.assets || []}
@@ -750,6 +864,9 @@ export default function DeckEditPage() {
             onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
           >
             <motion.div
+              role="dialog"
+              aria-modal="true"
+              aria-labelledby="add-cards-title"
               initial={{ scale: 0.9, opacity: 0 }}
               animate={{ scale: 1, opacity: 1 }}
               exit={{ scale: 0.9, opacity: 0 }}
@@ -757,7 +874,7 @@ export default function DeckEditPage() {
               className="bg-background-base border border-border-default rounded-2xl p-6 max-w-3xl w-full max-h-[80vh] overflow-y-auto"
             >
               <div className="flex items-center justify-between mb-4">
-                <h3 className="text-lg font-semibold text-text-primary">Añadir cartas</h3>
+                <h3 id="add-cards-title" className="text-lg font-semibold text-text-primary">Añadir cartas</h3>
                 <Tooltip content="Cerrar">
                   <button
                     onClick={() => dispatchUI({ type: 'HIDE_ADD_CARDS' })}
@@ -766,6 +883,46 @@ export default function DeckEditPage() {
                     <X size={20} className="text-text-muted" />
                   </button>
                 </Tooltip>
+              </div>
+
+              {/* Entrada manual de UID — paridad con el wizard de creación, para
+                  añadir tarjetas sin lector físico (QA 2026-06-04). */}
+              <div className="mb-4 rounded-xl border border-border-default bg-background-elevated/40 p-3">
+                <label htmlFor="edit-manual-uid" className="block text-sm font-medium text-text-secondary mb-2">
+                  Entrada manual de UID
+                </label>
+                <div className="flex flex-col sm:flex-row gap-2 items-stretch sm:items-start">
+                  {/* Paridad con StepCards del wizard: InputPremium + ButtonPremium
+                      (ghost "Generar UID" con Wand2, primary "Añadir" con Check).
+                      El input usa id="edit-manual-uid" para conservar el htmlFor del
+                      <label> superior; no se pasa `label` a InputPremium para no
+                      duplicar la etiqueta visible. */}
+                  <div className="flex-1">
+                    <InputPremium
+                      id="edit-manual-uid"
+                      value={manualUid}
+                      onChange={(e) => setManualUid(e.target.value)}
+                      onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); handleAddManualCard(); } }}
+                      placeholder="Ej: 0000000A"
+                    />
+                  </div>
+                  <ButtonPremium
+                    variant="ghost"
+                    onClick={handleGenerateUid}
+                    icon={<Wand2 size={16} />}
+                    title="Generar UID secuencial"
+                  >
+                    Generar UID
+                  </ButtonPremium>
+                  <ButtonPremium
+                    onClick={handleAddManualCard}
+                    disabled={!manualUid.trim()}
+                    icon={<Check size={16} />}
+                  >
+                    Añadir
+                  </ButtonPremium>
+                </div>
+                <p className="mt-1.5 text-xs text-text-muted">¿Sin lector a mano? Escribe el identificador de la tarjeta o genera uno.</p>
               </div>
 
               <RFIDScannerPanel
@@ -793,7 +950,7 @@ export default function DeckEditPage() {
           </>
         }
         variant="archive"
-        confirmLabel="Archivar"
+        confirmText="Archivar"
         loading={deleteLoading}
       />
 
@@ -808,7 +965,10 @@ export default function DeckEditPage() {
           >
             <div className="flex items-center gap-3 px-4 py-3 rounded-xl bg-warning-base/20 border border-warning-base/50 backdrop-blur-lg">
               <AlertTriangle size={18} className="text-warning-base" />
-              <span className="text-sm text-warning-base/80">Tienes cambios sin guardar</span>
+              {/* BUG-A11Y-DECKEDIT-UNSAVED (QA Sprint 0): warning-base sólido
+                  cumple en dark pero falla en light (3.03). light:text-warning-dark
+                  resuelve ambos temas. */}
+              <span className="text-sm text-warning-on-alpha">Tienes cambios sin guardar</span>
               <ButtonPremium
                 size="sm"
                 onClick={handleSave}
@@ -822,16 +982,11 @@ export default function DeckEditPage() {
         )}
       </AnimatePresence>
 
-      <ConfirmationModal
-        open={isBlocked}
-        onConfirm={() => blocker.proceed()}
-        onClose={() => blocker.reset()}
-        title="Cambios sin guardar"
-        description="Tienes cambios sin guardar. Si sales ahora, perderás los cambios realizados."
-        variant="warning"
-        confirmText="Salir sin guardar"
-        cancelText="Seguir editando"
-      />
+      {/* T-957: modal de confirmación al salir con cambios sin guardar
+          (botones programáticos via confirmExit). Cubre "Ver detalle" y
+          otros navigate() del wizard; los <Link> de breadcrumb/sidebar
+          siguen sin bloquearse hasta migrar a Data Router. */}
+      <ConfirmationModal {...confirmExitModalProps} />
     </div>
   );
 }

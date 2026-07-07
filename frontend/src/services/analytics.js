@@ -5,23 +5,32 @@ const analyticsService = {
 
   /**
    * Obtiene el resumen global de la clase (KPIs).
+   * @param {Object} [params] - Query params: timeRange, contextId, mechanicId
    * @param {Object} [config] - Configuracion de Axios (AbortController, etc.)
    * @returns {Promise<Object>} KPIs de la clase
    */
-  getClassroomSummary: async (config = {}) => {
-    const response = await api.get('/analytics/classroom/summary', config);
+  getClassroomSummary: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/classroom/summary', {
+      params,
+      ...config
+    });
     return extractData(response);
   },
 
   /**
    * Obtiene el progreso comparativo de la clase (grafico de area/linea).
-   * @param {string} [timeRange='7d'] - '7d' o '30d'
+   * @param {string} [timeRange='7d'] - '7d', '30d' o '90d'
+   * @param {Object} [filters] - Filtros opcionales: contextId, mechanicId
    * @param {Object} [config] - Configuracion de Axios
    * @returns {Promise<Array>} Datos para el grafico
    */
-  getClassroomComparison: async (timeRange = '7d', config = {}) => {
+  getClassroomComparison: async (timeRange = '7d', { contextId, mechanicId } = {}, config = {}) => {
     const response = await api.get('/analytics/classroom/comparison', {
-      params: { timeRange },
+      params: {
+        timeRange,
+        ...(contextId && { contextId }),
+        ...(mechanicId && { mechanicId })
+      },
       ...config
     });
     return extractData(response);
@@ -29,13 +38,18 @@ const analyticsService = {
 
   /**
    * Obtiene tendencias con cambio porcentual (periodo actual vs anterior).
-   * @param {string} [timeRange='7d'] - '7d' o '30d'
+   * @param {string} [timeRange='7d'] - '7d', '30d' o '90d'
+   * @param {Object} [filters] - Filtros opcionales: contextId, mechanicId
    * @param {Object} [config] - Configuracion de Axios
    * @returns {Promise<Object>} KPIs con current, previous, change, changePercent
    */
-  getClassroomTrends: async (timeRange = '7d', config = {}) => {
+  getClassroomTrends: async (timeRange = '7d', { contextId, mechanicId } = {}, config = {}) => {
     const response = await api.get('/analytics/classroom/trends', {
-      params: { timeRange },
+      params: {
+        timeRange,
+        ...(contextId && { contextId }),
+        ...(mechanicId && { mechanicId })
+      },
       ...config
     });
     return extractData(response);
@@ -180,6 +194,22 @@ const analyticsService = {
   },
 
   /**
+   * Historial COMPLETO de partidas del alumno, paginado («Cargar más»).
+   * Complementa `summary.lastGames` (cap 10): aquí se accede a la trayectoria entera.
+   * @param {string} studentId - ID del estudiante
+   * @param {Object} [params] - Query params: page, limit
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<{games: Array<Object>, pagination: {page:number, limit:number, total:number, totalPages:number}}>}
+   */
+  getStudentGames: async (studentId, params = {}, config = {}) => {
+    const response = await api.get(`/analytics/student/${studentId}/games`, {
+      params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
    * Obtiene la trayectoria de aprendizaje con tendencia calculada (mejorando/estable/declinando).
    * @param {string} studentId - ID del estudiante
    * @param {Object} [params] - Query params: timeRange (7d/30d/90d), granularity (daily/weekly/monthly)
@@ -301,13 +331,44 @@ const analyticsService = {
 
   /**
    * Analiza que contextos/mecanicas producen mejor aprendizaje.
-   * @param {Object} [params] - Query params: timeRange, groupBy (context/mechanic)
+   *
+   * Soporta tres modos:
+   *  - `groupBy: 'context'` — efectividad por contexto (vista 1D, default).
+   *  - `groupBy: 'mechanic'` — efectividad por mecanica (vista 1D).
+   *  - `groupBy: 'cross'` — matriz cruzada mecanica × contexto (T-942 Fase A).
+   *    Cuando se solicita 'cross', acepta tambien `includeEmpty` (bool) para
+   *    incluir celdas sin partidas.
+   *
+   * @param {Object} [params] - Query params: timeRange, groupBy, includeEmpty
    * @param {Object} [config] - Configuracion de Axios
-   * @returns {Promise<Object>} Efectividad por contenido
+   * @returns {Promise<Object>} Efectividad por contenido. Para 'cross':
+   *   `{ items, groupBy: 'cross' }`. Para 1D: `{ items, groupBy }`.
    */
   getContentEffectiveness: async (params = {}, config = {}) => {
     const response = await api.get('/analytics/classroom/content-effectiveness', {
       params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  /**
+   * Atajo semántico para la matriz cruzada (T-942 Fase C). Internamente
+   * delega en `getContentEffectiveness` con `groupBy: 'cross'`.
+   *
+   * @param {Object} [opts]
+   * @param {string} [opts.timeRange='30d']
+   * @param {'context'|'mechanic'|'cross'} [opts.groupBy='cross']
+   * @param {boolean} [opts.includeEmpty=false]
+   * @param {Object} [config]
+   * @returns {Promise<{items: Array, groupBy: string}>}
+   */
+  getClassroomContentEffectiveness: async (
+    { timeRange = '30d', groupBy = 'cross', includeEmpty = false } = {},
+    config = {}
+  ) => {
+    const response = await api.get('/analytics/classroom/content-effectiveness', {
+      params: { timeRange, groupBy, includeEmpty },
       ...config
     });
     return extractData(response);
@@ -355,31 +416,88 @@ const analyticsService = {
     return extractData(response);
   },
 
-  // ──────────────── Alerts ────────────────
+  // ──────────────── Alerts (T-941) ────────────────
 
   /**
-   * Obtiene alertas inteligentes computadas server-side.
-   * Tipos: declining_performance, inactivity, sudden_score_drop,
-   *        consistent_timeout, improving_fast, plateau_detected, high_abandonment
-   * @param {Object} [params] - Query params: severity, type, limit
+   * Obtiene alertas inteligentes persistidas.
+   * Estados: active | resolved | dismissed | snoozed (default: active)
+   * 13 tipos catalogados — ver `constants/alertTypes.js`.
+   *
+   * @param {Object} [params] - Query params: status, severity, type, studentId, cursor, limit
    * @param {Object} [config] - Configuracion de Axios
-   * @returns {Promise<Object>} Alertas activas con severidad e interpretacion
+   * @returns {Promise<{ items: object[], nextCursor: string|null }>}
    */
   getAlerts: async (params = {}, config = {}) => {
-    const response = await api.get('/analytics/alerts', {
-      params,
-      ...config
-    });
+    const response = await api.get('/analytics/alerts', { params, ...config });
     return extractData(response);
   },
 
   /**
-   * Obtiene resumen de alertas (conteos) para badges del sidebar.
-   * @param {Object} [config] - Configuracion de Axios
-   * @returns {Promise<Object>} Conteos de alertas por severidad y tipo
+   * Conteos por severidad/estado/tipo para badges.
    */
   getAlertsSummary: async (config = {}) => {
     const response = await api.get('/analytics/alerts/summary', config);
+    return extractData(response);
+  },
+
+  /**
+   * Dashboard interno del sistema (H.3).
+   */
+  getAlertsEffectiveness: async (params = {}, config = {}) => {
+    const response = await api.get('/analytics/alerts/effectiveness', { params, ...config });
+    return extractData(response);
+  },
+
+  /**
+   * Detalle individual.
+   */
+  getAlertById: async (id, config = {}) => {
+    const response = await api.get(`/analytics/alerts/${id}`, config);
+    return extractData(response);
+  },
+
+  /**
+   * Audit log de una alerta (H.2).
+   */
+  getAlertHistory: async (id, config = {}) => {
+    const response = await api.get(`/analytics/alerts/${id}/history`, config);
+    return extractData(response);
+  },
+
+  dismissAlert: async (id, { reason } = {}, config = {}) => {
+    const response = await api.patch(`/analytics/alerts/${id}/dismiss`, { reason }, config);
+    return extractData(response);
+  },
+
+  resolveAlert: async (id, config = {}) => {
+    const response = await api.patch(`/analytics/alerts/${id}/resolve`, {}, config);
+    return extractData(response);
+  },
+
+  snoozeAlert: async (id, { untilDays, untilDate } = {}, config = {}) => {
+    const body = {};
+    if (untilDate) body.untilDate = untilDate;
+    if (untilDays) body.untilDays = untilDays;
+    const response = await api.patch(`/analytics/alerts/${id}/snooze`, body, config);
+    return extractData(response);
+  },
+
+  pinAlert: async (id, config = {}) => {
+    const response = await api.patch(`/analytics/alerts/${id}/pin`, {}, config);
+    return extractData(response);
+  },
+
+  unpinAlert: async (id, config = {}) => {
+    const response = await api.patch(`/analytics/alerts/${id}/unpin`, {}, config);
+    return extractData(response);
+  },
+
+  bulkAlertAction: async ({ ids, action, reason, untilDays, untilDate } = {}, config = {}) => {
+    const body = { ids, action };
+    if (reason) body.reason = reason;
+    if (untilDays) body.untilDays = untilDays;
+    if (untilDate) body.untilDate = untilDate;
+    const response = await api.post('/analytics/alerts/bulk-action', body, config);
     return extractData(response);
   },
 
@@ -423,6 +541,24 @@ const analyticsService = {
   getClassroomExport: async (params = {}, config = {}) => {
     const response = await api.get('/analytics/reports/classroom/export', {
       params,
+      ...config
+    });
+    return extractData(response);
+  },
+
+  // ──────────────── Admin Overview (T-942 Fase D) ────────────────
+
+  /**
+   * Obtiene los KPIs agregados del centro educativo (solo super_admin).
+   * Endpoint cacheado en backend con TTL 300s.
+   *
+   * @param {Object} [params] - Query params: timeRange ('7d' | '30d' | '90d')
+   * @param {Object} [config] - Configuracion de Axios
+   * @returns {Promise<Object>} { users, activity, content, alerts, topTeachers, topMechanics, topContexts, generatedAt }
+   */
+  getAdminOverview: async ({ timeRange = '30d' } = {}, config = {}) => {
+    const response = await api.get('/admin/analytics/overview', {
+      params: { timeRange },
       ...config
     });
     return extractData(response);

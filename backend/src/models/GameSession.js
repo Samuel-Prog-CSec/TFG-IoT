@@ -31,7 +31,7 @@ const { SESSION_STATUS, DIFFICULTY } = require('../constants/enums');
  * Rangos de dificultad:
  * - easy: 2-5 tarjetas (juegos simples para niños pequeños)
  * - medium: 6-12 tarjetas (dificultad intermedia)
- * - hard: 13-30 tarjetas (juegos más desafiantes)
+ * - hard: 13-20 tarjetas (juegos más desafiantes)
  *
  * @param {number} numberOfCards - Número de tarjetas en el juego
  * @returns {string} Nivel de dificultad ('easy', 'medium', 'hard')
@@ -57,7 +57,7 @@ const calculateDifficulty = numberOfCards => {
  * @property {ObjectId} contextId - Referencia al contexto temático del juego
  * @property {string} [sensorId] - ID del sensor RFID asignado a esta sesión (T-009)
  * @property {Object} config - Configuración de las reglas del juego
- * @property {number} config.numberOfCards - Cantidad de tarjetas RFID usadas en el juego (2-30)
+ * @property {number} config.numberOfCards - Cantidad de tarjetas RFID usadas en el juego (2-20)
  * @property {number} config.numberOfRounds - Número de rondas/desafíos del juego
  * @property {number} config.timeLimit - Tiempo límite en segundos (3-300, según mecánica)
  * @property {number} config.pointsPerCorrect - Puntos otorgados por respuesta correcta
@@ -83,6 +83,15 @@ const gameSessionSchema = new mongoose.Schema(
       ref: 'GameMechanic',
       required: true
     },
+    // Tipo de mecánica denormalizado desde GameMechanic.name. Fuente de verdad
+    // explícita para scoring y flujo de juego (evita inferir por "huella de
+    // datos"). No required: las sesiones legacy se rellenan por migración y el
+    // cálculo de maxScore tiene fallback por huella mientras tanto (ADR-193).
+    mechanicType: {
+      type: String,
+      enum: ['association', 'sequence', 'memory'],
+      index: true
+    },
     deckId: {
       type: mongoose.Schema.Types.ObjectId,
       ref: 'CardDeck',
@@ -107,7 +116,7 @@ const gameSessionSchema = new mongoose.Schema(
         type: Number,
         required: true,
         min: 2,
-        max: 30
+        max: 20
       },
       numberOfRounds: {
         type: Number,
@@ -121,9 +130,12 @@ const gameSessionSchema = new mongoose.Schema(
         max: 300,
         default: 15
       },
+      // ADR-114: rangos unificados entre mecánicas para evitar deformación
+      // del ranking. 5-15 / -5..0 son los rangos pedagógicos válidos.
       pointsPerCorrect: {
         type: Number,
-        min: [1, 'Los puntos por acierto deben ser mayores que 0'],
+        min: [5, 'Los puntos por acierto deben ser al menos 5'],
+        max: [15, 'Los puntos por acierto no pueden exceder 15'],
         default: 10,
         validate: {
           validator: Number.isInteger,
@@ -132,6 +144,7 @@ const gameSessionSchema = new mongoose.Schema(
       },
       penaltyPerError: {
         type: Number,
+        min: [-5, 'La penalización por error no puede ser inferior a -5'],
         max: [0, 'Los puntos por error deben ser cero o negativos'],
         default: -2,
         validate: {
@@ -206,6 +219,96 @@ const gameSessionSchema = new mongoose.Schema(
     requiresAssociationPlanConfiguration: {
       type: Boolean,
       default: false
+    },
+    /**
+     * Plan de secuencias para la mecánica Secuencia.
+     * Cada ronda contiene una secuencia ordenada de cartas que el alumno
+     * debe memorizar y reproducir. Se persiste para que todos los alumnos
+     * asignados a la sesión jueguen las mismas secuencias.
+     */
+    sequencePlan: [
+      {
+        roundNumber: {
+          type: Number,
+          required: true,
+          min: 1
+        },
+        length: {
+          type: Number,
+          required: true,
+          min: 1,
+          max: 12
+        },
+        sequence: [
+          {
+            uid: {
+              type: String,
+              required: true,
+              uppercase: true,
+              trim: true,
+              match: [
+                /^[0-9A-F]{8}$|^[0-9A-F]{14}$/,
+                'UID debe ser 8 o 14 caracteres hexadecimales'
+              ]
+            },
+            assignedValue: {
+              type: String,
+              required: true
+            },
+            displayData: mongoose.Schema.Types.Mixed
+          }
+        ]
+      }
+    ],
+    /**
+     * Configuración específica de la mecánica Secuencia. Persiste los
+     * parámetros que el profesor define en el wizard (longitud min/max
+     * de las secuencias y duración del display de memorización).
+     */
+    sequenceConfig: {
+      minSequenceLength: {
+        type: Number,
+        min: 1,
+        max: 12,
+        default: 3
+      },
+      maxSequenceLength: {
+        type: Number,
+        min: 1,
+        max: 12,
+        default: 5
+      },
+      displaySeconds: {
+        type: Number,
+        min: 2,
+        max: 8,
+        default: 3
+      },
+      /**
+       * Audio en las pistas (accesibilidad pre-lectora). Si la carta esperada
+       * tiene audio, se reproduce cuando el alumno falla: en Fácil acompaña a
+       * las dos pistas de texto (parcial y palabra completa); en Media suena
+       * una vez en el primer fallo (no hay pista de texto pero sí un intento
+       * extra); en Difícil nunca (un único intento, sin pistas). Lo decide el
+       * profesor en el wizard.
+       */
+      autoPlayHints: {
+        type: Boolean,
+        default: false
+      }
+    },
+    /**
+     * Configuración específica de la mecánica Asociación. `autoPlayPrompt`:
+     * si las tarjetas del reto tienen audio, reproducirlo automáticamente al
+     * empezar cada ronda (locución de la consigna como pista de accesibilidad
+     * para alumnos pre-lectores). Lo decide el profesor en el wizard; el botón
+     * de reproducción manual sigue disponible independientemente de este valor.
+     */
+    associationConfig: {
+      autoPlayPrompt: {
+        type: Boolean,
+        default: false
+      }
     },
     status: {
       type: String,
@@ -293,6 +396,9 @@ gameSessionSchema.pre('save', function () {
  * Asegura que:
  * 1. El array no esté vacío
  * 2. El número de mapeos coincida con config.numberOfCards
+ * 3. Los UIDs sean únicos dentro del mazo (no se puede usar la misma tarjeta dos veces).
+ *    Replica el check existente en CardDeck.path('cardMappings').validate(...) para
+ *    cerrar el flanco contra inserts que bypaseen Zod (seed manual, migraciones).
  *
  * @param {Array<CardMapping>} value - El array de cardMappings a validar
  * @returns {boolean} true si la validación es exitosa, false en caso contrario
@@ -306,8 +412,13 @@ gameSessionSchema.path('cardMappings').validate(function (value) {
     return false;
   }
 
+  const uids = value.map(m => m.uid).filter(Boolean);
+  if (new Set(uids).size !== uids.length) {
+    return false;
+  }
+
   return true;
-}, 'El número de cardMappings no es válido o está vacío.');
+}, 'cardMappings no es válido: revisa cantidad de tarjetas o UIDs duplicados.');
 
 gameSessionSchema.path('boardLayout').validate(function (value) {
   if (!Array.isArray(value) || value.length === 0) {
@@ -335,6 +446,67 @@ gameSessionSchema.path('boardLayout').validate(function (value) {
 
   return true;
 }, 'boardLayout no es válido: revisa slots duplicados o tarjetas fuera del mazo.');
+
+/**
+ * Validador del plan de secuencias.
+ * - roundNumbers únicos
+ * - cada secuencia con al menos 1 elemento y sin UIDs duplicados
+ * - todos los UIDs presentes en cardMappings
+ * - length coincide con sequence.length
+ */
+gameSessionSchema.path('sequencePlan').validate(function (value) {
+  if (!Array.isArray(value) || value.length === 0) {
+    return true;
+  }
+
+  const roundNumbers = value.map(item => item.roundNumber);
+  if (new Set(roundNumbers).size !== roundNumbers.length) {
+    return false;
+  }
+
+  const mappingUids = new Set((this.cardMappings || []).map(mapping => mapping.uid));
+
+  for (const round of value) {
+    if (!Array.isArray(round.sequence) || round.sequence.length === 0) {
+      return false;
+    }
+    if (Number(round.length) !== round.sequence.length) {
+      return false;
+    }
+    const uids = round.sequence.map(item => item.uid).filter(Boolean);
+    if (uids.length !== round.sequence.length) {
+      return false;
+    }
+    if (new Set(uids).size !== uids.length) {
+      return false;
+    }
+    if (uids.some(uid => !mappingUids.has(uid))) {
+      return false;
+    }
+  }
+
+  return true;
+}, 'sequencePlan no es válido: revisa rondas duplicadas, UIDs duplicados o tarjetas fuera del mazo.');
+
+/**
+ * Validación de sequenceConfig: minSequenceLength <= maxSequenceLength.
+ * Implementada como middleware pre('validate') porque Mongoose no expone
+ * la validación de subdocumentos definidos inline mediante `.path()`.
+ */
+gameSessionSchema.pre('validate', function () {
+  const cfg = this.sequenceConfig;
+  if (!cfg) {
+    return;
+  }
+  const min = Number(cfg.minSequenceLength);
+  const max = Number(cfg.maxSequenceLength);
+  if (Number.isFinite(min) && Number.isFinite(max) && min > max) {
+    this.invalidate(
+      'sequenceConfig.minSequenceLength',
+      'minSequenceLength debe ser <= maxSequenceLength'
+    );
+  }
+});
 
 /**
  * Índice para búsqueda de sesiones por estado.

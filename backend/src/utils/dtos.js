@@ -67,7 +67,11 @@ const mapStudentMetrics = metrics => {
     totalCorrectAnswers: metrics.totalCorrectAnswers,
     totalErrors: metrics.totalErrors,
     averageResponseTime: metrics.averageResponseTime,
-    lastPlayedAt: metrics.lastPlayedAt
+    lastPlayedAt: metrics.lastPlayedAt,
+    // Mejor longitud de secuencia alcanzada en cualquier partida (mecánica
+    // Secuencia). `undefined` para alumnos que no han jugado todavía o
+    // documentos previos a T-921.
+    maxSequenceLengthAchieved: metrics.maxSequenceLengthAchieved
   };
 };
 
@@ -75,7 +79,7 @@ const mapGamePlayMetrics = metrics => {
   if (!metrics) {
     return undefined;
   }
-  return {
+  const base = {
     totalAttempts: metrics.totalAttempts,
     correctAttempts: metrics.correctAttempts,
     errorAttempts: metrics.errorAttempts,
@@ -83,6 +87,74 @@ const mapGamePlayMetrics = metrics => {
     averageResponseTime: metrics.averageResponseTime,
     completionTime: metrics.completionTime
   };
+
+  // Métricas específicas de Secuencia. Se exponen sólo si están presentes
+  // en el documento (no se inicializan a 0 para evitar contaminar plays de
+  // Asociación/Memoria con campos no aplicables).
+  const sequenceFields = [
+    'sequencesCompleted',
+    'sequencesBlocked',
+    'sequencesTimedOut',
+    'maxSequenceLengthAchieved',
+    'partialReproductions',
+    'partialRounds',
+    'roundsPlayed',
+    'averageReproductionTimeMs',
+    'blockedCardsTotal',
+    'hintsUsed'
+  ];
+  for (const key of sequenceFields) {
+    if (metrics[key] !== undefined) {
+      base[key] = metrics[key];
+    }
+  }
+
+  // Métricas específicas de Memoria (ADR-A). Sólo aparecen para plays
+  // 'memory'; en otros tipos el sub-objeto queda undefined y se omite.
+  if (metrics.memory) {
+    const m =
+      typeof metrics.memory.toObject === 'function' ? metrics.memory.toObject() : metrics.memory;
+    base.memory = {
+      groupsMatched: Number.isFinite(Number(m.groupsMatched)) ? Number(m.groupsMatched) : 0,
+      peakStreak: Number.isFinite(Number(m.peakStreak)) ? Number(m.peakStreak) : 0,
+      averageMatchTimeMs: Number.isFinite(Number(m.averageMatchTimeMs))
+        ? Number(m.averageMatchTimeMs)
+        : 0,
+      attemptsToFirstMatch: m.attemptsToFirstMatch ?? null,
+      groupSize: Number.isFinite(Number(m.groupSize)) ? Number(m.groupSize) : 2
+    };
+  }
+
+  // Métricas específicas de Asociación (ADR-A). El mapa byValueAccuracy se
+  // serializa a objeto plano para que el frontend pueda mapearlo sin saber
+  // de Mongoose. categoryDominance se incluye sólo si hay un slug claro.
+  if (metrics.association) {
+    const a =
+      typeof metrics.association.toObject === 'function'
+        ? metrics.association.toObject()
+        : metrics.association;
+    const byValueAccuracy =
+      a.byValueAccuracy && typeof a.byValueAccuracy === 'object'
+        ? Object.fromEntries(
+            Object.entries(a.byValueAccuracy).map(([key, value]) => [
+              key,
+              {
+                correct: Number(value?.correct || 0),
+                total: Number(value?.total || 0)
+              }
+            ])
+          )
+        : {};
+    base.association = {
+      peakStreak: Number.isFinite(Number(a.peakStreak)) ? Number(a.peakStreak) : 0,
+      quickestCorrectMs: a.quickestCorrectMs ?? null,
+      slowestCorrectMs: a.slowestCorrectMs ?? null,
+      byValueAccuracy,
+      categoryDominance: a.categoryDominance ?? null
+    };
+  }
+
+  return base;
 };
 
 const mapGamePlayEvents = events =>
@@ -125,8 +197,21 @@ const toUserDTOV1 = user => {
       ? {
           avatar: userData.profile.avatar,
           age: userData.profile.age,
-          classroom: userData.profile.classroom
+          classroom: userData.profile.classroom,
           // birthdate ELIMINADO: Art. 5.1.c RGPD (minimización)
+          // Onboarding interactivo (T-951 PROP-13). Se expone al cliente
+          // para que `useOnboarding` pueda hidratar su estado y NO mostrar
+          // el tour a usuarios que ya lo completaron.
+          onboarding: userData.profile.onboarding
+            ? {
+                teacherCompleted: !!userData.profile.onboarding.teacherCompleted,
+                superAdminCompleted: !!userData.profile.onboarding.superAdminCompleted,
+                currentStep: userData.profile.onboarding.currentStep ?? 0,
+                currentTrack: userData.profile.onboarding.currentTrack ?? null,
+                version: userData.profile.onboarding.version ?? 1,
+                lastSeenAt: userData.profile.onboarding.lastSeenAt ?? null
+              }
+            : undefined
         }
       : undefined,
     createdBy: mapCreatedBy(userData.createdBy),
@@ -187,10 +272,15 @@ const toUserSummaryDTOV1 = user => {
   }
 
   const userData = toPlainObject(user);
+  const hasLogin = ['teacher', 'super_admin'].includes(userData.role);
 
   return {
     id: toId(userData),
     name: userData.name,
+    // Email solo para roles con login (docentes/dirección); los alumnos no
+    // tienen. Necesario en la lista de aprobaciones, donde la dirección
+    // identifica y busca por email a los profesores pendientes.
+    email: hasLogin ? userData.email : undefined,
     role: userData.role,
     status: userData.status,
     profile: userData.profile
@@ -255,6 +345,10 @@ const toGamePlayDTOV1 = gameplay => {
     playerId: toId(playData.playerId),
     player: playerRef,
     score: playData.score,
+    // ADR-114: techo absoluto de la partida — el frontend lo usa para
+    // pintar `score / maxScore (Z%)` en el GameOver y dar contexto al
+    // alumno y al docente sobre qué % de lo posible se logró.
+    maxScore: playData.maxScore ?? null,
     currentRound: playData.currentRound,
     status: playData.status,
     pausedAt: playData.pausedAt,
@@ -360,6 +454,47 @@ const mapAssociationChallengeItemDTOV1 = challengeItem => {
   };
 };
 
+const mapSequenceItemDTOV1 = item => {
+  const itemData = toPlainObject(item);
+  return {
+    uid: itemData.uid,
+    assignedValue: itemData.assignedValue,
+    displayData: itemData.displayData
+  };
+};
+
+const mapSequencePlanRoundDTOV1 = round => {
+  const roundData = toPlainObject(round);
+  return {
+    roundNumber: roundData.roundNumber,
+    length: roundData.length,
+    sequence: Array.isArray(roundData.sequence) ? roundData.sequence.map(mapSequenceItemDTOV1) : []
+  };
+};
+
+const mapSequenceConfigDTOV1 = config => {
+  if (!config) {
+    return undefined;
+  }
+  const cfg = toPlainObject(config);
+  return {
+    minSequenceLength: cfg.minSequenceLength,
+    maxSequenceLength: cfg.maxSequenceLength,
+    displaySeconds: cfg.displaySeconds,
+    autoPlayHints: Boolean(cfg.autoPlayHints)
+  };
+};
+
+const mapAssociationConfigDTOV1 = config => {
+  if (!config) {
+    return undefined;
+  }
+  const cfg = toPlainObject(config);
+  return {
+    autoPlayPrompt: Boolean(cfg.autoPlayPrompt)
+  };
+};
+
 /**
  * DTO v1 para GameSession (resumen sin cardMappings).
  *
@@ -402,11 +537,23 @@ const toGameSessionDTOV1 = session => {
     associationChallengePlan: Array.isArray(sessionData.associationChallengePlan)
       ? sessionData.associationChallengePlan.map(mapAssociationChallengeItemDTOV1)
       : [],
+    sequencePlan: Array.isArray(sessionData.sequencePlan)
+      ? sessionData.sequencePlan.map(mapSequencePlanRoundDTOV1)
+      : [],
+    sequenceConfig: mapSequenceConfigDTOV1(sessionData.sequenceConfig),
+    associationConfig: mapAssociationConfigDTOV1(sessionData.associationConfig),
     requiresAssociationPlanConfiguration: Boolean(sessionData.requiresAssociationPlanConfiguration),
     status: sessionData.status,
     difficulty: sessionData.difficulty,
     // Play stats (attached externally by controller when listing sessions)
     playStats: sessionData.playStats || null,
+    // Disponibilidad de recursos (ADR-231): la adjunta el controller en
+    // listado/detalle cuando popula contexto y mazo. undefined = el endpoint
+    // no la calcula (el frontend no degrada la sesión en ese caso).
+    resourcesAvailable:
+      sessionData.resourcesAvailable === undefined
+        ? undefined
+        : Boolean(sessionData.resourcesAvailable),
     startedAt: sessionData.startedAt,
     endedAt: sessionData.endedAt,
     createdAt: sessionData.createdAt,
@@ -762,6 +909,13 @@ const toSystemMetricsDTOV1 = payload => ({
   // Clave para detectar en producción si el cache y el rate-limit distribuidos
   // están operativos.
   redis: payload.redis,
+  // B.6 (pre-v1.0.0): visibility del modo activo del rate limiter Socket.IO
+  // (Redis ZSET distribuido vs memory-local). Sin esto no se puede validar
+  // en Koyeb prod que el path correcto está en uso.
+  socketRateLimiter: payload.socketRateLimiter,
+  // T-931 (pre-v1.0.0): contadores de la materialización Redis (ZSET
+  // leaderboards + Hash studentMetrics + reconciliación BullMQ nocturna).
+  t931: payload.t931,
   memory: payload.memory
 });
 
@@ -819,6 +973,254 @@ const toStudentIdentityDTOV1 = user => {
   };
 };
 
+/**
+ * DTO v1 para Notification (T-955). Serializa el documento Mongoose a un
+ * objeto plano apto para enviar por HTTP y por Socket.IO `notification:created`.
+ *
+ * @param {Object} doc - Documento Notification de Mongoose o plain object.
+ * @returns {Object|null}
+ */
+const toNotificationDTOV1 = doc => {
+  if (!doc) {
+    return null;
+  }
+  const data = toPlainObject(doc);
+  return {
+    id: toId(data),
+    type: data.type,
+    priority: data.priority || 'info',
+    title: data.title,
+    body: data.body || '',
+    link: data.link || null,
+    metadata: data.metadata && typeof data.metadata === 'object' ? { ...data.metadata } : {},
+    read: !!data.read,
+    readAt: data.readAt || null,
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt
+  };
+};
+
+/**
+ * DTO para alertas inteligentes persistidas (T-941).
+ *
+ * Incluye virtuals `daysActive` e `isEscalated` para la UI. Expone
+ * `studentId` solo a docentes con ownership (ya filtrado en controller).
+ * `studentPseudoId` se usa en logs/exports; `studentName` lo añade el
+ * service tras hidratar desde el catálogo del docente.
+ *
+ * @param {object} doc - Documento Mongoose o POJO `.lean()`.
+ * @param {object} [opts]
+ * @param {string} [opts.studentName] - Nombre humano (no en BD).
+ * @param {string} [opts.dismissedByName] - Nombre del docente que descartó.
+ * @returns {object|null}
+ */
+const toSmartAlertDTOV1 = (doc, opts = {}) => {
+  if (!doc) {
+    return null;
+  }
+  const data = toPlainObject(doc);
+  const detectedAt = data.detectedAt ? new Date(data.detectedAt) : null;
+  const reference =
+    data.status === 'resolved' && data.resolvedAt ? new Date(data.resolvedAt) : new Date();
+  const daysActive = detectedAt ? Math.floor((reference - detectedAt) / 86400000) : 0;
+  const isEscalated = Array.isArray(data.severityHistory)
+    ? data.severityHistory.some(s => s.reason === 'escalation')
+    : false;
+
+  return {
+    id: toId(data),
+    type: data.type,
+    severity: data.severity,
+    status: data.status,
+
+    studentId: toId(data.studentId),
+    studentPseudoId: data.studentPseudoId,
+    studentName: opts.studentName || null,
+
+    description: data.description,
+    recommendation: data.recommendation || null,
+    data: data.data && typeof data.data === 'object' ? { ...data.data } : {},
+
+    detectedAt: data.detectedAt || null,
+    lastSeenAt: data.lastSeenAt || null,
+    occurrencesCount: data.occurrencesCount ?? 1,
+
+    resolvedAt: data.resolvedAt || null,
+    resolvedAutomatically: !!data.resolvedAutomatically,
+
+    dismissedAt: data.dismissedAt || null,
+    dismissedBy: toId(data.dismissedBy) || null,
+    dismissedByName: opts.dismissedByName || null,
+    dismissReason: data.dismissReason || null,
+
+    snoozedUntil: data.snoozedUntil || null,
+    snoozedAt: data.snoozedAt || null,
+
+    pinned: !!data.pinned,
+    pinnedAt: data.pinnedAt || null,
+
+    gamePlayId: toId(data.gamePlayId) || null,
+    notificationId: toId(data.notificationId) || null,
+    severityHistory: Array.isArray(data.severityHistory)
+      ? data.severityHistory.map(s => ({
+          severity: s.severity,
+          changedAt: s.changedAt,
+          reason: s.reason
+        }))
+      : [],
+
+    daysActive,
+    isEscalated,
+
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt
+  };
+};
+
+// ─────────────── SystemAlert (T-942) ──────────────────
+
+/**
+ * Serializa una SystemAlert al shape V1 del API admin.
+ *
+ * @param {object} doc - Documento Mongoose o POJO `.lean()`
+ * @param {object} [opts]
+ * @param {string} [opts.dismissedByName]
+ * @param {string} [opts.resolvedByName]
+ * @param {string} [opts.snoozedByName]
+ * @param {string} [opts.pinnedByName]
+ * @returns {object|null}
+ */
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- mapeo DTO con múltiples campos opcionales; lineal y trazable, dividirlo no aporta claridad
+const toSystemAlertDTOV1 = (doc, opts = {}) => {
+  if (!doc) {
+    return null;
+  }
+  const data = toPlainObject(doc);
+  const detectedAt = data.detectedAt ? new Date(data.detectedAt) : null;
+  const reference =
+    data.status === 'resolved' && data.resolvedAt ? new Date(data.resolvedAt) : new Date();
+  const hoursActive = detectedAt
+    ? Math.max(0, Math.floor((reference - detectedAt) / (60 * 60 * 1000)))
+    : 0;
+  const daysActive = Math.floor(hoursActive / 24);
+  const isEscalated = Array.isArray(data.severityHistory)
+    ? data.severityHistory.some(s => s.reason === 'escalation')
+    : false;
+
+  return {
+    id: toId(data),
+    type: data.type,
+    severity: data.severity,
+    status: data.status,
+    source: data.source,
+    component: data.component || null,
+
+    title: data.title,
+    description: data.description,
+    recommendation: data.recommendation || null,
+    data: data.data && typeof data.data === 'object' ? { ...data.data } : {},
+    runbookUrl: data.runbookUrl || null,
+
+    detectedAt: data.detectedAt || null,
+    lastSeenAt: data.lastSeenAt || null,
+    occurrencesCount: data.occurrencesCount ?? 1,
+
+    resolvedAt: data.resolvedAt || null,
+    resolvedAutomatically: !!data.resolvedAutomatically,
+    resolvedBy: toId(data.resolvedBy) || null,
+    resolvedByName: opts.resolvedByName || null,
+
+    dismissedAt: data.dismissedAt || null,
+    dismissedBy: toId(data.dismissedBy) || null,
+    dismissedByName: opts.dismissedByName || null,
+    dismissReason: data.dismissReason || null,
+
+    snoozedUntil: data.snoozedUntil || null,
+    snoozedAt: data.snoozedAt || null,
+    snoozedBy: toId(data.snoozedBy) || null,
+    snoozedByName: opts.snoozedByName || null,
+
+    pinned: !!data.pinned,
+    pinnedAt: data.pinnedAt || null,
+    pinnedBy: toId(data.pinnedBy) || null,
+    pinnedByName: opts.pinnedByName || null,
+
+    notificationId: toId(data.notificationId) || null,
+    severityHistory: Array.isArray(data.severityHistory)
+      ? data.severityHistory.map(s => ({
+          severity: s.severity,
+          changedAt: s.changedAt,
+          reason: s.reason
+        }))
+      : [],
+
+    hoursActive,
+    daysActive,
+    isEscalated,
+
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt
+  };
+};
+
+/**
+ * Serializa un SystemAnnouncement con metadata completa (para super_admin).
+ *
+ * @param {object} doc
+ * @param {object} [opts]
+ * @param {string} [opts.authorName]
+ * @returns {object|null}
+ */
+const toSystemAnnouncementDTOV1 = (doc, opts = {}) => {
+  if (!doc) {
+    return null;
+  }
+  const data = toPlainObject(doc);
+  return {
+    id: toId(data),
+    title: data.title,
+    body: data.body,
+    severity: data.severity,
+    audience: data.audience,
+    linkUrl: data.linkUrl || null,
+    linkLabel: data.linkLabel || null,
+    publishedAt: data.publishedAt || null,
+    expiresAt: data.expiresAt || null,
+    active: !!data.active,
+    archivedAt: data.archivedAt || null,
+    archivedBy: toId(data.archivedBy) || null,
+    createdBy: toId(data.createdBy) || null,
+    authorName: opts.authorName || null,
+    isExpired: !!(data.expiresAt && new Date(data.expiresAt).getTime() <= Date.now()),
+    createdAt: data.createdAt,
+    updatedAt: data.updatedAt
+  };
+};
+
+/**
+ * Versión pública (para teacher) del SystemAnnouncement: solo lo necesario
+ * para renderizar el banner. Sin `createdBy`/audit metadata.
+ *
+ * @param {object} doc
+ * @returns {object|null}
+ */
+const toPublicAnnouncementDTOV1 = doc => {
+  if (!doc) {
+    return null;
+  }
+  const data = toPlainObject(doc);
+  return {
+    id: toId(data),
+    title: data.title,
+    body: data.body,
+    severity: data.severity,
+    linkUrl: data.linkUrl || null,
+    linkLabel: data.linkLabel || null,
+    publishedAt: data.publishedAt || null,
+    expiresAt: data.expiresAt || null
+  };
+};
+
 module.exports = {
   // Users
   toUserDTOV1,
@@ -864,5 +1266,16 @@ module.exports = {
 
   // Analytics seudonimizados (Art. 25 RGPD)
   toStudentAnalyticsDTOV1,
-  toStudentIdentityDTOV1
+  toStudentIdentityDTOV1,
+
+  // Notifications (T-955)
+  toNotificationDTOV1,
+
+  // SmartAlert (T-941)
+  toSmartAlertDTOV1,
+
+  // SystemAlert + SystemAnnouncement (T-942)
+  toSystemAlertDTOV1,
+  toSystemAnnouncementDTOV1,
+  toPublicAnnouncementDTOV1
 };

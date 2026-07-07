@@ -71,8 +71,14 @@ export function normalizeCardMappingsFromDeck(deckData) {
  * @param {Array<{ displayData?: { imageUrl?: string, thumbnailUrl?: string } }>} cardMappings
  * @param {(failedCount: number) => void} [onAnyFailure] - callback opcional invocado
  *   una sola vez si al menos una imagen fallo. Permite al caller mostrar UI discreta.
+ * @param {Object} [options]
+ * @param {boolean} [options.includeFullRes=true] - (C1) Si false, NO precarga la
+ *   imagen full-res (768px). Solo ChallengeDisplay (mecánica Asociación) la pinta;
+ *   Memoria y Secuencia usan siempre el thumbnail (getBestAssetImageUrl), así que
+ *   precargar la full en esas 2 de cada 3 partidas malgasta egress de Supabase
+ *   (~1-3 MB inservibles por arranque) contra el free-tier.
  */
-export function prefetchDeckImages(cardMappings, onAnyFailure) {
+export function prefetchDeckImages(cardMappings, onAnyFailure, { includeFullRes = true } = {}) {
   if (!Array.isArray(cardMappings) || cardMappings.length === 0 || typeof Image === 'undefined') {
     return;
   }
@@ -81,7 +87,9 @@ export function prefetchDeckImages(cardMappings, onAnyFailure) {
   for (const mapping of cardMappings) {
     const data = mapping?.displayData || {};
     if (data.thumbnailUrl) urls.add(data.thumbnailUrl);
-    if (data.imageUrl) urls.add(data.imageUrl);
+    // La full solo se precarga si el caller la usará (Asociación) o si no hay
+    // thumbnail (en cuyo caso el tablero cae a imageUrl como fallback real).
+    if (data.imageUrl && (includeFullRes || !data.thumbnailUrl)) urls.add(data.imageUrl);
   }
 
   let failedCount = 0;

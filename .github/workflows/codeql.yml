@@ -1,0 +1,96 @@
+name: CodeQL
+
+# SAST (Static Application Security Testing) oficial de GitHub.
+# Detecta inyecciones, XSS, vulnerabilidades en JWT/cookies, regex DoS, etc.
+# en código nuevo o modificado. Resultados visibles en repo Settings → Security
+# → Code scanning alerts.
+#
+# Coste: gratis para repos públicos. Runner ubuntu-latest, ~6 min por análisis.
+#
+# Triggers:
+#   - push a las ramas críticas: detecta regresiones inmediatas.
+#   - pull_request: bloquea PRs nuevos con vulns críticas (ver branch protection).
+#   - schedule semanal: captura nuevos rules añadidos por GitHub que descubren
+#     vulns en código ya mergeado.
+
+on:
+  push:
+    branches: [main, develop, Maintenance]
+    paths-ignore:
+      - "**.md"
+      - "documentation/**"
+      - "memoria/**"
+      - "development/**"
+      - "rfid_scanner/**"
+      - ".github/skills/**"
+      - "docs/**"
+      - "LICENSE"
+  pull_request:
+    branches: [main, develop, Maintenance]
+    paths-ignore:
+      - "**.md"
+      - "documentation/**"
+      - "memoria/**"
+      - "development/**"
+      - "rfid_scanner/**"
+      - ".github/skills/**"
+      - "docs/**"
+      - "LICENSE"
+  schedule:
+    # Lunes a las 06:00 UTC (08:00 Europa/Madrid) — captura nuevos rules
+    - cron: "0 6 * * 1"
+
+permissions:
+  contents: read
+  security-events: write
+  actions: read
+
+concurrency:
+  group: codeql-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  analyze:
+    name: Analyze JavaScript/TypeScript
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          persist-credentials: false
+
+      - name: Initialize CodeQL
+        uses: github/codeql-action/init@78ed0c7291d93e40c51b085850dc669a4c3ab73b # v3
+        with:
+          languages: javascript-typescript
+          # security-and-quality incluye reglas de calidad además de seguridad.
+          # Si genera demasiado ruido, cambiar a `security-extended` o `security-and-quality`.
+          queries: security-and-quality
+          # Excluir paths irrelevantes para el análisis. Aplica DESPUÉS de
+          # paths-ignore del workflow trigger; las dos capas reducen ruido.
+          # Nota: `backend/seeders/**` y `backend/scripts/**` SE INCLUYEN en el
+          # análisis (acceden a BD y merecen cobertura SAST: migraciones,
+          # bootstrap, enriquecimiento de gameplays).
+          config: |
+            paths-ignore:
+              - "**/node_modules"
+              - "**/dist"
+              - "**/coverage"
+              - "**/build"
+              - "memoria/**"
+              - "rfid_scanner/**"
+              - "backend/tests/**"
+              - "frontend/src/**/__tests__/**"
+              - "frontend/src/**/*.test.{js,jsx}"
+
+      - name: Autobuild
+        uses: github/codeql-action/autobuild@78ed0c7291d93e40c51b085850dc669a4c3ab73b # v3
+
+      - name: Perform CodeQL Analysis
+        uses: github/codeql-action/analyze@78ed0c7291d93e40c51b085850dc669a4c3ab73b # v3
+        with:
+          category: "/language:javascript-typescript"
+          # upload: failure-only para no contaminar el badge si ya hay
+          # alerts conocidas; se sigue subiendo a Security → Code scanning.
+          upload: always

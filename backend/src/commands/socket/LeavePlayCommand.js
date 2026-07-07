@@ -3,18 +3,15 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { playIdEventSchema } = require('../../validators/socketCommandsValidator');
 
 class LeavePlayCommand extends BaseSocketCommand {
   constructor() {
-    super('leave_play');
+    super('leave_play', { schema: playIdEventSchema });
   }
 
   async execute({ socket, data, helpers, logger }) {
-    const { playId } = data || {};
-    if (!playId) {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
-      return;
-    }
+    const { playId } = data;
 
     if (!helpers.validatePlayId(socket, playId, 'leave_play')) {
       return;
@@ -30,7 +27,9 @@ class LeavePlayCommand extends BaseSocketCommand {
     }
 
     socket.leave(helpers.getPlayRoom(playId));
-    helpers.clearRfidModeState(socket.data.userId, socket.id);
+    // WS-12: await la limpieza de modo RFID (escapaba del try/catch del pipeline como
+    // unhandledRejection ante un RFID_LOCK_TIMEOUT).
+    await helpers.clearRfidModeState(socket.data.userId, socket.id);
 
     logger.info(`Socket ${socket.id} abandono la partida ${playId}`, {
       userId: socket.data.userId

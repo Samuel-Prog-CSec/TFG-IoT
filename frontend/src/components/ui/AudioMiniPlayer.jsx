@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Play, Pause, Volume2, VolumeX, AlertCircle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -46,6 +46,9 @@ export default function AudioMiniPlayer({
   size = 'sm',
   variant = 'glass',
   className,
+  autoPlay = false,
+  autoPlayToken = null,
+  visuallyHidden = false,
 }) {
   const [isPlaying, setIsPlaying] = useState(false);
   const [currentTime, setCurrentTime] = useState(0);
@@ -56,10 +59,18 @@ export default function AudioMiniPlayer({
 
   const audioRef = useRef(null);
   const progressBarRef = useRef(null);
+  // Último token para el que ya se auto-reprodujo: evita repetir el clip si el
+  // efecto vuelve a correr por un cambio de `isLoaded` dentro de la misma ronda.
+  const lastAutoPlayedTokenRef = useRef(null);
 
   // Crear y configurar el elemento de audio
   useEffect(() => {
     const audio = new Audio(audioUrl);
+    // preload='metadata': trae solo la duración (pocos KB) para pintar la barra,
+    // NO el clip completo hasta que el usuario pulse Play (ahorra egress de Supabase
+    // cuando el reproductor se monta pero no se reproduce). El audio es la única
+    // clase de asset sin optimizar en servidor, así que esto importa.
+    audio.preload = 'metadata';
     audioRef.current = audio;
 
     const onLoadedMetadata = () => {
@@ -89,12 +100,19 @@ export default function AudioMiniPlayer({
     audio.addEventListener('error', onError);
 
     return () => {
-      audio.pause();
-      audio.src = '';
+      // (C3) Quitar los listeners ANTES de liberar, para no capturar el evento
+      // 'error' de la descarga de limpieza.
       audio.removeEventListener('loadedmetadata', onLoadedMetadata);
       audio.removeEventListener('timeupdate', onTimeUpdate);
       audio.removeEventListener('ended', onEnded);
       audio.removeEventListener('error', onError);
+      audio.pause();
+      // NO usar `audio.src = ''`: el navegador lo resuelve contra la URL base del
+      // documento (SPA) e intenta cargarla → petición HTTP espuria + un MediaError
+      // en consola en CADA cambio de ronda/URL o desmontaje. removeAttribute('src')
+      // + load() libera el buffer sin disparar ninguna carga.
+      audio.removeAttribute('src');
+      audio.load();
       audioRef.current = null;
     };
   }, [audioUrl]);
@@ -114,6 +132,31 @@ export default function AudioMiniPlayer({
       audioRef.current.muted = isMuted;
     }
   }, [isMuted]);
+
+  // Auto-reproducción de la consigna (accesibilidad pre-lectora en Asociación).
+  // Cuando `autoPlay` está activo y `autoPlayToken` cambia (nueva ronda), reproduce
+  // el clip UNA vez en cuanto los metadatos están listos. El AudioContext ya está
+  // desbloqueado por el gesto de EMPEZAR, así que `play()` no suele bloquearse; si el
+  // navegador lo bloquea igualmente, el `catch` es silencioso y el botón manual sigue
+  // disponible. El `ref` de token deduplica frente a re-ejecuciones por `isLoaded`.
+  useEffect(() => {
+    if (!autoPlay || !autoPlayToken || !isLoaded || hasError) return;
+    if (lastAutoPlayedTokenRef.current === autoPlayToken) return;
+    const audio = audioRef.current;
+    if (!audio) return;
+    lastAutoPlayedTokenRef.current = autoPlayToken;
+    audio.currentTime = 0;
+    audio
+      .play()
+      .then(() => {
+        setIsPlaying(true);
+        return undefined;
+      })
+      .catch(() => {
+        // Autoplay bloqueado por el navegador: el niño/docente puede pulsar Play.
+        setIsPlaying(false);
+      });
+  }, [autoPlay, autoPlayToken, isLoaded, hasError]);
 
   const togglePlay = useCallback(() => {
     const audio = audioRef.current;
@@ -187,10 +230,20 @@ export default function AudioMiniPlayer({
   }
   const playIconKey = getPlayIconKey();
 
+  // Modo oculto: mantiene TODA la lógica de audio (incluido el auto-play de la
+  // consigna) pero no pinta controles. Se usa en la partida de Asociación, donde el
+  // audio es una PISTA sonora automática y el reproductor visible descuadraba el
+  // layout bajo el "?". El objeto Audio vive en el ref (no en el DOM), así que suena
+  // igual sin render. Va tras todos los hooks para no violar las reglas de hooks.
+  if (visuallyHidden) return null;
+
   // Clases de contenedor segun variante
   const containerClasses = cn(
-    'flex items-center gap-2 rounded-xl',
-    'px-3 py-2',
+    // gap/padding compactos + min-w-0 para que el reproductor quepa sin desbordar en
+    // cards estrechos (grid multi-columna, p. ej. monitores 4K): la barra encoge y
+    // los controles no se salen del recuadro del asset.
+    'flex items-center gap-1.5 rounded-xl min-w-0',
+    'px-2.5 py-2',
     variant === 'glass'
       ? 'bg-glass-bg border border-glass-border backdrop-blur-xl saturate-150'
       : 'bg-background-elevated/60 border border-border-subtle',
@@ -250,7 +303,7 @@ export default function AudioMiniPlayer({
         onClick={handleSeek}
         onKeyDown={handleProgressKeyDown}
         className={cn(
-          'flex-1 h-[3px] rounded-full cursor-pointer',
+          'flex-1 min-w-0 h-[3px] rounded-full cursor-pointer',
           'bg-background-surface/50',
           'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo/50 focus-visible:ring-offset-2 focus-visible:ring-offset-transparent',
           hasError && 'pointer-events-none'
@@ -263,7 +316,7 @@ export default function AudioMiniPlayer({
       </div>
 
       {/* Duracion */}
-      <span className="flex-shrink-0 text-text-muted font-mono text-xs tabular-nums select-none">
+      <span className="flex-shrink-0 text-text-muted font-mono text-[11px] tabular-nums select-none">
         {formatTime(currentTime)}/{formatTime(duration)}
       </span>
 
@@ -322,4 +375,12 @@ AudioMiniPlayer.propTypes = {
   size: PropTypes.oneOf(['sm', 'md']),
   variant: PropTypes.oneOf(['glass', 'solid']),
   className: PropTypes.string,
+  // autoPlay: reproduce la consigna automáticamente al cambiar autoPlayToken.
+  autoPlay: PropTypes.bool,
+  // autoPlayToken: identificador de "ronda" (p. ej. el valor del reto); un cambio
+  // dispara una nueva auto-reproducción.
+  autoPlayToken: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+  // visuallyHidden: mantiene la lógica de audio (auto-play incluido) SIN renderizar
+  // controles. Para usos donde el audio es una pista automática (partida Asociación).
+  visuallyHidden: PropTypes.bool,
 };

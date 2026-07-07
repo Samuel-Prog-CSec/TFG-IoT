@@ -6,7 +6,7 @@
  */
 
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
   Check,
@@ -16,9 +16,11 @@ import {
   AlertTriangle
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { getId } from '../../lib/entityId';
 import GlassCard from '../ui/GlassCard';
 import ButtonPremium from '../ui/ButtonPremium';
 import CardAssetPreview from '../ui/CardAssetPreview';
+import ErrorState from '../ui/ErrorState';
 import { SkeletonCard } from '../ui/SkeletonShimmer';
 import { ROUTES } from '../../constants/routes';
 import { deckShape } from './sessionPropTypes';
@@ -26,7 +28,7 @@ import { deckShape } from './sessionPropTypes';
 /**
  * Paso 1: Seleccionar Mazo
  */
-export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
+export default function StepDeck({ decks, loading, error, onRetry, selectedDeckId, onSelect }) {
   const navigate = useNavigate();
 
   if (loading) {
@@ -38,6 +40,18 @@ export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
           ))}
         </div>
       </GlassCard>
+    );
+  }
+
+  // (D1) Si la carga FALLÓ, ofrecer reintento en vez de afirmar que no hay mazos
+  // (el docente podría tener mazos y estar viendo un fallo de red transitorio).
+  if (error) {
+    return (
+      <ErrorState
+        title="No pudimos cargar tus mazos"
+        message={typeof error === 'string' ? error : 'Hubo un problema al cargar los datos. Inténtalo de nuevo.'}
+        onRetry={onRetry}
+      />
     );
   }
 
@@ -67,13 +81,13 @@ export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
           Selecciona un Mazo
         </h2>
         <p className="text-text-muted text-sm">
-          El mazo determina las tarjetas RFID y los assets que se usarán en el juego
+          El mazo determina las tarjetas RFID y los recursos que se usarán en el juego
         </p>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {decks.map((deck) => {
-          const deckId = deck.id || deck._id;
+          const deckId = getId(deck);
           const cardsPreview = deck.cardMappings || [];
           const cardsCount = deck.cardsCount || deck.cardMappings?.length || 0;
           const contextName = deck.context?.name || deck.contextId?.name || 'Contexto';
@@ -107,7 +121,7 @@ export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
             <div className="flex gap-1.5 mb-3 h-8 overflow-hidden">
               {cardsPreview.slice(0, 6).map((mapping) => (
                 <CardAssetPreview
-                  key={mapping.uid || mapping.id || mapping._id}
+                  key={mapping.uid || getId(mapping)}
                   asset={mapping.displayData}
                   className="size-8 rounded-md flex-shrink-0"
                   fallbackLabel={mapping.displayData?.display || mapping.displayData?.emoji || '\uD83C\uDFB3'}
@@ -149,6 +163,8 @@ export default function StepDeck({ decks, loading, selectedDeckId, onSelect }) {
 StepDeck.propTypes = {
   decks: PropTypes.arrayOf(deckShape).isRequired,
   loading: PropTypes.bool.isRequired,
+  error: PropTypes.oneOfType([PropTypes.string, PropTypes.bool]),
+  onRetry: PropTypes.func,
   selectedDeckId: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
   onSelect: PropTypes.func.isRequired
 };

@@ -8,12 +8,18 @@
 
 import axios from 'axios';
 import { captureException } from '../lib/sentry';
+import * as mfaTokenStore from './mfaTokenStore';
+// D.2 (pre-v1.0.0): deduplicación in-flight selectiva para hot endpoints.
+import { dedupRequest } from './inFlight';
 
 // ============================================
 // CONFIGURACIÓN
 // ============================================
 
-const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
+// Exportado para que el AuthContext pueda construir el beacon de logout
+// diferido (T-957) usando fetch nativo con `keepalive: true` — axios no
+// soporta esa flag y el beacon debe sobrevivir al cierre de la pestaña.
+export const API_BASE_URL = import.meta.env.VITE_API_URL || 'http://localhost:5000/api';
 const TIMEOUT = 10000; // 10 segundos
 const MAX_RETRIES = 3;
 const RETRY_DELAY = 1000; // 1 segundo base para exponential backoff
@@ -86,6 +92,57 @@ export const setTokens = (access) => {
 export const getAccessToken = () => accessToken;
 
 /**
+ * B.8 (pre-v1.0.0): refresh proactivo del access token desde el cliente
+ * Socket.IO (programado N segundos antes del expiry). Comparte el flag
+ * `isRefreshing` con el path reactivo del interceptor 401 para evitar
+ * dos refreshes paralelos en el mismo segundo (race típica entre
+ * setTimeout y un 401 que llega justo antes).
+ *
+ * Sin esto, durante partidas largas (≥15min) el access token expiraba en
+ * silencio: el cliente seguía emitiendo eventos al socket sin saber que
+ * el handshake del próximo reconnect rechazaría su token. Con refresh
+ * proactivo el cliente siempre tiene un token vivo antes de que expire.
+ *
+ * NO retorna nada útil al caller — fire-and-forget. Si Redis/backend
+ * fallan, el path reactivo del interceptor cogerá el siguiente 401 y
+ * forzará el refresh tradicional.
+ *
+ * @returns {Promise<void>}
+ */
+export const refreshAccessTokenProactive = async () => {
+  if (isRefreshing) {
+    // Otro refresh en curso — esperar a que termine y reutilizar el token.
+    await new Promise((resolve, reject) => {
+      failedQueue.push({ resolve, reject });
+    });
+    return;
+  }
+
+  isRefreshing = true;
+  try {
+    const csrfToken = getCookieValue('csrfToken');
+    const response = await axios.post(
+      `${API_BASE_URL}/auth/refresh`,
+      {},
+      {
+        withCredentials: true,
+        headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
+      }
+    );
+    const { accessToken: newAccessToken } = response.data.data;
+    setTokens(newAccessToken);
+    processQueue(null, newAccessToken);
+  } catch (err) {
+    processQueue(err, null);
+    // No tiramos clearTokens() porque el interceptor 401 lo hará si el
+    // siguiente request HTTP también falla. Aquí queremos best-effort.
+    captureException(err);
+  } finally {
+    isRefreshing = false;
+  }
+};
+
+/**
  * Obtiene el refresh token actual
  * @returns {string|null} Refresh token
  */
@@ -101,6 +158,27 @@ const getCookieValue = (name) => {
     ?.slice(targetCookie.length);
 
   return cookieValue ? decodeURIComponent(cookieValue) : null;
+};
+
+/**
+ * ¿Un 401 es recuperable vía refresh? Excluye el propio `/auth/refresh` (evita
+ * el refresh recursivo: un 401 del refresh dispararía otro refresh) y acepta
+ * los códigos de token expirado/ausente, o el mensaje en ES/EN por compat.
+ *
+ * @param {Object} data - cuerpo de la respuesta de error
+ * @param {Object} originalRequest - config de la petición original
+ * @returns {boolean}
+ */
+const is401Recoverable = (data, originalRequest) => {
+  if ((originalRequest.url || '').includes('/auth/refresh')) {
+    return false;
+  }
+  const errCode = data?.code;
+  return (
+    errCode === 'TOKEN_EXPIRED' ||
+    errCode === 'TOKEN_MISSING' ||
+    /expirado|expired/i.test(data?.message || '')
+  );
 };
 
 // ============================================
@@ -122,10 +200,17 @@ api.interceptors.request.use(
         config.headers['X-CSRF-Token'] = csrfToken;
       }
     }
-    
+
+    // T-905 B7: añadir X-MFA-Token automáticamente si está vigente — los endpoints
+    // protegidos por `requireMfa` lo necesitan; los que no, ignoran este header.
+    const mfaToken = mfaTokenStore.getMfaToken();
+    if (mfaToken) {
+      config.headers['X-MFA-Token'] = mfaToken;
+    }
+
     // Añadir timestamp para debugging
     config.metadata = { startTime: Date.now() };
-    
+
     return config;
   },
   (error) => {
@@ -159,16 +244,24 @@ api.interceptors.response.use(
 
     // 401 - Token expirado o inválido
     if (status === 401 && !originalRequest._retry) {
-      // Códigos recuperables via refresh. El backend ahora anota `code`
-      // semántico; también aceptamos el mensaje en ES/EN por compatibilidad.
-      const errCode = data?.code;
-      const msg = data?.message || '';
-      const isRecoverable =
-        errCode === 'TOKEN_EXPIRED' ||
-        errCode === 'TOKEN_MISSING' ||
-        /expirado|expired/i.test(msg);
-      if (isRecoverable) {
+      // Recuperable via refresh (excluye el propio `/auth/refresh` para no
+      // recursar; ver `is401Recoverable`). La vía proactiva de AuthContext usa
+      // la instancia `api`, así que sus 401 también pasan por aquí.
+      if (is401Recoverable(data, originalRequest)) {
         return handleTokenRefresh(originalRequest);
+      }
+      const errCode = data?.code;
+
+      // T-905 B7: códigos MFA (TOTP/backup invalido o token MFA expirado/invalido)
+      // NO son fallos de la sesión principal — el usuario solo se equivocó en el
+      // segundo factor. Propagamos el error sin disparar logout para que la UI
+      // (modal MfaChallenge, formularios) muestre el mensaje y permita reintentar.
+      const isMfaSecondaryFailure =
+        errCode === 'MFA_CODE_INVALID' ||
+        errCode === 'MFA_TOKEN_EXPIRED' ||
+        errCode === 'MFA_TOKEN_INVALID';
+      if (isMfaSecondaryFailure) {
+        throw error;
       }
 
       // Si no hay refresh token o el refresh falló, emitir evento.
@@ -199,9 +292,79 @@ api.interceptors.response.use(
       return handleRateLimitError(error, originalRequest);
     }
 
+    // 428 - MFA token requerido o expirado (T-905 B7)
+    if (status === 428 && !originalRequest._mfaRetry) {
+      const code = data?.code;
+      if (code === 'MFA_TOKEN_REQUIRED' || code === 'MFA_TOKEN_EXPIRED') {
+        return handleMfaChallenge(originalRequest, code);
+      }
+      if (code === 'MFA_ENROLLMENT_REQUIRED') {
+        // No tiene MFA habilitado — emitir evento para que UI redirija a setup.
+        globalThis.dispatchEvent(
+          new CustomEvent('mfa:enrollment-required', { detail: { code } })
+        );
+        throw error;
+      }
+    }
+
     throw error;
   }
 );
+
+// ============================================
+// MFA CHALLENGE — T-905 B7
+// ============================================
+
+/**
+ * Cuando el servidor responde 428 MFA_TOKEN_REQUIRED/EXPIRED, este handler:
+ * 1. Emite evento global `mfa:challenge-required` con detalles.
+ * 2. Espera a que el componente modal (`MfaChallengeModal`) resuelva tras pedir
+ *    el código TOTP al usuario y guardar el nuevo MFA token en `mfaTokenStore`.
+ * 3. Reintenta el request original (que automáticamente añadirá el nuevo
+ *    `X-MFA-Token` via el interceptor de request).
+ *
+ * @param {object} originalRequest - request config que falló
+ * @param {string} code - código semántico (MFA_TOKEN_REQUIRED/EXPIRED)
+ * @returns {Promise}
+ */
+const handleMfaChallenge = (originalRequest, code) => {
+  return new Promise((resolve, reject) => {
+    const resolved = { done: false };
+
+    const onTokenAcquired = ({ detail }) => {
+      if (resolved.done) return;
+      resolved.done = true;
+      globalThis.removeEventListener('mfa:token-acquired', onTokenAcquired);
+      globalThis.removeEventListener('mfa:challenge-cancelled', onCancel);
+      originalRequest._mfaRetry = true;
+      // El nuevo token ya está en mfaTokenStore; el request interceptor lo
+      // añadirá automáticamente como `X-MFA-Token`.
+      api.request(originalRequest).then(resolve).catch(reject);
+      // Telemetría opcional
+      if (import.meta.env.DEV && detail) {
+        // eslint-disable-next-line no-console -- dev-only debug
+        console.debug('[MFA] retry tras challenge OK', detail);
+      }
+    };
+    const onCancel = () => {
+      if (resolved.done) return;
+      resolved.done = true;
+      globalThis.removeEventListener('mfa:token-acquired', onTokenAcquired);
+      globalThis.removeEventListener('mfa:challenge-cancelled', onCancel);
+      const err = new Error('MFA challenge cancelado por el usuario');
+      err.code = 'MFA_CANCELLED';
+      reject(err);
+    };
+
+    globalThis.addEventListener('mfa:token-acquired', onTokenAcquired);
+    globalThis.addEventListener('mfa:challenge-cancelled', onCancel);
+    globalThis.dispatchEvent(
+      new CustomEvent('mfa:challenge-required', {
+        detail: { code, url: originalRequest.url, method: originalRequest.method }
+      })
+    );
+  });
+};
 
 // ============================================
 // MANEJO DE REFRESH TOKEN
@@ -219,6 +382,9 @@ async function handleTokenRefresh(originalRequest) {
       failedQueue.push({ resolve, reject });
     })
       .then((token) => {
+        // Marcar `_retry` también en las peticiones encoladas: si su reintento
+        // devolviera otro 401 no deben re-entrar al refresh (evita el bucle).
+        originalRequest._retry = true;
         originalRequest.headers.Authorization = `Bearer ${token}`;
         return api(originalRequest);
       })
@@ -273,6 +439,21 @@ async function handleNetworkError(error, originalRequest) {
     throw error;
   }
 
+  // Solo reintentar métodos IDEMPOTENTES ante un error de red (o timeout de 10s).
+  // Un POST/PUT/PATCH/DELETE puede haber llegado al servidor y haberse perdido la
+  // respuesta: reintentarlo crearía duplicados (mazo/sesión/alumno duplicados,
+  // transferencias repetidas...). Las partidas están protegidas por índice único,
+  // pero el resto no. Un consumidor puede optar por reintentar marcando
+  // `config.idempotent = true` explícitamente.
+  const method = (originalRequest.method || 'get').toLowerCase();
+  const isIdempotent = method === 'get' || method === 'head' || originalRequest.idempotent === true;
+  if (!isIdempotent) {
+    const networkError = new Error('No pudimos conectar. Comprueba tu conexión a internet e inténtalo de nuevo.');
+    networkError.isNetworkError = true;
+    networkError.cause = error;
+    throw networkError;
+  }
+
   const retryCount = originalRequest._retryCount || 0;
   
   // Inicializar tiempo de inicio en el primer intento
@@ -292,7 +473,7 @@ async function handleNetworkError(error, originalRequest) {
 
   if (retryCount >= MAX_RETRIES) {
     captureException(new Error(`[API] Max retries (${MAX_RETRIES}) exceeded for ${originalRequest.url}`));
-    const networkError = new Error('Error de conexion. Por favor, verifica tu conexion a internet.');
+    const networkError = new Error('No pudimos conectar. Comprueba tu conexión a internet e inténtalo de nuevo.');
     networkError.isNetworkError = true;
     networkError.cause = error;
     throw networkError;
@@ -356,11 +537,16 @@ async function handleRateLimitError(error, originalRequest) {
   }
 
   const retryAfterSeconds = parseRetryAfter(error.response);
-  // Mínimo 2s, máximo 60s para no bloquear la UI indefinidamente
-  const waitMs = Math.min(
+  // Mínimo 2s, máximo 60s para no bloquear la UI indefinidamente.
+  const baseWaitMs = Math.min(
     Math.max((retryAfterSeconds || 2) * 1000, 2000),
     60000
   );
+  // Jitter (0-1s) sobre el backoff: si varias peticiones reciben 429 a la vez
+  // comparten el mismo `Retry-After` y, sin jitter, reintentarían TODAS en el
+  // mismo instante → otra ráfaga (thundering herd). El jitter las desincroniza.
+  // eslint-disable-next-line sonarjs/pseudo-random -- jitter de backoff, no es un uso de seguridad
+  const waitMs = baseWaitMs + Math.floor(Math.random() * 1000);
 
   if (import.meta.env.DEV) {
     console.warn(
@@ -380,11 +566,24 @@ async function handleRateLimitError(error, originalRequest) {
 // ============================================
 
 /**
- * Extrae datos de una respuesta exitosa de la API
+ * Extrae datos de una respuesta exitosa de la API.
+ *
+ * Las respuestas de dominio van envueltas por responseHelper como
+ * `{ success, data, ... }`. Devolvemos SIEMPRE `body.data` cuando el envelope
+ * existe — incluso si es `null`/`0`/`false`/`''` (payload falsy pero válido).
+ * El `|| body` previo colapsaba esos casos al envelope completo, que es truthy,
+ * haciendo creer al consumidor que había datos y leyendo campos `undefined`.
+ *
  * @param {Object} response - Respuesta de axios
- * @returns {Object} Datos de la respuesta
+ * @returns {*} Datos de la respuesta (payload desempaquetado o cuerpo crudo)
  */
-export const extractData = (response) => response.data?.data || response.data;
+export const extractData = (response) => {
+  const body = response?.data;
+  if (body && typeof body === 'object' && 'data' in body) {
+    return body.data;
+  }
+  return body;
+};
 
 /**
  * Extrae mensaje de error de una respuesta de la API
@@ -411,24 +610,6 @@ export const extractErrorMessage = (error) => {
   return 'Ha ocurrido un error inesperado';
 };
 
-/**
- * Extrae errores de validación de una respuesta de la API
- * @param {Error} error - Error de axios
- * @returns {Object} Objeto con errores por campo
- */
-export const extractValidationErrors = (error) => {
-  const errors = {};
-  const validationErrors = error.response?.data?.errors || [];
-  
-  validationErrors.forEach((err) => {
-    if (err.field) {
-      errors[err.field] = err.message;
-    }
-  });
-  
-  return errors;
-};
-
 // ============================================
 // API ENDPOINTS - AUTH
 // ============================================
@@ -443,8 +624,11 @@ export const authAPI = {
 
   /**
    * Iniciar sesión
-   * @param {Object} credentials - { email, password }
-  * @returns {Promise} Respuesta con user y accessToken
+   * @param {Object} credentials - { email, password, captchaToken? }
+   * @returns {Promise} Respuesta con user y accessToken
+   *
+   * T-905 B6: `captchaToken` opcional. Lo adjunta `Login.jsx` cuando el widget
+   * Turnstile genera un token (a partir del 3er fallo previo).
    */
   login: (credentials) => api.post('/auth/login', credentials),
 
@@ -458,7 +642,10 @@ export const authAPI = {
    * Obtener perfil del usuario actual
    * @returns {Promise} Respuesta con datos del usuario
    */
-  getProfile: () => api.get('/auth/me'),
+  // D.2 (pre-v1.0.0): dedup in-flight. AuthContext.checkExistingSession +
+  // AppLayout post-login pueden llamarse en paralelo; sin dedup
+  // golpeaban /auth/me dos veces seguidas.
+  getProfile: () => dedupRequest('authAPI.getProfile', () => api.get('/auth/me')),
 
   /**
    * Actualizar perfil del usuario
@@ -475,10 +662,98 @@ export const authAPI = {
   changePassword: (data) => api.put('/auth/change-password', data),
 
   /**
-   * Refrescar access token
+   * Refrescar access token.
+   *
+   * Comparte el mutex `isRefreshing`/`failedQueue` con las vías reactiva
+   * (`handleTokenRefresh`) y proactiva-socket (`refreshAccessTokenProactive`).
+   * Antes usaba la instancia `api` (interceptada) y NO el mutex, así que un
+   * refresh proactivo de AuthContext podía correr en PARALELO a otro refresh →
+   * dos POST concurrentes sobre la cookie de refresh rotatoria → detección de
+   * reuso en backend → revocación de la familia de tokens → 401 + logout
+   * espurio (y consumo doble del rate-limit del refresh). Ahora, si ya hay un
+   * refresh en curso, espera a que termine y reutiliza su token (un único POST).
+   * Usa axios CRUDO para no pasar por el interceptor (evita refresh recursivo).
+   *
    * @returns {Promise} Respuesta con nuevos tokens
    */
-  refreshToken: () => api.post('/auth/refresh', {}),
+  refreshToken: async () => {
+    if (isRefreshing) {
+      const token = await new Promise((resolve, reject) => {
+        failedQueue.push({ resolve, reject });
+      });
+      // Forma mínima que `extractData` (`response.data?.data || response.data`)
+      // desempaqueta a `{ accessToken }`. El `accessTokenExpiresIn` no viaja por
+      // la cola; el caller reprograma con el default de 15min (aceptable).
+      return { data: { data: { accessToken: token } } };
+    }
+    isRefreshing = true;
+    try {
+      const csrfToken = getCookieValue('csrfToken');
+      const response = await axios.post(
+        `${API_BASE_URL}/auth/refresh`,
+        {},
+        {
+          withCredentials: true,
+          headers: csrfToken ? { 'X-CSRF-Token': csrfToken } : {}
+        }
+      );
+      const newToken = response.data?.data?.accessToken;
+      setTokens(newToken);
+      processQueue(null, newToken);
+      return response;
+    } catch (err) {
+      processQueue(err, null);
+      throw err;
+    } finally {
+      isRefreshing = false;
+    }
+  },
+
+  // ============================================
+  // MFA TOTP (T-905 B7) — super_admin
+  // ============================================
+
+  /**
+   * Estado actual del MFA del super_admin: { enabled, enabledAt, lastUsedAt,
+   * backupCodesTotal, backupCodesRemaining }. Driver del panel de gestión vs wizard.
+   */
+  mfaStatus: (config = {}) => api.get('/auth/mfa/status', config),
+
+  /**
+   * Iniciar setup MFA. Devuelve otpauthUrl + secret base32 + issuer.
+   */
+  mfaSetupInit: () => api.post('/auth/mfa/setup-init', {}),
+
+  /**
+   * Confirmar setup MFA con primer código TOTP. Devuelve backup codes (única vez).
+   * @param {string} code - 6 dígitos
+   */
+  mfaSetupVerify: (code) => api.post('/auth/mfa/setup-verify', { code }),
+
+  /**
+   * Solicitar MFA token corto (5min) presentando un código TOTP válido.
+   * @param {string} code
+   * @returns {Promise} { mfaToken, expiresIn }
+   */
+  mfaChallenge: (code) => api.post('/auth/mfa/challenge', { code }),
+
+  /**
+   * Alternativa al challenge: usar un backup code one-time.
+   * @param {string} backupCode - formato XXXX-XXXX-XXXX-XXXX
+   */
+  mfaVerifyBackupCode: (backupCode) =>
+    api.post('/auth/mfa/verify-backup-code', { backupCode }),
+
+  /**
+   * Regenerar los 8 backup codes (invalida los anteriores). Requiere MFA reciente.
+   */
+  mfaRegenerateBackupCodes: () => api.post('/auth/mfa/backup-codes/regenerate', {}),
+
+  /**
+   * Deshabilitar MFA. Requiere MFA reciente + password reentry.
+   * @param {string} password
+   */
+  mfaDisable: (password) => api.delete('/auth/mfa', { data: { password } })
 };
 
 // ============================================
@@ -510,6 +785,20 @@ export const adminAPI = {
    */
   rejectTeacher: (userId, reason = '') =>
     api.post(`/admin/users/${userId}/reject`, { reason }),
+
+  /**
+   * Desbloquear cuenta bloqueada por intentos fallidos de login.
+   *
+   * El backend (T-905 B7) exige header `X-MFA-Token` reciente del super_admin.
+   * Si falta, el interceptor responde 428 `MFA_TOKEN_REQUIRED` y el
+   * `MfaChallengeModal` global aparece automáticamente para que el admin
+   * introduzca el TOTP. Tras validar, la petición se reintenta.
+   *
+   * @param {string} email - Email de la cuenta a desbloquear (case-insensitive en backend)
+   * @returns {Promise} Respuesta `{ unlocked: boolean }`
+   */
+  unlockAccount: (email) =>
+    api.post('/admin/lockouts/unlock', { email }),
 };
 
 // ============================================
@@ -588,6 +877,15 @@ export const usersAPI = {
   /** Exportar datos Art. 20 RGPD (GET /api/users/:id/export-data) */
   exportStudentData: (userId) =>
     api.get(`/users/${userId}/export-data`, { responseType: 'blob' }),
+
+  /**
+   * Actualizar el progreso del onboarding interactivo del propio usuario
+   * (T-951 PROP-13). Acepta cualquier subset de los campos editables.
+   * @param {Object} payload - Subset { currentStep?, currentTrack?, teacherCompleted?, superAdminCompleted? }
+   * @returns {Promise} Respuesta con el subdocumento de onboarding actualizado.
+   */
+  updateMyOnboarding: (payload) =>
+    api.patch('/users/me/onboarding', payload),
 };
 
 // ============================================
@@ -686,8 +984,16 @@ export const contextsAPI = {
    * @param {boolean} [params.isActive=true] - Filtrar solo activos
    * @returns {Promise} Respuesta con lista de contextos
    */
-  getContexts: (params, config = {}) => 
-    api.get('/contexts', { params: params ?? ACTIVE_ONLY_PARAMS, ...config }),
+  // D.2 (pre-v1.0.0): dedup solo cuando se llama con `params` por defecto
+  // (caso bootstrap), no para queries específicas con filtros.
+  getContexts: (params, config = {}) => {
+    if (!params && !config.signal) {
+      return dedupRequest('contextsAPI.getContexts:default', () =>
+        api.get('/contexts', { params: ACTIVE_ONLY_PARAMS, ...config })
+      );
+    }
+    return api.get('/contexts', { params: params ?? ACTIVE_ONLY_PARAMS, ...config });
+  },
 
   /**
    * Obtener contexto por ID con sus assets
@@ -718,9 +1024,13 @@ export const contextsAPI = {
    * @param {FormData} formData - Datos con archivo (file, key, value, display)
    * @returns {Promise} Respuesta de Supabase
    */
-  uploadImage: (contextId, formData) => 
+  uploadImage: (contextId, formData) =>
     api.post(`/contexts/${contextId}/images`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      // Subidas multipart necesitan más que el timeout global de 10s (imagen de
+      // varios MB en conexión de aula) — con 10s abortaban con "No pudimos
+      // conectar" engañoso. El retry ya no aplica (es POST, no idempotente).
+      timeout: 60_000
     }),
 
   /**
@@ -729,9 +1039,10 @@ export const contextsAPI = {
    * @param {FormData} formData - Datos con archivo (file, key, value, display)
    * @returns {Promise} Respuesta de Supabase
    */
-  uploadAudio: (contextId, formData) => 
+  uploadAudio: (contextId, formData) =>
     api.post(`/contexts/${contextId}/audio`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60_000
     }),
 
   /**
@@ -753,9 +1064,22 @@ export const contextsAPI = {
     api.put(`/contexts/${contextMongoId}`, data),
 
   /**
-   * Eliminar un contexto completo y sus archivos de Storage (solo super_admin)
+   * Inventario de impacto del borrado en cascada (solo super_admin).
+   * Pre-chequeo para el modal: qué mazos se archivarán, qué sesiones se
+   * completarán/eliminarán, cuántas partidas se conservan y si hay partidas
+   * en curso que bloquean la operación (ADR-231).
    * @param {string} contextMongoId - MongoDB _id del contexto
-   * @returns {Promise} Confirmación de eliminación
+   * @returns {Promise} Inventario de impacto
+   */
+  getContextDeletionImpact: (contextMongoId) =>
+    api.get(`/contexts/${contextMongoId}/deletion-impact`),
+
+  /**
+   * Eliminar un contexto con archivado en cascada (solo super_admin):
+   * borra assets + archivos de Storage, archiva mazos, completa sesiones
+   * jugadas y elimina borradores. Las partidas (historial) se conservan.
+   * @param {string} contextMongoId - MongoDB _id del contexto
+   * @returns {Promise} Resumen de la cascada ejecutada
    */
   deleteContext: (contextMongoId) =>
     api.delete(`/contexts/${contextMongoId}`),
@@ -769,7 +1093,8 @@ export const contextsAPI = {
    */
   attachAudio: (contextMongoId, assetKey, formData) =>
     api.patch(`/contexts/${contextMongoId}/assets/${assetKey}/audio`, formData, {
-      headers: { 'Content-Type': 'multipart/form-data' }
+      headers: { 'Content-Type': 'multipart/form-data' },
+      timeout: 60_000
     }),
 
   /**
@@ -802,8 +1127,15 @@ export const mechanicsAPI = {
    * @param {boolean} [params.isActive=true] - Filtrar solo activas
    * @returns {Promise} Respuesta con lista de mecánicas
    */
-  getMechanics: (params, config = {}) => 
-    api.get('/mechanics', { params: params ?? ACTIVE_ONLY_PARAMS, ...config }),
+  // D.2 (pre-v1.0.0): dedup default-params como contextsAPI.
+  getMechanics: (params, config = {}) => {
+    if (!params && !config.signal) {
+      return dedupRequest('mechanicsAPI.getMechanics:default', () =>
+        api.get('/mechanics', { params: ACTIVE_ONLY_PARAMS, ...config })
+      );
+    }
+    return api.get('/mechanics', { params: params ?? ACTIVE_ONLY_PARAMS, ...config });
+  },
 
   /**
    * Obtener mecánica por ID
@@ -938,6 +1270,47 @@ export const playsAPI = {
    */
   getPlayerStats: (playerId, params = {}) =>
     api.get(`/plays/stats/${playerId}`, { params })
+};
+
+/**
+ * API de notificaciones tiempo real (T-955).
+ *
+ * Los endpoints viven bajo /api/notifications. El bell del frontend
+ * consume estos endpoints para hidratar el estado inicial y para acciones
+ * de read/markAllRead; las notificaciones nuevas llegan vía Socket.IO
+ * (`notification:created`) y se prependen al listado cacheado.
+ */
+export const notificationsAPI = {
+  /**
+   * Lista paginada de notificaciones del usuario autenticado.
+   * @param {Object} params
+   * @param {number} [params.limit=20] - Tamaño de la página (1-100).
+   * @param {string} [params.before] - ISO date string como cursor.
+   * @param {Object} [config] - Axios config extra.
+   * @returns {Promise} { data: { items, nextCursor } }
+   */
+  list: (params = {}, config = {}) =>
+    api.get('/notifications', { params, ...config }),
+
+  /**
+   * Contador de notificaciones no leídas del usuario.
+   * @param {Object} [config]
+   * @returns {Promise} { data: { count } }
+   */
+  unreadCount: (config = {}) => api.get('/notifications/unread-count', config),
+
+  /**
+   * Marca una notificación específica como leída.
+   * @param {string} id
+   * @returns {Promise}
+   */
+  markRead: (id) => api.patch(`/notifications/${id}/read`, {}),
+
+  /**
+   * Marca todas las notificaciones del usuario como leídas.
+   * @returns {Promise} { data: { modified } }
+   */
+  markAllRead: () => api.post('/notifications/mark-all-read', {})
 };
 
 export default api;

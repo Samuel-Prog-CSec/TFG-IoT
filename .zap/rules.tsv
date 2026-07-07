@@ -1,0 +1,12 @@
+## OWASP ZAP - Reglas silenciadas
+##
+## Formato TSV (tab-separated): rule_id<TAB>action<TAB>comment
+## Acciones: IGNORE | WARN | FAIL
+##
+## Estas reglas suprimen falsos positivos conocidos al escanear el proyecto.
+## NO suprimir reglas sin justificación documentada — cada IGNORE va con motivo.
+
+10054	IGNORE	Cookie sin Secure flag — esperado en localhost (HTTP, sin TLS)
+10063	IGNORE	Permissions Policy header — ya incluido vía helmet en prod, ZAP no lee dynamic headers en algunos contextos
+10038	IGNORE	CSP en login no incluye 'unsafe-inline' style — compromiso pragmático Tailwind documentado en SECURITY.md
+10049	IGNORE	Storable but Non-Cacheable Content — esperado en /api/* con Cache-Control no-store

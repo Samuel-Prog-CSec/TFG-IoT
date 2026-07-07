@@ -18,7 +18,7 @@ class CardAssignmentState extends BaseRfidState {
   }
 
   getRoomMismatchMessage() {
-    return 'Modo RFID invalido para asignacion';
+    return 'Modo RFID inválido para asignación';
   }
 }
 

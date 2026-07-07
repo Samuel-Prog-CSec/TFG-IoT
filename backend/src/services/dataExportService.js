@@ -9,7 +9,6 @@
  */
 
 const userRepository = require('../repositories/userRepository');
-const gamePlayRepository = require('../repositories/gamePlayRepository');
 const { NotFoundError, ForbiddenError } = require('../utils/errors');
 const { pseudonymize } = require('../utils/pseudonymize');
 const logger = require('../utils/logger').child({ component: 'dataExportService' });
@@ -42,11 +41,21 @@ async function exportStudentData(studentId, requestingUser) {
     throw new ForbiddenError('No tienes permiso para exportar los datos de este alumno');
   }
 
-  // Recoger historial de partidas (dentro del periodo de retención)
-  const gamePlays = await gamePlayRepository.find(
-    { playerId: student._id },
-    { sort: { completedAt: -1 } }
-  );
+  // A.5 (pre-v1.0.0): cursor + `.lean()` para evitar el spike de memoria
+  // pico cuando un alumno con 500+ partidas se exporta. La consulta
+  // directa con `find` carga el dataset completo en heap antes de mapear; el cursor
+  // procesa documento a documento con `for await`, manteniendo la RAM
+  // intermedia acotada. El array final mantiene el shape esperado por
+  // el controller (Art. 20 RGPD — formato portable).
+  const GamePlay = require('mongoose').model('GamePlay');
+  const cursor = GamePlay.find({ playerId: student._id })
+    .sort({ completedAt: -1 })
+    .lean()
+    .cursor({ batchSize: 50 });
+  const gamePlays = [];
+  for await (const gp of cursor) {
+    gamePlays.push(gp);
+  }
 
   const gameHistory = gamePlays.map(gp => ({
     sessionId: gp.sessionId?.toString(),

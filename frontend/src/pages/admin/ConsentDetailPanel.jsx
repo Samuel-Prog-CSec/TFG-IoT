@@ -8,7 +8,7 @@
  */
 
 import { useState, useEffect, useCallback } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import {
   X,
@@ -115,12 +115,15 @@ const staggerItem = {
  * @param {React.ReactNode} props.value - Valor a mostrar
  */
 function InfoRow({ icon, label, value }) {
+  // BUG-CONSENT-INFOROW-A (QA Sprint 0 post-v0.5.0): el value puede contener
+  // un <div> (ej. "Finalidades" pinta una lista de chips). Si envolvemos en
+  // <p> rompe HTML semantics y React lanza hydration error.
   return (
     <div className="flex items-start gap-3 py-2">
       <span className="mt-0.5 text-text-muted">{icon}</span>
       <div className="min-w-0 flex-1">
         <p className="text-xs font-medium text-text-muted uppercase tracking-wider">{label}</p>
-        <p className="text-sm text-text-primary mt-0.5 break-words">{value ?? '—'}</p>
+        <div className="text-sm text-text-primary mt-0.5 break-words">{value ?? '—'}</div>
       </div>
     </div>
   );
@@ -187,13 +190,17 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
   const [exportLoading, setExportLoading] = useState(false);
 
   // ----- Fetch detallado del alumno -----
-  const fetchDetail = useCallback(async (studentId) => {
+  // D.1 (pre-v1.0.0): AbortController propagado. Si el usuario cierra el
+  // panel mientras la request está en vuelo, se aborta limpiamente y se
+  // evita un setState sobre componente desmontado.
+  const fetchDetail = useCallback(async (studentId, signal) => {
     setLoading(true);
     try {
-      const { data } = await usersAPI.getUser(studentId);
+      const { data } = await usersAPI.getUser(studentId, { signal });
       setDetailedStudent(data.data ?? data);
     } catch (err) {
-      toast.error('Error al cargar los datos del alumno', {
+      if (err?.code === 'ERR_CANCELED') return;
+      toast.error('No pudimos cargar los datos del alumno', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -203,13 +210,14 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
 
   // Al abrirse el panel con un alumno, cargar su detalle
   useEffect(() => {
-    if (isOpen && student?.id) {
-      setDetailedStudent(null);
-      setShowRegrantForm(false);
-      setGuardianName('');
-      setGuardianError('');
-      fetchDetail(student.id);
-    }
+    if (!isOpen || !student?.id) return undefined;
+    setDetailedStudent(null);
+    setShowRegrantForm(false);
+    setGuardianName('');
+    setGuardianError('');
+    const controller = new AbortController();
+    fetchDetail(student.id, controller.signal);
+    return () => controller.abort();
   }, [isOpen, student?.id, fetchDetail]);
 
   // Bloquear scroll del body mientras el panel está abierto
@@ -248,7 +256,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       onConsentChanged?.();
       await fetchDetail(student.id);
     } catch (err) {
-      toast.error('Error al revocar el consentimiento', {
+      toast.error('No pudimos revocar el consentimiento', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -277,7 +285,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       onConsentChanged?.();
       await fetchDetail(student.id);
     } catch (err) {
-      toast.error('Error al re-otorgar el consentimiento', {
+      toast.error('No pudimos volver a otorgar el consentimiento', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -299,7 +307,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       downloadBlob(blob, `datos-alumno-${safeName}-${dateStr}.json`);
       toast.success('Datos exportados correctamente');
     } catch (err) {
-      toast.error('Error al exportar los datos', {
+      toast.error('No pudimos exportar los datos', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -331,7 +339,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       onConsentChanged?.();
       await fetchDetail(student.id);
     } catch (err) {
-      toast.error('Error al actualizar los propósitos', {
+      toast.error('No pudimos actualizar los propósitos', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -349,7 +357,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
       onConsentChanged?.();
       onClose();
     } catch (err) {
-      toast.error('Error al eliminar los datos', {
+      toast.error('No pudimos eliminar los datos', {
         description: extractErrorMessage(err)
       });
     } finally {
@@ -484,7 +492,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
                                     key={p}
                                     className="inline-flex items-center px-2 py-0.5 rounded-full
                                                bg-info-dark/10 border border-info-dark/20
-                                               text-info-base text-[11px] font-medium"
+                                               text-info-base text-micro font-medium"
                                   >
                                     {PURPOSE_LABELS[p] ?? p}
                                   </span>
@@ -560,7 +568,7 @@ export default function ConsentDetailPanel({ isOpen, onClose, student, onConsent
                           <div className="flex items-start gap-2 p-2.5 rounded-lg bg-warning-base/5
                                           border border-warning-base/20 mt-1">
                             <ShieldX size={16} className="text-warning-base mt-0.5 shrink-0" />
-                            <p className="text-xs text-warning-base leading-relaxed">
+                            <p className="text-xs text-warning-on-alpha leading-relaxed">
                               Las métricas de rendimiento no se actualizarán con nuevas partidas.
                               El alumno seguirá pudiendo jugar con normalidad.
                             </p>

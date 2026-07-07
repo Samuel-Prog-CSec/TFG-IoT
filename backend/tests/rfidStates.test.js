@@ -33,7 +33,7 @@ describe('RFID State Pattern', () => {
       const state = new BaseRfidState('test');
 
       expect(state.getReadNotAllowedMessage()).toBe('Modo RFID no permite lecturas');
-      expect(state.getRoomMismatchMessage()).toBe('Modo RFID invalido');
+      expect(state.getRoomMismatchMessage()).toBe('Modo RFID inválido');
       expect(state.getRoomMismatchReason()).toBe('RFID_MODE_ROOM_MISMATCH');
     });
   });
@@ -93,7 +93,7 @@ describe('RFID State Pattern', () => {
     });
 
     it('returns specific mismatch message', () => {
-      expect(state.getRoomMismatchMessage()).toBe('Modo RFID invalido para asignacion');
+      expect(state.getRoomMismatchMessage()).toBe('Modo RFID inválido para asignación');
     });
   });
 

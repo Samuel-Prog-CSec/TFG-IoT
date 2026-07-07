@@ -1,12 +1,13 @@
-import { useState, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
-import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search } from 'lucide-react';
+import { m as motion, AnimatePresence } from 'framer-motion';
+import { Wifi, WifiOff, Pause, Play, Volume2, VolumeX, AlertTriangle, Hand, Search, Gamepad2, CheckCircle2, Loader2, RefreshCw, PartyPopper, ShieldAlert, X, Lock } from 'lucide-react';
 import { cn, calculateStars, EASING } from '../lib/utils';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useAuth } from '../context/AuthContext';
 import RFIDConnector from '../components/ui/RFIDConnector';
-import { extractErrorMessage } from '../services/api';
+import webSerialService from '../services/webSerialService';
+import { extractErrorMessage, playsAPI } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { toast } from 'sonner';
 import ErrorBoundary from '../components/common/ErrorBoundary';
@@ -14,10 +15,11 @@ import Tooltip from '../components/ui/Tooltip';
 import TimerBar from '../components/game/TimerBar';
 import { ScoreDisplayCompactMemo as ScoreDisplayCompact } from '../components/game/ScoreDisplay';
 import GameOverScreen from '../components/game/GameOverScreen';
+import ErrorState from '../components/ui/ErrorState';
+import AudioMiniPlayer from '../components/ui/AudioMiniPlayer';
 import CharacterMascot from '../components/game/CharacterMascot';
-import AssociationGameplayPanel from '../components/game/AssociationGameplayPanel';
 import { resolveAssociationTheme } from '../components/game/associationTheme';
-import MemoryGameplayPanel from '../components/game/MemoryGameplayPanel';
+import { getMechanicTheme } from '../lib/mechanicTheme';
 import GameBackdrop from '../components/game/GameBackdrop';
 import FallbackTouchPanel from '../components/game/FallbackTouchPanel';
 import RateLimitBanner from '../components/game/RateLimitBanner';
@@ -28,113 +30,94 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useSoundEffects } from '../hooks/useSoundEffects';
 import { useGameTimer } from '../hooks/useGameTimer';
 import { useGameSocket } from '../hooks/useGameSocket';
+import { useGameSessionState } from '../hooks/useGameSessionState';
+import { useStartupGuard } from '../hooks/useStartupGuard';
+import { normalizeFinalSummary } from '../lib/finalSummary';
 import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from '../lib/sessionSnapshot';
+
+// (D-07-A6) Code-split de los paneles por mecánica: una sesión solo carga el
+// panel de su mecánica (Asociación, Memoria o Secuencia). Antes los 3 paneles
+// entraban al bundle inicial de la ruta `/play/:id` aunque solo se renderice
+// uno; con `lazy()` el cliente descarga ~60-90 KB menos en la carga del
+// gameplay y los otros dos paneles solo viajan si el alumno cambia de tipo
+// de sesión más tarde. El fallback de Suspense es invisible: el área del
+// panel queda en blanco unos ms mientras GameBackdrop + motion siguen
+// renderizando alrededor, sin layout shift perceptible.
+const AssociationGameplayPanel = lazy(() => import('../components/game/AssociationGameplayPanel'));
+const MemoryGameplayPanel = lazy(() => import('../components/game/MemoryGameplayPanel'));
+const SequenceGameplayPanel = lazy(() => import('../components/game/SequenceGameplayPanel'));
+
+// FE-4: prefetch de los chunks de panel por mecánica. Se dispara en cuanto se conoce
+// la mecánica de la sesión (mucho antes de pulsar EMPEZAR), calentando la caché del
+// bundler para que el panel esté listo al montar. Reutiliza la promesa del `lazy()`
+// (import() dedupe), así que es seguro y barato.
+const PANEL_PREFETCHERS = {
+  memory: () => import('../components/game/MemoryGameplayPanel'),
+  sequence: () => import('../components/game/SequenceGameplayPanel'),
+  association: () => import('../components/game/AssociationGameplayPanel')
+};
+
+/**
+ * FE-4: skeleton genérico (definido FUERA de los chunks lazy) para el fallback del
+ * Suspense de los paneles. Antes el fallback era `null`: mientras el chunk del panel
+ * bajaba en frío (Cloudflare Pages + wifi de aula), el área central quedaba en blanco
+ * con el HUD y la TimerBar ya visibles. Este placeholder mantiene la superficie
+ * ocupada sin layout shift.
+ */
+function GamePanelSkeleton() {
+  const slots = Array.from({ length: 6 }, (_, i) => `panel-skeleton-${i}`);
+  return (
+    <output
+      className="w-full h-full flex items-center justify-center"
+      aria-label="Preparando el juego…"
+    >
+      <div className="w-full max-w-2xl grid grid-cols-3 gap-3 auto-rows-fr">
+        {slots.map(key => (
+          <div
+            key={key}
+            className="aspect-square rounded-xl bg-gradient-to-br from-brand-base/10 to-accent-indigo/10 border border-border-subtle relative overflow-hidden"
+          >
+            <div className="absolute inset-0 bg-gradient-to-r from-transparent via-text-primary/5 to-transparent animate-[shimmer_2s_infinite]" />
+          </div>
+        ))}
+      </div>
+    </output>
+  );
+}
 
 const FLOAT_DELAY_STYLE = { animationDelay: '1s' };
 const FLOAT_DELAY_NONE = { animationDelay: '0s' };
 
-function normalizeFinalSummary(rawMetrics, score, correctAnswers, isMemoryMode, gameStartTime) {
-  const metrics = rawMetrics && typeof rawMetrics === 'object' ? rawMetrics : {};
-  const totalAttempts = Number(metrics.totalAttempts || 0);
-  const averageResponseTimeMs = Number(metrics.averageResponseTime || 0);
-  const rawTotalTime = Number(metrics.totalTimePlayed || metrics.playDuration || 0);
-
-  // Si no hay tiempo del servidor, calcular a partir del inicio local (en ms)
-  const elapsedMs = gameStartTime ? Date.now() - gameStartTime : 0;
-  const totalTimePlayed = rawTotalTime > 0 ? rawTotalTime : elapsedMs;
-
-  // Errors y timeouts vienen desglosados desde el backend cuando estan
-  // disponibles. Antes calculabamos errors = totalAttempts - correctAnswers,
-  // pero el `correctAnswers` del reducer local puede llegar desincronizado
-  // si el evento `game_over` se procesa antes que el ultimo `response_*`
-  // (race entre eventos del socket). Usar `metrics.errorAttempts` como fuente
-  // de verdad evita falsos positivos como "Incorrectas: 5" en una partida
-  // de 4 aciertos + 1 fallo (QA 26/04/2026).
-  const errorAttempts = metrics.errorAttempts !== undefined ? Number(metrics.errorAttempts) : null;
-  const correctAttempts = metrics.correctAttempts !== undefined
-    ? Number(metrics.correctAttempts)
-    : null;
-  const errors = Number.isFinite(errorAttempts)
-    ? Math.max(0, errorAttempts)
-    : Math.max(0, totalAttempts - correctAnswers);
-  const finalCorrect = Number.isFinite(correctAttempts) ? correctAttempts : correctAnswers;
-
-  return {
-    score,
-    correctAnswers: finalCorrect,
-    errors,
-    attempts: totalAttempts,
-    averageResponseTimeMs: Number.isFinite(averageResponseTimeMs) ? averageResponseTimeMs : 0,
-    totalTimePlayed: Number.isFinite(totalTimePlayed) ? totalTimePlayed : 0,
-    mode: isMemoryMode ? 'memory' : 'association'
-  };
-}
-
-// Estado inicial del juego (campos coordinados que deben transicionar atómicamente)
-const INITIAL_GAME_STATE = {
-  gameState: 'waiting',      // 'waiting' | 'playing' | 'paused' | 'finished'
-  currentRound: 1,
-  score: 0,
-  correctAnswers: 0,
-  isAwaitingResponse: false,
-};
+// `gameReducer` + `INITIAL_GAME_STATE` extraídos a `hooks/useGameSessionState.js`
+// y `normalizeFinalSummary` a `lib/finalSummary.js` (Sprint 0 pre-v1.0.0 C2)
+// para reducir la complejidad cognitiva de este archivo y testear las unidades
+// puras por separado. Los imports están al inicio del fichero.
 
 /**
- * Reducer para estado coordinado del juego.
- * Garantiza transiciones atómicas entre estados y evita desincronización
- * cuando eventos de socket y timeouts llegan simultáneamente.
+ * Reconstruye el `sequenceState` del frontend a partir del snapshot de
+ * `play_state_sync` para rehidratar el tablero de Secuencia tras F5/reconexión.
+ * Pura (sin hooks) → fuera del componente para no inflar la complejidad de
+ * `handlePlayState`. La respuesta ya viene REDACTADA del backend.
+ *
+ * @param {object|null} ss - `payload.sequenceState`
+ * @returns {object|null}
  */
-function gameReducer(state, action) {
-  switch (action.type) {
-    case 'SET_GAME_STATE':
-      return { ...state, gameState: action.value };
-    case 'SET_SCORE':
-      return { ...state, score: action.value };
-    case 'SET_ROUND':
-      return { ...state, currentRound: action.value };
-    case 'AWAIT_RESPONSE':
-      return { ...state, isAwaitingResponse: action.value };
-    case 'ANSWER_CORRECT':
-      return {
-        ...state,
-        score: action.score,
-        correctAnswers: state.correctAnswers + 1,
-        isAwaitingResponse: false,
-      };
-    case 'ANSWER_INCORRECT':
-      return {
-        ...state,
-        score: action.score,
-        isAwaitingResponse: false,
-      };
-    case 'NEW_ROUND':
-      return {
-        ...state,
-        gameState: 'playing',
-        currentRound: action.round,
-        score: action.score,
-        isAwaitingResponse: true,
-      };
-    case 'PAUSE':
-      return { ...state, gameState: 'paused', isAwaitingResponse: false };
-    case 'RESUME':
-      return { ...state, gameState: 'playing', isAwaitingResponse: true };
-    case 'FINISH':
-      return { ...state, gameState: 'finished', isAwaitingResponse: false, score: action.score };
-    case 'PLAY_STATE_SYNC': {
-      // Sincronización parcial desde el servidor: solo actualiza campos presentes
-      const next = { ...state };
-      if (action.gameState !== undefined) next.gameState = action.gameState;
-      if (action.currentRound !== undefined) next.currentRound = action.currentRound;
-      if (action.score !== undefined) next.score = action.score;
-      if (action.isAwaitingResponse !== undefined) next.isAwaitingResponse = action.isAwaitingResponse;
-      return next;
-    }
-    case 'RESET':
-      return { ...INITIAL_GAME_STATE };
-    default:
-      return state;
+function buildSequenceStateFromSnapshot(ss) {
+  if (!ss || typeof ss !== 'object') {
+    return null;
   }
+  return {
+    sequence: Array.isArray(ss.sequence) ? ss.sequence : [],
+    length: Number(ss.length || 0),
+    phase: ss.phase || 'memorizing',
+    cursor: Number(ss.cursor || 0),
+    cardStatuses: ss.cardStatuses && typeof ss.cardStatuses === 'object' ? ss.cardStatuses : {},
+    highlightIndex: null,
+    displaySeconds: Number(ss.displaySeconds || 3),
+    roundNumber: Number(ss.roundNumber || 1),
+    hint: null,
+    isCollecting: false
+  };
 }
 
 /**
@@ -161,13 +144,30 @@ export default function GameSession() {
   const continueButtonRef = useRef(null);
   const gameStartTimeRef = useRef(null);
   const boardReadyEmittedRef = useRef(false);
+  // Idempotencia de la reacción de Otto en Memoria: ya reaccionó al turno
+  // actual. Se arma en match/mismatch y se rearma en cualquier fase previa
+  // (first_pick/concealed/round_start…) → una sola reacción por turno aunque
+  // el backend re-emita el mismo `memory_turn_state` (replay al reconectar).
+  const memoryTurnReactedRef = useRef(false);
   const totalRoundsRef = useRef(5);
   const roundTimeRef = useRef(ROUND_TIME);
   const socketSessionRef = useRef(null); // Ref al objeto session del socket hook
 
-  // --- Estado coordinado del juego (reducer) ---
-  const [game, dispatch] = useReducer(gameReducer, INITIAL_GAME_STATE);
+  // --- Estado coordinado del juego (extraído a hooks/useGameSessionState) ---
+  const { game, dispatch } = useGameSessionState();
   const { gameState, currentRound, score, correctAnswers, isAwaitingResponse } = game;
+
+  // Señaliza al GameLayout que hay una partida activa para que la salida
+  // pida confirmación. Se limpia al desmontar la página. El custom event
+  // `gameactive:change` evita que GameLayout tenga que hacer polling.
+  useEffect(() => {
+    globalThis.__gameActive = true;
+    globalThis.dispatchEvent(new CustomEvent('gameactive:change'));
+    return () => {
+      globalThis.__gameActive = false;
+      globalThis.dispatchEvent(new CustomEvent('gameactive:change'));
+    };
+  }, []);
 
   // Flash "Seguimos" al reanudar partida: captura el cambio paused -> playing
   // para mostrar un micro-feedback visual que confirma la accion del usuario.
@@ -200,18 +200,76 @@ export default function GameSession() {
   // Hint "Toca las cartas del tablero" solo util antes del primer tap; se oculta
   // al primer tap para no ruido visual durante el resto de la partida (QA 22/04/2026).
   const [hasTappedBoardOnce, setHasTappedBoardOnce] = useState(false);
-  // isMemoryMode se resuelve como derivado tras obtener session del socket hook
-  const [sessionIsMemory, setSessionIsMemory] = useState(false);
+  // mechanicMode se resuelve como derivado tras obtener session del socket hook.
+  // Mantenemos `sessionIsMemory` y `sessionIsSequence` como aliases derivados
+  // para legibilidad de los branches existentes; cuando entre una cuarta
+  // mecánica conviene ya tener un único `mechanicMode` como source of truth.
+  const [mechanicMode, setMechanicMode] = useState('association');
+  const sessionIsMemory = mechanicMode === 'memory';
+  const sessionIsSequence = mechanicMode === 'sequence';
+
+  // Modo seguro (firma HMAC activa). El firmware lo anuncia en el init de éxito
+  // (`hmac:"enabled"`) y `webSerialService` lo propaga en `device_init` y en
+  // cada `device_state_change`. Lo reflejamos en el indicador del HUD para que
+  // el docente sepa que los scans van firmados. Arranca en `false` (modo
+  // táctil / firmware sin firma).
+  const [rfidHmacEnabled, setRfidHmacEnabled] = useState(
+    () => webSerialService.hmacEnabled || false
+  );
+
+  // Estado intra-ronda de la mecánica Secuencia (T-921). Vive aquí (no en
+  // SequenceGameplayPanel) para que los listeners de useGameSocket se
+  // registren ANTES de que el componente Secuencia se monte por
+  // mechanicMode resolver — sin esto, el primer sequence_phase_memorizing
+  // emitido por el backend al `start_play` se perdería (BUG-QA-6, QA 03/05/2026).
+  const [sequenceState, setSequenceState] = useState({
+    sequence: [],
+    length: 0,
+    phase: 'memorizing',
+    cursor: 0,
+    cardStatuses: {},
+    highlightIndex: null,
+    displaySeconds: 3,
+    roundNumber: 1,
+    hint: null,
+    isCollecting: false
+  });
+  const sequenceCollectTimerRef = useRef(null);
+  // QA 2026-05-06 (ADR-113): timer del grace period entre overlay
+  // "Reproduce la secuencia" y `AWAIT_RESPONSE=true` real. Ver
+  // `handleSequencePhaseReproducing`.
+  const sequenceGraceTimerRef = useRef(null);
+  // Audio en las pistas de Secuencia (sequenceConfig.autoPlayHints): último
+  // audio a reproducir { url, token }. El flag y el mapa uid→audioUrl viven en
+  // refs para que `handleSequenceCardResult` no dependa de `session` (evitar
+  // re-crear el callback y re-registrar listeners del socket).
+  const [sequenceHintAudio, setSequenceHintAudio] = useState(null);
+  const sequenceHintAudioEnabledRef = useRef(false);
+  const sequenceCardAudioMapRef = useRef(new Map());
   // Flag para el hook de timer: en Memoria, solo empieza a decrementar cuando
   // el backend ha confirmado board_ready (playEndsAt establecido). Antes de
   // eso mostramos la barra llena y estatica, evitando el visual "bucle vacio".
   const [memoryTimerArmed, setMemoryTimerArmed] = useState(false);
+  // Conexión en tiempo real, sincronizada desde `realtimeStatus` (que devuelve
+  // useGameSocket MÁS ABAJO). Se declara aquí porque `useGameTimer` —que la
+  // consume para congelar la barra durante una reconexión— se llama antes que
+  // useGameSocket; el effect de sincronización vive tras el hook de socket.
+  const [isRealtimeConnected, setIsRealtimeConnected] = useState(true);
 
   // --- Hooks de feedback y sonido ---
-  const gameFeedback = useGameFeedback({ isMemoryMode: sessionIsMemory, shouldReduceMotion });
+  const gameFeedback = useGameFeedback({
+    isMemoryMode: sessionIsMemory,
+    shouldReduceMotion,
+    // ADR-D: la mascota usa el diccionario por mecánica.
+    mechanicType: mechanicMode
+  });
   const {
     clearFeedback,
     processValidationResult,
+    signalMemoryResult,
+    signalSequencePhase,
+    signalRoundStart,
+    signalIdleNudge,
     resetForNewPlay,
     feedbackState,
     feedbackPoints,
@@ -219,6 +277,8 @@ export default function GameSession() {
     isTimeout: feedbackIsTimeout,
     mascotMood,
     mascotMessage,
+    streak,
+    totalErrors,
   } = gameFeedback;
 
   // --- Timer hook (instanciado antes de callbacks para que setTimeLeft esté disponible) ---
@@ -232,7 +292,8 @@ export default function GameSession() {
     memoryFeedbackActive,
     memoryTimerArmed,
     roundTime,
-    playTick
+    playTick,
+    isRealtimeConnected
   });
 
   // Sincronizar refs
@@ -303,20 +364,36 @@ export default function GameSession() {
       } else {
         dispatch({ type: 'ANSWER_INCORRECT', score: newScore });
         setShakeError(true);
-        globalThis.setTimeout(() => setShakeError(false), 600);
+        // Rastreado en pendingTimeoutRef (como el resto): sin esto, si el
+        // componente se desmonta en estos 600ms disparaba setState sobre un
+        // componente ya desmontado (inconsistente con el patrón del archivo).
+        pendingTimeoutRef.current.push(globalThis.setTimeout(() => setShakeError(false), 600));
       }
       if (socketSessionRef.current?.mechanic?.name === 'memory') {
         setMemoryFeedbackActive(true);
       }
       clearAnnouncedThresholds();
 
-      setSrAnnouncement(`Ronda ${currentRound}: respuesta ${isCorrect ? 'correcta' : 'incorrecta'}. Puntuación: ${newScore}.`);
+      // Sin "Ronda X" aquí: el handler se registra una vez y el `currentRound`
+      // del closure quedaba congelado en 1 (el lector anunciaba siempre "Ronda
+      // 1"); además en Memoria el nº derivado de intentos podía superar el total
+      // de parejas. El número de ronda ya se anuncia al iniciarla
+      // (handleNewRound). Frase por mecánica vía `socketSessionRef` (ref, fresco):
+      const isMemoryResult = socketSessionRef.current?.mechanic?.name === 'memory';
+      const subject = isMemoryResult ? 'Pareja' : 'Respuesta';
+      let resultWord;
+      if (isMemoryResult) {
+        resultWord = isCorrect ? 'encontrada' : 'incorrecta';
+      } else {
+        resultWord = isCorrect ? 'correcta' : 'incorrecta';
+      }
+      setSrAnnouncement(`${subject} ${resultWord}. Puntuación: ${newScore}.`);
 
       scheduleFeedbackClear(
         Number.isFinite(feedbackDelayMs) && feedbackDelayMs > 0 ? feedbackDelayMs : 1400
       );
     },
-    [scheduleFeedbackClear, processValidationResult, currentRound, totalRounds, timeLeft, roundTime, memoryStats, playCorrect, playIncorrect, clearAnnouncedThresholds]
+    [scheduleFeedbackClear, processValidationResult, currentRound, totalRounds, timeLeft, roundTime, memoryStats, playCorrect, playIncorrect, clearAnnouncedThresholds, dispatch]
   );
 
   const handleNewRound = useCallback(
@@ -347,9 +424,12 @@ export default function GameSession() {
       setTimeLeft(nextTimeLimit);
       setChallenge(normalizeChallenge(payload?.challenge));
       playRoundStart();
+      // Otto: saludo en la 1ª ronda y hype suave ("¡Última ronda!") en la
+      // última; rondas intermedias preservan el mood del acierto anterior.
+      signalRoundStart({ currentRound: roundNumber, totalRounds: nextTotalRounds });
       setSrAnnouncement(`Ronda ${Number(payload?.roundNumber || 1)} de ${nextTotalRounds} iniciada.`);
     },
-    [clearPendingTimeouts, normalizeChallenge, clearFeedback, playRoundStart, setTimeLeft, clearAnnouncedThresholds]
+    [clearPendingTimeouts, normalizeChallenge, clearFeedback, playRoundStart, setTimeLeft, clearAnnouncedThresholds, dispatch, signalRoundStart]
   );
 
   const handlePlayPaused = useCallback(payload => {
@@ -361,7 +441,7 @@ export default function GameSession() {
     if (Number.isFinite(remaining) && remaining >= 0) {
       setTimeLeft(Math.max(0, Math.ceil(remaining / 1000)));
     }
-  }, [clearFeedback, setTimeLeft]);
+  }, [clearFeedback, setTimeLeft, dispatch]);
 
   const handlePlayResumed = useCallback(
     payload => {
@@ -377,7 +457,7 @@ export default function GameSession() {
       clearAnnouncedThresholds();
       setSrAnnouncement('Partida reanudada.');
     },
-    [normalizeChallenge, clearFeedback, setTimeLeft, clearAnnouncedThresholds]
+    [normalizeChallenge, clearFeedback, setTimeLeft, clearAnnouncedThresholds, dispatch]
   );
 
   const handlePlayState = useCallback(payload => {
@@ -403,6 +483,17 @@ export default function GameSession() {
     }
     dispatch(syncAction);
 
+    // Sesión reanudada: si no llega un `new_round` (la mecánica Secuencia
+    // arranca con `sequence_phase_memorizing`, sin `new_round`) y la sesión
+    // ya estaba en curso, gameStartTimeRef quedaría null y el resumen
+    // final mostraría "Tiempo total: —". Lo inicializamos aquí como
+    // fallback conservador (puede infraestimar el tiempo real si la
+    // sesión llevaba ya un rato, pero el backend `completionTime` toma
+    // precedencia en `normalizeFinalSummary`).
+    if (payload?.status === 'in-progress' && !gameStartTimeRef.current) {
+      gameStartTimeRef.current = Date.now();
+    }
+
     if (Number.isFinite(payload?.maxRounds)) {
       setTotalRounds(payload.maxRounds);
     }
@@ -422,8 +513,27 @@ export default function GameSession() {
         matchedCount: Number(payload.memoryState.matchedCount || 0),
         totalCards: Number(payload.memoryState.totalCards || 0)
       });
+      // Tras reconexión / recarga de página (play_state_sync) hay que RE-ARMAR el
+      // timer de Memoria aquí: si no, `useGameTimer` lo deja CONGELADO (la barra
+      // sincroniza el valor pero no decrementa) hasta que el alumno levanta la
+      // primera carta. El arranque inicial lo arma `handleMemoryTurnState`, pero
+      // el path de resync no pasaba por ahí.
+      if (Number.isFinite(payload?.remainingTimeMs) && payload.remainingTimeMs > 0) {
+        setMemoryTimerArmed(true);
+      }
     }
-  }, [normalizeChallenge, setTimeLeft]);
+
+    // Secuencia: rehidratar el tablero intra-ronda tras F5/reconexión. Sin esto el
+    // `sequenceState` volvía a su inicial vacío al remontar y el tablero quedaba EN
+    // BLANCO el resto de la ronda. La respuesta viene REDACTADA del backend. El
+    // backend dirige la transición de fase por su propio schedule, así que el
+    // cliente se re-sincroniza al recibir el siguiente `sequence_phase_*`. (Lógica
+    // de reconstrucción en `buildSequenceStateFromSnapshot`, fuera del componente.)
+    const rehydratedSequence = buildSequenceStateFromSnapshot(payload?.sequenceState);
+    if (rehydratedSequence) {
+      setSequenceState(rehydratedSequence);
+    }
+  }, [normalizeChallenge, setTimeLeft, dispatch]);
 
   const handleMemoryTurnState = useCallback(payload => {
     const phase = payload?.phase;
@@ -459,6 +569,16 @@ export default function GameSession() {
 
     if (phase === 'match' || phase === 'mismatch') {
       setMemoryFeedbackActive(true);
+      // ADR-D / rediseño Otto: la mascota reacciona a la pareja (match→happy/
+      // celebrating "¡Pareja!", mismatch→encouraging "Mira otra vez"). Señal
+      // mascot-only: NO toca memoryFeedbackActive/feedbackState (gestionados por
+      // fases) para no alterar el flip de cartas ni el timer de Memoria.
+      // Idempotente: una sola reacción por turno (no recontar racha/errores si
+      // el backend re-emite el mismo turno).
+      if (!memoryTurnReactedRef.current) {
+        memoryTurnReactedRef.current = true;
+        signalMemoryResult(phase === 'match');
+      }
     }
 
     if (
@@ -469,8 +589,10 @@ export default function GameSession() {
       phase === 'ignored'
     ) {
       setMemoryFeedbackActive(false);
+      // Fase previa al desenlace → rearmar la reacción para el próximo turno.
+      memoryTurnReactedRef.current = false;
     }
-  }, [setTimeLeft]);
+  }, [setTimeLeft, dispatch, signalMemoryResult]);
 
   const handleGameOver = useCallback(payload => {
     playGameOver();
@@ -481,7 +603,18 @@ export default function GameSession() {
     const finalScore = Number.isFinite(payload?.finalScore) ? payload.finalScore : 0;
     setSrAnnouncement('Partida finalizada.');
     setPlaySummary(
-      normalizeFinalSummary(payload?.metrics, finalScore, correctAnswers, socketSessionRef.current?.mechanic?.name === 'memory', gameStartTimeRef.current)
+      normalizeFinalSummary(
+        payload?.metrics,
+        finalScore,
+        correctAnswers,
+        // El backend emite `payload.mode` directamente (memory|association|sequence)
+        // desde T-921; usamos esa fuente y caemos a inferencia local sólo si falta.
+        payload?.mode || socketSessionRef.current?.mechanic?.name || 'association',
+        gameStartTimeRef.current,
+        // ADR-114: maxScore viaja en el payload de game_over para que el
+        // GameOverScreen pueda mostrar `score / maxScore (Z%)`.
+        payload?.maxScore
+      )
     );
 
     if (shouldReduceMotion) {
@@ -496,7 +629,7 @@ export default function GameSession() {
       }, 1200);
       pendingTimeoutRef.current.push(celebrationTimeout);
     }
-  }, [clearPendingTimeouts, clearFeedback, correctAnswers, shouldReduceMotion, playGameOver]);
+  }, [clearPendingTimeouts, clearFeedback, correctAnswers, shouldReduceMotion, playGameOver, dispatch]);
 
   const handlePlayInterrupted = useCallback(payload => {
     clearPendingTimeouts();
@@ -504,6 +637,21 @@ export default function GameSession() {
     setMemoryFeedbackActive(false);
 
     const finalScore = Number.isFinite(payload?.finalScore) ? payload.finalScore : score;
+    // Construir un resumen mínimo preservando la mecánica real ANTES de
+    // FINISH. Sin esto `playSummary` quedaba null y el GameOver caía a su
+    // fallback (hero verde + GameOverStats por defecto = Asociación),
+    // mostrando una mecánica equivocada para partidas de Memoria/Secuencia
+    // interrumpidas. Misma resolución de `mode` que handleGameOver.
+    setPlaySummary(
+      normalizeFinalSummary(
+        payload?.metrics,
+        finalScore,
+        correctAnswers,
+        payload?.mode || socketSessionRef.current?.mechanic?.name || 'association',
+        gameStartTimeRef.current,
+        payload?.maxScore
+      )
+    );
     dispatch({ type: 'FINISH', score: finalScore });
 
     const interruptionMessage =
@@ -512,13 +660,272 @@ export default function GameSession() {
 
     setSrAnnouncement('La partida fue interrumpida.');
     toast.warning(interruptionMessage);
-  }, [clearPendingTimeouts, clearFeedback, score]);
+  }, [clearPendingTimeouts, clearFeedback, score, correctAnswers, dispatch]);
 
   const handleSrAnnouncement = useCallback((msg) => {
     setSrAnnouncement(msg);
   }, []);
 
   // --- Socket hook ---
+
+  // Handlers para los eventos socket de Secuencia (T-921). Se registran en
+  // useGameSocket (no en SequenceGameplayPanel) para que estén activos antes
+  // del primer evento del backend.
+  const handleSequencePhaseMemorizing = useCallback(payload => {
+    if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
+    // Cancelar grace timer pendiente (en caso de transición rápida tras
+    // pause/resume o reanudación de partida).
+    if (sequenceGraceTimerRef.current) {
+      clearTimeout(sequenceGraceTimerRef.current);
+      sequenceGraceTimerRef.current = null;
+    }
+
+    const roundNumber = Number(payload?.roundNumber) || 1;
+    const totalRoundsPayload = Number(payload?.totalRounds);
+
+    setSequenceState({
+      sequence: payload?.sequence || [],
+      length: payload?.length || (payload?.sequence?.length ?? 0),
+      phase: 'memorizing',
+      cursor: 0,
+      cardStatuses: {},
+      highlightIndex: null,
+      displaySeconds: payload?.displaySeconds || 3,
+      roundNumber,
+      hint: null,
+      isCollecting: false
+    });
+    // La pista sonora pendiente pertenece a la ronda anterior: se limpia al
+    // empezar la memorización de la nueva.
+    setSequenceHintAudio(null);
+
+    // Sincronizar header de la partida (ronda actual / total) — el backend
+    // de Secuencia no emite `new_round`, así que lo hacemos a mano aquí.
+    dispatch({ type: 'SET_ROUND', value: roundNumber });
+    if (Number.isFinite(totalRoundsPayload) && totalRoundsPayload > 0) {
+      setTotalRounds(totalRoundsPayload);
+    }
+    if (typeof payload?.score === 'number') {
+      dispatch({ type: 'SET_SCORE', value: payload.score });
+    }
+
+    // Durante la memorización el timer del cliente NO debe correr (el
+    // backend ni siquiera ha armado `roundTimer` aún) — pintar la barra
+    // llena y desactivar isAwaitingResponse para detener `useGameTimer`.
+    dispatch({ type: 'AWAIT_RESPONSE', value: false });
+    clearAnnouncedThresholds();
+    setTimeLeft(roundTimeRef.current || ROUND_TIME);
+    // Otto reacciona a la fase de memorización ("¡Fíjate en el orden!").
+    signalSequencePhase('memorizing');
+  }, [setTimeLeft, clearAnnouncedThresholds, dispatch, signalSequencePhase]);
+
+  const handleSequencePhaseReproducing = useCallback(payload => {
+    // Sincronizar `overlayDurationMs` con el `gracePeriodMs` del backend para
+    // que PhaseTransitionOverlay y el setTimeout interno de SequenceBoard usen
+    // exactamente la misma duración. Si el evento no trae el campo (test o
+    // backend antiguo), SequenceBoard/Overlay caen al fallback (2400ms).
+    const gracePeriodMsForOverlay = Number(payload?.gracePeriodMs);
+    setSequenceState(prev => ({
+      ...prev,
+      phase: 'reproducing',
+      cursor: 0,
+      length: typeof payload?.length === 'number' ? payload.length : prev.length,
+      overlayDurationMs: Number.isFinite(gracePeriodMsForOverlay) && gracePeriodMsForOverlay > 0
+        ? gracePeriodMsForOverlay
+        : prev.overlayDurationMs
+    }));
+
+    // Reiniciar la barra a la duración real de esta ronda. El backend acaba
+    // de armar un `roundTimer` nuevo en sequenceFlow.enterReproducingPhase;
+    // sin esto la barra continuaba la cuenta de la ronda anterior (BUG QA
+    // 03/05/2026: "el tiempo se aplica al total de rondas y no se reinicia").
+    const timeLimitMs = Number(payload?.timeLimitMs);
+    if (Number.isFinite(timeLimitMs) && timeLimitMs > 0) {
+      const seconds = Math.max(1, Math.ceil(timeLimitMs / 1000));
+      setRoundTime(seconds);
+      setTimeLeft(seconds);
+    } else {
+      setTimeLeft(roundTimeRef.current || ROUND_TIME);
+    }
+    clearAnnouncedThresholds();
+
+    // QA 2026-05-06: el backend nos envía `gracePeriodMs` (2400ms por
+    // defecto) que coincide con la duración del `PhaseTransitionOverlay`.
+    // Postponemos `AWAIT_RESPONSE=true` hasta tras el overlay para que la
+    // `TimerBar` no decremente durante el countdown — antes el alumno
+    // "perdía" 2-3s de su tiempo configurado mientras leía "¡Ya!". El
+    // `roundTimer` del backend ya está calibrado al período total
+    // (grace + timeLimit + 150ms), así que ambos lados quedan sincronizados.
+    const gracePeriodMs = Number(payload?.gracePeriodMs) || 0;
+    if (sequenceGraceTimerRef.current) {
+      clearTimeout(sequenceGraceTimerRef.current);
+      sequenceGraceTimerRef.current = null;
+    }
+    if (gracePeriodMs > 0) {
+      sequenceGraceTimerRef.current = setTimeout(() => {
+        dispatch({ type: 'AWAIT_RESPONSE', value: true });
+        sequenceGraceTimerRef.current = null;
+      }, gracePeriodMs);
+    } else {
+      dispatch({ type: 'AWAIT_RESPONSE', value: true });
+    }
+    // Otto reacciona a la fase de reproducción ("¡Ahora te toca!").
+    signalSequencePhase('reproducing');
+  }, [setTimeLeft, clearAnnouncedThresholds, dispatch, signalSequencePhase]);
+
+  const handleSequenceCardResult = useCallback(payload => {
+    const TYPE_TO_STATUS = {
+      correct: 'correct',
+      blocked: 'blocked',
+      timedOut: 'timedOut',
+      timeout: 'timedOut'
+    };
+    const status = TYPE_TO_STATUS[payload?.type];
+    setSequenceState(prev => {
+      const nextStatuses = { ...prev.cardStatuses };
+      if (status && payload?.expectedUid) nextStatuses[payload.expectedUid] = status;
+      const nextCursor = typeof payload?.cursor === 'number' ? payload.cursor : prev.cursor;
+      // La pista es FIJA: acompaña a la carta de la posición actual y solo se
+      // retira al AVANZAR de posición (acierto o bloqueo) o cuando llega una
+      // pista nueva — nunca por un temporizador. Al cambiar de ronda se limpia
+      // en `handleSequencePhaseMemorizing`.
+      const cursorAdvanced = nextCursor !== prev.cursor;
+      let nextHint = prev.hint;
+      if (payload?.hint?.text) nextHint = payload.hint;
+      else if (cursorAdvanced) nextHint = null;
+      return {
+        ...prev,
+        cardStatuses: nextStatuses,
+        cursor: nextCursor,
+        hint: nextHint
+      };
+    });
+    if (payload?.type === 'correct') {
+      dispatch({ type: 'ANSWER_CORRECT', score: payload.score ?? 0 });
+      // En Secuencia, una carta correcta no termina la ronda salvo que sea la última;
+      // mantenemos awaitingResponse=true para que sigan pasando los siguientes scans.
+      dispatch({ type: 'AWAIT_RESPONSE', value: true });
+      playCorrect();
+      // ADR-D / ADR-112: la mascota debe reaccionar igual que en
+      // Asociación/Memoria. Sin esta llamada se quedaba en mood `idle` con
+      // "¿Jugamos?" durante toda la partida porque `useGameFeedback` solo
+      // procesaba `validation_result`. `challengeRef` es null en Secuencia
+      // (no se renderiza `ChallengeDisplay`), por lo que `processValidationResult`
+      // no dispara confetti en este path; mantenemos el `playSuccess` para la
+      // ronda completa (`handleSequenceRoundResult`).
+      // `mechanicType` ya viaja por el closure del hook (línea ~301):
+      // dejarlo en el payload era redundante (Plan agent R5, 2026-05-09).
+      processValidationResult({
+        isCorrect: true,
+        timeout: false,
+        pointsAwarded: payload?.points ?? 0,
+        newScore: payload?.score ?? 0
+      }, { currentRound, totalRounds });
+    } else if (
+      payload?.type === 'blocked' ||
+      payload?.type === 'incorrect' ||
+      payload?.type === 'incorrect_with_hint'
+    ) {
+      dispatch({ type: 'ANSWER_INCORRECT', score: payload.score ?? 0 });
+      dispatch({ type: 'AWAIT_RESPONSE', value: true });
+      playIncorrect();
+      processValidationResult({
+        isCorrect: false,
+        timeout: false,
+        pointsAwarded: payload?.points ?? 0,
+        newScore: payload?.score ?? 0
+      }, { currentRound, totalRounds });
+      // Audio en las pistas (opt-in del profesor): suena el audio de la carta
+      // esperada en los fallos QUE DAN OTRA OPORTUNIDAD — `incorrect_with_hint`
+      // (Fácil: acompaña a la pista de texto, hasta 2 veces) e `incorrect`
+      // (Media: no hay pista de texto, el audio ES la pista). En `blocked`
+      // (carta agotada — único tipo de fallo en Difícil) no suena: ya no hay
+      // nada que adivinar. El token por intento hace que la segunda pista
+      // vuelva a reproducir el mismo audio.
+      if (
+        sequenceHintAudioEnabledRef.current &&
+        payload?.type !== 'blocked' &&
+        payload?.expectedUid
+      ) {
+        const hintAudioUrl = sequenceCardAudioMapRef.current.get(payload.expectedUid);
+        if (hintAudioUrl) {
+          setSequenceHintAudio({
+            url: hintAudioUrl,
+            token: `${payload.expectedUid}-${payload.attemptsForCurrent ?? 0}`
+          });
+        }
+      }
+    }
+  }, [playCorrect, playIncorrect, processValidationResult, currentRound, totalRounds, dispatch]);
+
+  const handleSequenceRoundResult = useCallback(payload => {
+    const TYPE_TO_STATUS = {
+      correct: 'correct',
+      blocked: 'blocked',
+      timedOut: 'timedOut'
+    };
+    setSequenceState(prev => {
+      const finalStatuses = { ...prev.cardStatuses };
+      (payload?.results || []).forEach(item => {
+        finalStatuses[item.uid] = TYPE_TO_STATUS[item.status] || 'correct';
+      });
+      // cursor: 0 cierra cualquier render intermedio (overlay, transición a
+      // memorizing) que pintara el indicador "Carta X de N" del fallback
+      // panel con el cursor de la ronda recién terminada. La nueva ronda
+      // entra siempre desde 0 y `handleSequencePhaseMemorizing`/`Reproducing`
+      // lo confirman; este reset es defensa-en-profundidad para evitar que
+      // un race condition exponga el cursor de la ronda anterior.
+      return { ...prev, phase: 'completed', cardStatuses: finalStatuses, cursor: 0 };
+    });
+    // La ronda ha terminado: paramos el timer del cliente para que la
+    // barra no siga decrementando durante el respiro entre rondas (el
+    // backend ya canceló su `roundTimer` en finalizeSequenceRound).
+    dispatch({ type: 'AWAIT_RESPONSE', value: false });
+    if (payload?.completed) {
+      playSuccess();
+    } else if (payload?.timedOut) {
+      // ADR-112: timeout de ronda completa → mascota a 'sad' con frase
+      // de timeout específica de Secuencia. Sin esto la mascota mantenía
+      // el mood happy/encouraging del último card_result.
+      processValidationResult({
+        isCorrect: false,
+        timeout: true,
+        pointsAwarded: 0,
+        newScore: payload?.score ?? 0
+      }, { currentRound, totalRounds });
+    }
+    if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
+    // Si la ronda terminó dentro del grace period (alumno muy rápido), el
+    // grace timer aún estaba pendiente — al pasar a "completed" deja de
+    // tener sentido. Lo cancelamos aquí; el siguiente memorizing volverá
+    // a activarlo si procede.
+    if (sequenceGraceTimerRef.current) {
+      clearTimeout(sequenceGraceTimerRef.current);
+      sequenceGraceTimerRef.current = null;
+    }
+    // QA 2026-05-06: dejamos las cartas reveladas (verde/rojo/ámbar) 2400ms
+    // antes de arrancar la recogida, para que el alumno asimile cómo le fue
+    // (antes 800ms se sentía abrupto y la partida "saturaba"). El backend
+    // espera FEEDBACK_PAUSE_MS=3500 entre `sequence_round_result` y el
+    // siguiente `sequence_phase_memorizing`: 2400ms reveal + ~640ms collect
+    // anim + ~460ms respiro antes del reparto.
+    sequenceCollectTimerRef.current = setTimeout(() => {
+      setSequenceState(prev => ({ ...prev, isCollecting: true }));
+    }, 2400);
+  }, [playSuccess, processValidationResult, currentRound, totalRounds, dispatch]);
+
+  // Otto "más vivo": re-enganche por inactividad. Si durante el turno del
+  // alumno (juego activo + esperando respuesta) pasan ~8s sin actividad
+  // (sin cambio de ronda ni feedback), Otto da un toque amable. Se reinicia
+  // con cada acción; nunca regaña (cooldown en `signalIdleNudge`).
+  useEffect(() => {
+    // Solo durante la espera genuina de respuesta (feedbackState idle): si hay
+    // feedback en curso (success/error), NO arrancar el timer para no pisar el
+    // mood reactivo (happy/celebrating/worried) con el nudge (code review F4).
+    if (gameState !== 'playing' || !isAwaitingResponse || feedbackState !== 'idle') return undefined;
+    const t = setTimeout(() => signalIdleNudge(), 8000);
+    return () => clearTimeout(t);
+  }, [gameState, isAwaitingResponse, currentRound, feedbackState, signalIdleNudge]);
 
   const socket = useGameSocket({
     sessionId,
@@ -534,7 +941,11 @@ export default function GameSession() {
       onPlayState: handlePlayState,
       onMemoryTurnState: handleMemoryTurnState,
       onPlayInterrupted: handlePlayInterrupted,
-      onSrAnnouncement: handleSrAnnouncement
+      onSrAnnouncement: handleSrAnnouncement,
+      onSequencePhaseMemorizing: handleSequencePhaseMemorizing,
+      onSequencePhaseReproducing: handleSequencePhaseReproducing,
+      onSequenceCardResult: handleSequenceCardResult,
+      onSequenceRoundResult: handleSequenceRoundResult
     }
   });
 
@@ -543,6 +954,7 @@ export default function GameSession() {
     session, playId, selectedPlayerId,
     loadingSession, sessionError,
     rfidConnected, bestScore,
+    rfidBlocked, clearRfidBlocked,
     setRealtimeError,
     syncGameState,
     REALTIME_STATUS_COPY,
@@ -552,11 +964,75 @@ export default function GameSession() {
     emitBoardReady
   } = socket;
 
-  // Sincronizar socketSessionRef y sessionIsMemory cuando la sesión cargue
+  // Sincroniza la conexión en tiempo real al estado declarado arriba (que
+  // `useGameTimer` consume para congelar la barra durante una reconexión).
+  useEffect(() => {
+    setIsRealtimeConnected(realtimeStatus === 'connected');
+  }, [realtimeStatus]);
+
+  // Memoiza la lista de cardMappings de la sesión para que SequenceGameplayPanel
+  // no re-renderice en cada cambio del padre — sin esto, el `|| []` inline
+  // creaba una referencia nueva por cada render del GameSession (Bloque G,
+  // sesión 04/05/2026).
+  const sequenceCardMappings = useMemo(
+    () => session?.cardMappings || [],
+    [session?.cardMappings]
+  );
+
+  // Sincroniza a refs la preferencia de audio en pistas y el mapa uid→audioUrl
+  // de las cartas (ver declaración de sequenceHintAudioEnabledRef arriba).
+  useEffect(() => {
+    sequenceHintAudioEnabledRef.current = Boolean(session?.sequenceConfig?.autoPlayHints);
+    const map = new Map();
+    (session?.cardMappings || []).forEach(m => {
+      const url = m?.displayData?.audioUrl;
+      if (m?.uid && url) map.set(m.uid, url);
+    });
+    sequenceCardAudioMapRef.current = map;
+  }, [session]);
+
+  // Contenido del tooltip de diagnóstico del lector RFID (HUD). Resume estado
+  // del lector, el sensor autorizado de la sesión (truncado, jerga técnica útil
+  // solo para depurar) y si el modo seguro (firma HMAC) está activo. Se
+  // recalcula solo cuando cambian sus entradas para no crear strings en cada
+  // render del HUD durante la partida.
+  const rfidTooltip = useMemo(() => {
+    const estado = rfidConnected ? 'Lector conectado y listo' : 'Lector desconectado';
+    const sensorAutorizado = session?.sensorId
+      ? `Sensor autorizado: ${String(session.sensorId).slice(0, 12)}…`
+      : null;
+    const firma = rfidHmacEnabled ? '🔒 Firma activa' : null;
+    const lineas = [estado, sensorAutorizado, firma].filter(Boolean);
+    return {
+      // Texto plano para `aria-label` (lectores de pantalla anuncian el
+      // diagnóstico completo al enfocar el indicador con teclado).
+      ariaLabel: lineas.join('. '),
+      // Versión visual multilínea para el tooltip flotante.
+      content: (
+        <span className="block space-y-0.5 text-left">
+          {lineas.map(linea => (
+            <span key={linea} className="block">{linea}</span>
+          ))}
+        </span>
+      )
+    };
+  }, [rfidConnected, session?.sensorId, rfidHmacEnabled]);
+
+  // Sincronizar socketSessionRef y mechanicMode cuando la sesión cargue
   useEffect(() => {
     socketSessionRef.current = session;
-    setSessionIsMemory(session?.mechanic?.name === 'memory');
+    const name = (session?.mechanic?.name || 'association').toString().toLowerCase();
+    setMechanicMode(name === 'memory' || name === 'sequence' ? name : 'association');
   }, [session]);
+
+  // FE-4: precargar el chunk del panel de la mecánica en cuanto se resuelve (antes de
+  // pulsar EMPEZAR), para que no baje en medio de la partida dejando el área en blanco.
+  useEffect(() => {
+    const prefetch = PANEL_PREFETCHERS[mechanicMode] || PANEL_PREFETCHERS.association;
+    prefetch().catch(() => {
+      // Fallo de red: el lazy() lo reintentará al montar el panel.
+    });
+  }, [mechanicMode]);
 
   // --- Snapshot de partida en sessionStorage (resiliencia a F5) ---
   // Limpiamos snapshots vencidos al montar para no acumular basura.
@@ -578,7 +1054,7 @@ export default function GameSession() {
       }
     }
     snapshotHydratedRef.current = true;
-  }, [playId]);
+  }, [playId, dispatch]);
 
   // Persistir snapshot tras cada transición relevante. Se ejecuta en cada
   // cambio del estado coordinado del juego — sessionStorage write es
@@ -631,11 +1107,18 @@ export default function GameSession() {
   useEffect(() => {
     const mappings = session?.cardMappings;
     if (!Array.isArray(mappings) || mappings.length === 0) return;
+    // AS-1: NUNCA precargar la imagen full-res (768px). La suposición original era
+    // que Asociación la pintaba en ChallengeDisplay, pero el objetivo del reto es un
+    // "?" OCULTO por diseño: ningún componente de partida pinta la full-res (el único
+    // <img> es CardAssetPreview, siempre thumbnail) y `getAssetImageUrl({preferFull})`
+    // no tiene callers. Precargarla eran ~1-3 MB de egress de Supabase inservible por
+    // partida de Asociación (free-tier). El fallback a full-res cuando falta el
+    // thumbnail se conserva dentro de prefetchDeckImages/cardMapping.
     prefetchDeckImages(mappings, () => {
       if (prefetchNotifiedRef.current) return;
       prefetchNotifiedRef.current = true;
       console.warn('[GameSession] Alguna imagen del mazo fallo al precargar. Se mostrara el nombre como fallback.');
-    });
+    }, { includeFullRes: false });
   }, [session?.cardMappings]);
 
   // Sincronizar gameState con el socket hook
@@ -671,30 +1154,96 @@ export default function GameSession() {
     }
   }, [feedbackState]);
 
-  // Confirmar que el tablero de memoria está visible para iniciar el timer
+  // Resetear la señal de board_ready en cada nueva partida (cambio de playId),
+  // para que la memorización (Secuencia) / el timer (Memoria) vuelvan a arrancar
+  // al pulsar EMPEZAR en la siguiente partida.
   useEffect(() => {
-    if (
-      sessionIsMemory &&
-      gameState === 'playing' &&
-      memoryBoard.length > 0 &&
-      playId &&
-      !boardReadyEmittedRef.current
-    ) {
-      boardReadyEmittedRef.current = true;
-      emitBoardReady();
-    }
-  }, [sessionIsMemory, gameState, memoryBoard, playId, emitBoardReady]);
+    boardReadyEmittedRef.current = false;
+  }, [playId]);
 
-  // Sonido de victoria cuando la partida termina con buen resultado (>=2 estrellas)
+  // Bug #1: registrar el handler que `GameLayout.performExit` invoca al confirmar
+  // "Salir". Abandona la partida EN CURSO (POST /plays/:id/abandon) para que la
+  // sesión no quede `active` bloqueando reconfiguraciones (Memoria) ni se reutilice
+  // una partida a medias (Asociación/Secuencia). Solo se registra mientras la partida
+  // está viva: si ya terminó (`finished`, GameOver) la play está `completed` y el
+  // endpoint la rechazaría, así que dejamos el handler a null.
+  useEffect(() => {
+    const abandonable = playId && gameState !== 'finished';
+    globalThis.__gameAbandonHandler = abandonable
+      ? async () => {
+          try {
+            await playsAPI.abandonPlay(playId);
+          } catch {
+            // Best-effort: el reclaim del motor / el cron son la red final.
+          }
+        }
+      : null;
+    return () => {
+      globalThis.__gameAbandonHandler = null;
+    };
+  }, [playId, gameState]);
+
+  // Confirmar que el tablero está visible para que el backend arranque su timer:
+  // - Memoria: cuando el tablero (memoryBoard) ya está renderizado.
+  // - Secuencia (F-03): al pulsar EMPEZAR (gameState='playing'). Así el backend
+  //   arranca la memorización de la ronda 1 SOLO entonces y el alumno recibe los
+  //   segundos completos — antes la pantalla pre-inicio "¡Hora de Jugar!"
+  //   consumía ese tiempo (el timer corría desde el bootstrap).
+  // - Asociación (A1): cuando el reto de la ronda 1 ya está renderizado
+  //   (gameState='playing'). Antes NO emitía board_ready, así que el backend armaba
+  //   el roundTimer en el bootstrap y el niño perdía 1-3s del reloj mientras el
+  //   frontend aún cargaba. Ahora las 3 mecánicas comparten el mismo gate.
+  useEffect(() => {
+    if (gameState !== 'playing' || !playId || boardReadyEmittedRef.current) {
+      return;
+    }
+    // Memoria: esperar a que el tablero esté poblado antes de confirmar.
+    if (sessionIsMemory && memoryBoard.length === 0) {
+      return;
+    }
+    boardReadyEmittedRef.current = true;
+    emitBoardReady();
+  }, [sessionIsMemory, sessionIsSequence, gameState, memoryBoard, playId, emitBoardReady]);
+
+  // --- Blindaje del arranque de partida (todas las mecánicas) ---
+  // Reintento: limpia estado local y re-emite start_play. Con el reclamo de
+  // tarjetas huérfanas del backend, un conflicto de "tarjeta en uso" por una
+  // partida interrumpida previa se resuelve en el reintento sin intervención.
+  const retryStartPlay = useCallback(() => {
+    setRealtimeError(null);
+    setMemoryTimerArmed(false);
+    boardReadyEmittedRef.current = false;
+    startPlay();
+  }, [setRealtimeError, startPlay]);
+
+  const { startupError, handleStartupRetry } = useStartupGuard({
+    gameState,
+    playId,
+    realtimeError,
+    sessionIsMemory,
+    sessionIsSequence,
+    memoryBoardLength: memoryBoard.length,
+    sequenceLength: sequenceState.length,
+    hasChallenge: Boolean(challenge),
+    onRetry: retryStartPlay
+  });
+
+  // Sonido de victoria cuando la partida termina con buen resultado (>=3 estrellas
+  // en la escala canónica de 5 niveles; mismo umbral y MISMA base que las estrellas
+  // del GameOver). El % se calcula sobre `score / maxScore`, NO sobre accuracy
+  // (correctas/rondas): con penalización por error ambos divergen y antes el chime
+  // de victoria sonaba incluso en partidas que el GameOver puntúa con 1-2 estrellas
+  // (en Secuencia, accuracy por cartas daba casi siempre ≥90% → 5★ espurias).
   useEffect(() => {
     if (gameState !== 'finished') return undefined;
-    const percentage = totalRounds > 0 ? (correctAnswers / totalRounds) * 100 : 0;
-    if (calculateStars(percentage) >= 2) {
+    const maxScore = Number(playSummary?.maxScore || 0);
+    const percentage = maxScore > 0 ? (Number(score) / maxScore) * 100 : 0;
+    if (calculateStars(percentage) >= 3) {
       const timer = globalThis.setTimeout(() => playSuccess(), 600);
       return () => globalThis.clearTimeout(timer);
     }
     return undefined;
-  }, [gameState, correctAnswers, totalRounds, playSuccess]);
+  }, [gameState, score, playSummary, playSuccess]);
 
   // Gestión de foco en pausa
   useEffect(() => {
@@ -718,6 +1267,13 @@ export default function GameSession() {
   useEffect(() => {
     return () => {
       clearPendingTimeouts();
+      // Los timers de Secuencia viven en refs propios (no en el array de
+      // pendingTimeouts), así que hay que cancelarlos también al desmontar: si
+      // el usuario navega fuera de la partida con uno en vuelo (grace, collect
+      // 2.4s) dispararía dispatch/setSequenceState sobre un componente ya
+      // desmontado (fuga + warning de React).
+      if (sequenceCollectTimerRef.current) clearTimeout(sequenceCollectTimerRef.current);
+      if (sequenceGraceTimerRef.current) clearTimeout(sequenceGraceTimerRef.current);
     };
   }, [clearPendingTimeouts]);
 
@@ -743,7 +1299,13 @@ export default function GameSession() {
     setSrAnnouncement('Partida iniciada.');
   };
 
-  const togglePause = () => {
+  // `useCallback`: `togglePause` se pasa como `onPauseRequest` al
+  // `memo(FallbackTouchPanel)`. GameSession re-renderiza cada segundo (el tick de
+  // la TimerBar), así que una función nueva por render rompía la memoización del
+  // panel táctil (hasta 20 motion.button) — se reconciliaba cada segundo durante
+  // toda la partida táctil. Con referencia estable, el panel solo re-renderiza
+  // cuando cambian sus props reales.
+  const togglePause = useCallback(() => {
     if (!playId) return;
 
     if (gameState === 'playing') {
@@ -757,7 +1319,7 @@ export default function GameSession() {
         setSrAnnouncement('Solicitando reanudación de la partida.');
       }
     }
-  };
+  }, [playId, gameState, emitPausePlay, emitResumePlay, setSrAnnouncement]);
 
   const handlePauseDialogKeyDown = event => {
     if (event.key === 'Escape') {
@@ -774,7 +1336,11 @@ export default function GameSession() {
 
   const handleFallbackCardScan = useCallback(
     card => {
-      if (gameState !== 'playing') return;
+      // No emitir fuera de turno: tras un timeout SIN tap el panel táctil queda
+      // habilitado durante el hueco de feedback entre rondas (isAwaitingResponse
+      // false), y un tap ahí provocaba un scan que el backend respondía con
+      // `not_awaiting` → toast "Escaneo fuera de turno" confuso. Cortamos aquí.
+      if (gameState !== 'playing' || !isAwaitingResponse) return;
 
       const sensorId = session?.sensorId || 'touch_fallback_sensor';
       const sent = emitFallbackScan(card, sensorId);
@@ -786,7 +1352,25 @@ export default function GameSession() {
 
       setSrAnnouncement(`Carta ${card?.assignedValue || card?.uid} seleccionada.`);
     },
-    [gameState, session?.sensorId, emitFallbackScan]
+    [gameState, isAwaitingResponse, session?.sensorId, emitFallbackScan]
+  );
+
+  // Secuencia usa su propio gating (el panel táctil solo se monta en fase
+  // reproducing y el backend ignora scans fuera de fase), por lo que NO aplica el
+  // guard de `isAwaitingResponse` de Asociación. Pero sí necesita el feedback de
+  // error en fallo de envío (paridad con Asociación/Memoria: antes un tap con el
+  // socket caído se perdía en silencio) y el anuncio para lector de pantalla.
+  const handleSequenceCardTap = useCallback(
+    card => {
+      const sensorId = session?.sensorId || 'touch_fallback_sensor';
+      const sent = emitFallbackScan(card, sensorId);
+      if (sent === false) {
+        toast.error('No se pudo enviar la respuesta. Comprueba la conexión.');
+        return;
+      }
+      setSrAnnouncement(`Carta ${card?.assignedValue || card?.uid} seleccionada.`);
+    },
+    [session?.sensorId, emitFallbackScan]
   );
 
   const handleMemoryCardTap = useCallback(
@@ -794,10 +1378,52 @@ export default function GameSession() {
       if (gameState !== 'playing' || !slot?.uid) return;
       setHasTappedBoardOnce(true);
       const sensorId = session?.sensorId || 'touch_fallback_sensor';
-      emitMemoryCardTap(slot, sensorId);
+      const sent = emitMemoryCardTap(slot, sensorId);
+      // Paridad con el panel táctil de Asociación: si el socket está caído el tap
+      // se descarta (no se encola), y Memoria lo IGNORABA en silencio → el alumno
+      // no se enteraba de que su toque se perdió (aulas con WiFi inestable).
+      if (sent === false) {
+        toast.error('No se pudo enviar la respuesta. Comprueba la conexión.');
+      }
     },
     [gameState, session?.sensorId, emitMemoryCardTap]
   );
+
+  // Reconexión guiada del lector RFID desde el banner de bloqueo. El backend
+  // rechaza scans cuando el sensor no está autorizado / cambió a media partida
+  // o la firma HMAC no valida; reabrir el puerto fuerza un init limpio que
+  // re-anuncia el sensor autorizado. `connect()` abre el selector de puerto del
+  // navegador, por lo que requiere gesto del usuario (el clic del botón lo es).
+  const handleReconnectReader = useCallback(async () => {
+    try {
+      await webSerialService.disconnect();
+      await webSerialService.connect();
+      // Solo limpiar el banner guiado si la reconexión tuvo ÉXITO. Antes estaba
+      // en `finally`: si el docente cancelaba el selector de puerto o la conexión
+      // fallaba, el banner desaparecía igualmente y perdía la guía de reconexión
+      // hasta el siguiente scan rechazado (confuso para un usuario no técnico).
+      clearRfidBlocked();
+    } catch (reconnectError) {
+      toast.error(
+        reconnectError?.message || 'No se pudo reconectar el lector. Inténtalo de nuevo.'
+      );
+    }
+  }, [clearRfidBlocked]);
+
+  // Modo seguro: escuchar el estado de firma HMAC que `webSerialService`
+  // propaga en `device_init` (al arrancar el sensor) y en cada
+  // `device_state_change` (incluida la desconexión, que lo resetea a false).
+  useEffect(() => {
+    const handleHmacState = payload => {
+      setRfidHmacEnabled(Boolean(payload?.hmacEnabled));
+    };
+    webSerialService.on('device_init', handleHmacState);
+    webSerialService.on('device_state_change', handleHmacState);
+    return () => {
+      webSerialService.off('device_init', handleHmacState);
+      webSerialService.off('device_state_change', handleHmacState);
+    };
+  }, []);
 
   const playAgain = async () => {
     if (!selectedPlayerId) {
@@ -887,7 +1513,7 @@ export default function GameSession() {
         </div>
       }
     >
-    <div className="game-bg h-dvh flex flex-col relative overflow-hidden">
+    <div className="game-bg h-full flex flex-col relative overflow-hidden p-[var(--space-fluid-section)]">
       <output className="sr-only" aria-live="polite" aria-atomic="true">
         {srAnnouncement}
       </output>
@@ -899,6 +1525,7 @@ export default function GameSession() {
         theme={resolveAssociationTheme(
           challenge?.value || session?.context?.name || session?.deck?.name
         )}
+        mechanicType={mechanicMode}
       />
 
       {/* Top HUD — z-index ligeramente por encima de los wrappers hermanos
@@ -911,8 +1538,39 @@ export default function GameSession() {
         <div className="glass rounded-2xl p-2.5 sm:p-3 flex items-center justify-between gap-3">
           {/* Indicador de progreso — dots visuales para niños (en vez de "3 de 6").
               - Asociacion: 1 dot por ronda; el actual pulsa y los completados estan llenos
-              - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan */}
-          <div className="flex items-center gap-3">
+              - Memoria: 1 dot por pareja; se iluminan a medida que se emparejan
+              gap-4 (16px) en vez de gap-3 — QA 04/05: el pill de mecánica
+              quedaba pegado a los dots/texto y se solapaba visualmente. */}
+          <div className="flex items-center gap-4">
+            {/* Badge canónico de mecánica (ADR-C). Identifica la mecánica
+                a un vistazo con icono Lucide signature + nombre legible
+                pintado con el accent color del theme. Visible desde sm+ para
+                no saturar pantallas estrechas. */}
+            {(() => {
+              const theme = getMechanicTheme(mechanicMode);
+              const ThemeIcon = theme.icon;
+              return (
+                <div
+                  className={cn(
+                    'hidden sm:flex items-center gap-2 px-2.5 py-1.5 rounded-xl border',
+                    theme.accentBgSoftClass,
+                    theme.accentBorderClass
+                  )}
+                  title={theme.headline}
+                  aria-label={`Mecánica: ${theme.label}`}
+                >
+                  <ThemeIcon size={16} className={theme.accentClass} aria-hidden="true" />
+                  <span
+                    className={cn(
+                      'text-xs font-semibold uppercase tracking-wider',
+                      theme.accentClass
+                    )}
+                  >
+                    {theme.label}
+                  </span>
+                </div>
+              );
+            })()}
             {(() => {
               const totalProgress = sessionIsMemory
                 ? Math.floor((memoryStats.totalCards || 0) / 2)
@@ -946,19 +1604,25 @@ export default function GameSession() {
                   const isCurrent = dot.position === current;
                   return (
                     <motion.span
-                      key={dot.id}
+                      // La clave del dot actual incluye `current` para que
+                      // remonte y reproduzca un único latido al avanzar de
+                      // ronda; antes latía en bucle (`repeat: Infinity`)
+                      // compitiendo con el pulso del chip "Jugando", que
+                      // queda ahora como único elemento vivo permanente.
+                      key={isCurrent ? `${dot.id}-r${current}` : dot.id}
                       className={cn(
                         'block h-2.5 rounded-full transition-[background-color,width]',
                         isCurrent && 'w-6 bg-gradient-to-r from-brand-base to-accent-indigo shadow-[0_0_8px_var(--color-brand-glow)]',
                         isCompleted && 'w-2.5 bg-success-base/80',
                         !isCurrent && !isCompleted && 'w-2.5 bg-background-surface/60'
                       )}
+                      initial={isCurrent && !shouldReduceMotion ? { scale: 1 } : false}
                       animate={
                         isCurrent && !shouldReduceMotion
-                          ? { opacity: [1, 0.6, 1], scale: [1, 1.12, 1] }
+                          ? { scale: [1, 1.18, 1] }
                           : { opacity: 1, scale: 1 }
                       }
-                      transition={{ duration: 1.4, repeat: isCurrent ? Infinity : 0, ease: 'easeInOut' }}
+                      transition={{ duration: 0.45, ease: 'easeOut' }}
                       aria-hidden="true"
                     />
                   );
@@ -967,7 +1631,7 @@ export default function GameSession() {
             </div>
             {sessionIsMemory ? (
               <div className="hidden sm:block">
-                <div className="text-[10px] text-text-disabled uppercase tracking-wider">Parejas</div>
+                <div className="text-nano text-text-muted uppercase tracking-wider">Parejas</div>
                 <div className="text-sm text-text-primary font-bold font-display">
                   {Math.floor((memoryStats.matchedCount || 0) / 2)}
                   <span className="text-text-muted font-normal"> / {Math.floor((memoryStats.totalCards || 0) / 2)}</span>
@@ -975,7 +1639,7 @@ export default function GameSession() {
               </div>
             ) : (
               <div className="hidden sm:block">
-                <div className="text-[10px] text-text-disabled uppercase tracking-wider">Ronda</div>
+                <div className="text-nano text-text-muted uppercase tracking-wider">Ronda</div>
                 <div className="text-sm text-text-primary font-bold font-display">
                   {currentRound}
                   <span className="text-text-muted font-normal"> / {totalRounds}</span>
@@ -1017,15 +1681,33 @@ export default function GameSession() {
               </Tooltip>
             ) : null}
 
-            <div className={cn(
-              "p-2 rounded-lg",
-              rfidConnected ? "bg-success-base/20 text-success-base" : "bg-error-base/20 text-error-base"
-            )}>
-              <output className="sr-only" aria-live="polite">
-                {rfidConnected ? 'Sensor RFID conectado' : 'Sensor RFID desconectado'}
-              </output>
-              {rfidConnected ? <Wifi size={20} /> : <WifiOff size={20} />}
-            </div>
+            {/* Indicador del lector con tooltip de diagnóstico (Task 7): estado
+                del lector, sensor autorizado de la sesión y modo seguro (firma
+                HMAC). El Tooltip envuelve un elemento no interactivo, por lo que
+                añade role/tabIndex/aria-label automáticamente y queda operable
+                por teclado. El candado solo aparece con firma activa. */}
+            <Tooltip content={rfidTooltip.content} side="bottom">
+              <div
+                aria-label={rfidTooltip.ariaLabel}
+                className={cn(
+                  "relative p-2 rounded-lg",
+                  rfidConnected ? "bg-success-base/20 text-success-base" : "bg-error-base/20 text-error-base"
+                )}
+              >
+                <output className="sr-only" aria-live="polite">
+                  {rfidConnected ? 'Sensor RFID conectado' : 'Sensor RFID desconectado'}
+                </output>
+                {rfidConnected ? <Wifi size={20} /> : <WifiOff size={20} />}
+                {rfidHmacEnabled && (
+                  <span
+                    className="absolute -top-1 -right-1 inline-flex items-center justify-center size-3.5 rounded-full bg-success-base text-background-base"
+                    aria-hidden="true"
+                  >
+                    <Lock size={9} strokeWidth={3} />
+                  </span>
+                )}
+              </div>
+            </Tooltip>
 
             {/* Chip de estado: durante la partida cambia de "Juego listo" a
                 "Jugando" con pulso verde para reforzar que la partida esta
@@ -1074,10 +1756,22 @@ export default function GameSession() {
                 }
                 return (
                   <>
-                    {realtimeStatus === 'connected' && '✅ '}
-                    {realtimeStatus === 'reconnecting' && '⏳ '}
-                    {realtimeStatus === 'disconnected' && '❌ '}
-                    {realtimeStatus === 'connecting' && '⏳ '}
+                    {/* Iconos Lucide tintados en vez de emojis Unicode
+                        (✅⏳❌ dependían de la fuente del SO y mezclaban
+                        estilos). El color lo fija explícitamente cada icono
+                        para mantener la señal cromática del estado. */}
+                    {realtimeStatus === 'connected' && (
+                      <CheckCircle2 size={14} className="shrink-0 text-success-base" aria-hidden="true" />
+                    )}
+                    {realtimeStatus === 'reconnecting' && (
+                      <RefreshCw size={14} className="shrink-0 text-warning-base animate-spin" aria-hidden="true" />
+                    )}
+                    {realtimeStatus === 'disconnected' && (
+                      <WifiOff size={14} className="shrink-0 text-error-base" aria-hidden="true" />
+                    )}
+                    {realtimeStatus === 'connecting' && (
+                      <Loader2 size={14} className="shrink-0 text-warning-base animate-spin" aria-hidden="true" />
+                    )}
                     {REALTIME_STATUS_COPY[realtimeStatus]?.label || 'Conectando…'}
                   </>
                 );
@@ -1092,6 +1786,66 @@ export default function GameSession() {
           <RFIDConnector className="max-w-md" showSensorId={false} />
         </div>
       )}
+
+      {/* Banner guiado de lector bloqueado (Task 7). A diferencia del indicador
+          Wifi/WifiOff —que solo distingue conectado/desconectado— este banner
+          aparece cuando el backend RECHAZA scans por seguridad (sensor no
+          autorizado, cambio de sensor a media partida o firma HMAC inválida).
+          Esos rechazos eran invisibles; aquí se hacen accionables con una
+          reconexión guiada. Usa tono de error (más prominente que el warning de
+          `realtimeError`) siguiendo el patrón motion de RateLimitBanner. */}
+      <AnimatePresence>
+        {rfidBlocked && (
+          <div className="relative z-10 px-3 sm:px-4 mt-1 shrink-0">
+            <motion.aside
+              role="alert"
+              aria-atomic="true"
+              initial={{ opacity: 0, y: -8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0, y: -8 }}
+              transition={{ duration: 0.2 }}
+              className="relative w-full max-w-2xl mx-auto rounded-xl border border-error-base/40 bg-error-base/10 backdrop-blur-sm overflow-hidden"
+            >
+              <div className="flex items-start gap-3 px-4 py-3">
+                <ShieldAlert
+                  size={20}
+                  className="text-error-base shrink-0 mt-0.5"
+                  aria-hidden="true"
+                />
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-semibold text-text-primary">
+                    Lector RFID bloqueado
+                  </p>
+                  <p className="text-xs text-text-secondary mt-0.5">
+                    {rfidBlocked.message}
+                  </p>
+                  <div className="mt-2.5 flex flex-wrap items-center gap-2">
+                    <button
+                      type="button"
+                      onClick={handleReconnectReader}
+                      className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-error-base/20 text-error-base text-xs font-semibold hover:bg-error-base/30 active:scale-95 transition-[background-color,transform]"
+                    >
+                      <RefreshCw size={14} aria-hidden="true" />
+                      Reconectar lector
+                    </button>
+                    <span className="text-nano text-text-muted">
+                      o continúa en modo táctil
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={clearRfidBlocked}
+                  className="shrink-0 p-1 rounded-md text-text-muted hover:text-text-primary hover:bg-error-base/15 active:scale-95 transition-[color,background-color,transform]"
+                  aria-label="Descartar aviso del lector"
+                >
+                  <X size={16} aria-hidden="true" />
+                </button>
+              </div>
+            </motion.aside>
+          </div>
+        )}
+      </AnimatePresence>
 
       {realtimeError && (
         <div className="relative z-10 px-3 sm:px-4 mt-1 shrink-0">
@@ -1111,7 +1865,12 @@ export default function GameSession() {
       )}
 
       {(gameState === 'playing' || gameState === 'paused') && (
-        <div className="relative z-10 px-3 sm:px-4 mb-1 shrink-0">
+        // mb-3 (antes mb-1) — el `box-shadow: 0 0 20px ...glow` del TimerBar
+        // proyecta luminosidad ~20px hacia abajo. Con `mb-1` (4px) el glow
+        // se solapaba visualmente con el header del SequenceBoard
+        // ("Tu turno: escanea las cartas en orden") en 1366×768
+        // (HF-3 QA 2026-05-09).
+        <div className="relative z-10 px-3 sm:px-4 mb-3 shrink-0">
           <TimerBar timeLeft={timeLeft} timeLimit={roundTime} />
         </div>
       )}
@@ -1129,20 +1888,41 @@ export default function GameSession() {
               exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, scale: 0.9 }}
               className="text-center"
             >
+              {/* Icono Gamepad2 Lucide tinted con accent del tema mecánico
+                  (QA 04/05) — sustituye al emoji 🎮 que dependía del SO/font.
+                  Tinta dinámica: si la sesión es Memoria/Asociación/Secuencia,
+                  el icono adopta el accent canónico de la mecánica para
+                  reforzar identidad visual. */}
               <motion.div
                 animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.1, 1] }}
                 transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity }}
-                className="text-8xl mb-6"
+                className={cn(
+                  'mb-6 mx-auto inline-flex items-center justify-center',
+                  getMechanicTheme(mechanicMode).accentClass
+                )}
+                aria-hidden="true"
               >
-                🎮
+                <Gamepad2 size={96} strokeWidth={1.5} />
               </motion.div>
-              <h1 className="text-4xl sm:text-5xl font-bold font-display gradient-text-brand mb-4">
+              <h1 className="text-[var(--text-fluid-3xl)] font-bold font-display gradient-text-brand mb-4">
                 ¡Hora de Jugar!
               </h1>
               <p className="text-text-muted mb-8 text-lg">
-                {session?.deck?.name
-                  ? `Busca la tarjeta amiga en ${session.deck.name}`
-                  : 'Encuentra la tarjeta amiga'}
+                {(() => {
+                  if (sessionIsSequence) {
+                    return session?.deck?.name
+                      ? `Memoriza el orden de las cartas en ${session.deck.name}`
+                      : 'Memoriza el orden de las cartas';
+                  }
+                  if (sessionIsMemory) {
+                    return session?.deck?.name
+                      ? `Empareja las cartas iguales en ${session.deck.name}`
+                      : 'Empareja las cartas iguales';
+                  }
+                  return session?.deck?.name
+                    ? `Busca la tarjeta amiga en ${session.deck.name}`
+                    : 'Encuentra la tarjeta amiga';
+                })()}
               </p>
               <motion.button
                 whileHover={shouldReduceMotion ? {} : { scale: 1.05 }}
@@ -1164,45 +1944,107 @@ export default function GameSession() {
               animate={{ opacity: 1 }}
               exit={{ opacity: 0 }}
               className={cn(
-                // Memoria necesita mas ancho para el grid de 4 cols; asociacion
-                // tambien aprovecha anchura para que consigna y grid de respuestas
-                // sean mas legibles (antes con max-w-2xl quedaba mucho aire
-                // lateral, detectado en QA 2026-04-23).
-                // Ambas mecanicas usan h-full para que su contenido pueda ocupar
-                // el alto disponible y se evite scroll durante la partida.
-                'w-full flex flex-col items-center h-full',
-                sessionIsMemory ? 'max-w-5xl' : 'max-w-4xl justify-center gap-4',
+                // FIT-TO-VIEWPORT (sin scroll): la columna llena el alto del `main`
+                // (h-full + min-h-0) y reparte el espacio entre la región de
+                // referencia (reto/board) y la región de input táctil mediante
+                // reparto flex, en lugar de centrar contenido que pueda desbordar.
+                // Antes `justify-center` + hijos sin encoger recortaba la tarjeta
+                // del reto al aparecer el panel táctil (QA responsive 2026-06-12).
+                'w-full flex flex-col items-center h-full min-h-0 gap-[clamp(0.35rem,1.2vh,0.85rem)]',
+                // Cap de altura + centrado (el `main` ya centra): a 1440/4K el área
+                // de juego NO se estira a toda la pantalla (cartas pequeñas con
+                // huecos), sino que renderiza el layout probado (~1080) centrado con
+                // márgenes elegantes, igual que un `max-width` pero en el eje Y.
+                'max-h-[1100px]',
+                // El ancho de la columna escala con el ALTO disponible (vh): a 720p
+                // cabe igual, en 2K/4K se ensancha para aprovechar el espacio
+                // horizontal sin romper el fit vertical.
+                sessionIsMemory ? 'max-w-[clamp(64rem,128vh,86rem)]' : 'max-w-[clamp(56rem,124vh,86rem)]',
                 shakeError && 'animate-shake'
               )}
             >
-              {sessionIsMemory ? (
-                <MemoryGameplayPanel
-                  board={memoryBoard}
-                  attempts={memoryStats.attempts}
-                  matchedCount={memoryStats.matchedCount}
-                  totalCards={memoryStats.totalCards}
-                  feedbackState={feedbackState}
-                  feedbackPoints={feedbackPoints}
-                  feedbackMessage={feedbackMessage}
-                  onCardTap={handleMemoryCardTap}
-                />
-              ) : (
-                <AssociationGameplayPanel
-                  ref={gameFeedback.challengeRef}
-                  challenge={challenge}
-                  paused={gameState === 'paused'}
-                  feedbackState={feedbackState}
-                  feedbackPoints={feedbackPoints}
-                  feedbackMessage={feedbackMessage}
-                  isTimeout={feedbackIsTimeout}
-                />
-              )}
+              {/* Región de REFERENCIA: reto (Asociación), tablero (Memoria) o
+                  board (Secuencia). Toma una parte equitativa del alto (flex-1) y
+                  centra su contenido; con min-h-0 puede encoger sin recortes. */}
+              <div className="w-full flex-1 min-h-0 flex flex-col items-center justify-center">
+                <Suspense fallback={<GamePanelSkeleton />}>
+                  {(() => {
+                    if (sessionIsMemory) {
+                      return (
+                        <MemoryGameplayPanel
+                          board={memoryBoard}
+                          // FE-8: `attempts`/`matchedCount`/`totalCards` no las usa el
+                          // panel (ni las declara), pero al ser `memo` entraban en la
+                          // comparación shallow e invalidaban el memo cada vez que
+                          // cambiaban. El progreso ya vive en los dots del header y en
+                          // los corazones del propio tablero.
+                          feedbackState={feedbackState}
+                          feedbackPoints={feedbackPoints}
+                          feedbackMessage={feedbackMessage}
+                          // Con el sensor conectado y activo, el tablero NO es tappable:
+                          // el niño juega ESCANEANDO la carta física (el backend voltea la
+                          // del tablero). El fallback táctil (tap) solo aparece cuando se
+                          // pierde el RFID, para poder seguir jugando — mismo criterio que
+                          // el FallbackTouchPanel de Asociación/Secuencia. El tablero sigue
+                          // visible siempre (es el juego); solo se desactiva la interacción.
+                          onCardTap={rfidConnected ? undefined : handleMemoryCardTap}
+                        />
+                      );
+                    }
+                    if (sessionIsSequence) {
+                      return (
+                        <>
+                          <SequenceGameplayPanel
+                            totalRounds={totalRounds}
+                            cardMappings={sequenceCardMappings}
+                            rfidConnected={rfidConnected}
+                            soundEnabled={soundEnabled}
+                            sequenceState={sequenceState}
+                            onCardTap={handleSequenceCardTap}
+                          />
+                          {/* Audio en las pistas (sequenceConfig.autoPlayHints): al fallar,
+                              el audio de la carta esperada suena como pista sonora
+                              (accesibilidad pre-lectora). Oculto: el objeto Audio vive en
+                              JS, no pinta controles (mismo patrón que la locución de la
+                              consigna en Asociación). El `token` cambia por intento, así
+                              en Fácil vuelve a sonar con la segunda pista. */}
+                          {sequenceHintAudio?.url && soundEnabled && (
+                            <AudioMiniPlayer
+                              audioUrl={sequenceHintAudio.url}
+                              size="sm"
+                              variant="glass"
+                              autoPlay
+                              autoPlayToken={sequenceHintAudio.token}
+                              visuallyHidden
+                            />
+                          )}
+                        </>
+                      );
+                    }
+                    return (
+                      <AssociationGameplayPanel
+                        ref={gameFeedback.challengeRef}
+                        challenge={challenge}
+                        paused={gameState === 'paused'}
+                        feedbackState={feedbackState}
+                        feedbackPoints={feedbackPoints}
+                        feedbackMessage={feedbackMessage}
+                        isTimeout={feedbackIsTimeout}
+                        // Locución automática de la consigna: opt-in del docente en el
+                        // wizard (session.associationConfig.autoPlayPrompt).
+                        autoPlayAudio={Boolean(session?.associationConfig?.autoPlayPrompt)}
+                      />
+                    );
+                  })()}
+                </Suspense>
+              </div>
 
+              {!sessionIsSequence && (
               <motion.p
                 initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
-                className="mt-2 text-center text-text-secondary text-sm sm:text-base font-semibold"
+                className="shrink-0 text-center text-text-secondary text-sm sm:text-base font-semibold"
               >
                 {(() => {
                   if (sessionIsMemory) {
@@ -1228,20 +2070,25 @@ export default function GameSession() {
                   );
                 })()}
               </motion.p>
+              )}
 
-              {!rfidConnected && !sessionIsMemory && (
+              {/* Región de INPUT táctil (Asociación sin sensor): hermana flex-1 de
+                  la referencia → reparto equilibrado del alto. El propio panel se
+                  acota con min-h-0 y escala sus cartas por alto disponible. */}
+              {!rfidConnected && !sessionIsMemory && !sessionIsSequence && (
                 <FallbackTouchPanel
                   cards={shuffledFallbackCards}
                   round={currentRound}
                   onSelectCard={handleFallbackCardScan}
                   onPauseRequest={togglePause}
                   canPause={gameState === 'playing'}
+                  feedbackState={feedbackState}
                 />
               )}
 
               {!rfidConnected && sessionIsMemory && !hasTappedBoardOnce && (
                 <motion.div
-                  className="mt-2 rounded-lg border border-accent-indigo/25 bg-accent-indigo/5 px-3 py-1.5"
+                  className="shrink-0 rounded-lg border border-accent-indigo/25 bg-accent-indigo/5 px-3 py-1.5"
                   initial={shouldReduceMotion ? false : { opacity: 0, y: 4 }}
                   animate={{ opacity: 1, y: 0 }}
                   exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -4 }}
@@ -1310,6 +2157,76 @@ export default function GameSession() {
           )}
         </AnimatePresence>
 
+        {/* Overlay de reconexión: cuando el socket cae a media partida, el timer
+            visual ya se CONGELA (useGameTimer + isRealtimeConnected). Este overlay
+            cubre el tablero para que el niño no siga tocando cartas cuyas respuestas
+            no se enviarían, y le da un mensaje tranquilizador en vez de dejar la barra
+            vaciándose sola con toasts rojos por cada toque. No es modal (no atrapa el
+            foco): el docente sigue pudiendo pausar/salir desde el HUD. Al reconectar,
+            el backend re-sincroniza `remainingTimeMs` y la partida continúa. */}
+        <AnimatePresence>
+          {gameState === 'playing' && !isRealtimeConnected && (
+            <motion.div
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="absolute inset-0 bg-background-deep/80 backdrop-blur-md flex items-center justify-center z-20"
+              role="status"
+              aria-live="polite"
+            >
+              <motion.div
+                initial={shouldReduceMotion ? false : { scale: 0.92, y: 8, opacity: 0 }}
+                animate={{ scale: 1, y: 0, opacity: 1 }}
+                transition={{ type: 'spring', stiffness: 340, damping: 24 }}
+                className="text-center px-6"
+              >
+                <div className={cn(
+                  'mx-auto mb-5 flex size-20 items-center justify-center rounded-2xl',
+                  'bg-warning-base/15 border border-warning-base/30'
+                )}>
+                  <Loader2 size={44} className="text-warning-base animate-spin" aria-hidden="true" />
+                </div>
+                <h2 className="text-3xl font-bold font-display text-text-primary mb-2 tracking-tight">
+                  Reconectando…
+                </h2>
+                <p className="text-text-secondary">
+                  Espera un momento, seguimos enseguida. No pierdes tiempo.
+                </p>
+              </motion.div>
+            </motion.div>
+          )}
+        </AnimatePresence>
+
+        {/* Overlay de error de ARRANQUE (blindaje, las 3 mecánicas): si la partida
+            no pudo iniciarse (tarjeta en uso por una partida interrumpida previa,
+            config/plan inválido, límite de partidas, o arranque colgado) mostramos
+            un panel claro con Otto y reintento — NUNCA el skeleton "Preparando
+            cartas…" infinito, que deja al docente sin entender qué ocurre. El
+            backend reclama las tarjetas de la partida huérfana, así que el reintento
+            normalmente resuelve el conflicto sin más. */}
+        <AnimatePresence>
+          {startupError && (
+            <motion.div
+              initial={shouldReduceMotion ? false : { opacity: 0 }}
+              animate={{ opacity: 1 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.2, ease: 'easeOut' }}
+              className="absolute inset-0 bg-background-deep/85 backdrop-blur-md flex items-center justify-center z-30 px-4"
+              role="alert"
+              aria-live="assertive"
+            >
+              <ErrorState
+                title="No se pudo iniciar la partida"
+                message={startupError.message}
+                mascot={<CharacterMascot mood="worried" size="lg" noBubble />}
+                onRetry={handleStartupRetry}
+                retryLabel="Reintentar"
+              />
+            </motion.div>
+          )}
+        </AnimatePresence>
+
         {/* Micro-flash al reanudar: feedback breve de que la accion se aplico. */}
         <AnimatePresence>
           {showResumeFlash && !shouldReduceMotion && (
@@ -1343,14 +2260,24 @@ export default function GameSession() {
           visible independientemente de la altura del footer de métricas
           (detectado en QA 2026-04-23: con `bottom-4` la mascota colisionaba
           con el footer en viewports pequeños y se percibía como "desaparecida").
-          Scale completo ahora que tiene espacio reservado. */}
-      <div className="fixed bottom-24 left-4 sm:left-6 z-20 origin-bottom-left pointer-events-none">
-        <CharacterMascot
-          mood={mascotMood}
-          message={mascotMessage || undefined}
-          position="left"
-        />
-      </div>
+          Scale completo ahora que tiene espacio reservado.
+          Gated a `playing`/`paused` (como el footer): en `finished` el
+          GameOverScreen renderiza SU PROPIO Otto (héroe tier-aware, abajo-izq);
+          sin este gate ambos coincidían en la esquina inferior izquierda y se
+          veían DOS búhos superpuestos. `!showPreCelebration` además lo oculta
+          durante el overlay de celebración (semi-transparente, gameState aún
+          `playing` ~1.2s): si no, Otto se asomaba difuminado tras el confeti. */}
+      {(gameState === 'playing' || gameState === 'paused') && !showPreCelebration && (
+        <div className="fixed bottom-24 left-4 sm:left-6 z-20 origin-bottom-left pointer-events-none">
+          <CharacterMascot
+            mood={mascotMood}
+            message={mascotMessage || undefined}
+            position="left"
+            mechanicType={mechanicMode}
+            size="md"
+          />
+        </div>
+      )}
 
       {/* Footer: solo metricas — el progreso de rondas vive en el header como
           dots (ver header). Eliminamos el indicador redundante del footer y la
@@ -1358,10 +2285,11 @@ export default function GameSession() {
       {(gameState === 'playing' || gameState === 'paused') && (
         <footer className="relative z-10 px-3 py-1.5 sm:px-4 shrink-0">
           <CurrentPlayMetrics
-            mode={sessionIsMemory ? 'memory' : 'association'}
-            score={score}
+            mode={mechanicMode}
             correctAnswers={correctAnswers}
-            totalRounds={totalRounds}
+            totalErrors={totalErrors}
+            streak={streak}
+            attempts={memoryStats.attempts}
           />
         </footer>
       )}
@@ -1382,11 +2310,12 @@ export default function GameSession() {
               className="text-center"
             >
               <motion.div
-                animate={{ scale: [1, 1.3, 1], rotate: [0, 10, -10, 0] }}
+                animate={shouldReduceMotion ? undefined : { scale: [1, 1.3, 1], rotate: [0, 10, -10, 0] }}
                 transition={{ duration: 0.8, repeat: Infinity }}
-                className="text-8xl mb-4"
+                className="mb-4 flex justify-center"
+                aria-hidden="true"
               >
-                🎉
+                <PartyPopper size={84} strokeWidth={1.5} className="text-warning-base drop-shadow-[0_0_22px_var(--color-warning-glow)]" />
               </motion.div>
               <motion.p
                 initial={{ opacity: 0, y: 20 }}

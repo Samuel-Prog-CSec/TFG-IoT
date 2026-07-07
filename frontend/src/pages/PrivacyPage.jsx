@@ -10,7 +10,7 @@
 
 import { useRef } from 'react';
 import { Link } from 'react-router-dom';
-import { motion, useInView } from 'framer-motion';
+import { m as motion, useInView } from 'framer-motion';
 import {
   Shield,
   FileText,
@@ -25,6 +25,7 @@ import {
 import { ROUTES } from '../constants/routes';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import ThemeToggle from '../components/ui/ThemeToggle';
 
 // ============================================
 // CONSTANTES DE CONTENIDO
@@ -36,9 +37,9 @@ import { useDocumentTitle } from '../hooks/useDocumentTitle';
  */
 const COLLECTED_DATA = [
   'Nombre completo del alumno',
-  'Edad (NO fecha de nacimiento — principio de minimizacion, Art. 5.1.c RGPD)',
+  'Edad (NO fecha de nacimiento — principio de minimización, Art. 5.1.c RGPD)',
   'Clase o aula asignada',
-  'Metricas de rendimiento en juegos educativos (puntuaciones, tiempos de respuesta, aciertos y errores)',
+  'Métricas de rendimiento en juegos educativos (puntuaciones, tiempos de respuesta, aciertos y errores)',
   'Nombre del tutor legal que otorga el consentimiento',
 ];
 
@@ -47,7 +48,7 @@ const COLLECTED_DATA = [
  * @type {string}
  */
 const NOT_COLLECTED_TEXT =
-  'NO recogemos: email, contrasena, direccion postal, telefono, fecha de nacimiento completa, datos biometricos ni datos de salud de los alumnos.';
+  'NO recogemos: email, contraseña, dirección postal, teléfono, fecha de nacimiento completa, datos biométricos ni datos de salud de los alumnos.';
 
 /**
  * Finalidades del tratamiento
@@ -57,17 +58,17 @@ const PURPOSES = [
   {
     title: 'Seguimiento educativo individualizado',
     description:
-      'Registrar el progreso de cada alumno en las sesiones de juego para que el profesor pueda adaptar su ensenanza.',
+      'Registrar el progreso de cada alumno en las sesiones de juego para que el profesor pueda adaptar su enseñanza.',
   },
   {
-    title: 'Analisis de rendimiento',
+    title: 'Análisis de rendimiento',
     description:
-      'Generar metricas agregadas (puntuaciones medias, tasas de acierto, tiempos de respuesta) que ayuden al profesor a identificar dificultades y fortalezas.',
+      'Generar métricas agregadas (puntuaciones medias, tasas de acierto, tiempos de respuesta) que ayuden al profesor a identificar dificultades y fortalezas.',
   },
   {
-    title: 'Generacion de informes pedagogicos',
+    title: 'Generación de informes pedagógicos',
     description:
-      'Proporcionar al profesorado herramientas de visualizacion de datos para la toma de decisiones educativas.',
+      'Proporcionar al profesorado herramientas de visualización de datos para la toma de decisiones educativas.',
   },
 ];
 
@@ -77,15 +78,15 @@ const PURPOSES = [
  */
 const LEGAL_BASES = [
   {
-    text: 'El tratamiento se basa en el consentimiento explicito del titular de la patria potestad o tutela del menor.',
+    text: 'El tratamiento se basa en el consentimiento explícito del titular de la patria potestad o tutela del menor.',
   },
   {
-    text: 'Cuando se ofrece un servicio de la sociedad de la informacion a un menor, el tratamiento solo es licito si el consentimiento lo da o autoriza el titular de la patria potestad.',
+    text: 'Cuando se ofrece un servicio de la sociedad de la información a un menor, el tratamiento solo es lícito si el consentimiento lo da o autoriza el titular de la patria potestad.',
     reference: 'Art. 8 del Reglamento (UE) 2016/679 (RGPD)',
   },
   {
-    text: 'En Espana, la edad minima para consentir es de 14 anos. Los alumnos de 4-8 anos de esta plataforma requieren siempre autorizacion parental.',
-    reference: 'Art. 7 de la Ley Organica 3/2018 (LOPDGDD)',
+    text: 'En España, la edad mínima para consentir es de 14 años. Los alumnos de 4-8 años de esta plataforma requieren siempre autorización parental.',
+    reference: 'Art. 7 de la Ley Orgánica 3/2018 (LOPDGDD)',
   },
   {
     text: 'El consentimiento se recoge de forma expresa en el momento del alta del alumno, registrando la identidad del tutor, la fecha y las finalidades autorizadas.',
@@ -97,9 +98,9 @@ const LEGAL_BASES = [
  * @type {string[]}
  */
 const RETENTION_PERIODS = [
-  'Los datos de rendimiento detallados (eventos de partida) se anonimizan automaticamente a los 12 meses de la ultima actividad del alumno. La anonimizacion elimina la vinculacion entre los datos y el alumno, conservando unicamente metricas agregadas sin identificar.',
+  'Los datos de rendimiento detallados (eventos de partida) se anonimizan automáticamente a los 12 meses de la última actividad del alumno. La anonimización elimina la vinculación entre los datos y el alumno, conservando únicamente métricas agregadas sin identificar.',
   'Los datos personales de alumnos inactivos se eliminan completamente tras 24 meses de inactividad.',
-  'El tutor legal puede solicitar la eliminacion anticipada de todos los datos en cualquier momento, contactando con la administracion del centro educativo.',
+  'El tutor legal puede solicitar la eliminación anticipada de todos los datos en cualquier momento, contactando con la administración del centro educativo.',
 ];
 
 /**
@@ -110,17 +111,17 @@ const ACCESS_ROLES = [
   {
     role: 'Profesor asignado',
     access:
-      'Acceso de lectura a los datos y metricas pedagogicas de sus alumnos. No puede crear, eliminar ni exportar datos de alumnos.',
+      'Acceso de lectura a los datos y métricas pedagógicas de sus alumnos. No puede crear, eliminar ni exportar datos de alumnos.',
   },
   {
     role: 'Administrador del centro (super_admin)',
     access:
-      'Gestion completa de identidades, consentimiento parental, exportacion de datos y ejercicio de derechos ARCO en nombre de los tutores.',
+      'Gestión completa de identidades, consentimiento parental, exportación de datos y ejercicio de derechos ARCO en nombre de los tutores.',
   },
   {
     role: 'Terceros',
     access:
-      'Los datos personales de los alumnos no se comparten con terceros ni se transfieren fuera del Espacio Economico Europeo.',
+      'Los datos personales de los alumnos no se comparten con terceros ni se transfieren fuera del Espacio Económico Europeo.',
   },
 ];
 
@@ -135,27 +136,27 @@ const DATA_RIGHTS = [
     description: 'Solicitar una copia de todos los datos personales del alumno.',
   },
   {
-    name: 'Derecho de rectificacion',
+    name: 'Derecho de rectificación',
     article: 'Art. 16 RGPD',
     description: 'Corregir datos inexactos o incompletos.',
   },
   {
-    name: 'Derecho de supresion',
+    name: 'Derecho de supresión',
     article: 'Art. 17 RGPD',
     description:
-      'Solicitar la eliminacion completa e irreversible de todos los datos.',
+      'Solicitar la eliminación completa e irreversible de todos los datos.',
   },
   {
     name: 'Derecho a la portabilidad',
     article: 'Art. 20 RGPD',
     description:
-      'Recibir los datos en formato estructurado y de lectura mecanica (JSON).',
+      'Recibir los datos en formato estructurado y de lectura mecánica (JSON).',
   },
   {
-    name: 'Derecho de oposicion',
+    name: 'Derecho de oposición',
     article: 'Art. 21 RGPD',
     description:
-      'Oponerse al tratamiento con fines de analisis de rendimiento.',
+      'Oponerse al tratamiento con fines de análisis de rendimiento.',
   },
 ];
 
@@ -166,9 +167,9 @@ const DATA_RIGHTS = [
 const SECTIONS = [
   { id: 'collected', icon: FileText, title: 'Datos que recogemos' },
   { id: 'purpose', icon: Eye, title: 'Finalidad del tratamiento' },
-  { id: 'legal-basis', icon: Scale, title: 'Base juridica' },
-  { id: 'retention', icon: Clock, title: 'Plazos de conservacion' },
-  { id: 'access', icon: Users, title: 'Quien tiene acceso a los datos' },
+  { id: 'legal-basis', icon: Scale, title: 'Base jurídica' },
+  { id: 'retention', icon: Clock, title: 'Plazos de conservación' },
+  { id: 'access', icon: Users, title: 'Quién tiene acceso a los datos' },
   { id: 'rights', icon: ShieldCheck, title: 'Derechos del interesado' },
   { id: 'contact', icon: Mail, title: 'Contacto y reclamaciones' },
 ];
@@ -242,7 +243,7 @@ function RevealOnScroll({ children, className = '', reduced }) {
 function SectionHeader({ icon: Icon, title }) {
   return (
     <div className="flex items-center gap-3 mb-5">
-      <div className="flex items-center justify-center size-10 rounded-xl bg-brand-base/15 text-brand-light flex-shrink-0">
+      <div className="flex items-center justify-center size-10 rounded-xl bg-brand-base/15 text-brand-on-alpha flex-shrink-0">
         <Icon className="size-5" />
       </div>
       <h2 className="text-xl font-semibold font-display text-text-primary">
@@ -296,7 +297,7 @@ export default function PrivacyPage() {
           MINI HEADER — sticky, backdrop blur
           ================================================ */}
       <header className="sticky top-0 z-30 border-b border-border-default bg-background-deep/80 backdrop-blur-lg">
-        <div className="max-w-3xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16">
+        <div className="max-w-3xl mx-auto px-4 sm:px-6 flex items-center justify-between h-16 gap-3">
           <Link
             to={ROUTES.HOME}
             className="font-display text-2xl font-bold gradient-text-brand select-none"
@@ -304,13 +305,19 @@ export default function PrivacyPage() {
             EduPlay
           </Link>
 
-          <Link
-            to={ROUTES.LOGIN}
-            className="inline-flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
-          >
-            <ArrowLeft className="size-4" />
-            Iniciar sesion
-          </Link>
+          <div className="flex items-center gap-3">
+            {/* Theme toggle compacto en el header — aprovecha el espacio
+                disponible y permite al lector cambiar de tema sin volver
+                al login (T-951 paridad con auth screens, fix QA 2026-05-10). */}
+            <ThemeToggle compact />
+            <Link
+              to={ROUTES.LOGIN}
+              className="inline-flex items-center gap-2 text-sm font-medium text-text-secondary hover:text-text-primary transition-colors"
+            >
+              <ArrowLeft className="size-4" />
+              <span className="hidden sm:inline">Iniciar sesión</span>
+            </Link>
+          </div>
         </div>
       </header>
 
@@ -329,7 +336,7 @@ export default function PrivacyPage() {
                 ? { duration: 0 }
                 : { type: 'spring', stiffness: 200, damping: 18, delay: 0.1 }
             }
-            className="inline-flex items-center justify-center size-20 rounded-full bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink mb-6 shadow-lg shadow-brand-glow"
+            className="inline-flex items-center justify-center size-20 rounded-full bg-gradient-to-br from-accent-indigo via-brand-base to-accent-pink mb-6 shadow-[0_0_32px_var(--color-brand-glow)]"
           >
             <Shield className="size-10 text-white" />
           </motion.div>
@@ -338,9 +345,9 @@ export default function PrivacyPage() {
             initial={reduced ? false : { opacity: 0, y: 12 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.45, delay: reduced ? 0 : 0.2 }}
-            className="text-3xl sm:text-4xl font-bold font-display text-text-primary mb-4"
+            className="text-[var(--text-fluid-2xl)] font-bold font-display text-text-primary mb-4"
           >
-            Politica de Privacidad y Proteccion de Datos
+            Política de Privacidad y Protección de Datos
           </motion.h1>
 
           <motion.p
@@ -349,7 +356,7 @@ export default function PrivacyPage() {
             transition={{ duration: 0.4, delay: reduced ? 0 : 0.3 }}
             className="text-text-secondary text-lg max-w-2xl mx-auto mb-6"
           >
-            Informacion sobre el tratamiento de datos personales de menores en
+            Información sobre el tratamiento de datos personales de menores en
             EduPlay
           </motion.p>
 
@@ -359,7 +366,7 @@ export default function PrivacyPage() {
             transition={{ duration: 0.35, delay: reduced ? 0 : 0.4 }}
             className="inline-block text-xs font-medium text-text-muted bg-background-elevated/80 border border-border-default rounded-full px-4 py-1.5 backdrop-blur-sm"
           >
-            Ultima actualizacion: 8 de abril de 2026 &middot; Version 1.0
+            Última actualización: 8 de abril de 2026 &middot; Versión 1.0
           </motion.span>
         </section>
 
@@ -391,10 +398,16 @@ export default function PrivacyPage() {
                   ))}
                 </ul>
 
-                {/* Caja de datos NO recogidos — borde amber */}
-                <div className="rounded-xl border-l-4 border-warning-base bg-warning-base/5 p-4">
+                {/* Caja de datos NO recogidos — borde amber completo (coherente
+                    con el resto de avisos del sistema: MfaSetup, ConsentDetailPanel,
+                    EmptyState usan `border border-warning-base/20..30` + bg tenue,
+                    no un side-stripe). */}
+                <div className="rounded-xl border border-warning-base/30 bg-warning-base/5 p-4">
                   <p className="text-sm text-text-secondary leading-relaxed">
-                    <span className="font-semibold text-warning-base">
+                    {/* BUG-A11Y-CONTRAST-PRIVACY-WARN (QA Sprint 0):
+                        text-warning-base sobre warning-tint daba 3.72 light.
+                        light:text-warning-dark cumple AA. */}
+                    <span className="font-semibold text-warning-on-alpha">
                       {NOT_COLLECTED_TEXT.slice(0, 14)}
                     </span>
                     {NOT_COLLECTED_TEXT.slice(14)}
@@ -565,22 +578,22 @@ export default function PrivacyPage() {
 
                 <div className="space-y-4 text-text-secondary text-sm leading-relaxed">
                   <p>
-                    Para consultas sobre proteccion de datos, contacte con el
+                    Para consultas sobre protección de datos, contacte con el
                     administrador del centro educativo que gestiona la plataforma
                     EduPlay.
                   </p>
                   <p>
                     Si considera que sus derechos no han sido atendidos, puede
-                    presentar una reclamacion ante la{' '}
+                    presentar una reclamación ante la{' '}
                     <span className="font-semibold text-text-primary">
-                      Agencia Espanola de Proteccion de Datos (AEPD)
+                      Agencia Española de Protección de Datos (AEPD)
                     </span>
                     :{' '}
                     <a
                       href="https://www.aepd.es"
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="text-brand-light hover:text-brand-base underline underline-offset-2 transition-colors"
+                      className="text-brand-on-alpha hover:text-brand-base underline underline-offset-2 transition-colors"
                     >
                       www.aepd.es
                     </a>
@@ -598,10 +611,12 @@ export default function PrivacyPage() {
       <footer className="border-t border-border-default py-10">
         <div className="max-w-3xl mx-auto px-4 sm:px-6 text-center space-y-2">
           <p className="text-text-muted text-sm font-medium">
-            EduPlay — Plataforma de Juegos Educativos con RFID
+            EduPlay · Plataforma de Juegos Educativos con RFID
           </p>
-          <p className="text-text-muted/60 text-xs">
-            Politica de privacidad &middot; Version 1.0 &middot; Actualizada el
+          {/* BUG-A11Y-CONTRAST-PRIVACY-FOOT (QA Sprint 0 post-v0.5.0):
+              text-text-muted/60 daba 3.27:1 sobre bg dark. Sin alpha cumple AA. */}
+          <p className="text-text-muted text-xs">
+            Política de privacidad &middot; Versión 1.0 &middot; Actualizada el
             8 de abril de 2026
           </p>
         </div>

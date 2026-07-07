@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { Hourglass } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useReducedMotion } from '../../hooks/useReducedMotion';

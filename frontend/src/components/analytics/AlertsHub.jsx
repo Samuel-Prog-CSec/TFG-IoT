@@ -1,131 +1,93 @@
+/**
+ * @fileoverview Centro de alertas inteligentes con lifecycle completo (T-941).
+ *
+ * Funcionalidad:
+ *  - Filtros por estado (Activas / Snoozed / Resueltas / Descartadas) — STATUS_ORDER.
+ *  - Filtros adicionales por severidad y tipo.
+ *  - Acciones lifecycle (dismiss con undo / resolve / snooze / pin / history).
+ *  - Bulk selection con barra flotante.
+ *  - Severity escalation visible (badge "Lleva Nd").
+ *  - Pinning con borde dorado.
+ *  - aria-live="polite" para anunciar cambios a lectores de pantalla.
+ *  - DRY: constantes desde `constants/alertTypes.js`.
+ */
+
 import { memo, useMemo, useState, useCallback } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import {
-  TrendingDown,
-  Clock,
-  AlertTriangle,
-  Pause,
-  TrendingUp,
-  Minus,
-  XCircle,
-  ChevronRight,
-  Filter,
-  User,
-  Layers,
-  AlertOctagon,
-  Info,
-} from 'lucide-react';
 import PropTypes from 'prop-types';
+import { AlertTriangle, ChevronRight, Filter, User, Layers } from 'lucide-react';
 import { cn, listContainerVariants, listItemVariants } from '../../lib/utils';
+import { getId } from '../../lib/entityId';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import { formatRelativeTime } from '../../lib/dateUtils';
+import {
+  ALERT_TYPE_ICONS,
+  ALERT_TYPE_LABELS,
+  SEVERITY_STYLES,
+  PIN_ICON
+} from '../../constants/alertTypes';
 import GlassCard from '../ui/GlassCard';
 import SelectPremium from '../ui/SelectPremium';
 import SkeletonShimmer from '../ui/SkeletonShimmer';
 import EmptyState from '../ui/EmptyState';
 import { EmptyAlertsIllustration } from '../ui/illustrations';
+import AlertStatusFilter from './AlertStatusFilter';
+import AlertActionsMenu from './AlertActionsMenu';
+import EscalationBadge from './EscalationBadge';
+import AlertBulkBar from './AlertBulkBar';
+import AlertHistoryModal from './AlertHistoryModal';
+import { useAlertActions } from '../../hooks/useAlertActions';
 
-/**
- * Mapeo de tipo de alerta a icono de Lucide.
- */
-const ALERT_TYPE_ICONS = {
-  declining_performance: TrendingDown,
-  inactivity: Clock,
-  sudden_score_drop: AlertTriangle,
-  consistent_timeout: Pause,
-  improving_fast: TrendingUp,
-  plateau_detected: Minus,
-  high_abandonment: XCircle,
-};
-
-/**
- * Etiquetas en espanol para cada tipo de alerta.
- */
-const ALERT_TYPE_LABELS = {
-  declining_performance: 'Caida de rendimiento',
-  inactivity: 'Inactividad',
-  sudden_score_drop: 'Caida brusca',
-  consistent_timeout: 'Timeouts frecuentes',
-  improving_fast: 'Mejora rapida',
-  plateau_detected: 'Estancamiento',
-  high_abandonment: 'Alto abandono',
-};
-
-/**
- * Estilos por severidad.
- */
-const SEVERITY_STYLES = {
-  critical: {
-    dot: 'bg-error-base',
-    glow: 'shadow-[0_0_6px_var(--color-error-glow)]',
-    bg: 'bg-error-base/10',
-    border: 'border-error-base/30',
-    text: 'text-error-base',
-    label: 'Críticas',
-    Icon: AlertOctagon,
-  },
-  warning: {
-    dot: 'bg-warning-base',
-    glow: 'shadow-[0_0_6px_var(--color-warning-glow)]',
-    bg: 'bg-warning-base/10',
-    border: 'border-warning-base/30',
-    text: 'text-warning-base',
-    label: 'Advertencia',
-    Icon: AlertTriangle,
-  },
-  info: {
-    dot: 'bg-info-base',
-    glow: 'shadow-[0_0_6px_var(--color-info-glow)]',
-    bg: 'bg-info-base/10',
-    border: 'border-info-base/30',
-    text: 'text-info-base',
-    label: 'Info',
-    Icon: Info,
-  },
-};
-
-// Helper relativo centralizado en `lib/dateUtils.js` (P25).
-// Se importa al principio del archivo.
-
-/**
- * Tarjeta de contador de severidad.
- */
 function SeverityCounter({ severity, count }) {
   const style = SEVERITY_STYLES[severity] || SEVERITY_STYLES.info;
   const SeverityIcon = style.Icon;
-
   return (
-    <div className={cn(
-      'rounded-xl border px-4 py-3 flex items-center gap-3',
-      style.bg, style.border
-    )}>
-      <div className={cn(
-        'size-8 rounded-lg flex items-center justify-center flex-shrink-0',
-        style.bg, style.text
-      )}>
+    <div
+      className={cn(
+        'rounded-xl border px-4 py-3 flex items-center gap-3',
+        style.bg,
+        style.border
+      )}
+    >
+      <div
+        className={cn(
+          'size-8 rounded-lg flex items-center justify-center flex-shrink-0',
+          style.bg,
+          style.text
+        )}
+      >
         <SeverityIcon size={16} aria-hidden="true" />
       </div>
       <div>
-        <p className={cn('text-xl font-bold tabular-nums font-display', style.text)}>
-          {count}
-        </p>
+        <p className={cn('text-xl font-bold tabular-nums font-display', style.text)}>{count}</p>
         <p className="text-xs text-text-muted font-medium">{style.label}</p>
       </div>
     </div>
   );
 }
 
-/**
- * Tarjeta individual de alerta.
- */
-function AlertCard({ alert, shouldReduceMotion }) {
+SeverityCounter.propTypes = {
+  severity: PropTypes.string,
+  count: PropTypes.number
+};
+
+// eslint-disable-next-line sonarjs/cyclomatic-complexity -- card de alerta con múltiples estados (activa/snoozed/resuelta) y acciones condicionales
+function AlertCard({
+  alert,
+  shouldReduceMotion,
+  selected,
+  selectable,
+  onToggleSelect,
+  actions
+}) {
   const navigate = useNavigate();
   const severity = SEVERITY_STYLES[alert.severity] || SEVERITY_STYLES.info;
   const TypeIcon = ALERT_TYPE_ICONS[alert.type] || AlertTriangle;
   const typeLabel = ALERT_TYPE_LABELS[alert.type] || alert.type;
-  const isPositive = alert.type === 'improving_fast';
+  const isPositive = alert.severity === 'info';
   const isCritical = alert.severity === 'critical';
+  const isInactive = alert.status === 'dismissed' || alert.status === 'resolved';
 
   const handleOpenProfile = () => {
     if (alert.studentId) navigate(`/students/${alert.studentId}`);
@@ -140,63 +102,114 @@ function AlertCard({ alert, shouldReduceMotion }) {
   return (
     <motion.div
       variants={shouldReduceMotion ? {} : listItemVariants}
-      whileHover={shouldReduceMotion ? undefined : { y: -2, scale: 1.005 }}
+      whileHover={shouldReduceMotion || isInactive ? undefined : { y: -2, scale: 1.005 }}
       transition={{ type: 'spring', stiffness: 400, damping: 28 }}
-      role={alert.studentId ? 'button' : undefined}
-      tabIndex={alert.studentId ? 0 : undefined}
-      onClick={alert.studentId ? handleOpenProfile : undefined}
-      onKeyDown={alert.studentId ? handleKeyDown : undefined}
-      aria-label={alert.studentId ? `Ver perfil de ${alert.studentName || 'alumno'}` : undefined}
+      role={alert.studentId ? 'group' : undefined}
+      aria-label={`Alerta ${typeLabel} de ${alert.studentName || 'alumno'}`}
       className={cn(
         'group rounded-xl border p-4 transition-[border-color,background-color,box-shadow] duration-200',
         'bg-background-elevated/40 hover:bg-background-elevated/60',
         'border-border-subtle hover:border-border-default',
         'focus-within:ring-1 focus-within:ring-brand-base/40',
-        alert.studentId && 'cursor-pointer focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base/60',
-        // Alertas criticas respiran suavemente con pulse-glow para llamar la atencion
-        // sin saltar; respeta prefers-reduced-motion por el reset global en index.css.
-        isCritical && 'animate-pulse-glow shadow-[0_0_18px_var(--color-error-glow)]'
+        isInactive && 'opacity-60',
+        alert.pinned &&
+          'ring-1 ring-[var(--color-accent-amber)]/40 shadow-[0_0_10px_var(--color-accent-amber-glow)]',
+        isCritical &&
+          !isInactive &&
+          'animate-pulse-glow shadow-[0_0_18px_var(--color-error-glow)]'
       )}
     >
       <div className="flex items-start gap-3">
-        {/* Severity dot — en critical, usa glow mas intenso */}
-        <div className={cn(
-          'size-2.5 rounded-full mt-1.5 flex-shrink-0',
-          severity.dot,
-          isCritical ? 'shadow-[0_0_10px_var(--color-error-glow)]' : severity.glow
-        )} />
+        {selectable && (
+          <input
+            type="checkbox"
+            checked={selected}
+            onChange={onToggleSelect}
+            aria-label={`Seleccionar alerta de ${alert.studentName || 'alumno'}`}
+            className="mt-1 size-4 cursor-pointer accent-brand-base"
+            onClick={e => e.stopPropagation()}
+          />
+        )}
 
-        {/* Icon */}
-        <div className={cn(
-          'p-1.5 rounded-lg flex-shrink-0',
-          isPositive ? 'bg-success-base/10 text-success-base' : `${severity.bg} ${severity.text}`
-        )}>
+        <div
+          className={cn(
+            'size-2.5 rounded-full mt-1.5 flex-shrink-0',
+            severity.dot,
+            isCritical
+              ? 'shadow-[0_0_10px_var(--color-error-glow)]'
+              : severity.glow
+          )}
+        />
+
+        <div
+          className={cn(
+            'p-1.5 rounded-lg flex-shrink-0',
+            isPositive
+              ? 'bg-success-base/10 text-success-base'
+              : `${severity.bg} ${severity.text}`
+          )}
+        >
           <TypeIcon size={16} aria-hidden="true" />
         </div>
 
-        {/* Content */}
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center gap-2 mb-1">
+        <div
+          className={cn(
+            'flex-1 min-w-0',
+            alert.studentId && !isInactive && 'cursor-pointer'
+          )}
+          role={alert.studentId && !isInactive ? 'button' : undefined}
+          tabIndex={alert.studentId && !isInactive ? 0 : undefined}
+          onClick={alert.studentId && !isInactive ? handleOpenProfile : undefined}
+          onKeyDown={alert.studentId && !isInactive ? handleKeyDown : undefined}
+        >
+          <div className="flex items-center gap-2 mb-1 flex-wrap">
             <span className="text-sm font-semibold text-text-primary truncate">
               {alert.studentName || 'Alumno'}
             </span>
-            <span className={cn(
-              'text-[10px] font-medium px-1.5 py-0.5 rounded-md flex-shrink-0',
-              isPositive ? 'bg-success-base/10 text-success-base' : `${severity.bg} ${severity.text}`
-            )}>
+            <span
+              className={cn(
+                'text-nano font-medium px-1.5 py-0.5 rounded-md flex-shrink-0',
+                isPositive
+                  ? 'bg-success-base/10 text-success-base'
+                  : `${severity.bg} ${severity.text}`
+              )}
+            >
               {typeLabel}
             </span>
+            {alert.pinned && (
+              <PIN_ICON size={11} className="text-accent-amber" aria-label="Fijada" />
+            )}
+            <EscalationBadge
+              daysActive={alert.daysActive}
+              isEscalated={alert.isEscalated}
+            />
           </div>
           <p className="text-xs text-text-muted leading-relaxed line-clamp-2">
             {alert.description || alert.message || typeLabel}
           </p>
           <div className="flex items-center justify-between mt-2">
-            <span className="text-[10px] text-text-disabled">
-              {formatRelativeTime(alert.createdAt || alert.detectedAt)}
+            <span className="text-nano text-text-disabled">
+              {formatRelativeTime(alert.detectedAt || alert.createdAt)}
+              {alert.status === 'snoozed' && alert.snoozedUntil && (
+                <span className="ml-2 text-info-base font-medium">
+                  · En pausa hasta{' '}
+                  {new Date(alert.snoozedUntil).toLocaleDateString('es-ES')}
+                </span>
+              )}
+              {alert.status === 'dismissed' && (
+                <span className="ml-2 text-text-muted">
+                  · Descartada
+                  {alert.dismissedByName ? ` por ${alert.dismissedByName}` : ''}
+                </span>
+              )}
+              {alert.status === 'resolved' && (
+                <span className="ml-2 text-success-base font-medium">
+                  · Resuelta
+                  {alert.resolvedAutomatically ? ' automáticamente' : ' manualmente'}
+                </span>
+              )}
             </span>
-            {alert.studentId && (
-              // Affordance de card cliqueable: chevron sutil que se revela en
-              // hover. El card entero navega al perfil (QA 22/04/2026).
+            {alert.studentId && !isInactive && (
               <ChevronRight
                 size={14}
                 className="text-text-muted opacity-0 group-hover:opacity-100 transition-opacity"
@@ -205,43 +218,82 @@ function AlertCard({ alert, shouldReduceMotion }) {
             )}
           </div>
         </div>
+
+        {actions && (
+          <div className="flex-shrink-0">
+            <AlertActionsMenu alert={alert} {...actions} />
+          </div>
+        )}
       </div>
     </motion.div>
   );
 }
 
-/**
- * Hub completo de alertas inteligentes con filtros, contadores y agrupacion.
- *
- * @param {Object} props
- * @param {Array} props.alerts - Array de alertas del API
- * @param {boolean} props.loading - Estado de carga
- */
-function AlertsHub({ alerts = [], loading = false }) {
+AlertCard.propTypes = {
+  alert: PropTypes.object.isRequired,
+  shouldReduceMotion: PropTypes.bool,
+  selected: PropTypes.bool,
+  selectable: PropTypes.bool,
+  onToggleSelect: PropTypes.func,
+  actions: PropTypes.object
+};
+
+const EMPTY_ALERTS = [];
+
+const EMPTY_COUNTS = {};
+
+function AlertsHub({
+  alerts = EMPTY_ALERTS,
+  loading = false,
+  statusFilter,
+  onStatusChange,
+  statusCounts = EMPTY_COUNTS,
+  onRefetch
+}) {
   const { shouldReduceMotion } = useReducedMotion();
   const [severityFilter, setSeverityFilter] = useState('all');
   const [typeFilter, setTypeFilter] = useState('all');
   const [groupBy, setGroupBy] = useState('none');
+  const [selectedIds, setSelectedIds] = useState(new Set());
+  const [historyId, setHistoryId] = useState(null);
 
-  // Contadores por severidad
+  // Estado local (necesario para optimistic updates de useAlertActions)
+  const [localAlerts, setLocalAlerts] = useState(alerts);
+  // Re-sincronizar SOLO cuando el prop cambia desde fuera (nuevos datos del
+  // padre), no cuando el estado local diverge por una mutación optimista.
+  // Comparar `localAlerts !== alerts` revertía la mutación optimista en el render
+  // siguiente: descartar/resolver/posponer "rebotaban" y la card seguía visible
+  // pese al toast (en "descartar con deshacer" permanecía los 5s).
+  const [prevAlerts, setPrevAlerts] = useState(alerts);
+  if (alerts !== prevAlerts) {
+    setPrevAlerts(alerts);
+    setLocalAlerts(alerts);
+  }
+
+  const handleListChange = useCallback(updater => {
+    setLocalAlerts(prev => updater(prev));
+  }, []);
+
+  const actions = useAlertActions({ onListChange: handleListChange, onRefetch });
+
   const severityCounts = useMemo(() => {
     const counts = { critical: 0, warning: 0, info: 0 };
-    for (const alert of alerts) {
+    for (const alert of localAlerts) {
       const sev = alert.severity || 'info';
-      if (counts[sev] !== undefined) {
-        counts[sev]++;
-      }
+      if (counts[sev] !== undefined) counts[sev] += 1;
     }
     return counts;
-  }, [alerts]);
+  }, [localAlerts]);
 
-  // Opciones de filtro
-  const severityOptions = useMemo(() => [
-    { value: 'all', label: 'Todas' },
-    { value: 'critical', label: `Críticas (${severityCounts.critical})` },
-    { value: 'warning', label: `Advertencia (${severityCounts.warning})` },
-    { value: 'info', label: `Info (${severityCounts.info})` },
-  ], [severityCounts]);
+  const severityOptions = useMemo(
+    () => [
+      { value: 'all', label: 'Todas las severidades' },
+      { value: 'critical', label: `Críticas (${severityCounts.critical})` },
+      { value: 'warning', label: `Advertencia (${severityCounts.warning})` },
+      { value: 'info', label: `Info (${severityCounts.info})` }
+    ],
+    [severityCounts]
+  );
 
   const typeOptions = useMemo(() => {
     const opts = [{ value: 'all', label: 'Todos los tipos' }];
@@ -251,9 +303,8 @@ function AlertsHub({ alerts = [], loading = false }) {
     return opts;
   }, []);
 
-  // Alertas filtradas
   const filteredAlerts = useMemo(() => {
-    let result = alerts;
+    let result = localAlerts;
     if (severityFilter !== 'all') {
       result = result.filter(a => a.severity === severityFilter);
     }
@@ -261,30 +312,53 @@ function AlertsHub({ alerts = [], loading = false }) {
       result = result.filter(a => a.type === typeFilter);
     }
     return result;
-  }, [alerts, severityFilter, typeFilter]);
+  }, [localAlerts, severityFilter, typeFilter]);
 
-  // Alertas agrupadas
   const groupedAlerts = useMemo(() => {
     if (groupBy === 'none') return null;
-
     const groups = {};
     for (const alert of filteredAlerts) {
-      const key = groupBy === 'student'
-        ? (alert.studentName || alert.studentId || 'Sin alumno')
-        : (ALERT_TYPE_LABELS[alert.type] || alert.type || 'Otro');
-      if (!groups[key]) {
-        groups[key] = [];
-      }
+      const key =
+        groupBy === 'student'
+          ? alert.studentName || alert.studentId || 'Sin alumno'
+          : ALERT_TYPE_LABELS[alert.type] || alert.type || 'Otro';
+      if (!groups[key]) groups[key] = [];
       groups[key].push(alert);
     }
     return groups;
   }, [filteredAlerts, groupBy]);
 
-  const handleGroupChange = useCallback((mode) => {
-    setGroupBy(prev => prev === mode ? 'none' : mode);
+  const handleGroupChange = useCallback(mode => {
+    setGroupBy(prev => (prev === mode ? 'none' : mode));
   }, []);
 
-  // Skeleton loading
+  const handleToggleSelect = useCallback(alertId => {
+    setSelectedIds(prev => {
+      const next = new Set(prev);
+      if (next.has(alertId)) next.delete(alertId);
+      else next.add(alertId);
+      return next;
+    });
+  }, []);
+
+  const selectedAlerts = useMemo(
+    () => filteredAlerts.filter(a => selectedIds.has(a.id)),
+    [filteredAlerts, selectedIds]
+  );
+
+  const selectable = statusFilter === 'active' || !statusFilter;
+
+  const itemActions = selectable
+    ? {
+        onResolve: actions.resolveAlert,
+        onDismiss: a => actions.dismissWithUndo(a),
+        onSnooze: actions.snoozeAlert,
+        onPin: actions.pinAlert,
+        onUnpin: actions.unpinAlert,
+        onHistory: a => setHistoryId(a.id)
+      }
+    : { onHistory: a => setHistoryId(a.id) };
+
   if (loading) {
     return (
       <div className="space-y-4">
@@ -303,15 +377,24 @@ function AlertsHub({ alerts = [], loading = false }) {
   }
 
   return (
-    <div className="space-y-5">
-      {/* Severity counters */}
-      <div className="grid grid-cols-3 gap-3">
+    <section
+      className="space-y-5"
+      aria-label={`Centro de alertas: ${severityCounts.critical} críticas, ${severityCounts.warning} advertencias, ${severityCounts.info} informativas`}
+    >
+      {onStatusChange && (
+        <AlertStatusFilter
+          value={statusFilter || 'active'}
+          onChange={onStatusChange}
+          counts={statusCounts}
+        />
+      )}
+
+      <div className="grid grid-cols-3 gap-3" role="group" aria-label="Resumen por severidad">
         <SeverityCounter severity="critical" count={severityCounts.critical} />
         <SeverityCounter severity="warning" count={severityCounts.warning} />
         <SeverityCounter severity="info" count={severityCounts.info} />
       </div>
 
-      {/* Filters row */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex items-center gap-1.5 text-text-muted">
           <Filter size={14} aria-hidden="true" />
@@ -322,17 +405,15 @@ function AlertsHub({ alerts = [], loading = false }) {
           value={severityFilter}
           onChange={setSeverityFilter}
           placeholder="Severidad"
-          className="w-44"
+          className="w-56"
         />
         <SelectPremium
           options={typeOptions}
           value={typeFilter}
           onChange={setTypeFilter}
           placeholder="Tipo"
-          className="w-52"
+          className="w-56"
         />
-
-        {/* Grouping toggle */}
         <div className="flex items-center gap-1 ml-auto">
           <button
             type="button"
@@ -363,30 +444,45 @@ function AlertsHub({ alerts = [], loading = false }) {
         </div>
       </div>
 
-      {/* Empty state — variante "filtered" si hay filtros activos, si no ilustracion de calma */}
-      {filteredAlerts.length === 0 && (() => {
-        const hasFilterActive = severityFilter !== 'all' || typeFilter !== 'all';
-        if (hasFilterActive) {
+      {filteredAlerts.length === 0 &&
+        (() => {
+          const hasFilter = severityFilter !== 'all' || typeFilter !== 'all';
+          if (hasFilter) {
+            return (
+              <EmptyState
+                variant="filtered"
+                title="Ninguna alerta coincide con los filtros"
+                description="Ajusta los filtros para ver otras alertas o límpialos para verlas todas."
+                titleLevel="h3"
+              />
+            );
+          }
+          const emptyTitles = {
+            resolved: 'Aún no se han resuelto alertas',
+            dismissed: 'No has descartado ninguna alerta',
+            snoozed: 'No hay alertas en pausa'
+          };
           return (
             <EmptyState
-              variant="filtered"
-              title="Ninguna alerta coincide con los filtros"
-              description="Ajusta los filtros para ver otras alertas o limpialos para verlas todas."
+              illustration={<EmptyAlertsIllustration size={140} />}
+              title={emptyTitles[statusFilter] || 'Sin alertas activas'}
+              description={
+                statusFilter && statusFilter !== 'active'
+                  ? 'Aquí aparecerán cuando cambies de filtro.'
+                  : 'Todos los alumnos están dentro de los parámetros esperados.'
+              }
               titleLevel="h3"
             />
           );
-        }
-        return (
-          <EmptyState
-            illustration={<EmptyAlertsIllustration size={140} />}
-            title="Sin alertas activas"
-            description="Todos los alumnos estan dentro de los parametros esperados."
-            titleLevel="h3"
-          />
-        );
-      })()}
+        })()}
 
-      {/* Grouped view */}
+      {/* aria-live para anunciar cambios a screen readers */}
+      <div aria-live="polite" aria-atomic="false" className="sr-only">
+        {filteredAlerts.length === 0
+          ? 'Sin alertas'
+          : `${filteredAlerts.length} alertas`}
+      </div>
+
       {filteredAlerts.length > 0 && groupedAlerts && (
         <div className="space-y-4">
           {Object.entries(groupedAlerts).map(([groupName, groupAlertsList]) => (
@@ -408,20 +504,25 @@ function AlertsHub({ alerts = [], loading = false }) {
                 animate="visible"
                 className="space-y-2"
               >
-                {groupAlertsList.map((alert, idx) => (
-                  <AlertCard
-                    key={alert._id || alert.id || idx}
-                    alert={alert}
-                    shouldReduceMotion={shouldReduceMotion}
-                  />
-                ))}
+                <AnimatePresence mode="popLayout">
+                  {groupAlertsList.map(alert => (
+                    <AlertCard
+                      key={getId(alert)}
+                      alert={alert}
+                      shouldReduceMotion={shouldReduceMotion}
+                      selectable={selectable}
+                      selected={selectedIds.has(alert.id)}
+                      onToggleSelect={() => handleToggleSelect(alert.id)}
+                      actions={itemActions}
+                    />
+                  ))}
+                </AnimatePresence>
               </motion.div>
             </GlassCard>
           ))}
         </div>
       )}
 
-      {/* Flat list */}
       {filteredAlerts.length > 0 && !groupedAlerts && (
         <motion.div
           variants={shouldReduceMotion ? {} : listContainerVariants(0.04)}
@@ -429,22 +530,47 @@ function AlertsHub({ alerts = [], loading = false }) {
           animate="visible"
           className="space-y-2"
         >
-          {filteredAlerts.map((alert, idx) => (
-            <AlertCard
-              key={alert._id || alert.id || idx}
-              alert={alert}
-              shouldReduceMotion={shouldReduceMotion}
-            />
-          ))}
+          <AnimatePresence mode="popLayout">
+            {filteredAlerts.map(alert => (
+              <AlertCard
+                key={getId(alert)}
+                alert={alert}
+                shouldReduceMotion={shouldReduceMotion}
+                selectable={selectable}
+                selected={selectedIds.has(alert.id)}
+                onToggleSelect={() => handleToggleSelect(alert.id)}
+                actions={itemActions}
+              />
+            ))}
+          </AnimatePresence>
         </motion.div>
       )}
-    </div>
+
+      <AlertBulkBar
+        count={selectedAlerts.length}
+        onDismissAll={() => {
+          actions.bulkDismiss(selectedAlerts);
+          setSelectedIds(new Set());
+        }}
+        onSnoozeAll={() => {
+          actions.bulkSnooze(selectedAlerts, { untilDays: 7 });
+          setSelectedIds(new Set());
+        }}
+        onClear={() => setSelectedIds(new Set())}
+      />
+
+      <AlertHistoryModal alertId={historyId} onClose={() => setHistoryId(null)} />
+    </section>
   );
 }
 
 AlertsHub.propTypes = {
   alerts: PropTypes.array,
   loading: PropTypes.bool,
+  statusFilter: PropTypes.string,
+  onStatusChange: PropTypes.func,
+  statusCounts: PropTypes.object,
+  onRefetch: PropTypes.func
 };
 
 export default memo(AlertsHub);

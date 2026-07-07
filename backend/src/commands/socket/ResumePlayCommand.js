@@ -3,14 +3,18 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { playIdEventSchema } = require('../../validators/socketCommandsValidator');
 
 class ResumePlayCommand extends BaseSocketCommand {
   constructor() {
-    super('resume_play');
+    super('resume_play', { schema: playIdEventSchema });
   }
 
   async execute({ socket, data, helpers, logger, gameEngine }) {
     try {
+      // Defense in depth: el schema Zod del pipeline ya validaría esto, pero
+      // este guard mantiene los tests unitarios verdes y blinda contra llamadas
+      // directas a `execute()` que no pasen por `executeSocketCommand`.
       const { playId } = data || {};
       if (!playId) {
         socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
@@ -31,7 +35,9 @@ class ResumePlayCommand extends BaseSocketCommand {
       }
 
       await gameEngine.resumePlayInternal(playId, { requestedBy: socket.data.userId });
-      helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id, {
+      // WS-12: await el cambio de modo RFID para que un RFID_LOCK_TIMEOUT caiga en el
+      // catch de este comando en vez de escapar como unhandledRejection.
+      await helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id, {
         playId
       });
     } catch (error) {

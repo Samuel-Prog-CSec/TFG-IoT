@@ -26,9 +26,12 @@ const updateById = (id, update, options = {}) =>
 const updateOne = (filter, update, options = {}) =>
   baseRepo.updateOne(GameSession, filter, update, options);
 
+const updateMany = (filter, update, options = {}) =>
+  baseRepo.updateMany(GameSession, filter, update, options);
+
 const deleteById = id => baseRepo.deleteById(GameSession, id);
 
-const deleteMany = filter => baseRepo.deleteMany(GameSession, filter);
+const deleteMany = (filter, options = {}) => baseRepo.deleteMany(GameSession, filter, options);
 
 // maxTimeMS por defecto para proteger contra aggregations lentas que bloqueen el pool
 const DEFAULT_AGGREGATE_TIMEOUT_MS = Number.parseInt(process.env.AGGREGATE_TIMEOUT_MS, 10) || 15000;
@@ -45,6 +48,7 @@ module.exports = {
   build,
   updateById,
   updateOne,
+  updateMany,
   deleteById,
   deleteMany,
   aggregate

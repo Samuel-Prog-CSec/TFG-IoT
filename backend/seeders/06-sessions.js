@@ -184,7 +184,7 @@ const sessionTemplates = [
   },
   // ─── Semana 4-5 (hace ~28-35 días) ───
   {
-    contextKey: 'numbers-1-6',
+    contextKey: 'numbers-1-15',
     mechanicName: 'association',
     config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -5 },
     status: 'completed',
@@ -203,7 +203,10 @@ const sessionTemplates = [
     contextKey: 'shapes-basic',
     deckName: 'Formas Memoria',
     mechanicName: 'memory',
-    config: { numberOfRounds: 5, timeLimit: 20, pointsPerCorrect: 20, penaltyPerError: -3 },
+    // En Memoria `timeLimit` es el tiempo TOTAL de la partida (no por ronda):
+    // con 18-20s el tablero de 6 parejas expiraba antes de empezar. 120-150s
+    // deja ~20-25s por pareja, ritmo realista para alumnado de 4-8 años.
+    config: { numberOfRounds: 5, timeLimit: 120, pointsPerCorrect: 15, penaltyPerError: -3 },
     status: 'completed',
     description: 'Memoria con formas - introducción',
     daysAgo: 26
@@ -220,14 +223,14 @@ const sessionTemplates = [
   {
     contextKey: 'geography-europe',
     mechanicName: 'association',
-    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 12, penaltyPerError: -3 },
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 10, penaltyPerError: -3 },
     status: 'completed',
     description: 'Geografía Europa - repaso 2',
     daysAgo: 18
   },
   // ─── Semana 2 (hace ~10-14 días) ───
   {
-    contextKey: 'numbers-1-6',
+    contextKey: 'numbers-1-15',
     mechanicName: 'association',
     config: { numberOfRounds: 6, timeLimit: 20, pointsPerCorrect: 15, penaltyPerError: -5 },
     status: 'completed',
@@ -238,7 +241,8 @@ const sessionTemplates = [
     contextKey: 'shapes-basic',
     deckName: 'Formas Memoria',
     mechanicName: 'memory',
-    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 20, penaltyPerError: -3 },
+    // Tiempo TOTAL de partida (ver nota en la sesión de introducción).
+    config: { numberOfRounds: 6, timeLimit: 150, pointsPerCorrect: 15, penaltyPerError: -3 },
     status: 'completed',
     description: 'Memoria con formas - repaso',
     daysAgo: 10
@@ -263,18 +267,71 @@ const sessionTemplates = [
   {
     contextKey: 'geography-europe',
     mechanicName: 'association',
-    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 12, penaltyPerError: -3 },
+    config: { numberOfRounds: 6, timeLimit: 18, pointsPerCorrect: 10, penaltyPerError: -3 },
     status: 'completed',
     description: 'Geografía Europa - evaluación final',
     daysAgo: 3
   },
   // ─── Sesiones pendientes (para testing de estados) ───
   {
-    contextKey: 'numbers-1-6',
+    contextKey: 'numbers-1-15',
     mechanicName: 'association',
     config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -5 },
     status: 'created',
     description: 'Números 1-6 - sesión programada',
+    daysAgo: 0
+  },
+  // ─── Mecánica Secuencia (T-921/T-922/T-923) ───
+  // Cubre las 3 dificultades + estados completed/created en distintos
+  // contextos para alimentar analytics (heatmap, trends, rankings).
+  {
+    contextKey: 'animals-farm',
+    mechanicName: 'sequence',
+    difficulty: 'easy',
+    config: { numberOfRounds: 4, timeLimit: 30, pointsPerCorrect: 15, penaltyPerError: -3 },
+    sequenceConfig: { minSequenceLength: 3, maxSequenceLength: 4, displaySeconds: 4 },
+    status: 'completed',
+    description: 'Secuencia animales - introducción',
+    daysAgo: 30
+  },
+  {
+    contextKey: 'colors-basic',
+    mechanicName: 'sequence',
+    difficulty: 'medium',
+    config: { numberOfRounds: 5, timeLimit: 30, pointsPerCorrect: 15, penaltyPerError: -3 },
+    sequenceConfig: { minSequenceLength: 3, maxSequenceLength: 5, displaySeconds: 3 },
+    status: 'completed',
+    description: 'Secuencia colores - intermedio',
+    daysAgo: 14
+  },
+  {
+    contextKey: 'numbers-1-15',
+    mechanicName: 'sequence',
+    difficulty: 'hard',
+    config: { numberOfRounds: 5, timeLimit: 25, pointsPerCorrect: 15, penaltyPerError: -4 },
+    sequenceConfig: { minSequenceLength: 4, maxSequenceLength: 6, displaySeconds: 2 },
+    status: 'completed',
+    description: 'Secuencia números - desafío',
+    daysAgo: 7
+  },
+  {
+    contextKey: 'geography-europe',
+    mechanicName: 'sequence',
+    difficulty: 'medium',
+    config: { numberOfRounds: 6, timeLimit: 35, pointsPerCorrect: 15, penaltyPerError: -3 },
+    sequenceConfig: { minSequenceLength: 3, maxSequenceLength: 5, displaySeconds: 3 },
+    status: 'completed',
+    description: 'Secuencia geografía - práctica',
+    daysAgo: 2
+  },
+  {
+    contextKey: 'colors-basic',
+    mechanicName: 'sequence',
+    difficulty: 'easy',
+    config: { numberOfRounds: 4, timeLimit: 30, pointsPerCorrect: 15, penaltyPerError: -2 },
+    sequenceConfig: { minSequenceLength: 3, maxSequenceLength: 4, displaySeconds: 4 },
+    status: 'created',
+    description: 'Secuencia colores - próxima sesión',
     daysAgo: 0
   }
 ];
@@ -325,6 +382,7 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
     const sessionData = {
       name: template.description,
       mechanicId: mechanic._id,
+      mechanicType: mechanic.name,
       deckId: deck._id,
       contextId: deck.contextId,
       config: {
@@ -336,7 +394,9 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
       },
       cardMappings,
       status: template.status,
-      // difficulty se calcula automaticamente por el pre-save hook del modelo
+      // difficulty se calcula automaticamente por el pre-save hook del modelo,
+      // pero permitimos override explícito en templates (Secuencia define easy/medium/hard).
+      ...(template.difficulty ? { difficulty: template.difficulty } : {}),
       createdBy: teacher._id,
       startedAt,
       endedAt
@@ -354,6 +414,23 @@ function generateSessionsForTeacher(teacher, teacherDecks, mechanics, contexts) 
     // Generar boardLayout para mecanica 'memory'
     if (template.mechanicName === 'memory') {
       sessionData.boardLayout = generateBoardLayout(cardMappings);
+    }
+
+    // Generar sequencePlan + sequenceConfig para mecanica 'sequence'
+    if (template.mechanicName === 'sequence') {
+      const { generateSequencePlan } = require('../src/services/sequencePlanGenerator');
+      const cfg = template.sequenceConfig || {
+        minSequenceLength: 3,
+        maxSequenceLength: 5,
+        displaySeconds: 3
+      };
+      sessionData.sequenceConfig = cfg;
+      sessionData.sequencePlan = generateSequencePlan(cardMappings, {
+        numberOfRounds: template.config.numberOfRounds,
+        minLength: cfg.minSequenceLength,
+        maxLength: cfg.maxSequenceLength,
+        seed: 1234 + template.daysAgo // determinista por template
+      });
     }
 
     sessions.push(sessionData);
@@ -397,6 +474,23 @@ async function seedSessions(users, mechanics, contexts, decks) {
 
     // Insertar todas las sesiones
     const sessions = await GameSession.create(allSessions);
+
+    // El pre('save') del modelo recalcula `difficulty` por `numberOfCards` al
+    // crear (isNew), pisando el override explícito de los templates (todos los
+    // mazos tienen 6 cartas → todas acabarían en 'medium'). El controller real
+    // lo arregla con un 2º save; aquí reaplicamos la difficulty del template vía
+    // `updateOne` (sin hook). `create(array)` preserva el orden, así que
+    // `sessions[idx]` ↔ `allSessions[idx]`.
+    const difficultyFixes = allSessions
+      .map((data, idx) => ({ id: sessions[idx]._id, difficulty: data.difficulty }))
+      .filter(fix => fix.difficulty);
+    if (difficultyFixes.length > 0) {
+      await Promise.all(
+        difficultyFixes.map(fix =>
+          GameSession.updateOne({ _id: fix.id }, { difficulty: fix.difficulty })
+        )
+      );
+    }
 
     // Estadisticas por estado
     const byStatus = sessions.reduce((acc, s) => {

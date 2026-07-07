@@ -64,7 +64,65 @@ function getPlayState(engine, playId) {
     };
   }
 
+  // Secuencia: NO filtrar la respuesta. El `displayData` del challenge conserva
+  // `sequence` (la secuencia ordenada COMPLETA = la respuesta a reproducir) también
+  // en reproducing —nunca se limpia al cambiar de fase—, así que viajaba en el
+  // payload `play_state`/`play_state_sync` y era inspeccionable en red/DOM aunque
+  // el panel no la pintara. En reproducing la redactamos (solo `length`).
+  if (snapshot.currentChallenge?.displayData) {
+    const redacted = redactChallengeDisplayData(playState, snapshot.currentChallenge.displayData);
+    if (redacted !== snapshot.currentChallenge.displayData) {
+      snapshot.currentChallenge = { ...snapshot.currentChallenge, displayData: redacted };
+    }
+  }
+
+  // Secuencia: estado intra-ronda (fase/cursor/cardStatuses, respuesta redactada)
+  // para que el cliente REHIDRATE el tablero tras una recarga (F5)/reconexión. Sin
+  // esto Memoria/Asociación se recuperaban pero Secuencia quedaba en blanco el
+  // resto de la ronda mientras el backend seguía contando.
+  if (
+    playState.mechanicName === 'sequence' &&
+    typeof playState.mechanicStrategy?.buildClientRehydrationState === 'function'
+  ) {
+    snapshot.sequenceState = playState.mechanicStrategy.buildClientRehydrationState(
+      playState.strategyState,
+      playState.playDoc.currentRound
+    );
+  }
+
   return snapshot;
+}
+
+/**
+ * Redacta el `displayData` de un challenge antes de enviarlo al cliente.
+ *
+ * Para Secuencia en fase `reproducing`, elimina `sequence` (la secuencia ordenada
+ * COMPLETA = la respuesta que el alumno debe reproducir) dejando solo `length`; en
+ * el resto de fases/mecánicas lo devuelve intacto. Fuente ÚNICA de la redacción,
+ * compartida por `getPlayState` (payload `play_state`/`play_state_sync`) y por el
+ * emit de `play_resumed` en `resumePlayInternal` — este último NO redactaba (WS-4),
+ * así que pausar/reanudar durante reproducing filtraba el orden en los frames WS.
+ *
+ * @param {Object} playState - Estado de la partida
+ * @param {Object|null} displayData - `currentChallenge.displayData`
+ * @returns {Object|null} Copia redactada, o el mismo objeto si no procede redactar
+ */
+function redactChallengeDisplayData(playState, displayData) {
+  if (!displayData) {
+    return displayData;
+  }
+  if (
+    playState?.mechanicName === 'sequence' &&
+    playState?.strategyState?.phase === 'reproducing' &&
+    Array.isArray(displayData.sequence)
+  ) {
+    return {
+      ...displayData,
+      sequence: undefined,
+      length: displayData.length ?? displayData.sequence.length
+    };
+  }
+  return displayData;
 }
 
 /**
@@ -105,12 +163,17 @@ function getRealtimeRemainingTimeMs(playState) {
     return null;
   }
 
-  if (isMemoryPlay(playState)) {
-    return getMemoryRemainingTimeMs(playState);
-  }
-
+  // WS-10: comprobar la PAUSA antes que Memoria. Durante una pausa de Memoria,
+  // `executePause` pone `playEndsAt=null`, así que `getMemoryRemainingTimeMs`
+  // devolvía null aunque `playState.remainingTimeMs` guarde el tiempo congelado
+  // real → F5/reconexión en pausa de Memoria rehidrataba sin barra de tiempo (la
+  // UI no podía pintarla hasta el `play_resumed`).
   if (playState.paused || playState.playDoc?.status === 'paused') {
     return getPlayRemainingTimeMs(playState);
+  }
+
+  if (isMemoryPlay(playState)) {
+    return getMemoryRemainingTimeMs(playState);
   }
 
   if (
@@ -174,6 +237,16 @@ function restoreRoundStartTime(playState) {
  */
 function isMemoryPlay(playState) {
   return playState?.mechanicName === 'memory';
+}
+
+/**
+ * Comprueba si una partida usa la mecánica de secuencia.
+ *
+ * @param {Object} playState - Estado de la partida
+ * @returns {boolean}
+ */
+function isSequencePlay(playState) {
+  return playState?.mechanicName === 'sequence';
 }
 
 /**
@@ -255,7 +328,9 @@ module.exports = {
   getPlayRemainingTimeMs,
   getMemoryRemainingTimeMs,
   restoreRoundStartTime,
+  redactChallengeDisplayData,
   isMemoryPlay,
+  isSequencePlay,
   emitMemoryTurnState,
   isPlayOwner,
   calculatePauseRemainingTime

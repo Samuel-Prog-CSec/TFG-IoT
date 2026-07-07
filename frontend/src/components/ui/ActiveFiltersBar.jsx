@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { X, Filter } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
@@ -20,7 +20,9 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
  *     onClearAll={() => resetFilters()}
  *   />
  */
-export default function ActiveFiltersBar({ filters = [], onClearAll, className }) {
+const EMPTY_FILTERS = [];
+
+export default function ActiveFiltersBar({ filters = EMPTY_FILTERS, onClearAll, className }) {
   const { shouldReduceMotion } = useReducedMotion();
   const visible = filters.filter(Boolean);
   if (visible.length === 0) return null;

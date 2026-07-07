@@ -223,6 +223,31 @@ await storageService.deleteFolder(context._id.toString()); // lanza si Supabase 
 await context.deleteOne();                                   // solo ejecuta si Storage tuvo éxito
 ```
 
+#### Eliminación de Asset Individual (`deleteImage` / `deleteAudio`) — ADR-226
+
+La eliminación de un **asset suelto** (una imagen o un audio de una carta, no la carpeta completa
+de un contexto) sigue un orden **inverso** al de `deleteFolder`, por dos motivos de robustez:
+
+1. **Guard de integridad (409).** Antes de borrar, se comprueba si algún **mazo activo** referencia
+   el asset (`assertAssetNotInUseByActiveDecks`). Si es así, se rechaza con **409 Conflict** en vez de
+   dejar mazos apuntando a un fichero inexistente. Esto evita el "asset en uso borrado" que rompía
+   las partidas en curso.
+2. **Mongo-primero + Storage best-effort.** Se elimina el registro en MongoDB **antes** que el fichero
+   de Storage, y el borrado de Storage es **best-effort** (`deleteStorageFilesBestEffort`, no aborta si
+   el fichero ya no existe). Razón: para un asset individual, el peor caso tolerable es un fichero
+   huérfano en Storage (recuperable por limpieza periódica), mientras que el caso intolerable —dejar el
+   registro en Mongo apuntando a un fichero ya borrado— queda descartado. `deleteFolder` (borrado
+   masivo de contexto por super_admin) mantiene el orden Storage-primero/hard-fail porque ahí la
+   consistencia estricta prima y no hay partidas dependiendo de un asset concreto.
+
+> **Contraste deliberado:** carpeta de contexto = Storage-primero + hard-fail (consistencia estricta);
+> asset individual = Mongo-primero + best-effort + guard 409 (tolerar huérfano en Storage, nunca
+> huérfano en Mongo). El orden se elige según qué inconsistencia es recuperable en cada caso.
+
+Además, el `displayData` de las cartas (URL/texto que ve el alumno) **no se acepta del cliente**: se
+regenera en el servidor desde el asset real del contexto (`rebuildDisplayDataFromContext`) al crear o
+actualizar un mazo — ver `SECURITY.md` §13.8.
+
 ---
 
 ## Permisos por Rol

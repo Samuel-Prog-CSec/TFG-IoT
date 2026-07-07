@@ -3,6 +3,14 @@ import { RadarChart, Radar, PolarGrid, PolarAngleAxis, PolarRadiusAxis, Responsi
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
+import {
+  ChartsThemeDefs,
+  ThemedTooltipCard,
+  chartColors,
+  chartTokens,
+  useChartMotion,
+} from './ChartsTheme';
+import ThemedChartContainer from './ThemedChartContainer';
 
 /**
  * Labels en espanol para los componentes de engagement
@@ -12,7 +20,7 @@ const ENGAGEMENT_LABELS = {
   regularity: 'Regularidad',
   completionRate: 'Completado',
   avgTimeBetweenSessions: 'Constancia',
-  voluntaryReplays: 'Replays',
+  voluntaryReplays: 'Repeticiones',
 };
 
 /**
@@ -31,10 +39,10 @@ function CustomTooltip({ active, payload }) {
   if (!active || !payload?.[0]) return null;
   const data = payload[0].payload;
   return (
-    <div className="bg-background-elevated border border-border-default rounded-lg p-2.5 shadow-xl text-sm">
+    <ThemedTooltipCard className="text-sm p-2.5">
       <p className="text-text-primary font-medium">{data.label}</p>
       <p className="text-text-muted tabular-nums">{Math.round(data.value)}%</p>
-    </div>
+    </ThemedTooltipCard>
   );
 }
 
@@ -54,6 +62,8 @@ function CustomTooltip({ active, payload }) {
  * @param {Object} [props.engagement] - Datos del endpoint /student/:id/engagement
  */
 function EngagementRadar({ engagement }) {
+  const motion = useChartMotion();
+
   const chartData = useMemo(() => {
     if (!engagement?.components) return [];
 
@@ -70,8 +80,10 @@ function EngagementRadar({ engagement }) {
   const score = engagement?.engagementScore;
   const rag = score != null ? getEngagementRAG(score) : null;
 
-  // Estado vacio: sin datos de componentes, o engagement nulo/cero
-  const isEmpty = chartData.length === 0 || !engagement || (!score && score !== undefined);
+  // Estado vacío: sin datos de componentes o engagement nulo. `score == null`
+  // (no `!score`): un engagement de EXACTAMENTE 0 es un dato válido (implicación
+  // muy baja), no "sin datos" — antes el 0 se trataba erróneamente como vacío.
+  const isEmpty = chartData.length === 0 || !engagement || score == null;
 
   // Estado "datos insuficientes":
   // (a) al menos 3 de 5 ejes en cero/null, o
@@ -89,13 +101,13 @@ function EngagementRadar({ engagement }) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
         <div className="flex items-center justify-between mb-4">
-          <h3 className="text-base font-bold text-text-primary font-display">Engagement</h3>
+          <h2 className="text-base font-semibold text-text-primary font-display">Implicación</h2>
           {/* Pintamos el RAG aunque el radar sea degenerado: el profesor
               sigue necesitando saber si el score global es Alto/Medio/Bajo
               aunque el desglose por ejes no sea visualizable. */}
           {rag && hasInsufficientData && (
             <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", rag.bg, rag.color)}>
-              {Math.round(score)} — {rag.label}
+              {Math.round(score)} · {rag.label}
             </div>
           )}
         </div>
@@ -103,54 +115,81 @@ function EngagementRadar({ engagement }) {
           <p className="text-text-muted text-sm text-center">
             {hasInsufficientData
               ? 'Datos insuficientes para visualizar el desglose por ejes. Se necesitan más partidas distribuidas en el tiempo para calcular todas las métricas.'
-              : 'Sin datos de engagement aún. Se calculará cuando el alumno acumule más partidas.'}
+              : 'Sin datos de implicación aún. Se calculará cuando el alumno acumule más partidas.'}
           </p>
         </div>
       </GlassCard>
     );
   }
 
+  // Resumen accesible: score global + desglose por eje. Sustituye el
+  // anuncio pobre del SVG ("group radar polygon").
+  const accessibleSummary = (() => {
+    const parts = [`Implicación global: ${Math.round(score)} de 100`];
+    if (rag) parts.push(`categoría ${rag.label}`);
+    if (chartData.length > 0) {
+      const desglose = chartData
+        .map((d) => `${d.label} ${Math.round(d.value)}%`)
+        .join(', ');
+      parts.push(`desglose: ${desglose}`);
+    }
+    return `${parts.join('. ')  }.`;
+  })();
+
+  const accessibleDataTable = chartData.map((d) => ({
+    label: d.label,
+    value: `${Math.round(d.value)}%`,
+  }));
+
   return (
     <GlassCard variant="default" padding="none" className="p-5">
-      <div className="flex items-center justify-between mb-2">
-        <h3 className="text-base font-bold text-text-primary font-display">Engagement</h3>
-        {rag && (
-          <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", rag.bg, rag.color)}>
-            {Math.round(score)} — {rag.label}
-          </div>
-        )}
-      </div>
+      <ThemedChartContainer
+        title="Implicación"
+        summary={accessibleSummary}
+        dataTable={accessibleDataTable}
+        dataTableCaption="Desglose de la implicación por componente"
+        headerExtra={
+          rag ? (
+            <div className={cn("flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-semibold", rag.bg, rag.color)}>
+              {Math.round(score)} · {rag.label}
+            </div>
+          ) : null
+        }
+      >
 
-      <div className="h-[300px] w-full min-h-[300px]">
+      <div className="aspect-square w-full max-h-[360px] min-h-[220px]">
         <ResponsiveContainer width="100%" height="100%" minWidth={0} minHeight={0} debounce={50}>
           {/* outerRadius=80% para aprovechar el alto extra del contenedor;
               el radar se veia demasiado pequeno a 70% en 1920px (QA 22/04/2026). */}
           <RadarChart cx="50%" cy="50%" outerRadius="80%" data={chartData}>
+            <ChartsThemeDefs />
             <PolarGrid
-              stroke="var(--color-border-subtle)"
+              stroke={chartTokens.gridStroke}
               gridType="polygon"
             />
             <PolarAngleAxis
               dataKey="label"
-              tick={{ fill: 'var(--color-text-muted)', fontSize: 11 }}
+              tick={{ fill: chartTokens.axisTickFill, fontSize: chartTokens.axisTickFontSize }}
             />
             <PolarRadiusAxis
               domain={[0, 100]}
               tick={false}
               axisLine={false}
             />
-            <Tooltip content={<CustomTooltip />} />
+            <Tooltip content={<CustomTooltip />} wrapperStyle={{ maxWidth: '90vw' }} />
             <Radar
-              name="Engagement"
+              name="Implicación"
               dataKey="value"
-              stroke="var(--color-accent-cyan)"
-              fill="var(--color-accent-cyan)"
+              stroke={chartColors.byMechanic.association.stroke}
+              fill={chartColors.byMechanic.association.fill}
               fillOpacity={0.2}
               strokeWidth={2}
+              {...motion()}
             />
           </RadarChart>
         </ResponsiveContainer>
       </div>
+      </ThemedChartContainer>
     </GlassCard>
   );
 }

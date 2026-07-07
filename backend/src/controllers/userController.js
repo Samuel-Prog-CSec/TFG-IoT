@@ -106,7 +106,9 @@ const getUsers = async (req, res) => {
   // de admin pueda mostrar a quien pertenece cada alumno (evita el placeholder "Sistema").
   const findOptions = {
     sort: sortOptions,
-    limit: Number.parseInt(limit, 10),
+    // `page`/`limit` ya llegan como number (paginationSchema los transforma con
+    // z.pipe(z.number())); no hace falta re-parsear.
+    limit,
     skip,
     select: '-password'
   };
@@ -126,8 +128,8 @@ const getUsers = async (req, res) => {
   });
 
   sendPaginated(res, toUserListDTOV1(users), {
-    page: Number.parseInt(page, 10),
-    limit: Number.parseInt(limit, 10),
+    page,
+    limit,
     total
   });
 };
@@ -489,13 +491,15 @@ const getUserStats = async (req, res) => {
     throw new ForbiddenError('No tienes permiso para ver estas estadísticas');
   }
 
+  // Guardar sobre el DENOMINADOR real (intentos), no sobre totalGamesPlayed: una
+  // partida abandonada al instante incrementa totalGamesPlayed pero deja
+  // correctAnswers+errors en 0 → 0/0 = NaN → "NaN" en el DTO. Con el guard sobre
+  // los intentos, ese caso devuelve 0 limpio.
+  const totalAttempts =
+    (user.studentMetrics?.totalCorrectAnswers || 0) + (user.studentMetrics?.totalErrors || 0);
   const accuracyRate =
-    user.studentMetrics && user.studentMetrics.totalGamesPlayed > 0
-      ? (
-          (user.studentMetrics.totalCorrectAnswers /
-            (user.studentMetrics.totalCorrectAnswers + user.studentMetrics.totalErrors)) *
-          100
-        ).toFixed(2)
+    totalAttempts > 0
+      ? ((user.studentMetrics.totalCorrectAnswers / totalAttempts) * 100).toFixed(2)
       : 0;
 
   sendSuccess(
@@ -741,6 +745,64 @@ const exportStudentData = async (req, res) => {
   res.json(data);
 };
 
+/**
+ * Actualizar el progreso del onboarding interactivo del propio usuario.
+ * Acepta cualquier subset de los campos editables; el resto se conserva.
+ * Endpoint protegido por `authenticate` — el id se toma de `req.user`.
+ *
+ * PATCH /api/users/me/onboarding (T-951 PROP-13)
+ */
+const updateMyOnboarding = async (req, res) => {
+  const userId = req.user._id;
+  const payload = req.body;
+
+  // Construimos el set parcial sólo con los campos enviados, manteniendo
+  // intacto el resto de `profile.onboarding` (Mongoose `$set` con dot
+  // notation evita pisar la subdoc completa).
+  const update = { 'profile.onboarding.lastSeenAt': new Date() };
+  if (payload.currentStep !== undefined) {
+    update['profile.onboarding.currentStep'] = payload.currentStep;
+  }
+  if (payload.currentTrack !== undefined) {
+    update['profile.onboarding.currentTrack'] = payload.currentTrack;
+  }
+  if (payload.teacherCompleted !== undefined) {
+    update['profile.onboarding.teacherCompleted'] = payload.teacherCompleted;
+  }
+  if (payload.superAdminCompleted !== undefined) {
+    update['profile.onboarding.superAdminCompleted'] = payload.superAdminCompleted;
+  }
+
+  const updated = await userRepository.updateById(
+    userId,
+    { $set: update },
+    {
+      returnDocument: 'after',
+      runValidators: true
+    }
+  );
+
+  if (!updated) {
+    throw new NotFoundError('Usuario no encontrado');
+  }
+
+  // Devolvemos el subdocumento de onboarding plano para que el cliente
+  // pueda hidratar su estado sin reparsear el DTO completo del usuario.
+  const onboarding = updated.profile?.onboarding ?? {};
+  sendSuccess(
+    res,
+    {
+      teacherCompleted: !!onboarding.teacherCompleted,
+      superAdminCompleted: !!onboarding.superAdminCompleted,
+      currentStep: onboarding.currentStep ?? 0,
+      currentTrack: onboarding.currentTrack ?? null,
+      version: onboarding.version ?? 1,
+      lastSeenAt: onboarding.lastSeenAt ?? null
+    },
+    'Progreso del onboarding actualizado'
+  );
+};
+
 module.exports = {
   getUsers,
   getUserById,
@@ -752,5 +814,6 @@ module.exports = {
   transferStudent,
   updateConsent,
   hardDeleteUser,
-  exportStudentData
+  exportStudentData,
+  updateMyOnboarding
 };

@@ -9,7 +9,7 @@
 
 import { useState, useEffect, useRef, useCallback } from 'react';
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { Music, Upload, X, Loader2 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '../../lib/utils';
@@ -200,7 +200,7 @@ export default function AudioUploadModal({
       onSuccess();
     } catch (error) {
       const message = extractErrorMessage(error);
-      toast.error('Error al subir el audio', {
+      toast.error('No pudimos subir el audio', {
         description: message,
       });
     } finally {
@@ -312,7 +312,7 @@ export default function AudioUploadModal({
             </p>
             {!dragActive && (
               <p className="text-xs text-text-muted">
-                o haz click para elegir
+                o haz clic para elegir
               </p>
             )}
             <p className="text-xs text-text-muted mt-1">
@@ -377,7 +377,7 @@ export default function AudioUploadModal({
             {isSubmitting ? (
               <>
                 <Loader2 size={16} className="animate-spin" />
-                Subiendo...
+                Subiendo…
               </>
             ) : (
               <>

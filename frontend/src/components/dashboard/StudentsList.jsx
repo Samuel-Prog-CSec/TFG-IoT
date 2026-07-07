@@ -1,7 +1,7 @@
 import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { ChevronRight, Medal, Trophy, Award } from 'lucide-react';
+import { ChevronRight, Medal, Trophy, Award, Users } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { staggerItem, staggerContainer, cn } from '../../lib/utils';
 
@@ -33,12 +33,14 @@ const PODIUM_STYLES = [
  * @param {string} tier - risk | average | good | excellent
  * @returns {string} Clases de Tailwind para el color
  */
+// Tokens `-on-alpha` (calibrados AA en ambos temas) — antes usaba `-base` y
+// `-base/80`, que en el badge "Bueno" caían a ~4.08:1 (sub-AA para 10px).
 const getTierColor = (tier) => {
   switch (tier) {
-    case 'excellent': return 'text-success-base';
-    case 'good': return 'text-success-base/80';
-    case 'average': return 'text-warning-base';
-    case 'risk': return 'text-error-base';
+    case 'excellent': return 'text-success-on-alpha';
+    case 'good': return 'text-success-on-alpha';
+    case 'average': return 'text-warning-on-alpha';
+    case 'risk': return 'text-error-on-alpha';
     default: return 'text-text-muted';
   }
 };
@@ -48,12 +50,14 @@ const getTierColor = (tier) => {
  * @param {string} tier - risk | average | good | excellent
  * @returns {{ label: string, className: string }}
  */
+// Todos los badges usan tokens `-on-alpha` (AA 5:1+ sobre bg-{tono}/alpha en
+// ambos temas). Antes 'good' usaba `text-success-base/80` → 4.08:1 (sub-AA).
 const getTierBadge = (tier) => {
   switch (tier) {
-    case 'excellent': return { label: 'Excelente', className: 'bg-success-base/15 text-success-base' };
-    case 'good': return { label: 'Bueno', className: 'bg-success-base/10 text-success-base/80' };
-    case 'average': return { label: 'Promedio', className: 'bg-warning-base/15 text-warning-base' };
-    case 'risk': return { label: 'En riesgo', className: 'bg-error-base/15 text-error-base' };
+    case 'excellent': return { label: 'Excelente', className: 'bg-success-base/15 text-success-on-alpha' };
+    case 'good': return { label: 'Bueno', className: 'bg-success-base/10 text-success-on-alpha' };
+    case 'average': return { label: 'Promedio', className: 'bg-warning-base/15 text-warning-on-alpha' };
+    case 'risk': return { label: 'En riesgo', className: 'bg-error-base/15 text-error-on-alpha' };
     default: return { label: '—', className: 'bg-background-surface/50 text-text-muted' };
   }
 };
@@ -83,9 +87,6 @@ function StudentsList({ students }) {
 
   return (
     <motion.section
-      initial={{ opacity: 0, y: 20 }}
-      animate={{ opacity: 1, y: 0 }}
-      transition={{ delay: 0.3 }}
       aria-labelledby="students-list-title"
       className={cn(
         "relative overflow-hidden",
@@ -96,17 +97,25 @@ function StudentsList({ students }) {
       )}
     >
       {/* Top highlight */}
-      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-white/10 to-transparent" aria-hidden="true" />
+      <div className="absolute inset-x-0 top-0 h-px bg-gradient-to-r from-transparent via-border-strong/40 to-transparent" aria-hidden="true" />
 
       <header className="flex items-center justify-between mb-6">
-        <h3 id="students-list-title" className="text-xl font-bold text-text-primary font-display">Mejores Estudiantes</h3>
-        <span className="text-xs text-text-muted bg-background-surface/50 px-2 py-1 rounded-lg" aria-label={`Mostrando top ${topStudents.length}`}>
-          Top {topStudents.length}
-        </span>
+        <h3 id="students-list-title" className="text-lg font-semibold text-text-primary font-display">Mejores Estudiantes</h3>
+        {/* Sin estudiantes, el chip "Top 0" era ruido sin significado (QA cuenta virgen). */}
+        {hasStudents && (
+          <span className="text-xs text-text-muted bg-background-surface/50 px-2 py-1 rounded-lg" aria-label={`Mostrando top ${topStudents.length}`}>
+            Top {topStudents.length}
+          </span>
+        )}
       </header>
 
       {hasStudents ? (
-        <motion.ol
+        // BUG-A11Y-LIST-A (QA Sprint 0 post-v0.5.0): el <ol> tenía hijos con
+        // role="button", lo que rompe la regla axe "ol must only contain li".
+        // Cambiado a div role="list" + div role="listitem button" que respeta
+        // tanto la semántica de lista como la naturaleza interactiva de cada fila.
+        <motion.div
+          role="list"
           aria-label="Lista de mejores estudiantes"
           className="space-y-3"
           variants={staggerContainer}
@@ -117,19 +126,26 @@ function StudentsList({ students }) {
             const tierBadge = getTierBadge(student.tier);
             const podium = PODIUM_STYLES[index];
             const PodiumIcon = podium?.icon;
+            // El endpoint /classroom/students entrega el id del alumno en `id`
+            // (analyticsService: id = _id.toString()). Mantener _id/studentId como
+            // fallback defensivo evita navegar a /students/undefined si la fuente cambia.
+            const studentId = student.id || student._id || student.studentId;
             return (
-              <motion.li
-                key={student.studentId || student._id || index}
+              <motion.div
+                key={studentId || index}
                 variants={staggerItem}
-                whileHover={{ x: 4, backgroundColor: 'rgba(255,255,255,0.05)' }}
-                onClick={() => navigate(`/students/${student.studentId || student._id}`)}
-                className="flex items-center justify-between p-3 rounded-xl transition-colors duration-200 group cursor-pointer list-none focus:outline-none focus:ring-1 focus:ring-brand-base/40 focus:bg-background-surface/20"
-                role="button"
+                whileHover={{ x: 4 }}
+                onClick={() => navigate(`/students/${studentId}`)}
+                className="flex items-center justify-between gap-3 p-3 rounded-xl transition-colors duration-200 group cursor-pointer hover:bg-background-surface/40 focus:outline-none focus:ring-1 focus:ring-brand-base/40 focus:bg-background-surface/20"
+                role="listitem"
                 tabIndex={0}
-                onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/students/${student.studentId || student._id}`); }}
+                onKeyDown={(e) => { if (e.key === 'Enter') navigate(`/students/${studentId}`); }}
                 aria-label={`${student.name}, puntuación ${Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}, posición ${index + 1}`}
               >
-                <div className="flex items-center gap-3">
+                {/* flex-1 + min-w-0: sin esto el `truncate` del nombre nunca
+                    actúa y los nombres largos empujaban el % hasta pegarse
+                    ("Joaquín Vázquez92%") y partían el aula en dos líneas. */}
+                <div className="flex flex-1 min-w-0 items-center gap-3">
                   {/* Rank Badge: pódium oro/plata/bronce para top 3; neutro resto */}
                   <span
                     className={cn(
@@ -146,13 +162,28 @@ function StudentsList({ students }) {
                     )}
                   </span>
 
-                  {/* Avatar */}
+                  {/* Avatar — BUG-A11Y-AVATAR-A (QA Sprint 0 post-v0.5.0):
+                      aria-label sin role provoca aria-prohibited-attr. Añadir
+                      role="img" para que el avatar (decorativo + iniciales)
+                      tenga un nombre accesible válido. */}
                   <div
+                    role="img"
                     className="size-10 rounded-full bg-gradient-to-br from-accent-indigo to-brand-base flex items-center justify-center text-sm font-bold text-white shadow-lg group-hover:scale-105 transition-transform"
                     aria-label={`Avatar de ${student.name}`}
                   >
                     {student.avatar ? (
-                      <img src={student.avatar} alt="" className="size-full rounded-full object-cover" />
+                      // D.4 (pre-v1.0.0): width/height HTML attrs evitan
+                      // CLS al cargar la imagen — el contenedor reserva
+                      // layout box pre-load.
+                      <img
+                        src={student.avatar}
+                        alt=""
+                        width={40}
+                        height={40}
+                        loading="lazy"
+                        decoding="async"
+                        className="size-full rounded-full object-cover"
+                      />
                     ) : (
                       <span aria-hidden="true">{getInitials(student.name)}</span>
                     )}
@@ -163,35 +194,38 @@ function StudentsList({ students }) {
                       {student.name}
                     </div>
                     <div className="flex items-center gap-2">
-                      <span className={cn("text-[10px] font-semibold px-1.5 py-0.5 rounded-md", tierBadge.className)}>
+                      <span className={cn("text-nano font-semibold px-1.5 py-0.5 rounded-md whitespace-nowrap", tierBadge.className)}>
                         {tierBadge.label}
                       </span>
                       {student.classroom && (
-                        <span className="text-xs text-text-muted">{student.classroom}</span>
+                        <span className="text-xs text-text-muted whitespace-nowrap truncate">{student.classroom}</span>
                       )}
                     </div>
                   </div>
                 </div>
 
-                <div className="flex items-center gap-2">
+                <div className="flex shrink-0 items-center gap-2">
                   <div className="text-right">
                     <div
                       className={cn("font-bold tabular-nums", getTierColor(student.tier))}
                     >
-                      {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}
+                      {/* averageScore es % real tras ADR-201 (antes puntos crudos). */}
+                      {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}%
                     </div>
-                    <div className="text-[10px] text-text-muted">pts</div>
                   </div>
                   <ChevronRight size={14} className="text-text-muted/30 group-hover:text-text-muted transition-colors" aria-hidden="true" />
                 </div>
-              </motion.li>
+              </motion.div>
             );
           })}
-        </motion.ol>
+        </motion.div>
       ) : (
         <div className="flex flex-col items-center justify-center py-8 text-center">
-          <p className="text-text-muted text-sm">Aún no hay datos de estudiantes.</p>
-          <p className="text-text-disabled text-xs mt-1">Los datos aparecerán cuando los alumnos jueguen partidas.</p>
+          <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-background-elevated/80 border border-border-default mb-4 text-text-muted">
+            <Users size={28} aria-hidden="true" />
+          </div>
+          <p className="text-text-primary text-sm font-semibold">Aún no hay datos de estudiantes.</p>
+          <p className="text-text-muted text-xs mt-1">Los datos aparecerán cuando los alumnos jueguen partidas.</p>
         </div>
       )}
 
@@ -212,6 +246,7 @@ function StudentsList({ students }) {
 
 StudentsList.propTypes = {
   students: PropTypes.arrayOf(PropTypes.shape({
+    id: PropTypes.string,
     studentId: PropTypes.string,
     _id: PropTypes.string,
     name: PropTypes.string.isRequired,

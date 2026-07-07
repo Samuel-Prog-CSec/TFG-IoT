@@ -11,7 +11,11 @@ const socketRateLimitDefaults = {
 
 /**
  * Límites específicos por evento (ventana deslizante).
- * - rfid_scan_from_client: 2 eventos cada 3s (≈ 1 evento cada 1.5s) con burst corto.
+ *
+ * rfid_scan_from_client a 120/min: en modo táctil un niño de 4-8 años puede
+ * "mashear" el tablero de Memoria/Asociación (dedupe táctil de solo 250ms → hasta
+ * 4 taps/s) y superar los 60/min anteriores, perdiendo respuestas legítimas. 120/min
+ * sigue filtrando abuso real y el dedupe cubre el chattering del sensor hardware.
  *
  * @type {Record<string, {windowMs:number, max:number}>}
  */
@@ -22,9 +26,20 @@ const socketRateLimits = {
   pause_play: { windowMs: 1000, max: 2 },
   resume_play: { windowMs: 1000, max: 2 },
   next_round: { windowMs: 1000, max: 5 },
-  rfid_scan_from_client: { windowMs: 3000, max: 2 },
+  rfid_scan_from_client: { windowMs: 60 * 1000, max: 120 },
   play_state_sync: { windowMs: 1000, max: 2 }
 };
+
+/**
+ * Eventos "soft-limit": si superan su ventana, se descartan silenciosamente pero
+ * NUNCA contribuyen al bloqueo temporal compartido por usuario. Sin esto, un
+ * niño tocando rápido el tablero acumulaba violaciones y, tras 5, congelaba
+ * `pause_play`/`resume_play`/`next_round` del PROFESOR durante 15s — la partida
+ * quedaba tomada. Un exceso de escaneos es comportamiento infantil normal, no
+ * abuso: se descarta la lectura sobrante sin penalizar los controles del docente.
+ * @type {Set<string>}
+ */
+const socketSoftLimitEvents = new Set(['rfid_scan_from_client']);
 
 /**
  * Política de bloqueo temporal tras abuso.
@@ -88,6 +103,7 @@ const socketStateCleanup = {
 module.exports = {
   socketRateLimits,
   socketRateLimitDefaults,
+  socketSoftLimitEvents,
   socketBlockConfig,
   socketPayloadLimits,
   rfidDedupeConfig,

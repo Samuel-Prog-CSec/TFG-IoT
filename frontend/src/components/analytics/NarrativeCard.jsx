@@ -1,5 +1,5 @@
 import { memo } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { CheckCircle2, Lightbulb, Target, MessageSquare } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn } from '../../lib/utils';
@@ -28,7 +28,7 @@ const SECTIONS = [
     key: 'nowWhat',
     label: 'Qué hacer',
     icon: Target,
-    color: 'text-brand-light',
+    color: 'text-brand-on-alpha',
     bg: 'bg-brand-base/10',
   },
 ];
@@ -53,8 +53,8 @@ function NarrativeCard({ interpretation, title = 'Resumen del Alumno' }) {
   return (
     <GlassCard variant="default" padding="none" className="p-5 h-full">
       <div className="flex items-center gap-2 mb-4">
-        <MessageSquare size={18} className="text-brand-light" aria-hidden="true" />
-        <h3 className="text-base font-bold text-text-primary font-display">{title}</h3>
+        <MessageSquare size={18} className="text-brand-on-alpha" aria-hidden="true" />
+        <h2 className="text-base font-bold text-text-primary font-display">{title}</h2>
       </div>
 
       {hasData ? (
@@ -76,7 +76,7 @@ function NarrativeCard({ interpretation, title = 'Resumen del Alumno' }) {
                   <Icon size={14} className={section.color} aria-hidden="true" />
                 </div>
                 <div className="min-w-0">
-                  <p className="text-[10px] font-semibold uppercase tracking-wider text-text-muted mb-0.5">
+                  <p className="text-nano font-semibold uppercase tracking-wider text-text-muted mb-0.5">
                     {section.label}
                   </p>
                   <p className="text-sm text-text-secondary leading-relaxed">
@@ -89,8 +89,8 @@ function NarrativeCard({ interpretation, title = 'Resumen del Alumno' }) {
         </div>
       ) : (
         <div className="py-4 text-center">
-          <p className="text-sm text-text-muted">Se necesitan mas partidas para generar insights.</p>
-          <p className="text-xs text-text-disabled mt-1">Los insights se generan automaticamente con suficientes datos.</p>
+          <p className="text-sm text-text-muted">Se necesitan más partidas para sacar conclusiones.</p>
+          <p className="text-xs text-text-muted mt-1">Las conclusiones aparecen automáticamente cuando hay datos suficientes.</p>
         </div>
       )}
     </GlassCard>

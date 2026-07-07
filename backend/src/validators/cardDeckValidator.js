@@ -7,33 +7,19 @@
  */
 
 const { z } = require('zod');
-const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
+const {
+  objectIdSchema,
+  paginationSchema,
+  uidSchema,
+  cardMappingSchema,
+  sanitizedString
+} = require('./commonValidator');
 const { DECK_STATUS } = require('../constants/enums');
 
-/**
- * Schema para un mapeo de token RFID fungible dentro de un mazo.
- * La tarjeta se identifica únicamente por su UID físico (ADR-012).
- *
- * @example
- * {
- *   uid: '32B8FA05',
- *   assignedValue: 'España',
- *   displayData: { display: '🇪🇸', audioUrl: '...' }
- * }
- */
-const cardDeckMappingSchema = z
-  .object({
-    uid: uidSchema,
-
-    assignedValue: z
-      .string()
-      .min(1, 'El valor asignado es requerido')
-      .max(200, 'El valor asignado no puede exceder 200 caracteres')
-      .trim(),
-
-    displayData: z.record(z.string(), z.any()).optional().default({})
-  })
-  .strict();
+// `cardDeckMappingSchema` se mantiene como alias del cardMappingSchema consolidado
+// en commonValidator para preservar el API público existente (otros módulos
+// pueden importarlo desde aquí).
+const cardDeckMappingSchema = cardMappingSchema;
 
 /**
  * Schema para crear un mazo.
@@ -42,21 +28,22 @@ const cardDeckMappingSchema = z
  * - Un mazo pertenece a un profesor (createdBy se infiere del JWT, por eso es opcional aquí)
  * - Un mazo se asocia a un contexto (contextId)
  * - Debe contener entre 2 y 20 cardMappings
- * - No puede repetir el mismo UID ni el mismo assignedValue dentro del mazo
+ * - No puede repetir el mismo UID. El `assignedValue` SÍ puede repetirse: Memoria
+ *   usa parejas (dos cartas con el mismo valor) y la corrección de Asociación
+ *   valida por valor (no por UID), así que los valores duplicados se manejan
+ *   correctamente en ambas mecánicas. (La unicidad de `assignedValue` NO se exige
+ *   ni aquí ni en el controlador; el comentario anterior la afirmaba en falso.)
  */
 const createCardDeckSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres'),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }),
 
-    description: z
-      .string()
-      .trim()
-      .max(500, 'La descripción no puede exceder 500 caracteres')
-      .optional(),
+    description: sanitizedString({
+      min: 0,
+      max: 500,
+      label: 'La descripción',
+      allowMultiline: true
+    }).optional(),
 
     contextId: objectIdSchema,
 
@@ -91,18 +78,14 @@ const createCardDeckSchema = z
  */
 const updateCardDeckSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres')
-      .optional(),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }).optional(),
 
-    description: z
-      .string()
-      .trim()
-      .max(500, 'La descripción no puede exceder 500 caracteres')
-      .optional(),
+    description: sanitizedString({
+      min: 0,
+      max: 500,
+      label: 'La descripción',
+      allowMultiline: true
+    }).optional(),
 
     contextId: objectIdSchema.optional(),
 

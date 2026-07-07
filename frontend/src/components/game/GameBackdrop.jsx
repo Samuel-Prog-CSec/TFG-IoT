@@ -22,9 +22,11 @@
  */
 
 import { memo, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { getMechanicTheme } from '../../lib/mechanicTheme';
 
 /**
  * Paleta de iconos decorativos por tema. Se usan emojis por simplicidad:
@@ -78,10 +80,31 @@ const FLOATING_POSITIONS = [
   { bottom: '12%', right: '6%', delay: 0.7, duration: 12 }
 ];
 
-function GameBackdrop({ theme = 'default' }) {
+function GameBackdrop({ theme = 'default', mechanicType = null }) {
   const { shouldReduceMotion } = useReducedMotion();
   const icons = THEME_ICONS[theme] || THEME_ICONS.default;
   const orbs = THEME_ORBS[theme] || THEME_ORBS.default;
+  // ADR-C: capa de "sello" de mecánica encima del orbe de contexto. Es un
+  // halo radial muy sutil (max 18% opacity) en una esquina distinta por
+  // mecánica para que el alumno reconozca rápidamente Memoria vs Asociación
+  // vs Secuencia incluso si el contexto pintado abajo coincide. Si no se
+  // pasa `mechanicType`, no añadimos la capa (defensa frente a refactors).
+  const mechanicHalo = mechanicType
+    ? (() => {
+        const mt = getMechanicTheme(mechanicType);
+        // Esquina distinta por mecánica para que el "sello" sea
+        // identificable a simple vista cuando se cambia de partida.
+        const positionByMechanic = {
+          memory: 'top-[-12%] left-[40%]',
+          association: 'top-[-12%] right-[5%]',
+          sequence: 'bottom-[-12%] left-[35%]'
+        };
+        return {
+          accentVar: mt.accentVar,
+          position: positionByMechanic[mt.key] || positionByMechanic.memory
+        };
+      })()
+    : null;
 
   // Estabilizar seleccion de iconos para el tema sin aleatoriedad entre renders
   const floatingIcons = useMemo(
@@ -101,7 +124,7 @@ function GameBackdrop({ theme = 'default' }) {
     >
       {/* Orbe principal (top-left): color primario del tema */}
       <motion.div
-        className="absolute -top-32 -left-32 h-[60vh] w-[60vh] rounded-full blur-[120px] opacity-30"
+        className="absolute -top-32 -left-32 size-[60vh] rounded-full blur-[120px] opacity-30"
         style={{ backgroundColor: orbs.primary }}
         animate={
           shouldReduceMotion
@@ -113,7 +136,7 @@ function GameBackdrop({ theme = 'default' }) {
 
       {/* Orbe secundario (bottom-right): color alt del tema */}
       <motion.div
-        className="absolute -bottom-40 -right-40 h-[70vh] w-[70vh] rounded-full blur-[140px] opacity-25"
+        className="absolute -bottom-40 -right-40 size-[70vh] rounded-full blur-[140px] opacity-25"
         style={{ backgroundColor: orbs.alt }}
         animate={
           shouldReduceMotion
@@ -125,7 +148,7 @@ function GameBackdrop({ theme = 'default' }) {
 
       {/* Orbe tercero (centro-izquierda): primary con opacity muy baja */}
       <motion.div
-        className="absolute top-1/3 -left-20 h-[35vh] w-[35vh] rounded-full blur-[100px] opacity-20"
+        className="absolute top-1/3 -left-20 size-[35vh] rounded-full blur-[100px] opacity-20"
         style={{ backgroundColor: orbs.primary }}
         animate={
           shouldReduceMotion
@@ -135,12 +158,26 @@ function GameBackdrop({ theme = 'default' }) {
         transition={{ duration: 15, repeat: Infinity, ease: 'easeInOut', delay: 2 }}
       />
 
-      {/* Patron de puntos sutil — refuerza "espacio de juego" vs "admin UI" */}
+      {/* "Sello" de mecánica (ADR-C). Halo radial muy sutil con el accent
+          color de la mecánica activa, en una esquina distinta por
+          mecánica. No compite con el contenido — opacity max 0.18. */}
+      {mechanicHalo && (
+        <div
+          className={cn('absolute h-[40vh] w-[40vh] rounded-full blur-[110px] opacity-[0.18]', mechanicHalo.position)}
+          style={{ backgroundColor: `var(${mechanicHalo.accentVar})` }}
+        />
+      )}
+
+      {/* Patron de puntos sutil — refuerza "espacio de juego" vs "admin UI".
+          AS-7: el color deriva del token `--color-text-primary` (oscuro en light,
+          claro en dark) en vez de un blanco fijo (rgba(255,255,255)); sobre el fondo
+          claro del tema light los puntos blancos eran invisibles, perdiendo la señal
+          de "espacio de juego" en una de las dos estéticas. */}
       <div
         className="absolute inset-0 opacity-[0.04]"
         style={{
           backgroundImage:
-            'radial-gradient(circle, rgba(255,255,255,0.8) 1px, transparent 1px)',
+            'radial-gradient(circle, color-mix(in oklab, var(--color-text-primary) 80%, transparent) 1px, transparent 1px)',
           backgroundSize: '32px 32px'
         }}
       />
@@ -177,7 +214,11 @@ function GameBackdrop({ theme = 'default' }) {
 }
 
 GameBackdrop.propTypes = {
-  theme: PropTypes.oneOf(['default', 'geography', 'animals', 'colors', 'numbers'])
+  theme: PropTypes.oneOf(['default', 'geography', 'animals', 'colors', 'numbers']),
+  // Mecánica activa para añadir un halo de "sello" en una esquina
+  // específica (ADR-C). Si no se pasa, el backdrop sólo usa el theme
+  // de contexto, que es el comportamiento histórico.
+  mechanicType: PropTypes.oneOf(['memory', 'association', 'sequence', null])
 };
 
 export default memo(GameBackdrop);

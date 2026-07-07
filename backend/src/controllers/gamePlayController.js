@@ -8,8 +8,12 @@ const gamePlayRepository = require('../repositories/gamePlayRepository');
 const gameSessionRepository = require('../repositories/gameSessionRepository');
 const userRepository = require('../repositories/userRepository');
 const gamePlayService = require('../services/gamePlayService');
-const { recalculateSessionStatusFromPlays } = require('../services/sessionStatusService');
-const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const {
+  NotFoundError,
+  ValidationError,
+  ForbiddenError,
+  ConflictError
+} = require('../utils/errors');
 const {
   ensureResourceOwnership,
   ensureResourceOwnershipOrAdmin,
@@ -48,8 +52,12 @@ const applyTeacherScopeToPlayFilter = async ({ user, sessionId, filter }) => {
     return;
   }
 
-  const sessions = await gameSessionRepository.find({ createdBy: user._id }, { select: '_id' });
-  filter.sessionId = { $in: sessions.map(s => s._id) };
+  // Reutilizamos el helper cacheado (TTL 300s, invalidado por gameSessionService
+  // al crear/archivar/eliminar sesiones del profesor) en lugar de re-consultar
+  // game_sessions en CADA GET /api/plays. Devuelve ObjectId, válidos para el $in.
+  // Lazy require: evita acoplar el controller a analyticsService al cargar módulo.
+  const { getTeacherSessionIds } = require('../services/analyticsService');
+  filter.sessionId = { $in: await getTeacherSessionIds(user._id.toString()) };
 };
 
 const buildSortOptions = (sortBy, order) => ({
@@ -68,8 +76,14 @@ const buildSortOptions = (sortBy, order) => ({
 const getPlays = async (req, res) => {
   const {
     page = 1,
+    // Orden por defecto `_id` (no `createdAt`): en `gameplays` NINGÚN índice
+    // cubre `createdAt`, así que ordenar por él fuerza un SORT bloqueante en
+    // memoria (peligroso en Atlas M0 con RAM escasa y el límite de 32MB de sort).
+    // `_id` es un ObjectId monotónico que embebe el timestamp de creación → mismo
+    // orden visible (más reciente primero) pero recorriendo el índice `_id`
+    // siempre presente, sin sort en memoria.
     limit = 20,
-    sortBy = 'createdAt',
+    sortBy = '_id',
     order = 'desc',
     sessionId,
     playerId,
@@ -96,12 +110,17 @@ const getPlays = async (req, res) => {
   // Ejecutar query con populate
   const [plays, total] = await Promise.all([
     gamePlayRepository.find(filter, {
+      // El DTO de listado (toGamePlayDTOV1) no usa `events[]` (solo el detalle lo
+      // incluye). Excluir el array — hasta 500 sub-docs por partida — evita arrastrar
+      // miles de eventos Mongo→Node por página que el DTO descarta. Proyección negativa.
+      select: '-events',
       populate: [
         { path: 'sessionId', select: 'mechanicId contextId config difficulty' },
         { path: 'playerId', select: 'name profile.age profile.classroom' }
       ],
       sort: sortOptions,
-      limit: Number.parseInt(limit, 10),
+      // page/limit ya son number (paginationSchema); sin re-parse.
+      limit,
       skip
     }),
     gamePlayRepository.count(filter)
@@ -114,8 +133,8 @@ const getPlays = async (req, res) => {
   });
 
   sendPaginated(res, toGamePlayListDTOV1(plays), {
-    page: Number.parseInt(page, 10),
-    limit: Number.parseInt(limit, 10),
+    page,
+    limit,
     total
   });
 };
@@ -135,10 +154,21 @@ const getPlayById = async (req, res) => {
   const play = await gamePlayRepository.findById(id, {
     populate: [
       {
+        // T-907 INT6: select acotado al subset que `toGamePlayDTOV1` consume
+        // (mechanicId, contextId, config, difficulty) — el populate original
+        // traía todos los campos de GameSession (cardMappings, audit, etc.)
+        // que el DTO descarta. Reduce ~30% bytes en este endpoint.
+        // Incluimos también `createdBy` (no se expone en el DTO) para resolver
+        // la ownership con el documento ya poblado y evitar una 2ª query a
+        // game_sessions por cada GET /api/plays/:id.
         path: 'sessionId',
+        select: 'mechanicId contextId config difficulty createdBy',
         populate: [
           { path: 'mechanicId', select: 'name displayName icon' },
-          { path: 'contextId', select: 'contextId name assets' }
+          // (G3) NO poblar `assets`: el DTO de GamePlay solo emite `contextId` como
+          // _id (toId), nunca el array de assets — que podía traer hasta 30 entradas
+          // con URLs/metadata Mongo→Node en CADA GET /api/plays/:id para descartarlas.
+          { path: 'contextId', select: 'contextId name' }
         ]
       },
       { path: 'playerId', select: 'name profile' }
@@ -149,10 +179,10 @@ const getPlayById = async (req, res) => {
     throw new NotFoundError('Partida');
   }
 
-  const session = await gameSessionRepository.findById(play.sessionId._id, {
-    select: 'createdBy'
-  });
-  ensureResourceOwnershipOrAdmin(session, req.user, 'partida');
+  // Ownership directo sobre la sesión ya poblada (incluye createdBy): sin
+  // round-trip adicional. Si la sesión fue eliminada (partida huérfana),
+  // play.sessionId es null y el helper rechaza con el error apropiado.
+  ensureResourceOwnershipOrAdmin(play.sessionId, req.user, 'partida');
 
   sendSuccess(res, toGamePlayDetailDTOV1(play));
 };
@@ -174,7 +204,8 @@ const createPlay = async (req, res) => {
   const play = await gamePlayService.createPlay({
     sessionId,
     playerId,
-    creatorId: req.user._id
+    creatorId: req.user._id,
+    creatorRole: req.user.role
   });
 
   sendCreated(res, toGamePlayDetailDTOV1(play), 'Partida creada exitosamente');
@@ -193,7 +224,13 @@ const createPlay = async (req, res) => {
 const pausePlay = async (req, res) => {
   const { id } = req.params;
 
-  const play = await gamePlayRepository.findById(id, { populate: 'sessionId' });
+  // T-907 INT6: solo necesitamos `createdBy` para `ensureResourceOwnership`;
+  // el populate antes traía toda la sesión incluyendo `cardMappings` (hasta
+  // 50 entries con UID, display, sensorId…). Con el select acotado pasamos
+  // de ~10 KB de payload Mongo a <100 B en el documento populated.
+  const play = await gamePlayRepository.findById(id, {
+    populate: { path: 'sessionId', select: 'createdBy' }
+  });
   if (!play) {
     throw new NotFoundError('Partida');
   }
@@ -240,7 +277,13 @@ const pausePlay = async (req, res) => {
 const resumePlay = async (req, res) => {
   const { id } = req.params;
 
-  const play = await gamePlayRepository.findById(id, { populate: 'sessionId' });
+  // Populate acotado: el handler solo necesita `createdBy` (ownership) y
+  // `config` (re-armado del timer en el GameEngine). El populate sin select
+  // traía la sesión completa (cardMappings[], boardLayout[], sequencePlan[]…),
+  // inflando ~10-30× los bytes Mongo→Node en cada reanudación.
+  const play = await gamePlayRepository.findById(id, {
+    populate: { path: 'sessionId', select: 'createdBy config' }
+  });
   if (!play) {
     throw new NotFoundError('Partida');
   }
@@ -341,6 +384,19 @@ const completePlay = async (req, res) => {
 
   ensureResourceOwnershipOrAdmin(play.sessionId, req.user, 'partida');
 
+  // Guard de finalización ÚNICA: si el motor de juego gestiona esta partida en
+  // vivo, la autoridad de cierre es `endPlay` (el flujo real por socket, que
+  // aplica `updateStudentMetrics`). Finalizar también aquí en paralelo abriría un
+  // TOCTOU con el `isInProgress()` del service → doble `updateStudentMetrics`
+  // sobre un menor (media corrompida, irrecuperable). El frontend NO usa este
+  // endpoint; es defensa del borde alcanzable. Dejamos que el motor la cierre.
+  const gameEngine = req.app.get('gameEngine');
+  if (gameEngine?.getPlayRuntimeContext?.(id)) {
+    throw new ConflictError(
+      'La partida está activa en el motor de juego; se cerrará automáticamente al finalizar.'
+    );
+  }
+
   const result = await gamePlayService.completePlay(id);
 
   sendSuccess(
@@ -362,46 +418,51 @@ const completePlay = async (req, res) => {
 const abandonPlay = async (req, res) => {
   const { id } = req.params;
 
-  const play = await gamePlayRepository.findById(id);
+  // (I5) Ownership sobre la sesión ya poblada (paridad con completePlay): la lógica
+  // de dominio (marcar abandonada + recalc) se delega en gamePlayService.abandonPlay.
+  const owned = await gamePlayRepository.findById(id, {
+    populate: [{ path: 'sessionId', select: 'createdBy' }]
+  });
 
-  if (!play) {
+  if (!owned) {
     throw new NotFoundError('Partida');
   }
 
-  if (!play.isInProgress()) {
-    throw new ValidationError('La partida ya no está en progreso');
-  }
+  ensureResourceOwnershipOrAdmin(owned.sessionId, req.user, 'partida');
 
-  const session = await gameSessionRepository.findById(play.sessionId, {
-    select: 'createdBy'
-  });
-  ensureResourceOwnershipOrAdmin(session, req.user, 'partida');
-
-  // Cambiar status a abandoned
-  play.status = 'abandoned';
-  play.completedAt = new Date();
-  await play.save();
-  await recalculateSessionStatusFromPlays(play.sessionId);
-
-  // Limpiar estado del motor si la partida está activa (timers, Redis, cards)
+  // Bug #1 / DB-9: UN SOLO camino de abandono, sin doble contabilización.
+  //  - Si la partida sigue VIVA en el motor, es el motor quien la finaliza como
+  //    abandonada: `endPlay({abandoned:true})` marca status, hace
+  //    `recordAbandonedGame`, recalcula el estado de la sesión, libera timers/tarjetas
+  //    y emite `game_over`. (Antes se llamaba a `service.abandonPlay` Y a
+  //    `endPlay()` SIN `abandoned`: el segundo re-procesaba la partida como
+  //    `complete()` → status 'completed' que SOBREESCRIBÍA el 'abandoned' y contaba la
+  //    partida en `averageScore` a la vez que el service la contaba en
+  //    `totalAbandonedGames`. Bug latente que el fix de salida del frontend activaría.)
+  //  - Si NO está en el motor (huérfana ya limpiada, o entorno de test sin motor), el
+  //    service hace el trabajo de dominio (status + recordAbandonedGame + recalc).
   const gameEngine = req.app.get('gameEngine');
-  if (gameEngine) {
-    // Limpieza graceful del engine — fallo no crítico no debe propagarse
+  const inEngine = Boolean(gameEngine?.activePlays?.has?.(id));
+
+  let play = null;
+  if (inEngine) {
     try {
-      await gameEngine.endPlay(id);
+      await gameEngine.endPlay(id, { abandoned: true });
+      play = await gamePlayRepository.findById(id, {
+        populate: [{ path: 'sessionId', select: 'createdBy' }]
+      });
     } catch (engineErr) {
-      logger.warn('No se pudo limpiar la partida del motor al abandonar', {
+      logger.warn('No se pudo abandonar la partida vía motor; degradando al service', {
         playId: id,
         error: engineErr.message
       });
     }
   }
-
-  logger.info('Partida abandonada', {
-    playId: play._id,
-    playerId: play.playerId,
-    abandonedAt: play.completedAt
-  });
+  // Fallback: no estaba en el motor, o el motor no consiguió cambiar el status.
+  // `service.abandonPlay` exige `in-progress`, así que solo lo invocamos si sigue así.
+  if (!play || play.status === 'in-progress') {
+    play = await gamePlayService.abandonPlay(id);
+  }
 
   sendSuccess(res, toGamePlayDetailDTOV1(play), 'Partida abandonada');
 };

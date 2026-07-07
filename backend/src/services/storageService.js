@@ -93,10 +93,24 @@ class StorageService {
       // Folder structure: ctx-123/image/123456-lion.webp
       const filePath = `ctx-${contextId}/${type}/${timestamp}-${sanitizedName}`;
 
-      // 2. Subir el archivo (Buffer)
+      // 2. Reconciliar el MIME con la configuración del bucket. El
+      //    `audioValidationService` normaliza al estándar RFC 3003
+      //    `audio/mpeg`, pero el bucket de Supabase está configurado con
+      //    `audio/mp3` (alias histórico). Sin esta reconciliación la subida
+      //    de audio falla con "mime type audio/mpeg is not supported"
+      //    aunque el archivo sea un MP3 perfectamente válido (QA 2026-05-16).
+      const storageMimeType = mimeType === 'audio/mpeg' ? 'audio/mp3' : mimeType;
+
+      // 3. Subir el archivo (Buffer)
       const { error } = await this.supabase.storage.from(BUCKET_NAME).upload(filePath, buffer, {
-        contentType: mimeType,
-        upsert: false
+        contentType: storageMimeType,
+        upsert: false,
+        // Assets efectivamente inmutables: el `filePath` lleva un timestamp único
+        // por subida, así que una sustitución produce un path nuevo (y se borra el
+        // viejo). Un cache largo evita que el navegador re-descargue cada asset en
+        // cada visita pasada la 1h por defecto de Supabase — el mayor coste de
+        // egress evitable en el free-tier medido.
+        cacheControl: '31536000'
       });
 
       if (error) {

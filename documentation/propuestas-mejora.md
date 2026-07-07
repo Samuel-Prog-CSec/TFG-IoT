@@ -14,10 +14,12 @@
 
 ## Clasificacion de propuestas abiertas (planificacion 2026-04-26)
 
-Las **68 propuestas abiertas** se reparten en dos categorias segun el
-momento en que se abordaran. Esta seccion es el indice maestro; los
-headings individuales se mantienen sin etiqueta para no saturar el
-formato. **Consultar esta tabla antes de atacar cualquier PROP.**
+Las **65 propuestas abiertas + 3 descartadas** (PROP-2, PROP-6,
+PROP-11 — cerradas con T-956 el 2026-05-13) se reparten en dos
+categorias segun el momento en que se abordaran. Esta seccion es el
+indice maestro; los headings individuales se mantienen sin etiqueta
+para no saturar el formato. **Consultar esta tabla antes de atacar
+cualquier PROP.**
 
 > **Cierre de Sprint 5 (2026-04-26)**: las 15 propuestas `[MANT]` que
 > figuraban aquí (PROP-21, 27, 47, 70, 77, 79, 80, 81, 83, 84, 87, 88,
@@ -32,7 +34,7 @@ formato. **Consultar esta tabla antes de atacar cualquier PROP.**
   pre-Sprint-6 entra en esta lista: las importantes se absorbieron
   durante las sesiones QA de 2026-04-21..24 y las restantes son
   features grandes o refactors amplios que no bloquean la release.
-- **[FUT] Futuro — backlog post-v1.0.0 (43)** — features grandes
+- **[FUT] Futuro — backlog post-v1.0.0 (40)** — features grandes
   (mascots, dashboards admin, leaderboards ZSET, OpenAPI, release
   automation), refactors amplios, y mejoras "nice-to-have" que pueden o
   no implementarse tras la entrega TFG segun tiempo disponible. **Para
@@ -76,26 +78,31 @@ Todas son PROP-95 a PROP-133 (nuevas de la planificacion 2026-04-24).
 
 ---
 
-### [FUT] Futuro — backlog post-v1.0.0 (43)
+### [FUT] Futuro — backlog post-v1.0.0 (40)
 
 No se planifican. Se documentan para trazabilidad. Pueden graduar a
 Sprint 7+ tras la release si el proyecto continua post-entrega TFG.
 
-**Pre-Sprint-6 (29):**
+**Pre-Sprint-6 (26):**
 
-PROP-1 (notificaciones tiempo real), 2 (modo demo profesor), 4 (tema
-claro), 6 (export/import sesiones), 9 (tema claro revision), 10 (vista
-cruzada mecanica × contexto), 11 (modo demo sin RFID revision), 13
-(onboarding interactivo), 16 (atmosferas dinamicas contexto), 17
-(atajos teclado), 18 (audit AnimatePresence), 60 (leaderboards ZSET),
-63 (studentMetrics Redis Hash), 65 (paginacion/virtualizacion listados),
-66 (charts paleta marca), 67 (GameOver emocional + mascot), 68 (atajos
-teclado ampliacion), 69 (inline editing listados), 71 (hero transition
+PROP-1 (notificaciones tiempo real), 4 (tema claro), 9 (tema claro
+revision), 10 (vista cruzada mecanica × contexto), 13 (onboarding
+interactivo), 16 (atmosferas dinamicas contexto), 17 (atajos teclado),
+18 (audit AnimatePresence), 60 (leaderboards ZSET), 63 (studentMetrics
+Redis Hash), 65 (paginacion/virtualizacion listados), 66 (charts paleta
+marca), 67 (GameOver emocional + mascot), 68 (atajos teclado
+ampliacion), 69 (inline editing listados), 71 (hero transition
 DeckCard), 72 (navegacion direccional), 73 (scroll parallax), 74
 (mascota extendida), 75 (atmosferas reapertura), 76 (inline success
 badges), 78 (persistencia alertas con lifecycle), 82 (dashboard admin
 global), 91 (Informes como zona funcional), 93 (logout undo), 94
 (campaña cobertura SonarCloud 80%).
+
+**Descartadas con T-956 (2026-05-13) — 3:** PROP-2 (modo demo
+profesor), PROP-6 (export/import sesiones), PROP-11 (modo demo sin
+RFID revision). Detalle en `documentation/sprints/Sprint6_Tareas.md`
+(sección T-956). PROP-6 reabrible post-v1.0.0 si se solicita
+explícitamente.
 
 **Nuevas Sprint 6 deferidas (14):**
 
@@ -112,7 +119,8 @@ automatizado).
 propuestas [MANT] y [SP6] son compromiso firme; las [FUT] son
 opcionales.
 
-**Total:** 25 + 43 = 68 propuestas abiertas.
+**Total:** 25 + 40 = 65 propuestas abiertas (+ 3 descartadas con
+T-956: PROP-2, PROP-6, PROP-11).
 
 ---
 
@@ -131,6 +139,8 @@ opcionales.
 ---
 
 ## PROP-2: Vista previa / modo demo de juego para el profesor
+
+**Estado:** ❌ Descartada con cierre de T-956 (2026-05-13). El `FallbackTouchPanel` ya cubre el flujo sin sensor (pulido en QAs recientes: cooldown, feedback `CheckCircle2/XCircle`, target size, latencia 1500ms) y `window.__rfidSim` cubre simulación en QA. Detalle en `documentation/sprints/Sprint6_Tareas.md` (sección T-956).
 
 **Descripcion:** Permitir al profesor simular una partida completa desde el detalle de una sesion sin necesitar hardware RFID fisico. Un modo demo con tarjetas virtuales que se pueden "escanear" haciendo clic.
 
@@ -158,6 +168,8 @@ opcionales.
 ---
 
 ## PROP-6: Export/Import de sesiones y mazos
+
+**Estado:** ❌ Descartada con cierre de T-956 (2026-05-13) para v1.0.0. Feature de productividad real pero independiente y no bloqueante. **Reabrible post-v1.0.0** como tarea aislada (no en rama UI/UX) si se solicita explícitamente para colaboración entre profesores. Detalle en `documentation/sprints/Sprint6_Tareas.md` (sección T-956).
 
 **Descripcion:** Permitir exportar sesiones y mazos como archivo JSON descargable, e importarlos en otra cuenta o instancia de la plataforma.
 
@@ -195,6 +207,8 @@ opcionales.
 ---
 
 ## PROP-11: Modo demo / vista previa de partida sin RFID (revision PROP-2)
+
+**Estado:** ❌ Descartada con cierre de T-956 (2026-05-13). El motivo original (bug del FallbackTouchPanel) fue corregido en QAs posteriores; el panel táctil es ahora estable y constituye la vía oficial para jugar sin sensor. Detalle en `documentation/sprints/Sprint6_Tareas.md` (sección T-956).
 
 **Descripcion:** Reapertura formal de PROP-2 con prioridad alta tras detectar en QA del 17/04 que el bug del FallbackTouchPanel (imagenes que desaparecen + duplicados) hace que la unica forma de probar el flujo de partida sin hardware RFID sea fragil.
 
@@ -534,7 +548,21 @@ abordados en la propia sesion — ver `memory/project_qa_2026_04_22.md`.
 
 ---
 
-## PROP-78: Persistencia real de alertas inteligentes con createdAt historico
+## PROP-78: Persistencia real de alertas inteligentes con createdAt historico ✅ IMPLEMENTADA (T-941, ADR-161)
+
+**Estado:** Cerrada en Sprint 6 vía T-941 con ampliación profunda. Implementación entrega no solo la persistencia básica (`SmartAlert` con lifecycle active/resolved/dismissed/snoozed) sino también:
+
+- 7 detectores nuevos (incluye `plateau_detected` que arrastraba TODO, `sequence_stagnation`/`sequence_order_errors` que cerraron criterio pendiente de T-923, y un detector cross-mecánica único en el proyecto).
+- Pinning, audit log endpoint, dashboard interno de eficacia, hard-delete cron, auto-reapertura de dismissed.
+- Notificación realtime al docente cuando aparece critical.
+- Fix de seguridad RGPD (filtro `consent.withdrawnAt`) + fix de bug crítico (divide-by-zero en `decliningPerformance`).
+- Eliminación completa del código legacy (no fachada, no flag).
+
+Ver detalles completos en `documentation/Architecture_Decisions.md` ADR-161.
+
+---
+
+### Descripción original (histórica)
 
 **Descripcion:** Hoy las alertas que muestra `AlertsHub.jsx` y
 `AlertsPanel.jsx` provienen de `getClassroomAlerts` en
@@ -1517,7 +1545,7 @@ ruidosamente cuando se rompe. Evidencia de DR real para memoria TFG.
 
 ---
 
-## PROP-120 [ALTA]: Cloudflare rules (cache + WAF + DDoS + rate limit)
+## PROP-120 [ALTA]: Cloudflare rules (cache + WAF + DDoS + rate limit) ✅ CERRADA (T-907 / ADR-160, 2026-05-17)
 
 **Descripcion:** Cloudflare Pages incluye proxy Cloudflare por defecto.
 Configurar reglas: **cache** (estaticos con TTL largo, HTML always
@@ -1536,13 +1564,12 @@ del backend sin coste, ahorra queries al free tier Upstash.
 - Security → WAF → Managed Rules → OWASP Core Ruleset (free).
 - Security → Rate limiting: 30 req/10s por IP a `/api/*`.
 - Bot Fight Mode activado.
-- Documentacion en `documentation/Cloudflare_Setup.md`.
 
 **Esfuerzo:** S (1 dia).
 
 ---
 
-## PROP-121 [MEDIA]: Bundle analysis + tree-shaking final frontend
+## PROP-121 [MEDIA]: Bundle analysis + tree-shaking final frontend ✅ CERRADA (T-907 / ADR-159, 2026-05-17)
 
 **Descripcion:** Auditar el bundle final de produccion con
 `rollup-plugin-visualizer`. Identificar deps grandes (Recharts, Framer
@@ -1567,7 +1594,7 @@ pre-release. Los findings son documentables en memoria TFG como
 
 ---
 
-## PROP-122 [ALTA]: Validar Socket.IO adapter con multiples instancias Koyeb
+## PROP-122 [ALTA]: Validar Socket.IO adapter con multiples instancias Koyeb ✅ CERRADA (T-907, 2026-05-17 — scripts `dev:multi-1/2` + `test:multi-instance` + doc en `WebSockets-ExtendedUsage.md`)
 
 **Descripcion:** Aunque Koyeb free solo permite 1 instancia always-on
 por app, validar que el **Socket.IO Redis adapter** (ya integrado)
@@ -1593,7 +1620,7 @@ para la memoria TFG.
 
 ---
 
-## PROP-123 [ALTA]: Optimizacion command budget Upstash
+## PROP-123 [ALTA]: Optimizacion command budget Upstash ✅ CERRADA (T-907 / ADR-158, 2026-05-17 — telemetría comandos por categoría + LRU memoria slim-user / mechanic / context. Sub-tareas refactor pipeline auth y `runPipeline` adopción quedan documentadas como follow-up)
 
 **Descripcion:** Medir commands/dia consumidos en staging durante 1
 semana. Si se acercan a 10K/dia, aplicar optimizaciones: pipelining
@@ -1913,3 +1940,110 @@ sprint da margen.
    staging + smoke test manual + iteracion de fixes.
 5. Corte v1.0.0: tag + deploy prod + monitoreo cercano primeras 48h.
 6. Backlog post-release: ALTA primero, MEDIA despues.
+
+---
+
+## Sprint 0 pre-v1.0.0 — Implementado y diferido (ADR-164)
+
+Auditoría exhaustiva con 3 agentes Explore + verificación manual. 14 findings reales (+ 5 falsos positivos descartados). Sprint 0 ejecuta el bloque CRÍTICO/ALTO; el resto va a Sprints 1-3.
+
+### Implementado en Sprint 0
+- **PROP-AUD-C1** [SEC, ALTO] `executeWithRfidLock` con `Promise.race` + timeout 10s + métrica + Sentry alert.
+- **PROP-AUD-C2-parcial** [ARQ] Extracción de `gameReducer` + `INITIAL_GAME_STATE` + `normalizeFinalSummary` de `GameSession.jsx` a hooks/lib testeables. -148 líneas.
+- **PROP-AUD-A4** [SEC] Sanitización Unicode invisibles/direccionales + maxLength en `commonValidator.sanitizedString()`. Aplicado a contextos, mazos, sesiones, usuarios, consentimientos, anuncios.
+- **PROP-AUD-A5** [INT] UID duplicate validator en `GameSession.cardMappings` (espejo del de `CardDeck`).
+- **PROP-AUD-A6** [DRY] `cardMappingSchema` consolidado en `commonValidator.js`.
+- **PROP-AUD-M1** [PERF] `SLOW_AGGREGATE_WARN_MS=5000` slow-query log en `gamePlayRepository.aggregate`.
+- **PROP-AUD-M3** [PERF/A11Y] `CharacterMascot` gated con `useInView` + `useReducedMotion`.
+- **PROP-AUD-M7** [SEC] `adminApprovalRateLimiter` 100/h por super_admin para `/approve` y `/reject`.
+- **PROP-AUD-M8** [PERF/MEMORY] `useConfetti` auto-cleanup de intervals via `Set<id>` en `useEffect` cleanup.
+- **PROP-AUD-B2** [REGRESS] Cobertura tests DTO output extendida a GamePlay/GameSession/CardDeck/GameContext/SystemMetrics.
+
+### Diferido a Sprint 1 (post v1.0.0)
+- **PROP-AUD-C2-completo** División Container/View completa de `GameSession.jsx` y resto de páginas grandes (DeckCreationWizard 1251 / SessionsPage 990 / StudentsAnalytics 971 / DeckEditPage 867 / SessionDetail 817 / Dashboard / ChallengeDisplay).
+- **PROP-AUD-A2** Descomposición de `AppLayout` (788 líneas) en SidebarLayout + LayoutHeader + LayoutBackdrop + OnboardingHost.
+- **PROP-AUD-A3** Extracción de `CardLockManager` de `GameEngine.js` y MFA TOTP + deviceFingerprint de `auth.js` middleware.
+- **PROP-AUD-M2** Subcarpetas en `components/ui/` (cards/, forms/, feedback/, overlays/, rfid/, media/).
+- **PROP-AUD-M6** Charts con keyboard navigation completa + aria-live + tabla sr-only.
+- **PROP-AUD-B3** `RFIDModeHandler` con `aria-live="polite"` para anuncio de cambios de estado.
+- **PROP-AUD-B4** Empty states uniformes en StudentManagement, InsightsReports, etc.
+- **PROP-AUD-B5** Barrido final de residuos de emojis usados como iconos.
+
+### Diferido a Sprint 2 (v1.2.0)
+- **PROP-AUD-M5** CVA o Radix UI Primitives para SelectPremium/InputPremium/ButtonPremium.
+- **PROP-AUD-B6** Split de `redisService.js` en redisService/locks.js + cache.js si crece >2000 líneas.
+- **PROP-AUD-B7** Proyecciones explícitas en repos con `findOne`/`findById` (documentar en baseRepository.js).
+- **PROP-AUD-B1** JSDoc en cada `.index()` de modelos Mongoose explicando el caso de uso.
+- **PROP-AUD-B8** RGPD endpoint `GET /api/users/:id/export` y `DELETE /api/users/:id` con anonimización (si no existe ya).
+
+### Diferido a Sprint 3 (v1.3.0)
+- Materialized view `studentMetrics.*` con BullMQ nightly. Pre-aggregation de `getStudentDifficulties` y `getStudentSummary`. Reduce las queries analytics costosas a `findById().select()` O(1).
+
+### Falsos positivos descartados (NO se actuó)
+- ❌ N+1 en `getPlayStatsBySessionIds` — usa aggregation pipeline `$match`+`$group`, una sola query.
+- ❌ `healthController` expone `INSTANCE_NAME` — no aparece en el código, solo expone métricas operacionales legítimas.
+- ❌ `dangerouslySetInnerHTML` en frontend — 0 ocurrencias.
+- ❌ Tokens en `localStorage` — 0 ocurrencias (cookies httpOnly por T-905).
+- ❌ Duplicación masiva `ui/` vs `common/` — `common/` solo tiene 4 archivos utility específicos.
+
+---
+
+## PROP-Q1 [MEDIA · UX, no bug]: Agrupar alertas inteligentes por alumno en Alertas Hub
+
+**Origen:** QA 2026-05-21 — Sesión de auditoría integral pre-release v1.0.0.
+
+**Observación:** la lista de `/analytics/insights` → tab Alertas muestra a varios alumnos repetidos consecutivamente (Emilia Domínguez ×2, Valentina López ×2, Victoria Ruiz ×2 — top y bottom). Cada repetición corresponde a una alerta de tipo distinto (descenso, abandono, etc.) sobre el mismo alumno, pero a primera vista parece duplicación de filas.
+
+**Propuesta:** opciones no excluyentes:
+1. **Agrupar por alumno** (collapsible): una fila por estudiante con un contador "3 alertas activas" y un caret que despliega los detalles. Reduce ruido visual sin perder información.
+2. **Etiquetar el tipo de alerta** con un badge prominente al inicio de la fila: `[Descenso]`, `[Abandono]`, `[Mejora rápida]`. El nombre del alumno queda secundario porque ya está en el badge contextual.
+3. **Ordenación inteligente**: poner contiguas todas las alertas del mismo alumno (sort: alumno, fecha desc) en lugar del orden actual por fecha. Lo más simple, sin cambios de estructura.
+
+**Recomendación:** opción 3 + opción 2 (ordenación por alumno + badge tipo al inicio). Mínimo cambio de UI, máxima ganancia de claridad. La opción 1 (agrupación con collapsible) queda como segunda iteración si la 3+2 no resuelve.
+
+**No es bug funcional**: los datos son correctos, sólo es percepción de duplicación. Por eso queda como propuesta, no en el fix-en-bloque de la QA del 21/05.
+
+**Esfuerzo estimado:** S (1 día). Cambio frontal en `AlertsHub.jsx` (o el componente equivalente de `/analytics/insights`).
+
+## PROP-134 [MEDIA]: Diferidos de la auditoría integral pre-v1.0.0 (ADR-189)
+
+Hallazgos del audit en 10 dimensiones (ADR-189) que se descartaron del fix-en-bloque por bajo ROI, complejidad de implementación o porque solo aplican en escenarios fuera del perfil de uso del proyecto (un aula = 30 alumnos, no >500 sesiones concurrentes). Se mantienen aquí para futuro hardening o si el perfil de uso cambia.
+
+### Performance backend / sockets (solo relevantes a gran escala)
+
+- **D7-001**: `cardMapping` loops sin `setImmediate` en `GameEngine.startPlay` ([GameEngine.js:484-558](backend/src/services/gameEngine/GameEngine.js:484)). 4 loops secuenciales sobre `sessionDoc.cardMappings`. Con 100+ tarjetas en una sesión podría bloquear el event loop ~15-30ms. Relevante si una sesión tiene >50 tarjetas, no en el perfil educativo actual (típicamente 6-20). Fix: aplicar `processInBatches` con setImmediate cada 20-30 mappings.
+- **D7-003**: `cleanupAbandonedPlays` itera `activePlays.entries()` sin batch async. `ACTIVE_PLAYS_HARD_LIMIT=2000` protege el upper bound; con 1500+ partidas activas el cleanup bloquea ~5-10ms. Relevante solo a escala >500 sesiones concurrentes.
+- **D7-004**: RFID lock timeout de 10s podría reducirse a 5s con métricas separadas por operation type (`setRfidModeState` / `clearRfidModeState` / `getRfidModeState`) para detección temprana de operaciones lentas. Ajuste cosmético — el timeout actual no causa problemas.
+- **D7-007**: Payload `sequence_phase_memorizing` lleva el array `sequence` completo por ronda. Aceptable (perMessageDeflate >1KB lo comprime); si secuencias futuras superan 50 elementos, enviar solo `sequenceLength` y que el cliente componga desde su state cacheado.
+- **D7-010** ✅ CERRADA (2026-05-26 noche, post-QA): eviction FIFO 10% del cap aplicada en [socketHandlers.js:480-510](backend/src/realtime/socketHandlers.js:480). Sin entrar en ciclo cap→sweep→cap bajo churn alto.
+
+### Backend perf / arquitectura
+
+- **D05-003**: Índice `{createdBy:1, status:1, 'cardMappings.uid':1}` en `CardDeck.js` sin `partialFilterExpression: { status: 'active' }`. Reducción de tamaño del índice en Atlas free-tier sería marginal y requiere recrear el índice (drop+create), riesgo de regresión en queries de mazos archivados durante el rebuild. No aplica.
+- **D05-005**: `SmartAlert` y `SystemAlert` con índices `partialFilterExpression: { status: 'active' }` correctos para dedup, pero sin validador `pre('validate')` que rechace duplicados antes de Mongo. Es defensa contra migraciones manuales — el índice ya bloquea en operación normal.
+
+### Frontend / diseño
+
+- **D3-001**: Sweep masivo de `text-white` / `text-black` hardcoded a tokens semánticos. Los hits actuales (15 ocurrencias en 9 archivos) están auditados en contexto de bg coloreado (botones primary, badges sobre tone) y no fallan AA en su entorno real. Migración formal a tokens `--color-text-on-{tone}` para light+dark queda como trabajo de design system.
+- **D3-002**: `bg-black/40` / `bg-black/60` hardcoded en overlays de modales. Decisión visual válida en ambos temas (overlay oscuro enfoca atención al modal en light y dark). Tokens `--color-backdrop-{dark|light}` formales serían pulido marginal.
+- **D3-005** ✅ CERRADA (2026-05-26 noche, post-QA): tokens `--text-micro` (11px) y `--text-nano` (10px) añadidos al `@theme` de `index.css`. Sweep masivo de 35 archivos del frontend a las utilidades semánticas Tailwind v4. Validado en bundle generado.
+- **D3-003**: Sweep `aria-label` en icon buttons. El agente B3.1 no aportó hits concretos verificables (los buttons icon-only de AppLayout y ConfirmationModal SÍ tienen `aria-label`). Sweep formal manual con axe-core en cada pantalla queda pendiente.
+
+### Frontend / perf
+
+- **D-07-A5**: Virtualización de listas largas (StudentManagement, ContextsPage, CardDecksPage). Paginación de 12-20 items por página ya activa en todas — virtualizar solo añadiría valor con >100 items renderizados simultáneamente, lo cual la paginación impide. No aplica.
+
+### Microcopy / motion
+
+- **M-007 (variante completa)** ✅ PARCIAL (2026-05-26): pool genérico ampliado con 3 frases ambiguas que insinúan contexto educativo (`¿Empezamos?`, `¿Listos?`, `¡Aquí estoy!`). La variante "por página" (`¿Creamos tu primer mazo?` en DecksPage, etc.) queda fuera de scope — requeriría tocar cada caller de EmptyState y el patrón general (`message` por prop) ya está disponible para quien quiera contextualizar puntualmente.
+
+**Esfuerzo estimado conjunto**: 1-2 semanas de trabajo distribuido si se atacan todos. La mayoría son micro-mejoras independientes — atacar PROP-134 entero no aporta más valor que cerrar los items uno a uno cuando aparezca el contexto natural (escalado, refactor design system, sweep WCAG con tooling).
+
+## PROP-135 [A11y/Frontend]: Follow-ups del pulido UI/UX (ADR-191)
+
+Los dos items principales se **RESOLVIERON en la misma rama de mantenimiento** (ADR-191, adenda). Queda solo un residual cosmético XS opcional.
+
+- ✅ **RESUELTO — Contraste de etiquetas de leyenda en charts (tema claro).** Las etiquetas de Recharts heredaban el color de su serie (oklch L≈0.6 → 3.7-4.24:1 sobre fondo claro). Fix: `legendTextFormatter` canónico en `ChartsTheme.jsx` que pinta el TEXTO con `--color-text-secondary` (12.29:1 verificado en claro) y deja a Recharts dibujar el swatch con el color de serie (identidad intacta + cumple WCAG 1.4.1). Aplicado a los dos únicos `<Legend>` del código (Curvas de Aprendizaje + SequenceProgressChart).
+- ✅ **RESUELTO — Fix de raíz tailwind-merge × tamaños de fuente custom.** `cn` pasa a usar `extendTailwindMerge` registrando `text-{micro,nano,fluid-*}` en el grupo `font-size`, de modo que ya no colisionan con `text-{color}` al fusionar. Blinda TODOS los usos de `cn()` (twMerge solo actúa dentro de `cn`, no en strings `className` planos). 590/590 tests verde tras el cambio global.
+- ✅ **RESUELTO — uso indebido de `text-text-disabled` para texto visible.** Barrido de cierre (ADR-191 adenda 2): `grep` global de `text-text-disabled`, clasificación disabled/decorativo (se mantiene) vs texto visible (se migra a `text-text-muted`). Migradas 7 instancias visibles: `AlertStatusFilter` (2.43→5.97:1), `StudentsList`, `OnboardingOverlay`, `GameSession` (HUD), `RFIDScannerPanel`, `AlertHistoryModal`, `StudentProgressSparkline`.
+- **(Residual, XS opcional)** Badge de notificaciones, extremo pink a 4.42:1 (0.08 bajo AA pleno tras pasar el número a blanco — el dígito va centrado sobre ~4.8:1, zona legible ≥AA). No se toca el token de marca `accent-pink` por 0.08; si se quisiera AA estricto en todo el ancho, oscurecer levemente el extremo del degradado del badge.

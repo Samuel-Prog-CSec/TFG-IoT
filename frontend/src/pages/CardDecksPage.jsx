@@ -8,7 +8,7 @@
 
 import { useState, useEffect, useCallback, useReducer, useRef } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   Plus,
   Search,
@@ -60,10 +60,12 @@ import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { ROUTES } from '../constants/routes';
+import { getId, sameId } from '../lib/entityId';
 import PageHeader from '../components/ui/PageHeader';
 import ErrorState from '../components/ui/ErrorState';
 import ActiveFiltersBar from '../components/ui/ActiveFiltersBar';
 import EmptyState from '../components/ui/EmptyState';
+import CharacterMascot from '../components/game/CharacterMascot';
 import { EmptyDecksIllustration } from '../components/ui/illustrations';
 import { toast } from 'sonner';
 
@@ -95,21 +97,25 @@ const resolveDeckCount = async ({ skipCount, signal }) => {
   return decksAPI.getDecksCount(signal ? { signal } : {});
 };
 
-const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck }) => {
+const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck, handleRenameDeck }) => {
   const wrapperVariants = buildDeckCardWrapperVariants(shouldReduceMotion);
   return (
     <motion.div
-      className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-6"
+      className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-[var(--space-fluid-gutter)]"
       variants={shouldReduceMotion ? {} : listContainerVariants(0.04)}
       initial={shouldReduceMotion ? false : "hidden"}
       animate="visible"
     >
-      <AnimatePresence>
+      {/* mode="popLayout" — al archivar/borrar un mazo, el item sale
+          de flujo y los hermanos reflowan via animación de layout sin
+          saltar a la nueva posición instantáneamente (T-952 Fase 2). */}
+      <AnimatePresence mode="popLayout">
         {decks.map((deck) => {
-          const deckId = deck.id || deck._id;
+          const deckId = getId(deck);
           return (
             <motion.div
               key={deckId}
+              layout
               variants={wrapperVariants}
               exit="exit"
             >
@@ -118,6 +124,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
                 onView={handleViewDeck}
                 onEdit={handleEditDeck}
                 onDelete={handleArchiveDeck}
+                onRename={handleRenameDeck ? handleRenameDeck(deck) : undefined}
                 reducedMotion={shouldReduceMotion}
               />
             </motion.div>
@@ -130,7 +137,7 @@ const renderDecksGrid = ({ decks, shouldReduceMotion, handleViewDeck, handleEdit
 
 const renderDecksErrorState = ({ error, loadDecks }) => (
   <ErrorState
-    title="Error al cargar mazos"
+    title="No pudimos cargar tus mazos"
     message={`${error} Pulsa Reintentar o recarga la página.`}
     icon={<AlertCircle size={28} />}
     onRetry={() => loadDecks({ resetPage: true })}
@@ -143,7 +150,8 @@ const renderDecksLoadingState = () => (
 
 const renderDecksEmptyState = ({ hasActiveFilters, clearFilters, handleCreateDeck }) => (
   <EmptyState
-    illustration={<EmptyDecksIllustration size={180} />}
+    illustration={hasActiveFilters ? <EmptyDecksIllustration size={180} /> : undefined}
+    mascot={hasActiveFilters ? undefined : <CharacterMascot mood="encouraging" size="sm" noBubble />}
     variant={hasActiveFilters ? 'filtered' : 'first-use'}
     title={hasActiveFilters ? 'Prueba con otro filtro' : 'Crea tu primer mazo'}
     description={
@@ -175,6 +183,7 @@ const renderDecksState = ({
   handleViewDeck,
   handleEditDeck,
   handleArchiveDeck,
+  handleRenameDeck,
 }) => {
   if (error) {
     return renderDecksErrorState({ error, shouldReduceMotion, loadDecks });
@@ -188,7 +197,7 @@ const renderDecksState = ({
     return renderDecksEmptyState({ hasActiveFilters, clearFilters, handleCreateDeck });
   }
 
-  return renderDecksGrid({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck });
+  return renderDecksGrid({ decks, shouldReduceMotion, handleViewDeck, handleEditDeck, handleArchiveDeck, handleRenameDeck });
 };
 const filtersInitialState = {
   searchQuery: '',
@@ -284,7 +293,7 @@ export default function CardDecksPage() {
         return;
       }
       setError(extractErrorMessage(err));
-      toast.error('Error al cargar mazos', {
+      toast.error('No pudimos cargar tus mazos', {
         description: extractErrorMessage(err),
       });
     } finally {
@@ -347,14 +356,14 @@ export default function CardDecksPage() {
   };
 
   const handleViewDeck = (deck) => {
-    const deckId = deck.id || deck._id;
+    const deckId = getId(deck);
     if (deckId) {
       navigate(ROUTES.CARD_DECKS_DETAIL(deckId));
     }
   };
 
   const handleEditDeck = (deck) => {
-    const deckId = deck.id || deck._id;
+    const deckId = getId(deck);
     if (deckId) {
       navigate(ROUTES.CARD_DECKS_EDIT(deckId));
     }
@@ -365,12 +374,48 @@ export default function CardDecksPage() {
     archiveModal.open();
   };
 
+  // Inline rename: el InlineEditableText commitea (o autoguarda
+  // debounced) y dispara este handler. Actualiza optimistamente la
+  // lista local para que el cambio sea instantáneo; si la API falla,
+  // refresca desde backend para revertir.
+  const handleRenameDeck = useCallback(
+    (deck) => async (newName) => {
+      const deckId = getId(deck);
+      if (!deckId) return;
+      const previousName = deck.name;
+      const trimmed = (newName || '').trim();
+      if (!trimmed || trimmed === previousName) return;
+      setDecks((current) =>
+        current.map((d) => (sameId(d, deckId) ? { ...d, name: trimmed } : d)),
+      );
+      try {
+        await decksAPI.updateDeck(deckId, { name: trimmed });
+        toast.success('Nombre guardado', {
+          description: `Renombrado a "${trimmed}".`,
+        });
+      } catch (err) {
+        // Revertir y avisar — el optimistic update permitió ver el cambio,
+        // pero el backend lo rechazó; volvemos al estado previo.
+        setDecks((current) =>
+          current.map((d) =>
+            sameId(d, deckId) ? { ...d, name: previousName } : d,
+          ),
+        );
+        toast.error('No se pudo guardar el nombre', {
+          description: extractErrorMessage(err),
+        });
+        throw err;
+      }
+    },
+    [],
+  );
+
   const confirmArchive = async () => {
     if (!archivingDeck) return;
     
     setArchiveLoading(true);
     try {
-      const deckId = archivingDeck.id || archivingDeck._id;
+      const deckId = getId(archivingDeck);
       if (!deckId) {
         throw new Error('No se encontró el ID del mazo.');
       }
@@ -382,7 +427,7 @@ export default function CardDecksPage() {
       setArchivingDeck(null);
       loadDecks({ resetPage: true });
     } catch (err) {
-      toast.error('Error al archivar', {
+      toast.error('No pudimos archivar el mazo', {
         description: extractErrorMessage(err),
       });
     } finally {
@@ -411,7 +456,7 @@ export default function CardDecksPage() {
     filters.contextFilter && {
       key: 'context',
       label: (() => {
-        const ctx = contexts.find((c) => c._id === filters.contextFilter);
+        const ctx = contexts.find((c) => sameId(c, filters.contextFilter));
         return `Contexto: ${ctx?.name || 'Desconocido'}`;
       })(),
       onRemove: () => dispatchFilters({ type: 'SET_CONTEXT', payload: '' }),
@@ -430,10 +475,11 @@ export default function CardDecksPage() {
     handleViewDeck,
     handleEditDeck,
     handleArchiveDeck,
+    handleRenameDeck,
   });
 
   return (
-    <div className="p-6 lg:p-8 max-w-7xl mx-auto">
+    <div className="page-container py-[var(--space-fluid-section)]">
       <PageHeader
         icon={<Layers size={20} />}
         iconClassName="size-10 bg-gradient-to-br from-accent-indigo to-brand-base text-text-primary"
@@ -463,12 +509,14 @@ export default function CardDecksPage() {
               <span className="text-text-muted text-xs">/ {MAX_DECKS} mazos</span>
             </div>
             <div className="mt-1.5 h-1 rounded-full bg-background-surface/70 overflow-hidden">
+              {/* Llenado animado por scaleX (compositor) + transición de color
+                  acotada a background-color; antes era transition-all sobre width. */}
               <div
                 className={cn(
-                  'h-full rounded-full transition-all',
+                  'h-full w-full origin-left rounded-full transition-[background-color,transform] duration-300',
                   deckCount.active >= MAX_DECKS ? 'bg-warning-base' : 'bg-gradient-to-r from-accent-indigo to-brand-base'
                 )}
-                style={{ width: `${Math.min(100, (deckCount.active / MAX_DECKS) * 100)}%` }}
+                style={{ transform: `scaleX(${Math.min(1, deckCount.active / MAX_DECKS)})` }}
               />
             </div>
           </motion.div>
@@ -490,45 +538,62 @@ export default function CardDecksPage() {
         initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: shouldReduceMotion ? 0 : 0.08 }}
-        className="grid grid-cols-3 gap-3 mb-5"
+        className="grid grid-cols-2 sm:grid-cols-3 gap-[var(--space-fluid-gutter)] mb-8"
       >
-        <GlassCard className="p-3 flex items-center gap-3">
-          <div className="size-9 rounded-lg bg-accent-indigo/15 flex items-center justify-center">
-            <Layers size={16} className="text-accent-indigo" />
-          </div>
-          <div>
-            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.active}</p>
-            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Activos</p>
-          </div>
-        </GlassCard>
-        <GlassCard className="p-3 flex items-center gap-3">
-          <div className="size-9 rounded-lg bg-background-surface/60 flex items-center justify-center">
-            <Archive size={16} className="text-text-muted" />
-          </div>
-          <div>
-            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.archived}</p>
-            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Archivados</p>
+        {/* El flex va en un div interno, NO en el className de GlassCard:
+            GlassCard envuelve sus children en un div propio, así que las clases
+            de layout pasadas por className no alinean los hijos (icono+texto
+            quedaban apilados y el glyph se veía desplazado). QA 2026-06-04. */}
+        <GlassCard className="p-4">
+          <div className="flex items-center gap-4">
+            <div className="size-12 rounded-xl bg-accent-indigo/15 flex items-center justify-center shrink-0">
+              <Layers size={22} className="text-accent-indigo" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-2xl font-semibold text-text-primary font-display tabular-nums">{deckCount.active}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Activos</p>
+            </div>
           </div>
         </GlassCard>
-        <GlassCard className="p-3 flex items-center gap-3">
-          <div className="size-9 rounded-lg bg-brand-base/15 flex items-center justify-center">
-            <CreditCard size={16} className="text-brand-light" />
+        <GlassCard className="p-4">
+          <div className="flex items-center gap-4">
+            <div className="size-12 rounded-xl bg-background-surface/60 flex items-center justify-center shrink-0">
+              <Archive size={22} className="text-text-muted" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-2xl font-semibold text-text-primary font-display tabular-nums">{deckCount.archived}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Archivados</p>
+            </div>
           </div>
-          <div>
-            <p className="text-xl font-semibold text-text-primary font-display tabular-nums">{deckCount.total}</p>
-            <p className="text-[10px] text-text-muted font-medium uppercase tracking-wider">Total</p>
+        </GlassCard>
+        <GlassCard className="p-4">
+          <div className="flex items-center gap-4">
+            <div className="size-12 rounded-xl bg-brand-base/15 flex items-center justify-center shrink-0">
+              <CreditCard size={22} className="text-brand-light" />
+            </div>
+            <div className="min-w-0">
+              <p className="text-2xl font-semibold text-text-primary font-display tabular-nums">{deckCount.total}</p>
+              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Total</p>
+            </div>
           </div>
         </GlassCard>
       </motion.div>
 
-      {/* Barra de búsqueda y filtros */}
+      {/* Barra de búsqueda y filtros. `relative z-30`: el dropdown de los
+          filtros se renderiza dentro de esta sección; sin un z-index que la
+          eleve, la rejilla de mazos (posterior en el DOM) pintaba sus cards
+          ENCIMA del dropdown y lo tapaba (no era overflow, era stacking).
+          z-30 queda por encima de la rejilla y por debajo de modales (QA 2026-06-04). */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: shouldReduceMotion ? 0 : 0.1 }}
-        className="mb-6"
+        className="mb-6 relative z-30"
       >
-        <GlassCard className="p-4">
+        {/* overflow-visible: GlassCard clipa por defecto (overflow-hidden base);
+            aquí lo anulamos para que el dropdown de los filtros (SelectPremium,
+            sin portal) no quede recortado por la card (QA 2026-06-04). */}
+        <GlassCard className="p-4 overflow-visible">
           <div className="flex flex-col sm:flex-row gap-4">
             {/* Búsqueda */}
             <div className="relative flex-1">
@@ -541,6 +606,7 @@ export default function CardDecksPage() {
                 value={filters.searchQuery}
                 onChange={(e) => dispatchFilters({ type: 'SET_SEARCH', payload: e.target.value })}
                 placeholder="Buscar mazos…"
+                data-global-search="true"
                 className={cn(
                   'w-full pl-10 pr-4 py-2.5 rounded-xl',
                   'bg-background-elevated/50 border border-border-default',
@@ -569,14 +635,18 @@ export default function CardDecksPage() {
             </button>
           </div>
 
-          {/* Filtros expandibles */}
+          {/* Filtros expandibles. Entrada con opacity + slide (NO animación de
+              altura): animar `height` exigía `overflow-hidden`, que recortaba el
+              dropdown de los SelectPremium (sin portal). Con fade+slide no hace
+              falta clipar y el dropdown se ve completo (QA 2026-06-04). */}
           <AnimatePresence>
             {showFilters && (
               <motion.div
-                initial={shouldReduceMotion ? false : { opacity: 0, height: 0 }}
-                animate={{ opacity: 1, height: 'auto' }}
-                exit={{ opacity: 0, height: 0 }}
-                className="mt-4 pt-4 border-t border-border-subtle overflow-hidden"
+                initial={shouldReduceMotion ? false : { opacity: 0, y: -6 }}
+                animate={{ opacity: 1, y: 0 }}
+                exit={shouldReduceMotion ? { opacity: 0 } : { opacity: 0, y: -6 }}
+                transition={{ duration: 0.2, ease: [0.16, 1, 0.3, 1] }}
+                className="mt-4 pt-4 border-t border-border-subtle"
               >
                 <div className="flex flex-wrap gap-4">
                   {/* Filtro por estado */}
@@ -601,7 +671,9 @@ export default function CardDecksPage() {
                       options={[
                         { value: '', label: 'Todos los contextos' },
                         ...contexts.map((ctx) => ({
-                          value: ctx._id,
+                          // El DTO de contexto expone `id` (no `_id`); con `_id`
+                          // el value era undefined y el filtro no aplicaba.
+                          value: getId(ctx),
                           label: ctx.name,
                         })),
                       ]}
@@ -670,7 +742,7 @@ export default function CardDecksPage() {
           </>
         }
         variant="archive"
-        confirmLabel="Archivar"
+        confirmText="Archivar"
         loading={archiveLoading}
       />
     </div>

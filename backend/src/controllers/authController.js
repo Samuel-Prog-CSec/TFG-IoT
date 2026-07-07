@@ -25,6 +25,7 @@ const { logSecurityEvent, getRequestContext } = require('../utils/securityLogger
 const { toUserDTOV1, toAuthResponseDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated } = require('../utils/responseHelper');
 const { disconnectUserSockets } = require('../utils/socketUtils');
+const accountLockoutService = require('../services/accountLockoutService');
 const crypto = require('node:crypto');
 
 const REFRESH_COOKIE_NAME = 'refreshToken';
@@ -131,12 +132,57 @@ const register = async (req, res) => {
     email: teacher.email
   });
 
+  // Notificar a todos los super_admin del centro (T-955 trigger:
+  // registration_pending). No bloquea la respuesta — fire & forget.
+  notifyPendingRegistration(teacher).catch(err => {
+    // Defensa adicional, notify() ya silencia errores propios.
+    require('../utils/logger').warn?.('notifyPendingRegistration ignorado', {
+      error: err?.message
+    });
+  });
+
   sendCreated(
     res,
     { user: toUserDTOV1(teacher) },
     'Profesor registrado. Cuenta pendiente de aprobación por Super Admin.'
   );
 };
+
+/**
+ * Notifica a todos los super_admin que hay un nuevo profesor pendiente
+ * de aprobación. T-955 / registration_pending.
+ *
+ * @param {object} teacher - documento User recién creado.
+ */
+async function notifyPendingRegistration(teacher) {
+  const notificationService = require('../services/notificationService');
+  const admins = await userRepository.find(
+    { role: 'super_admin', status: 'active' },
+    { select: '_id', lean: true }
+  );
+  if (!Array.isArray(admins) || admins.length === 0) {
+    return;
+  }
+  // allSettled (no all): si el notify a UN super_admin falla, no debe abortar el
+  // resto del lote. La función es fire-and-forget con catch externo, pero con
+  // `all` un único rechazo descartaba las notificaciones de los demás admins.
+  await Promise.allSettled(
+    admins.map(admin =>
+      notificationService.notify({
+        userId: admin._id.toString(),
+        type: 'registration_pending',
+        priority: 'warning',
+        title: 'Nueva solicitud de acceso',
+        body: `${teacher.name || 'Un docente'} quiere unirse al centro. Aprueba o rechaza desde Aprobaciones.`,
+        link: '/admin/approvals',
+        metadata: {
+          teacherId: teacher._id.toString(),
+          teacherEmail: teacher.email
+        }
+      })
+    )
+  );
+}
 
 const assertAccountApprovedForLogin = user => {
   if (!['teacher', 'super_admin'].includes(user.role)) {
@@ -171,10 +217,25 @@ const login = async (req, res) => {
   const { email, password } = req.body;
   const requestContext = getRequestContext(req);
 
+  // Account lockout (B1 / T-905): bloquea credential stuffing distribuido
+  // donde authRateLimiter por IP no detecta el patrón. Mensaje genérico
+  // para no facilitar enumeración (no diferenciar bloqueado vs inválido).
+  if (await accountLockoutService.isLocked(email)) {
+    logSecurityEvent('AUTH_LOGIN_FAILED', {
+      ...requestContext,
+      reason: 'ACCOUNT_LOCKED',
+      email
+    });
+    throw new UnauthorizedError('Credenciales inválidas');
+  }
+
   // Buscar usuario por email (incluir password para comparación)
   const user = await userRepository.findOne({ email }, { select: '+password' });
 
   if (!user) {
+    // Aún registramos intento fallido aunque el usuario no exista, para que un
+    // atacante no pueda enumerar emails comparando comportamiento (lockout vs no).
+    await accountLockoutService.recordFailedAttempt(email, requestContext);
     logSecurityEvent('AUTH_LOGIN_FAILED', {
       ...requestContext,
       reason: 'USER_NOT_FOUND',
@@ -226,14 +287,19 @@ const login = async (req, res) => {
   const isPasswordValid = await user.comparePassword(password);
 
   if (!isPasswordValid) {
+    const lockoutResult = await accountLockoutService.recordFailedAttempt(email, requestContext);
     logSecurityEvent('AUTH_LOGIN_FAILED', {
       ...requestContext,
       reason: 'INVALID_PASSWORD',
       email,
-      userId: user._id
+      userId: user._id,
+      lockoutAttempts: lockoutResult.attempts
     });
     throw new UnauthorizedError('Credenciales inválidas');
   }
+
+  // Login exitoso: limpiar contador de intentos fallidos
+  await accountLockoutService.clearLockout(email);
 
   // SINGLE SESSION: Invalidar sesión anterior
   const sessionId = crypto.randomUUID();

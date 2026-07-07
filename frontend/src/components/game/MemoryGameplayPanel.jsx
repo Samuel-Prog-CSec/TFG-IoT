@@ -8,6 +8,7 @@
 
 import { memo } from 'react';
 import PropTypes from 'prop-types';
+import { Loader2 } from 'lucide-react';
 import MemoryBoard from './MemoryBoard';
 
 /**
@@ -24,7 +25,7 @@ function MemoryBoardSkeleton() {
       className="block w-full h-full flex flex-col items-center justify-center"
       aria-label="Preparando tablero de memoria"
     >
-      <div className="grid grid-cols-4 gap-3 w-full max-w-2xl">
+      <div className="grid grid-cols-3 sm:grid-cols-4 gap-3 w-full max-w-2xl auto-rows-fr">
         {slots.map((slotKey) => (
           <div
             key={slotKey}
@@ -34,7 +35,10 @@ function MemoryBoardSkeleton() {
           </div>
         ))}
       </div>
-      <p className="mt-4 text-sm text-text-muted">Preparando cartas…</p>
+      <p className="mt-4 flex items-center gap-2 text-sm text-text-muted">
+        <Loader2 size={14} className="animate-spin text-accent-indigo" aria-hidden="true" />
+        Preparando cartas…
+      </p>
     </output>
   );
 }

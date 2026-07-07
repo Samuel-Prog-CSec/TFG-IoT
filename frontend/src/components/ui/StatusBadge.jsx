@@ -11,16 +11,18 @@ const badgeVariants = cva(
   'inline-flex items-center gap-2 rounded-full font-medium border transition-[color,background-color,border-color] duration-300',
   {
     variants: {
+      // Tokens `-on-alpha` cumplen AA 5.0:1+ sobre `bg-{tone}-base/15`
+      // automáticamente en ambos temas (definidos en index.css).
       status: {
-        active: 'bg-success-dark/10 border-success-dark/20 text-success-base',
+        active: 'bg-success-dark/10 border-success-dark/20 text-success-on-alpha',
         inactive: 'bg-text-disabled/10 border-text-disabled/20 text-text-secondary',
-        success: 'bg-success-dark/10 border-success-dark/20 text-success-base',
-        warning: 'bg-warning-dark/10 border-warning-dark/20 text-warning-base',
-        error: 'bg-error-dark/10 border-error-dark/20 text-error-base',
-        info: 'bg-info-dark/10 border-info-dark/20 text-info-base'
+        success: 'bg-success-dark/10 border-success-dark/20 text-success-on-alpha',
+        warning: 'bg-warning-dark/10 border-warning-dark/20 text-warning-on-alpha',
+        error: 'bg-error-dark/10 border-error-dark/20 text-error-on-alpha',
+        info: 'bg-info-dark/10 border-info-dark/20 text-info-on-alpha'
       },
       size: {
-        sm: 'px-2.5 py-0.5 text-[11px] uppercase tracking-wider',
+        sm: 'px-2.5 py-0.5 text-micro uppercase tracking-wider',
         md: 'px-3 py-1 text-xs',
       },
     },

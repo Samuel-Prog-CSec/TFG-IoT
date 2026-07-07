@@ -14,6 +14,10 @@ const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHe
 const { buildFilter } = require('../utils/filterBuilder');
 const { ensureResourceOwnership } = require('../utils/ownershipHelpers');
 const { withTransaction } = require('../utils/withTransaction');
+const {
+  assertAssignedValuesInContext,
+  rebuildDisplayDataFromContext
+} = require('../utils/cardMappingValidation');
 
 /**
  * Límites de configuración para mazos de cartas.
@@ -57,8 +61,31 @@ function validateDeckMappingsStructure(cardMappings) {
   if (new Set(uids).size !== uids.length) {
     throw new ValidationError('Los UIDs en cardMappings deben ser únicos');
   }
-  if (new Set(assignedValues).size !== assignedValues.length) {
-    throw new ValidationError('No puede haber valores asignados duplicados en cardMappings');
+
+  // BUG-DECK-MEMORY-A (QA Sprint 0 post-v0.5.0): los mazos para Memoria
+  // necesitan parejas (dos cartas con el mismo `assignedValue` para que
+  // el alumno empareje). Antes el validator rechazaba CUALQUIER duplicado,
+  // bloqueando la creación de mazos Memoria desde el wizard del frontend
+  // (el seed los creaba directamente con `Model.create()` saltándose este
+  // check, lo que confirma que el patrón es legítimo).
+  //
+  // Política actual: aceptar tanto "valores únicos" (Asociación/Secuencia)
+  // como "todos en parejas exactas de 2" (Memoria). Cualquier otra
+  // distribución sigue rechazándose.
+  // Object.create(null) evita que un assignedValue como "__proto__" o "constructor"
+  // resuelva contra Object.prototype y falsee el conteo de duplicados.
+  const valueCounts = assignedValues.reduce((acc, v) => {
+    acc[v] = (acc[v] || 0) + 1;
+    return acc;
+  }, Object.create(null));
+  const counts = Object.values(valueCounts);
+  const allUnique = counts.every(c => c === 1);
+  const allPairs = counts.every(c => c === 2);
+  if (!allUnique && !allPairs) {
+    throw new ValidationError(
+      'Valores asignados no válidos: todas las cartas deben aparecer 1 vez ' +
+        '(Asociación/Secuencia) o exactamente 2 veces (parejas para Memoria).'
+    );
   }
 
   // Normalizar los UIDs en el propio array para persistir coherente
@@ -76,14 +103,7 @@ async function validateContextAndAssignedValues(contextId, cardMappings) {
   }
 
   // assignedValue debe existir dentro de los assets del contexto (por value)
-  const allowedValues = new Set((context.assets || []).map(a => a.value));
-  const invalidValues = cardMappings.map(m => m.assignedValue).filter(v => !allowedValues.has(v));
-
-  if (invalidValues.length > 0) {
-    throw new ValidationError(
-      `assignedValue no existe en los assets del contexto: ${[...new Set(invalidValues)].join(', ')}`
-    );
-  }
+  assertAssignedValuesInContext(cardMappings, context);
 
   return context;
 }
@@ -197,10 +217,14 @@ const createDeck = async (req, res) => {
     const normalizedMappings = validateDeckMappingsStructure(cardMappings);
 
     // Validar contexto y que assignedValue pertenece al contexto
-    await validateContextAndAssignedValues(contextId, normalizedMappings);
+    const context = await validateContextAndAssignedValues(contextId, normalizedMappings);
+
+    // displayData server-authoritative: se reconstruye desde el asset del
+    // contexto (no se confía en las URLs del cliente — antes `z.any()`).
+    const cleanMappings = rebuildDisplayDataFromContext(normalizedMappings, context);
 
     // Crear mazo con resolución atómica de conflictos cross-deck (ADR-022)
-    const uids = normalizedMappings.map(m => m.uid);
+    const uids = cleanMappings.map(m => m.uid);
 
     const { deck, conflictSummary } = await withTransaction(async session => {
       const summary = await cardDeckService.resolveCardConflicts(uids, req.user._id, session);
@@ -210,7 +234,7 @@ const createDeck = async (req, res) => {
           name: name.trim(),
           description: description ? description.trim() : undefined,
           contextId,
-          cardMappings: normalizedMappings,
+          cardMappings: cleanMappings,
           status: status || 'active',
           createdBy: req.user._id
         },
@@ -305,13 +329,21 @@ const applyDeckMappingUpdates = async (deck, { contextId, cardMappings }) => {
 
   if (hasCardMappingsUpdate) {
     const normalizedMappings = validateDeckMappingsStructure(cardMappings);
-    await validateContextAndAssignedValues(finalContextId, normalizedMappings);
-    deck.cardMappings = normalizedMappings;
+    const context = await validateContextAndAssignedValues(finalContextId, normalizedMappings);
+    // displayData server-authoritative (ver createDeck / AS-2).
+    deck.cardMappings = rebuildDisplayDataFromContext(normalizedMappings, context);
     return;
   }
 
   if (hasContextUpdate) {
-    await validateContextAndAssignedValues(finalContextId, deck.cardMappings);
+    // Cambió el contexto sin reenviar cardMappings: revalidar y REGENERAR el
+    // displayData de los mapeos existentes contra el nuevo contexto (si no, el
+    // snapshot quedaría apuntando a URLs del contexto anterior).
+    const context = await validateContextAndAssignedValues(finalContextId, deck.cardMappings);
+    deck.cardMappings = rebuildDisplayDataFromContext(
+      deck.cardMappings.map(m => ({ uid: m.uid, assignedValue: m.assignedValue })),
+      context
+    );
   }
 };
 
@@ -328,6 +360,22 @@ const updateDeck = async (req, res) => {
     }
 
     ensureResourceOwnership(deck, req.user._id, 'mazo');
+
+    // Un mazo archivado cuyo contexto ya no existe no puede volver a activarse:
+    // sus cardMappings apuntan a assets borrados de Storage y las partidas
+    // mostrarían imágenes rotas (ADR-231). Se comprueba contra el contexto
+    // destino por si la misma petición re-apunta el mazo a un contexto vivo.
+    if (status === 'active' && deck.status === 'archived') {
+      const targetContextId = contextId !== undefined ? contextId : deck.contextId;
+      const contextExists = targetContextId
+        ? await gameContextRepository.count({ _id: targetContextId })
+        : 0;
+      if (!contextExists) {
+        throw new ConflictError(
+          'No se puede restaurar el mazo: su contexto ya no existe. Crea un mazo nuevo con un contexto disponible.'
+        );
+      }
+    }
 
     applyDeckFieldUpdates(deck, { name, description, status });
     await applyDeckMappingUpdates(deck, { contextId, cardMappings });

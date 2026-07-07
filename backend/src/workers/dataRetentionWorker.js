@@ -14,6 +14,7 @@
 const { Worker } = require('bullmq');
 const { QUEUE_NAMES, connection } = require('../queues');
 const { runDataRetention } = require('../services/dataRetentionService');
+const { withJobSpan } = require('./jobSpan');
 const logger = require('../utils/logger').child({ component: 'dataRetentionWorker' });
 
 const KEY_PREFIX = process.env.REDIS_KEY_PREFIX || 'rfid-games:';
@@ -30,25 +31,69 @@ const startDataRetentionWorker = () => {
     return worker;
   }
 
+  // T-907 INT4: concurrency configurable. Si está activo el sharding
+  // (`DATA_RETENTION_SHARDS > 1`), normalmente conviene subir esto a igual
+  // valor para que el mismo proceso worker procese los N shards en paralelo.
+  // Default 1 para no cambiar el comportamiento existente.
+  const concurrency = Math.max(
+    1,
+    Number.parseInt(process.env.DATA_RETENTION_WORKER_CONCURRENCY, 10) || 1
+  );
+
   worker = new Worker(
     QUEUE_NAMES.DATA_RETENTION,
-    async job => {
-      logger.info('Ejecutando job de retención de datos', {
-        jobId: job.id,
-        name: job.name,
-        attempts: job.attemptsMade
-      });
+    job =>
+      // T-904: span por job + child logger correlable en Loki (LogQL puede
+      // filtrar por jobId/jobName para forensics de un job concreto).
+      withJobSpan(
+        job,
+        async log => {
+          log.info('Ejecutando job de retención de datos', {
+            shardIndex: job.data?.shardIndex ?? null,
+            shardCount: job.data?.shardCount ?? null
+          });
 
-      const dryRun = job.data?.dryRun === true;
-      const summary = await runDataRetention({ dryRun });
+          const dryRun = job.data?.dryRun === true;
+          // T-907 INT4: si el job viene con windowStart/windowEnd (shard), se
+          // pasan al service para que filtre el subset temporal correspondiente.
+          const windowStart = job.data?.windowStart ? new Date(job.data.windowStart) : null;
+          const windowEnd = job.data?.windowEnd ? new Date(job.data.windowEnd) : null;
+          const summary = await runDataRetention({
+            dryRun,
+            windowStart,
+            windowEnd,
+            shardIndex: job.data?.shardIndex ?? null,
+            shardCount: job.data?.shardCount ?? null
+          });
 
-      logger.info('Job de retención completado', { jobId: job.id, summary });
-      return summary;
-    },
+          log.info('Job de retención completado', { summary });
+          // T-942: marcar timestamp para el detector `data_retention_lag` del
+          // sistema de SystemAlerts. Persistimos en Redis para compartirlo entre
+          // el proceso worker y el backend HTTP (lazy require para evitar ciclos).
+          try {
+            const redisService = require('../services/redisService');
+            // setWithTTL (30d) en vez de set sin expiry: la key se refresca en
+            // cada corrida (cadencia diaria), así que el TTL solo la recoge si el
+            // job deja de ejecutarse — justo el caso que el detector
+            // `data_retention_lag` quiere señalar (lee null → lag). Evita una key
+            // permanente (convención del proyecto: toda key con TTL).
+            await redisService.setWithTTL(
+              'system:meta',
+              'lastRetentionRun',
+              new Date().toISOString(),
+              30 * 24 * 60 * 60
+            );
+          } catch {
+            // No bloquea el job.
+          }
+          return summary;
+        },
+        { queueName: QUEUE_NAMES.DATA_RETENTION }
+      ),
     {
       connection,
       prefix: `${KEY_PREFIX}bull`,
-      concurrency: 1
+      concurrency
     }
   );
 

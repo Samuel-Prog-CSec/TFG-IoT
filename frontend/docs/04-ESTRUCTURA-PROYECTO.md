@@ -57,8 +57,6 @@ Primitivos de UI del design system.
 | `InputPremium.jsx` | Input con estilos premium |
 | `SelectPremium.jsx` | Select estilizado |
 | `GlassCard.jsx` | Card con efecto glassmorphism |
-| `SpotlightCard.jsx` | Card con efecto spotlight hover |
-| `ProgressBarPremium.jsx` | Barra de progreso animada |
 | `SkeletonShimmer.jsx` | Skeleton loading |
 | `StatusBadge.jsx` | Badge de estado (activo, inactivo) |
 
@@ -74,7 +72,7 @@ Componentes específicos de la mecánica de juego.
 | `ChallengeDisplay.jsx` | Muestra el desafío actual |
 | `TimerBar.jsx` | Barra de tiempo visual |
 | `ScoreDisplay.jsx` | Puntuación con estrellas |
-| `FeedbackOverlay.jsx` | Overlay de éxito/error |
+| `CurrentPlayMetrics.jsx` | Métricas de rendimiento en partida (footer) |
 | `GameOverScreen.jsx` | Pantalla de fin de juego |
 | `CharacterMascot.jsx` | Mascota animada |
 
@@ -108,7 +106,8 @@ Estructura principal de la aplicación.
 
 | Archivo | Propósito |
 |---------|-----------|
-| `AppLayout.jsx` | Layout con sidebar, header, contenido |
+| `AppLayout.jsx` | Layout con sidebar 3 estados (drawer/rail/expanded), topbar, contenido. Usa `useSidebarMode`. |
+| `GameLayout.jsx` | Layout fullscreen para rutas `/game/*` (sin sidebar). Salida con X/Esc + confirmación si partida activa (ADR-119). |
 
 ---
 
@@ -117,7 +116,8 @@ Custom hooks para lógica reutilizable.
 
 | Hook | Propósito | Retorna |
 |------|-----------|---------|
-| `useIsMobile` | Detectar viewport móvil | `boolean` |
+| `useIsMobile` | Detectar viewport móvil binario (legacy) | `boolean` |
+| `useSidebarMode` | Coordinar estado de la sidebar (drawer/rail/expanded) con persistencia | `{ preference, layout, setPreference, toggle }` |
 | `useDocumentTitle` | Cambiar título de página | `void` |
 | `useGameTimer` | Temporizador del juego | `{ timeLeft, pause, resume, reset }` |
 | `useFetch` | Peticiones HTTP | `{ data, loading, error, refetch }` |
@@ -280,3 +280,19 @@ import { ButtonPremium, InputPremium } from '@/components/ui';
 ---
 
 *Referencia: [Bulletproof React](https://github.com/alan2207/bulletproof-react)*
+
+## Sprint 0 pre-v1.0.0 — Archivos nuevos extraídos de `GameSession.jsx` (ADR-164)
+
+```
+frontend/src/
+├── hooks/
+│   ├── useGameSessionState.js           ← reducer + INITIAL_GAME_STATE + custom hook
+│   └── __tests__/
+│       └── useGameSessionState.test.js  ← 8 tests reducer + 3 tests hook
+└── lib/
+    ├── finalSummary.js                   ← normalizeFinalSummary (puro)
+    └── __tests__/
+        └── finalSummary.test.js          ← 9 tests cubriendo 3 mecánicas
+```
+
+`pages/GameSession.jsx` pasa de **1847 a 1699 líneas** importando estos módulos. El reducer y el helper ahora son testeables como unidades puras. La división Container/View completa del componente queda diferida a Sprint 1 con justificación en ADR-164: el JSX ya está bien compuesto por subcomponentes extraídos (`AssociationGameplayPanel`, `MemoryGameplayPanel`, `SequenceGameplayPanel`, `GameOverScreen`, `CharacterMascot`, `FallbackTouchPanel`, `RFIDConnector`), y partir el render adicional sin un objetivo de reuso concreto introduce más riesgo (timings, props drilling extra) que beneficio.

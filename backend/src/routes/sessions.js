@@ -38,6 +38,74 @@ const asyncHandler = require('../utils/asyncHandler');
  * @access  Private (Teacher)
  * @validation query: gameSessionQuerySchema
  */
+
+/**
+ * @openapi
+ * /sessions:
+ *   get:
+ *     tags: [Sessions]
+ *     summary: Listar sesiones del docente
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [created, active, completed, archived] }
+ *       - in: query
+ *         name: mechanicType
+ *         schema: { type: string, enum: [association, memory, sequence] }
+ *       - in: query
+ *         name: page
+ *         schema: { type: integer, minimum: 1 }
+ *       - in: query
+ *         name: limit
+ *         schema: { type: integer, minimum: 1, maximum: 100 }
+ *     responses:
+ *       200:
+ *         description: Listado de sesiones
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: array, items: { $ref: '#/components/schemas/GameSession' } }
+ *                 pagination: { $ref: '#/components/schemas/Pagination' }
+ *       401: { $ref: '#/components/responses/UnauthorizedError' }
+ */
+
+/**
+ * @openapi
+ * /sessions:
+ *   post:
+ *     tags: [Sessions]
+ *     summary: Crear nueva sesión
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [name, mechanicType, deck, config]
+ *             properties:
+ *               name: { type: string }
+ *               mechanicType: { type: string, enum: [association, memory, sequence] }
+ *               deck: { type: string, description: 'ID del mazo' }
+ *               config: { type: object, description: 'Configuración específica de la mecánica' }
+ *               assignedStudents: { type: array, items: { type: string } }
+ *     responses:
+ *       201:
+ *         description: Sesión creada
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { $ref: '#/components/schemas/GameSession' }
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       429: { $ref: '#/components/responses/RateLimitError' }
+ */
 router.get(
   '/',
   authenticate,
@@ -69,8 +137,12 @@ router.get(
  */
 router.post(
   '/',
-  createResourceRateLimiter, // Rate limit específico para creación
+  // authenticate ANTES del rate limiter de creación: su keyGenerator
+  // (userOrIpKeyGenerator) necesita req.user para keyear por usuario. Si el limiter
+  // corre primero, req.user no existe → cae a IP y varios docentes tras el NAT del
+  // colegio comparten cuota (429 falsos). Aplica a sessions/decks/contexts/users.
   authenticate,
+  createResourceRateLimiter, // Rate limit de creación (keyed por usuario)
   requireRole('teacher'),
   validateQuery(emptyObjectSchema),
   validateBody(createGameSessionSchema),
@@ -82,6 +154,45 @@ router.post(
  * @desc    Iniciar sesión
  * @access  Private (Teacher)
  * @validation params: sessionActionSchema | body: emptyObjectSchema | query: emptyObjectSchema
+ */
+
+/**
+ * @openapi
+ * /sessions/{id}/start:
+ *   post:
+ *     tags: [Sessions]
+ *     summary: Marcar sesión como activa
+ *     description: La sesión pasa de `created` a `active`. Habilita la conexión RFID de los alumnos asignados.
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Sesión activada }
+ *       400: { description: La sesión ya no se puede iniciar }
+ *       401: { $ref: '#/components/responses/UnauthorizedError' }
+ *       403: { $ref: '#/components/responses/ForbiddenError' }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
+ */
+
+/**
+ * @openapi
+ * /sessions/{id}/end:
+ *   post:
+ *     tags: [Sessions]
+ *     summary: Marcar sesión como completada
+ *     description: Cierra todas las partidas en curso (gracia 10s) y mueve la sesión a `completed`.
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Sesión finalizada }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
  */
 router.post(
   '/:id/start',
@@ -117,8 +228,8 @@ router.post(
  */
 router.post(
   '/:id/clone',
-  createResourceRateLimiter,
   authenticate,
+  createResourceRateLimiter,
   requireRole('teacher'),
   validateParams(cloneSessionParamsSchema),
   validateQuery(emptyObjectSchema),

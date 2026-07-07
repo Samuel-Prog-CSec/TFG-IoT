@@ -15,6 +15,7 @@ const JoinCardAssignmentCommand = require('../src/commands/socket/JoinCardAssign
 const LeaveCardAssignmentCommand = require('../src/commands/socket/LeaveCardAssignmentCommand');
 const PlayStateSyncCommand = require('../src/commands/socket/PlayStateSyncCommand');
 const RfidScanFromClientCommand = require('../src/commands/socket/RfidScanFromClientCommand');
+const BoardReadyCommand = require('../src/commands/socket/BoardReadyCommand');
 
 const VALID_PLAY_ID = '507f1f77bcf86cd799439011';
 
@@ -435,6 +436,67 @@ describe('Socket Commands', () => {
         rfidService,
         logger
       );
+    });
+  });
+
+  describe('BoardReadyCommand', () => {
+    it('confirms board ready when role and ownership pass', async () => {
+      const cmd = new BoardReadyCommand();
+      const socket = buildSocket();
+      const helpers = buildHelpers();
+      const gameEngine = buildGameEngine({ confirmBoardReady: jest.fn().mockResolvedValue() });
+
+      await cmd.execute({
+        socket,
+        data: { playId: VALID_PLAY_ID },
+        helpers,
+        logger: buildLogger(),
+        gameEngine
+      });
+
+      expect(helpers.requireSocketRole).toHaveBeenCalledWith(
+        socket,
+        ['teacher', 'super_admin'],
+        'board_ready'
+      );
+      expect(helpers.requirePlayOwnership).toHaveBeenCalledWith(
+        socket,
+        VALID_PLAY_ID,
+        'board_ready'
+      );
+      expect(gameEngine.confirmBoardReady).toHaveBeenCalledWith(VALID_PLAY_ID);
+    });
+
+    it('does NOT confirm board ready when ownership fails (cross-teacher sabotage)', async () => {
+      const cmd = new BoardReadyCommand();
+      const helpers = buildHelpers({ requirePlayOwnership: jest.fn().mockResolvedValue(null) });
+      const gameEngine = buildGameEngine({ confirmBoardReady: jest.fn() });
+
+      await cmd.execute({
+        socket: buildSocket(),
+        data: { playId: VALID_PLAY_ID },
+        helpers,
+        logger: buildLogger(),
+        gameEngine
+      });
+
+      expect(gameEngine.confirmBoardReady).not.toHaveBeenCalled();
+    });
+
+    it('does NOT confirm board ready when role check fails', async () => {
+      const cmd = new BoardReadyCommand();
+      const helpers = buildHelpers({ requireSocketRole: jest.fn().mockReturnValue(false) });
+      const gameEngine = buildGameEngine({ confirmBoardReady: jest.fn() });
+
+      await cmd.execute({
+        socket: buildSocket(),
+        data: { playId: VALID_PLAY_ID },
+        helpers,
+        logger: buildLogger(),
+        gameEngine
+      });
+
+      expect(gameEngine.confirmBoardReady).not.toHaveBeenCalled();
     });
   });
 });

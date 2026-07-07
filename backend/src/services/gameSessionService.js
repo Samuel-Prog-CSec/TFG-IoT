@@ -10,16 +10,39 @@ const gameMechanicRepository = require('../repositories/gameMechanicRepository')
 const gameContextRepository = require('../repositories/gameContextRepository');
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gamePlayRepository = require('../repositories/gamePlayRepository');
+const { toMechanicType } = require('./gamePlayScoring');
 const mongoose = require('mongoose');
 const { NotFoundError, ValidationError, ForbiddenError } = require('../utils/errors');
+const { cacheInvalidatePattern } = require('../utils/cacheHelper');
+const { assertAssignedValuesInContext } = require('../utils/cardMappingValidation');
+
+/**
+ * A.3 (pre-v1.0.0): invalida el cache `teacherSessions:<teacherId>:*` tras
+ * crear / archivar / eliminar sesiones del profesor. Sin esto, las
+ * aggregations analytics que usan `getTeacherSessionIds` no verían la
+ * sesión recién creada hasta que expire el TTL (300s con jitter).
+ *
+ * Fire-and-forget: no bloquea la operación principal.
+ *
+ * @param {string|import('mongoose').Types.ObjectId} teacherId
+ */
+function invalidateTeacherSessionsCache(teacherId) {
+  if (!teacherId) {
+    return;
+  }
+  const id = typeof teacherId === 'string' ? teacherId : teacherId.toString();
+  cacheInvalidatePattern('cache:analytics', `teacherSessions:${id}:*`).catch(() => {});
+}
 const {
   normalizeMechanicName,
   isMechanicEnabledForSessionCreation,
   validateConfigAgainstMechanicRules,
   normalizeBoardLayout,
   validateBoardLayoutAgainstMappings,
-  validateAssociationChallengePlanAgainstMappings
-} = require('../controllers/helpers/sessionValidationHelpers');
+  validateAssociationChallengePlanAgainstMappings,
+  applySequenceConfigForCreate,
+  applySequencePlanForCreate
+} = require('./helpers/sessionValidationHelpers');
 const logger = require('../utils/logger').child({ component: 'gameSessionService' });
 
 const MIN_DECK_CARDS = 2;
@@ -35,7 +58,9 @@ function normalizeSessionMappingsFromDeck(deck) {
 }
 
 async function syncSessionFromDeck(session, { deckId, userId }) {
-  const deck = await cardDeckRepository.findById(deckId);
+  // Read-only: se leen campos del mazo para construir la sesión (el doc que se
+  // guarda es `session`, no `deck`) → lean.
+  const deck = await cardDeckRepository.findById(deckId, { lean: true });
   if (!deck) {
     throw new NotFoundError('Mazo');
   }
@@ -53,18 +78,12 @@ async function syncSessionFromDeck(session, { deckId, userId }) {
     throw new ValidationError(`El mazo debe tener al menos ${MIN_DECK_CARDS} cardMappings`);
   }
 
-  const context = await gameContextRepository.findById(deck.contextId);
+  const context = await gameContextRepository.findById(deck.contextId, { lean: true });
   if (!context) {
     throw new NotFoundError('Contexto de juego');
   }
 
-  const allowedValues = new Set((context.assets || []).map(a => a.value));
-  const invalidValues = cardMappings.map(m => m.assignedValue).filter(v => !allowedValues.has(v));
-  if (invalidValues.length > 0) {
-    throw new ValidationError(
-      `assignedValue no existe en los assets del contexto: ${[...new Set(invalidValues)].join(', ')}`
-    );
-  }
+  assertAssignedValuesInContext(cardMappings, context);
 
   session.deckId = deck._id;
   session.contextId = deck.contextId;
@@ -107,6 +126,7 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
 
   const clonedSession = gameSessionRepository.build({
     mechanicId: sourceSession.mechanicId,
+    mechanicType: toMechanicType(mechanic.name),
     deckId: sourceSession.deckId,
     sensorId: sourceSession.sensorId,
     name: sourceSession.name || undefined,
@@ -119,6 +139,37 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
     deckId: sourceSession.deckId,
     userId
   });
+
+  // Para Secuencia preservamos también el `sequenceConfig` aquí: el helper
+  // `applyCloneMechanicState` usará ese config para validar el plan o
+  // regenerarlo. Sin esto, el config queda con los defaults del schema y
+  // un plan compatible se descarta innecesariamente.
+  if ((mechanic?.name || '').toLowerCase() === 'sequence' && sourceSession.sequenceConfig) {
+    const sourceCfg =
+      typeof sourceSession.sequenceConfig.toObject === 'function'
+        ? sourceSession.sequenceConfig.toObject()
+        : sourceSession.sequenceConfig;
+    clonedSession.sequenceConfig = {
+      minSequenceLength: sourceCfg.minSequenceLength,
+      maxSequenceLength: sourceCfg.maxSequenceLength,
+      displaySeconds: sourceCfg.displaySeconds,
+      // Preferencia de audio en pistas (opt-in del profesor): "Volver a
+      // jugar" no debe perderla, igual que autoPlayPrompt en Asociación.
+      autoPlayHints: Boolean(sourceCfg.autoPlayHints)
+    };
+  }
+
+  // Para Asociación preservamos la preferencia de locución automática de la consigna
+  // (opt-in del profesor): al clonar "Volver a jugar" no debe perderse.
+  if ((mechanic?.name || '').toLowerCase() === 'association' && sourceSession.associationConfig) {
+    const sourceAssocCfg =
+      typeof sourceSession.associationConfig.toObject === 'function'
+        ? sourceSession.associationConfig.toObject()
+        : sourceSession.associationConfig;
+    clonedSession.associationConfig = {
+      autoPlayPrompt: Boolean(sourceAssocCfg.autoPlayPrompt)
+    };
+  }
 
   return {
     clonedSession,
@@ -136,7 +187,8 @@ async function cloneSessionFromExisting({ sourceSession, userId }) {
  * @throws {ValidationError} Si la mecánica no está activa
  */
 async function validateMechanic(mechanicId) {
-  const mechanic = await gameMechanicRepository.findById(mechanicId);
+  // Read-only (solo se lee isActive/name; no se hace .save()) → lean.
+  const mechanic = await gameMechanicRepository.findById(mechanicId, { lean: true });
 
   if (!mechanic) {
     throw new NotFoundError('Mecánica de juego');
@@ -147,121 +199,6 @@ async function validateMechanic(mechanicId) {
   }
 
   return mechanic;
-}
-
-/**
- * Valida que un contexto exista y tenga suficientes assets.
- *
- * @param {string} contextId - ID del contexto
- * @param {number} requiredAssets - Número de assets requeridos
- * @returns {Promise<Object>} Contexto validado
- * @throws {NotFoundError} Si el contexto no existe
- * @throws {ValidationError} Si no hay suficientes assets
- */
-async function validateContext(contextId, requiredAssets) {
-  const context = await gameContextRepository.findById(contextId);
-
-  if (!context) {
-    throw new NotFoundError('Contexto de juego');
-  }
-
-  if (context.assets.length < requiredAssets) {
-    throw new ValidationError(
-      `El contexto solo tiene ${context.assets.length} assets, pero se requieren ${requiredAssets}`
-    );
-  }
-
-  return context;
-}
-
-/**
- * Valida la estructura de cardMappings.
- * Verifica que no haya duplicados de UID o assignedValue.
- *
- * @param {Array} cardMappings - Array de mapeos de tarjetas
- * @param {number} numberOfCards - Número esperado de tarjetas
- * @throws {ValidationError} Si hay inconsistencias en los mapeos
- */
-function validateCardMappings(cardMappings, numberOfCards) {
-  if (cardMappings.length !== numberOfCards) {
-    throw new ValidationError(
-      `cardMappings debe tener exactamente ${numberOfCards} elementos (recibido: ${cardMappings.length})`
-    );
-  }
-
-  // Verificar duplicados en UID
-  const uids = cardMappings.map(m => m.uid);
-  const uniqueUids = [...new Set(uids)];
-
-  if (uids.length !== uniqueUids.length) {
-    throw new ValidationError('No puede haber tarjetas duplicadas en cardMappings');
-  }
-
-  // Verificar que todos los assignedValue sean únicos
-  const assignedValues = cardMappings.map(m => m.assignedValue);
-  const uniqueValues = [...new Set(assignedValues)];
-
-  if (assignedValues.length !== uniqueValues.length) {
-    throw new ValidationError('No puede haber valores asignados duplicados en cardMappings');
-  }
-}
-
-/**
- * Crea una nueva sesión de juego con validaciones completas.
- *
- * @param {Object} params - Parámetros de la sesión
- * @param {string} params.mechanicId - ID de la mecánica
- * @param {string} params.contextId - ID del contexto
- * @param {Object} params.config - Configuración de la sesión
- * @param {Array} params.cardMappings - Mapeo de tarjetas a valores
- * @param {string} [params.difficulty='medium'] - Dificultad
- * @param {string} params.createdBy - ID del profesor creador
- * @returns {Promise<Object>} Sesión creada con populate
- */
-async function createSession({
-  mechanicId,
-  contextId,
-  config,
-  cardMappings,
-  difficulty = 'medium',
-  createdBy
-}) {
-  // Validar mecánica
-  const mechanic = await validateMechanic(mechanicId);
-
-  // Validar contexto
-  const context = await validateContext(contextId, config.numberOfCards);
-
-  // Validar estructura de cardMappings
-  validateCardMappings(cardMappings, config.numberOfCards);
-
-  // Crear sesión
-  const session = await gameSessionRepository.create({
-    mechanicId,
-    contextId,
-    config,
-    cardMappings,
-    difficulty,
-    status: 'created',
-    createdBy
-  });
-
-  // Populate para respuesta completa
-  await session.populate([
-    { path: 'mechanicId', select: 'name displayName icon' },
-    { path: 'contextId', select: 'contextId name' },
-    { path: 'createdBy', select: 'name email' }
-  ]);
-
-  logger.info('Sesión creada via service', {
-    sessionId: session._id,
-    mechanicName: mechanic.name,
-    contextId: context.contextId,
-    cardsCount: cardMappings.length,
-    createdBy
-  });
-
-  return session;
 }
 
 /**
@@ -395,6 +332,9 @@ async function createSessionFromDeck({
   contextId,
   boardLayout,
   associationChallengePlan,
+  sequencePlan,
+  sequenceConfig,
+  associationConfig,
   createdBy
 }) {
   // Validar mecánica
@@ -412,6 +352,7 @@ async function createSessionFromDeck({
   // Construir sesión a partir del mazo
   const session = gameSessionRepository.build({
     mechanicId,
+    mechanicType: toMechanicType(mechanicName),
     deckId,
     contextId: contextId || undefined,
     sensorId,
@@ -433,7 +374,7 @@ async function createSessionFromDeck({
     session.boardLayout = normalizeBoardLayout(boardLayout);
   }
 
-  // AssociationChallengePlan (mecánica association)
+  // AssociationChallengePlan + AssociationConfig (mecánica association)
   if (mechanicName === 'association') {
     const normalizedPlan = validateAssociationChallengePlanAgainstMappings({
       associationChallengePlan,
@@ -442,9 +383,27 @@ async function createSessionFromDeck({
     });
     session.associationChallengePlan = normalizedPlan;
     session.requiresAssociationPlanConfiguration = false;
+    // Locución automática de la consigna (opt-in del profesor). Sin config o sin
+    // el flag → false (comportamiento por defecto: audio solo bajo demanda).
+    session.associationConfig = { autoPlayPrompt: Boolean(associationConfig?.autoPlayPrompt) };
   } else {
     session.associationChallengePlan = [];
     session.requiresAssociationPlanConfiguration = false;
+    session.associationConfig = undefined;
+  }
+
+  // SequencePlan + SequenceConfig (mecánica sequence)
+  if (mechanicName === 'sequence') {
+    applySequenceConfigForCreate({ session, sequenceConfig });
+    applySequencePlanForCreate({
+      session,
+      sequencePlan,
+      cardMappings: syncedMappings,
+      numberOfRounds: Number(session.config?.numberOfRounds)
+    });
+  } else {
+    session.sequencePlan = [];
+    session.sequenceConfig = undefined;
   }
 
   // Verificar consistencia de contextId explícito
@@ -468,6 +427,8 @@ async function createSessionFromDeck({
     { path: 'createdBy', select: 'name email' }
   ]);
 
+  invalidateTeacherSessionsCache(createdBy);
+
   logger.info('Sesión creada desde mazo', {
     sessionId: session._id,
     mechanicId: mechanicName,
@@ -484,12 +445,9 @@ async function createSessionFromDeck({
 module.exports = {
   syncSessionFromDeck,
   cloneSessionFromExisting,
-  createSession,
   createSessionFromDeck,
   updateSession,
   validateSessionDeletion,
   getSessionStats,
-  validateMechanic,
-  validateContext,
-  validateCardMappings
+  validateMechanic
 };

@@ -7,7 +7,7 @@
 
 import { useState, useEffect, useCallback, useRef, useDeferredValue } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { 
   Users, 
   UserCheck, 
@@ -26,12 +26,15 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { adminAPI, extractErrorMessage, isAbortError } from '../../services/api';
+import { getId, sameId } from '../../lib/entityId';
 import ButtonPremium from '../../components/ui/ButtonPremium';
 import InputPremium from '../../components/ui/InputPremium';
 import GlassCard from '../../components/ui/GlassCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
+import EmptyAlertsIllustration from '../../components/ui/illustrations/EmptyAlertsIllustration';
+import AdminPageShell from '../../components/admin/AdminPageHero';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
 import { cn, formatDate } from '../../lib/utils';
@@ -264,7 +267,7 @@ function PendingTeacherCard({ teacher, onApprove, onReject }) {
             </div>
             
             <div className="min-w-0 flex-1">
-              <h3 className="text-text-primary font-bold truncate text-lg">
+              <h3 className="text-text-primary font-semibold truncate text-lg">
                 {teacher.name}
               </h3>
               <div className="flex items-center gap-2 text-text-muted text-sm">
@@ -402,7 +405,7 @@ export default function ApprovalPanel() {
       }
       const message = extractErrorMessage(err);
       setError(message);
-      toast.error('Error al cargar las solicitudes', {
+      toast.error('No pudimos cargar las solicitudes', {
         description: 'Recarga la página o inténtalo de nuevo en unos segundos.'
       });
     } finally {
@@ -458,20 +461,21 @@ export default function ApprovalPanel() {
     setModalState((prev) => ({ ...prev, isLoading: true }));
 
     try {
+      // «La cuenta de X» evita presuponer el género del docente (QA cuenta virgen).
       if (type === 'approve') {
-        await adminAPI.approveTeacher(user._id || user.id);
-        toast.success(`${user.name} ha sido aprobado correctamente`, {
+        await adminAPI.approveTeacher(getId(user));
+        toast.success(`La cuenta de ${user.name} ha sido aprobada correctamente`, {
           icon: <CheckCircle className="size-5 text-success-base" />,
         });
       } else {
-        await adminAPI.rejectTeacher(user._id || user.id, reason);
-        toast.success(`${user.name} ha sido rechazado`, {
+        await adminAPI.rejectTeacher(getId(user), reason);
+        toast.success(`La cuenta de ${user.name} ha sido rechazada`, {
           icon: <XCircle className="size-5 text-error-base" />,
         });
       }
 
       // Actualizar lista
-      setTeachers((prev) => prev.filter((t) => (t._id || t.id) !== (user._id || user.id)));
+      setTeachers((prev) => prev.filter((t) => !sameId(t, user)));
       setPagination((prev) => ({ ...prev, total: Math.max(0, prev.total - 1) }));
       
       closeModal();
@@ -488,39 +492,13 @@ export default function ApprovalPanel() {
   const isSearchPending = searchQuery !== deferredSearchQuery;
 
   return (
-    <div className="p-4 sm:p-6 lg:p-8">
-      {/* Fondo decorativo */}
-      <div className="fixed inset-0 overflow-hidden pointer-events-none z-0">
-        <div 
-          className="absolute top-0 right-0 w-[600px] h-[600px] rounded-full"
-          style={{
-            background: 'radial-gradient(circle, rgba(139, 92, 246, 0.08) 0%, transparent 70%)',
-          }}
-        />
-      </div>
-
-      <div className="max-w-5xl mx-auto relative z-10">
-        {/* Header */}
-        <motion.div
-          initial={{ opacity: 0, y: -20 }}
-          animate={{ opacity: 1, y: 0 }}
-          className="mb-8"
-        >
-          <div className="flex items-center gap-4 mb-2">
-            <div className="size-12 rounded-xl bg-gradient-to-br from-warning-base to-warning-dark flex items-center justify-center shadow-lg shadow-warning-base/20">
-              <Shield className="size-6 text-text-primary" />
-            </div>
-            <div>
-              <h1 className="text-2xl sm:text-3xl font-bold font-display text-text-primary">
-                Panel de Administración
-              </h1>
-              <p className="text-text-muted">
-                Gestiona las solicitudes de nuevos profesores
-              </p>
-            </div>
-          </div>
-        </motion.div>
-
+    <AdminPageShell
+      icon={Shield}
+      title="Solicitudes de docentes"
+      description="Revisa el alta de nuevos profesores y dale paso a las cuentas verificadas."
+      ariaLabel="Solicitudes de docentes"
+      maxWidth="max-w-5xl"
+    >
         {/* Stats */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
@@ -586,7 +564,7 @@ export default function ApprovalPanel() {
               <div className="flex items-start gap-3 p-4 rounded-xl bg-error-base/10 border border-error-base/20">
                 <AlertCircle className="size-5 text-error-base flex-shrink-0 mt-0.5" />
                 <div>
-                  <p className="text-error-base font-bold">Error al cargar datos</p>
+                  <p className="text-error-base font-bold">No pudimos cargar las solicitudes</p>
                   <p className="text-error-base/80 text-sm mt-1">{error}</p>
                 </div>
               </div>
@@ -602,20 +580,46 @@ export default function ApprovalPanel() {
         >
           {(() => {
             if (loading) return <LoadingSkeleton />;
-            if (filteredTeachers.length === 0) return (
-              <EmptyState
-                title="Todo al día"
-                description="No hay solicitudes pendientes. Cuando nuevos profesores se registren, aparecerán aquí para tu aprobación."
-                icon={<CheckCircle className="size-10 text-success-base" />}
-                className="bg-transparent"
-              />
-            );
+            // Centramos el estado vacío en un área generosa (capada a 560px) en
+            // vez de dejarlo pegado arriba con el hueco entero debajo — se veía
+            // descompensado en pantallas grandes/4K (QA 2026-06-04).
+            if (filteredTeachers.length === 0) {
+              // Distinguir "sin resultados de búsqueda" de "no hay pendientes":
+              // antes ambos casos mostraban el mismo aviso de cola vacía, lo que
+              // confundía al director (un término que no casa parecía vaciar la cola).
+              const isSearching = deferredSearchQuery.trim().length > 0;
+              return (
+                <div className="flex items-center justify-center min-h-[min(45vh,560px)]">
+                  <EmptyState
+                    title={isSearching ? 'Sin coincidencias' : 'Todo al día'}
+                    description={
+                      isSearching
+                        ? `Ningún docente pendiente coincide con «${deferredSearchQuery.trim()}». Prueba con otro término o limpia la búsqueda.`
+                        : 'No hay solicitudes pendientes. Cuando nuevos profesores se registren, aparecerán aquí para que les des paso.'
+                    }
+                    illustration={<EmptyAlertsIllustration size={180} />}
+                    className="bg-transparent"
+                    action={
+                      isSearching ? (
+                        <button
+                          type="button"
+                          onClick={() => setSearchQuery('')}
+                          className="px-4 py-2 rounded-xl text-sm font-medium bg-background-elevated/80 border border-border-default text-text-primary hover:border-border-strong transition-colors focus-ring"
+                        >
+                          Limpiar búsqueda
+                        </button>
+                      ) : undefined
+                    }
+                  />
+                </div>
+              );
+            }
             return (
               <div className="space-y-4">
                 <AnimatePresence mode="popLayout">
                   {filteredTeachers.map((teacher) => (
                     <PendingTeacherCard
-                      key={teacher._id || teacher.id}
+                      key={getId(teacher)}
                       teacher={teacher}
                       onApprove={() => openModal('approve', teacher)}
                       onReject={() => openModal('reject', teacher)}
@@ -661,7 +665,6 @@ export default function ApprovalPanel() {
             </ButtonPremium>
           </motion.div>
         )}
-      </div>
 
       {/* Modal de confirmación */}
       <ConfirmationModal
@@ -672,6 +675,6 @@ export default function ApprovalPanel() {
         user={modalState.user}
         isLoading={modalState.isLoading}
       />
-    </div>
+    </AdminPageShell>
   );
 }

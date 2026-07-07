@@ -6,7 +6,6 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from 'react';
-import { motion } from 'framer-motion';
 import { ArrowRightLeft, User, Users, School, AlertTriangle } from 'lucide-react';
 import { toast } from 'sonner';
 import { useAuth } from '../context/AuthContext';
@@ -18,7 +17,10 @@ import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import SelectPremium from '../components/ui/SelectPremium';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
-import { cn, pageVariants } from '../lib/utils';
+import ErrorState from '../components/ui/ErrorState';
+import { cn } from '../lib/utils';
+import { getId, findById } from '../lib/entityId';
+import AdminPageShell from '../components/admin/AdminPageHero';
 
 export default function TransferStudents() {
   const { user } = useAuth(); // Removed isSuperAdmin as it's no longer needed for conditional logic here
@@ -26,6 +28,10 @@ export default function TransferStudents() {
   const [students, setStudents] = useState([]);
   const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
+  // Estado de error persistente de la carga inicial (lista de profesores). Antes
+  // un fallo de red solo lanzaba un toast efímero (4s) y la página quedaba con
+  // selects vacíos sin explicación ni reintento — ahora se muestra ErrorState.
+  const [loadError, setLoadError] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [selectedStudentId, setSelectedStudentId] = useState('');
   const [sourceTeacherId, setSourceTeacherId] = useState('');
@@ -34,15 +40,15 @@ export default function TransferStudents() {
   const [reason, setReason] = useState('');
   const [confirmOpen, setConfirmOpen] = useState(false);
 
-  const currentUserId = user?.id || user?._id;
+  const currentUserId = getId(user);
 
   const selectedStudent = useMemo(
-    () => students.find(s => (s.id || s._id) === selectedStudentId),
+    () => findById(students, selectedStudentId),
     [students, selectedStudentId]
   );
 
   const selectedTeacher = useMemo(
-    () => teachers.find(t => (t.id || t._id) === selectedTeacherId),
+    () => findById(teachers, selectedTeacherId),
     [teachers, selectedTeacherId]
   );
 
@@ -58,10 +64,12 @@ export default function TransferStudents() {
 
       const teachersData = extractData(teachersRes) || [];
       setTeachers(Array.isArray(teachersData) ? teachersData : []);
+      setLoadError(false);
     } catch (error) {
       if (isAbortError(error)) {
         return;
       }
+      setLoadError(true);
       toast.error(extractErrorMessage(error));
     }
   }, []);
@@ -170,7 +178,7 @@ export default function TransferStudents() {
         const classroomLabel = student.profile?.classroom ? ` · ${student.profile.classroom}` : '';
 
         return {
-          value: student.id || student._id,
+          value: getId(student),
           label: `${student.name}${classroomLabel}`,
           icon: <User size={18} />
         };
@@ -180,52 +188,66 @@ export default function TransferStudents() {
 
   const teacherOptions = useMemo(
     () =>
-      teachers
-        .filter(teacher => (teacher.id || teacher._id) !== sourceTeacherId)
-        .map(teacher => ({
-          value: teacher.id || teacher._id,
+      teachers.flatMap(teacher => {
+        const id = getId(teacher);
+        if (id === sourceTeacherId) return [];
+        return [{
+          value: id,
           label: teacher.name || teacher.email,
           icon: <Users size={18} />
-        })),
+        }];
+      }),
     [teachers, sourceTeacherId]
   );
 
   if (loading) {
     return (
       <div className="min-h-full p-8">
-        <div className="text-text-secondary">Cargando transferencia...</div>
+        <div className="text-text-secondary">Cargando transferencia…</div>
       </div>
     );
   }
 
-  return (
-    <motion.div
-      className="min-h-full p-6 lg:p-10"
-      variants={pageVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-    >
-      <div className="max-w-6xl mx-auto space-y-8">
-        <header className="flex flex-col gap-3">
-          <div className="flex items-center gap-4">
-            <div className="size-14 rounded-2xl bg-brand-base/10 shadow-lg shadow-brand-base/5 flex items-center justify-center text-brand-base">
-              <ArrowRightLeft size={30} />
-            </div>
-            <div>
-              <h1 className="text-3xl font-bold text-text-primary font-display">Transferencias de Alumnos</h1>
-              <p className="text-text-muted">Reasigna alumnos entre profesores de forma centralizada.</p>
-            </div>
-          </div>
-        </header>
+  if (loadError) {
+    return (
+      <AdminPageShell
+        icon={ArrowRightLeft}
+        title="Transferencias de Alumnos"
+        description="Reasigna alumnos entre profesores de forma centralizada."
+        ariaLabel="Transferencias de alumnos"
+        maxWidth="max-w-6xl"
+      >
+        <ErrorState
+          message="No pudimos cargar la lista de profesores. Revisa tu conexión e inténtalo de nuevo."
+          onRetry={() => {
+            setLoading(true);
+            // loadTeachers gestiona su propio error (setLoadError + toast); aquí
+            // solo reponemos el loading al terminar.
+            // eslint-disable-next-line promise/catch-or-return -- catch antes de finally, error manejado
+            loadTeachers()
+              .catch(() => { /* manejado dentro de loadTeachers */ })
+              .finally(() => setLoading(false));
+          }}
+        />
+      </AdminPageShell>
+    );
+  }
 
+  return (
+    <AdminPageShell
+      icon={ArrowRightLeft}
+      title="Transferencias de Alumnos"
+      description="Reasigna alumnos entre profesores de forma centralizada."
+      ariaLabel="Transferencias de alumnos"
+      maxWidth="max-w-6xl"
+    >
         <div className="grid grid-cols-1 lg:grid-cols-[2fr,1fr] gap-6">
-          <GlassCard className="p-6 space-y-6">
+          <GlassCard className="p-6 space-y-6 order-2 lg:order-1">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6 pb-4 border-b border-border-subtle/50">
               <SelectPremium
                 label="Profesor Origen"
                 options={teachers.map(teacher => ({
-                  value: teacher.id || teacher._id,
+                  value: getId(teacher),
                   label: teacher.name || teacher.email,
                   icon: <Users size={18} />
                 }))}
@@ -242,7 +264,11 @@ export default function TransferStudents() {
                 options={studentOptions}
                 value={selectedStudentId}
                 onChange={setSelectedStudentId}
-                placeholder={sourceTeacherId ? "Selecciona un alumno" : "Primero elige un profesor"}
+                placeholder={
+                  (!sourceTeacherId && 'Primero elige un profesor') ||
+                  (students.length === 0 && 'Este profesor no tiene alumnos') ||
+                  'Selecciona un alumno'
+                }
                 disabled={!sourceTeacherId || students.length === 0}
                 required
               />
@@ -293,9 +319,13 @@ export default function TransferStudents() {
             </div>
           </GlassCard>
 
-          <GlassCard className="p-6 space-y-4">
+          {/* order-1 lg:order-2: en mobile el resumen sube antes del form
+              para que el docente vea el contexto del cambio mientras rellena
+              campos (antes quedaba al pie tras stackearse). En lg vuelve a
+              su lugar lateral. */}
+          <GlassCard className="p-6 space-y-4 order-1 lg:order-2">
             <div className="flex items-center gap-3 text-warning-base">
-              <AlertTriangle size={20} />
+              <AlertTriangle size={20} aria-hidden="true" />
               <h2 className="text-lg font-bold">Impacto del Cambio</h2>
             </div>
             <ul className="text-sm text-text-muted space-y-3">
@@ -336,12 +366,14 @@ export default function TransferStudents() {
                   </div>
                 </div>
               ) : (
-                <p className="text-center py-2 opacity-50 italic">Completa los campos para previsualizar.</p>
+                // BUG-A11Y-TRANSFER-PREVIEW (QA Sprint 0): opacity-50 sobre
+                // texto sin color explícito tomaba text-text-muted al 50% =
+                // 2.17:1 en light. Sin alpha + text-muted cumple AA.
+                <p className="text-center py-2 italic text-text-muted">Completa los campos para previsualizar.</p>
               )}
             </div>
           </GlassCard>
         </div>
-      </div>
 
       <ConfirmationModal
         open={confirmOpen}
@@ -364,6 +396,6 @@ export default function TransferStudents() {
         variant="warning"
         loading={submitting}
       />
-    </motion.div>
+    </AdminPageShell>
   );
 }

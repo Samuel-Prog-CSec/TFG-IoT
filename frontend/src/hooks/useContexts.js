@@ -7,6 +7,23 @@
 
 import { useState, useEffect, useCallback } from 'react';
 import { contextsAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
+import { getId, sameId } from '../lib/entityId';
+
+// Cache módulo-level de contextos. Son ~6 entidades que cambian una vez al
+// trimestre, pero varias páginas (Dashboard, Sesiones, Mazos, wizards) montan
+// este hook y hacían un GET /contexts en CADA navegación. La caché hidrata el
+// mount sin refetch (ni flash de loading) mientras esté fresca; las mutaciones
+// (create/update) y el refetch-on-focus la invalidan para no servir datos viejos.
+const CONTEXTS_CACHE_TTL_MS = 5 * 60 * 1000;
+const contextsCache = new Map(); // key -> { data, expiry }
+
+const contextsCacheKey = ({ showInactive, onlyActive }) => {
+  if (showInactive) return 'all';
+  if (onlyActive) return 'active';
+  return 'all';
+};
+
+const invalidateContextsCache = () => contextsCache.clear();
 
 /**
  * Hook para cargar y gestionar contextos de juego
@@ -53,6 +70,10 @@ export function useContexts({ autoLoad = true, onlyActive = true, showInactive =
         const data = extractData(response) || [];
 
         setContexts(data);
+        contextsCache.set(contextsCacheKey({ showInactive, onlyActive }), {
+          data,
+          expiry: Date.now() + CONTEXTS_CACHE_TTL_MS
+        });
         return data;
       } catch (err) {
         if (isAbortError(err)) {
@@ -81,6 +102,7 @@ export function useContexts({ autoLoad = true, onlyActive = true, showInactive =
     async data => {
       const result = await contextsAPI.createContext(data);
       const created = extractData(result);
+      invalidateContextsCache();
       await loadContexts();
       return created;
     },
@@ -98,6 +120,7 @@ export function useContexts({ autoLoad = true, onlyActive = true, showInactive =
     async (contextMongoId, data) => {
       const result = await contextsAPI.updateContext(contextMongoId, data);
       const updated = extractData(result);
+      invalidateContextsCache();
       await loadContexts();
       return updated;
     },
@@ -116,8 +139,8 @@ export function useContexts({ autoLoad = true, onlyActive = true, showInactive =
       // pasando documentos crudos con `_id`. Aceptamos ambos para evitar
       // mismatches silenciosos como el que provocaba que todos los contextos
       // apareciesen seleccionados en el wizard de mazos (QA 26/04/2026).
-      const lookup = typeof contextId === 'object' ? (contextId._id || contextId.id) : contextId;
-      return contexts.find(ctx => (ctx._id || ctx.id) === lookup);
+      const lookup = typeof contextId === 'object' ? getId(contextId) : contextId;
+      return contexts.find(ctx => sameId(ctx, lookup));
     },
     [contexts]
   );
@@ -135,15 +158,23 @@ export function useContexts({ autoLoad = true, onlyActive = true, showInactive =
     [contexts]
   );
 
-  // Carga automática al montar
+  // Carga automática al montar. Si hay una entrada de caché fresca para estos
+  // params, se hidrata SIN pegar a la API (evita el GET /contexts repetido en
+  // cada navegación). El refetch-on-focus y las mutaciones siguen yendo a red.
   useEffect(() => {
-    if (autoLoad) {
-      const controller = new AbortController();
-      loadContexts(controller.signal);
-      return () => controller.abort();
+    if (!autoLoad) {
+      return undefined;
     }
-    return undefined;
-  }, [autoLoad, loadContexts]);
+    const cached = contextsCache.get(contextsCacheKey({ showInactive, onlyActive }));
+    if (cached && cached.expiry > Date.now()) {
+      setContexts(cached.data);
+      setLoading(false);
+      return undefined;
+    }
+    const controller = new AbortController();
+    loadContexts(controller.signal);
+    return () => controller.abort();
+  }, [autoLoad, onlyActive, showInactive, loadContexts]);
 
   return {
     contexts,
@@ -158,4 +189,3 @@ export function useContexts({ autoLoad = true, onlyActive = true, showInactive =
   };
 }
 
-export default useContexts;

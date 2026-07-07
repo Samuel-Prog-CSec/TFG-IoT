@@ -21,7 +21,7 @@ const REQUIRED_ENV_VARS = ['JWT_SECRET', 'JWT_REFRESH_SECRET', 'MONGO_URI'];
  *
  * @type {string[]}
  */
-const REQUIRED_IN_PRODUCTION = ['CORS_WHITELIST'];
+const REQUIRED_IN_PRODUCTION = ['CORS_WHITELIST', 'PSEUDONYMIZE_SECRET'];
 
 /**
  * Variables recomendadas (warning si faltan).
@@ -34,10 +34,21 @@ const RECOMMENDED_ENV_VARS = [
   'JWT_REFRESH_EXPIRES_IN',
   'PORT',
   'NODE_ENV',
+  'APP_ENV',
   'REDIS_URL',
   'REDIS_KEY_PREFIX',
   'SUPABASE_BUCKET'
 ];
+
+/**
+ * Valores permitidos para APP_ENV (separa "entorno cloud" de NODE_ENV).
+ * - development: dev local
+ * - staging: deploy automatico desde Maintenance (datos de prueba)
+ * - production: deploy desde tag v* (datos reales)
+ *
+ * @type {string[]}
+ */
+const ALLOWED_APP_ENVS = ['development', 'staging', 'production'];
 
 /**
  * Variables REQUERIDAS en producción para Redis.
@@ -58,15 +69,27 @@ function validateEnv() {
   const isProduction = process.env.NODE_ENV === 'production';
   const isTest = process.env.NODE_ENV === 'test';
 
-  // En tests, permitir defaults para no bloquear la suite
+  // En tests, permitir defaults para no bloquear la suite.
+  // Generados pseudo-aleatoriamente al arrancar para cumplir los requisitos B1
+  // (≥64 chars + entropía ≥3.5 bits/char) sin necesidad de configurar nada.
   if (isTest) {
     if (!process.env.JWT_SECRET) {
-      process.env.JWT_SECRET = 'test-jwt-secret-'.padEnd(40, 'x');
+      process.env.JWT_SECRET = require('node:crypto').randomBytes(48).toString('hex'); // 96 chars
       warnings.push('JWT_SECRET (default test)');
     }
     if (!process.env.JWT_REFRESH_SECRET) {
-      process.env.JWT_REFRESH_SECRET = 'test-jwt-refresh-secret-'.padEnd(48, 'y');
+      process.env.JWT_REFRESH_SECRET = require('node:crypto').randomBytes(48).toString('hex');
       warnings.push('JWT_REFRESH_SECRET (default test)');
+    }
+    // T-905 B7: JWT_MFA_SECRET para firmar MFA tokens cortos (5min). Default test.
+    if (!process.env.JWT_MFA_SECRET) {
+      process.env.JWT_MFA_SECRET = require('node:crypto').randomBytes(48).toString('hex');
+      warnings.push('JWT_MFA_SECRET (default test)');
+    }
+    // Clave HMAC para seudonimización de identificadores de menores. Default test.
+    if (!process.env.PSEUDONYMIZE_SECRET) {
+      process.env.PSEUDONYMIZE_SECRET = require('node:crypto').randomBytes(32).toString('hex');
+      warnings.push('PSEUDONYMIZE_SECRET (default test)');
     }
     if (!process.env.MONGO_URI) {
       process.env.MONGO_URI = 'mongodb://127.0.0.1:27017/rfid-games-test';
@@ -119,6 +142,20 @@ function validateEnv() {
       );
     }
     process.env.RFID_SOURCE = source;
+  }
+
+  // T-905 B8: si el enforcement HMAC está activo, el secret es obligatorio.
+  // Sin él, el backend rechazaría todos los scans del sensor (HMAC_SECRET_MISSING).
+  // Comparación case-insensitive: en UIs cloud (Koyeb) es frecuente teclear
+  // "TRUE"/"True". Debe mantenerse alineado con isEnabled() de rfidHmacValidator.js.
+  if (process.env.RFID_HMAC_ENABLED?.toLowerCase() === 'true' && !process.env.RFID_HMAC_SECRET) {
+    if (isProduction) {
+      missing.push('RFID_HMAC_SECRET (requerido con RFID_HMAC_ENABLED=true)');
+    } else {
+      warnings.push(
+        'RFID_HMAC_SECRET ausente con RFID_HMAC_ENABLED=true — scans web_serial serían rechazados'
+      );
+    }
   }
 
   // Supabase Storage: requerido en producción (uploads de assets)
@@ -209,6 +246,22 @@ function validateEnv() {
     validateShutdownTimeout();
   }
 
+  // Validar APP_ENV si está definido (separado de NODE_ENV)
+  if (process.env.APP_ENV) {
+    validateAppEnv();
+  }
+
+  // Validar SEED_ON_BOOT si está definido (true|false)
+  if (process.env.SEED_ON_BOOT) {
+    validateSeedOnBoot();
+  }
+
+  // P1 plan auditoría Sprint 6 (#9): si APP_ENV está definido y Upstash se
+  // comparte entre staging y prod, el prefix debería contener el nombre del
+  // entorno para evitar colisiones. Warning no bloqueante — operativa
+  // documentada en .env.example y Secrets_Rotation.md.
+  validateRedisKeyPrefixForEnv();
+
   // Warnings para recomendadas
   if (warnings.length > 0) {
     logger.warn('Variables de entorno recomendadas no configuradas (usando defaults):', warnings);
@@ -218,26 +271,75 @@ function validateEnv() {
 }
 
 /**
+ * Calcula la entropía de Shannon (bits/símbolo) para un string.
+ * Útil para detectar secrets repetitivos (ej. "aaaaaa..." tiene entropía 0).
+ *
+ * @param {string} str
+ * @returns {number} Entropía en bits por símbolo (0 - 8 aprox).
+ */
+function shannonEntropy(str) {
+  if (!str || str.length === 0) {
+    return 0;
+  }
+  const freq = new Map();
+  for (const char of str) {
+    freq.set(char, (freq.get(char) || 0) + 1);
+  }
+  const len = str.length;
+  let entropy = 0;
+  for (const count of freq.values()) {
+    const p = count / len;
+    entropy -= p * Math.log2(p);
+  }
+  return entropy;
+}
+
+/**
  * Valida que los JWT secrets tengan longitud y complejidad adecuadas.
+ *
+ * Hardening B1 (T-905):
+ * - Longitud mínima 64 caracteres (era 32) — entropía suficiente para HS256.
+ * - Entropía Shannon ≥ 3.5 bits/char — rechaza secrets repetitivos.
+ * - Diferentes entre sí — falla en lugar de solo warn.
+ * - Defaults conocidos bloqueados (mantenido).
+ *
  * @throws {Error} Si algún secret es inseguro
  */
 function validateJWTSecrets() {
   const jwtSecret = process.env.JWT_SECRET;
   const jwtRefreshSecret = process.env.JWT_REFRESH_SECRET;
+  const MIN_LENGTH = 64;
+  const MIN_ENTROPY = 3.5;
 
-  if (jwtSecret.length < 32) {
+  if (jwtSecret.length < MIN_LENGTH) {
     throw new Error(
       `JWT_SECRET es demasiado corto (${jwtSecret.length} caracteres).\n` +
-        `Debe tener al menos 32 caracteres para ser seguro.\n` +
-        `Genera uno aleatorio con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+        `Debe tener al menos ${MIN_LENGTH} caracteres para ser seguro.\n` +
+        `Genera uno aleatorio con: openssl rand -hex 64`
     );
   }
 
-  if (jwtRefreshSecret.length < 32) {
+  if (jwtRefreshSecret.length < MIN_LENGTH) {
     throw new Error(
       `JWT_REFRESH_SECRET es demasiado corto (${jwtRefreshSecret.length} caracteres).\n` +
-        `Debe tener al menos 32 caracteres para ser seguro.\n` +
-        `Genera uno aleatorio con: node -e "console.log(require('crypto').randomBytes(64).toString('hex'))"`
+        `Debe tener al menos ${MIN_LENGTH} caracteres para ser seguro.\n` +
+        `Genera uno aleatorio con: openssl rand -hex 64`
+    );
+  }
+
+  // Validar entropía: bloquea secrets repetitivos como "aaaa..." o "abcabcabc..."
+  const jwtEntropy = shannonEntropy(jwtSecret);
+  if (jwtEntropy < MIN_ENTROPY) {
+    throw new Error(
+      `JWT_SECRET tiene entropía baja (${jwtEntropy.toFixed(2)} bits/char, mínimo ${MIN_ENTROPY}).\n` +
+        `Indica un secret poco aleatorio. Regenera con crypto.randomBytes.`
+    );
+  }
+  const refreshEntropy = shannonEntropy(jwtRefreshSecret);
+  if (refreshEntropy < MIN_ENTROPY) {
+    throw new Error(
+      `JWT_REFRESH_SECRET tiene entropía baja (${refreshEntropy.toFixed(2)} bits/char, mínimo ${MIN_ENTROPY}).\n` +
+        `Indica un secret poco aleatorio. Regenera con crypto.randomBytes.`
     );
   }
 
@@ -264,11 +366,11 @@ function validateJWTSecrets() {
     );
   }
 
-  // Validar que access y refresh secrets sean diferentes
+  // Validar que access y refresh secrets sean diferentes — ahora estricto (fail-fast)
   if (jwtSecret === jwtRefreshSecret) {
-    logger.warn(
-      'JWT_SECRET y JWT_REFRESH_SECRET son idénticos. ' +
-        'Se recomienda usar secrets diferentes para mayor seguridad.'
+    throw new Error(
+      'JWT_SECRET y JWT_REFRESH_SECRET no pueden ser idénticos. ' +
+        'Usa secrets independientes (compromiso de uno no debe comprometer el otro).'
     );
   }
 }
@@ -387,6 +489,84 @@ function validateShutdownTimeout() {
       `SHUTDOWN_TIMEOUT_MS tiene un valor inválido: "${process.env.SHUTDOWN_TIMEOUT_MS}".\n` +
         `Debe ser un número entero positivo.\n` +
         `Ejemplo: 10000`
+    );
+  }
+}
+
+/**
+ * Valida que APP_ENV (cuando está definido) sea uno de los valores permitidos.
+ * APP_ENV identifica el entorno cloud (staging|production) sin depender de NODE_ENV,
+ * que en cloud siempre debería ser "production" para optimizaciones de runtime.
+ * @throws {Error} Si APP_ENV tiene un valor no permitido
+ */
+function validateAppEnv() {
+  const appEnv = process.env.APP_ENV.trim().toLowerCase();
+  if (!ALLOWED_APP_ENVS.includes(appEnv)) {
+    throw new Error(
+      `APP_ENV tiene un valor inválido: "${process.env.APP_ENV}".\n` +
+        `Valores permitidos: ${ALLOWED_APP_ENVS.join(', ')}`
+    );
+  }
+  process.env.APP_ENV = appEnv;
+}
+
+/**
+ * Avisa (no bloquea) si `REDIS_KEY_PREFIX` no incluye el nombre del entorno
+ * cuando `APP_ENV` está definido. Caso real: en cloud free tier puede
+ * compartirse una sola DB Upstash entre staging y prod (Secrets_Rotation.md
+ * §Redis). Sin un prefix distinto por entorno se mezclarían sessions y
+ * caches — equivale a data contamination silenciosa.
+ *
+ * No tiramos el boot (`logger.warn`, no `throw`) porque hay setups legítimos
+ * con DB Upstash separada por entorno donde el prefix no necesita codificar
+ * el nombre. La señal sirve para descubrir misconfiguraciones operativas.
+ */
+function validateRedisKeyPrefixForEnv() {
+  const appEnv = process.env.APP_ENV;
+  if (!appEnv) {
+    return; // Local dev sin APP_ENV — no aplica
+  }
+  if (appEnv === 'development') {
+    return;
+  }
+
+  const prefix = (process.env.REDIS_KEY_PREFIX || '').toLowerCase();
+  if (!prefix) {
+    return; // No prefix configurado — otro warning lo cubre en redis.js
+  }
+
+  if (!prefix.includes(appEnv)) {
+    logger.warn(
+      `REDIS_KEY_PREFIX="${process.env.REDIS_KEY_PREFIX}" no incluye "${appEnv}". ` +
+        'Si Upstash se comparte entre staging y prod, esto puede causar ' +
+        `colisiones de keys. Recomendado: REDIS_KEY_PREFIX="eduplay:${appEnv}:".`
+    );
+  }
+}
+
+/**
+ * Valida que SEED_ON_BOOT (cuando está definido) sea "true" o "false".
+ * Sólo se debería activar en el servicio api-staging para auto-poblar datos
+ * tras un reset del cluster. En producción siempre "false" o ausente.
+ * @throws {Error} Si SEED_ON_BOOT tiene un valor no booleano
+ */
+function validateSeedOnBoot() {
+  const value = process.env.SEED_ON_BOOT.trim().toLowerCase();
+  if (value !== 'true' && value !== 'false') {
+    throw new Error(
+      `SEED_ON_BOOT tiene un valor inválido: "${process.env.SEED_ON_BOOT}".\n` +
+        `Debe ser "true" o "false".`
+    );
+  }
+  process.env.SEED_ON_BOOT = value;
+
+  // Guardrail: si APP_ENV=production y SEED_ON_BOOT=true, advertir.
+  // No bloqueamos por si el usuario sabe lo que hace (reset programado de prod),
+  // pero queda en el log para revisar.
+  if (process.env.APP_ENV === 'production' && value === 'true') {
+    logger.warn(
+      'SEED_ON_BOOT=true en APP_ENV=production: se ejecutará seed:if-empty contra ' +
+        'la base de datos productiva. Revisar que es el comportamiento deseado.'
     );
   }
 }

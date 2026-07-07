@@ -1,7 +1,7 @@
 /**
  * @fileoverview Controller para gestión CRUD de sesiones de juego.
  * Maneja la configuración de sesiones con mecánicas, contextos y mapeo de tarjetas.
- * Los helpers de validación y normalización se encuentran en helpers/sessionValidationHelpers.js.
+ * Los helpers de validación y normalización se encuentran en services/helpers/sessionValidationHelpers.js.
  * @module controllers/gameSessionController
  */
 
@@ -28,10 +28,11 @@ const {
   normalizeBoardLayout,
   validateBoardLayoutAgainstMappings,
   applyAssociationPlanOnUpdate,
+  applySequencePlanOnUpdate,
   ensureAssociationPlanReadyForStart,
   applyCloneMechanicState,
   buildCloneSuccessMessage
-} = require('./helpers/sessionValidationHelpers');
+} = require('../services/helpers/sessionValidationHelpers');
 
 const sessionFilterMappings = {
   mechanicId: { field: 'mechanicId', type: 'exact' },
@@ -39,6 +40,21 @@ const sessionFilterMappings = {
   status: { field: 'status', type: 'exact' },
   difficulty: { field: 'difficulty', type: 'exact' },
   createdBy: { field: 'createdBy', type: 'exact' }
+};
+
+/**
+ * Deriva si los recursos de una sesión siguen disponibles (ADR-231): el
+ * contexto existe (populate no-nulo) y su mazo sigue activo. Si no, la sesión
+ * degrada a "solo historial" en la UI (sin jugar/clonar/editar). Requiere que
+ * la query haya populado `contextId` y `deckId` (con `status`).
+ *
+ * @param {Object} plainSession - Sesión como POJO con refs populadas
+ * @returns {boolean}
+ */
+const deriveResourcesAvailable = plainSession => {
+  const contextExists = Boolean(plainSession.contextId?._id || plainSession.contextId?.id);
+  const deckActive = plainSession.deckId?.status === 'active';
+  return contextExists && deckActive;
 };
 
 const isSessionReadLeanEnabled = () => process.env.SESSION_READ_LEAN_ENABLED !== 'false';
@@ -97,7 +113,8 @@ const getSessions = async (req, res) => {
         { path: 'createdBy', select: 'name email' }
       ],
       sort: sortOptions,
-      limit: Number.parseInt(limit, 10),
+      // page/limit ya son number (paginationSchema); sin re-parse.
+      limit,
       skip,
       lean: isSessionReadLeanEnabled()
     }),
@@ -108,11 +125,18 @@ const getSessions = async (req, res) => {
   const sessionIds = sessions.map(s => s._id || s.id);
   const playStatsMap = await gamePlayService.getPlayStatsBySessionIds(sessionIds);
 
-  // Attach playStats to each session before DTO conversion
-  for (const s of sessions) {
+  // Attach playStats before DTO conversion. (A3) Cuando SESSION_READ_LEAN_ENABLED=false
+  // los `sessions` son documentos Mongoose con schema STRICT: asignar `s.playStats`
+  // (una propiedad fuera de schema) se descarta en la serialización, así que el
+  // listado perdía conteo/media/sparkline por sesión. Convertimos a POJO (toObject)
+  // antes de adjuntar para que sobreviva al DTO en AMBOS modos (lean y no-lean).
+  const sessionsWithStats = sessions.map(s => {
     const sid = (s._id || s.id).toString();
-    s.playStats = playStatsMap[sid] || null;
-  }
+    const plain = typeof s.toObject === 'function' ? s.toObject() : s;
+    plain.playStats = playStatsMap[sid] || null;
+    plain.resourcesAvailable = deriveResourcesAvailable(plain);
+    return plain;
+  });
 
   logger.info('Lista de sesiones obtenida', {
     requestedBy: req.user._id,
@@ -120,9 +144,9 @@ const getSessions = async (req, res) => {
     resultsCount: sessions.length
   });
 
-  sendPaginated(res, toGameSessionListDTOV1(sessions), {
-    page: Number.parseInt(page, 10),
-    limit: Number.parseInt(limit, 10),
+  sendPaginated(res, toGameSessionListDTOV1(sessionsWithStats), {
+    page,
+    limit,
     total
   });
 };
@@ -140,8 +164,13 @@ const getSessionById = async (req, res) => {
   const { id } = req.params;
 
   const session = await gameSessionRepository.findById(id, {
+    // `sequencePlan`/`sequenceConfig` van en el select junto a los planes de
+    // Memoria/Asociación: sin ellos el detalle de una sesión de Secuencia
+    // devolvía `sequencePlan: []`, el "Score máximo teórico" caía al fallback
+    // `rondas × puntos` (≠ máximo real Σ longitud × puntos del GameOver) y la
+    // pestaña "Plan de secuencias" quedaba vacía.
     select:
-      'name mechanicId deckId contextId createdBy config cardMappings boardLayout associationChallengePlan requiresAssociationPlanConfiguration status difficulty startedAt endedAt createdAt updatedAt',
+      'name mechanicId deckId contextId createdBy config cardMappings boardLayout associationChallengePlan sequencePlan sequenceConfig associationConfig requiresAssociationPlanConfiguration status difficulty startedAt endedAt createdAt updatedAt',
     populate: [
       { path: 'mechanicId', select: 'name displayName icon' },
       { path: 'deckId', select: 'name status contextId' },
@@ -162,7 +191,12 @@ const getSessionById = async (req, res) => {
     throw new ForbiddenError('No tienes permiso para ver esta sesión');
   }
 
-  sendSuccess(res, toGameSessionDetailDTOV1(session));
+  // POJO antes de adjuntar la propiedad fuera de schema (mismo patrón que
+  // playStats en el listado: en modo no-lean el documento STRICT la descarta).
+  const plainSession = typeof session.toObject === 'function' ? session.toObject() : session;
+  plainSession.resourcesAvailable = deriveResourcesAvailable(plainSession);
+
+  sendSuccess(res, toGameSessionDetailDTOV1(plainSession));
 };
 
 /**
@@ -186,7 +220,10 @@ const createSession = async (req, res) => {
     difficulty,
     cardMappings,
     boardLayout,
-    associationChallengePlan
+    associationChallengePlan,
+    sequencePlan,
+    sequenceConfig,
+    associationConfig
   } = req.body;
 
   if (cardMappings) {
@@ -207,6 +244,9 @@ const createSession = async (req, res) => {
     contextId,
     boardLayout,
     associationChallengePlan,
+    sequencePlan,
+    sequenceConfig,
+    associationConfig,
     createdBy: req.user._id
   });
 
@@ -232,8 +272,18 @@ const createSession = async (req, res) => {
  */
 const updateSession = async (req, res) => {
   const { id } = req.params;
-  const { deckId, sensorId, name, config, difficulty, boardLayout, associationChallengePlan } =
-    req.body;
+  const {
+    deckId,
+    sensorId,
+    name,
+    config,
+    difficulty,
+    boardLayout,
+    associationChallengePlan,
+    sequencePlan,
+    sequenceConfig,
+    associationConfig
+  } = req.body;
 
   const session = await gameSessionRepository.findById(id);
 
@@ -300,6 +350,21 @@ const updateSession = async (req, res) => {
     mechanicName
   });
 
+  // Locución automática de la consigna (mecánica Asociación). Solo se toca si el
+  // profesor la incluyó en el update; si se omite, conserva el valor previo.
+  if (mechanicName === 'association' && associationConfig !== undefined) {
+    session.associationConfig = {
+      autoPlayPrompt: Boolean(associationConfig?.autoPlayPrompt)
+    };
+  }
+
+  applySequencePlanOnUpdate({
+    session,
+    mechanicName,
+    sequencePlan,
+    sequenceConfig
+  });
+
   ensureMemoryBoardLayoutIsComplete({
     mechanic,
     boardLayout: session.boardLayout,
@@ -349,6 +414,12 @@ const deleteSession = async (req, res) => {
   }
 
   await session.deleteOne();
+
+  // A.3 (pre-v1.0.0): invalidar cache `teacherSessions:<teacherId>:*` para
+  // que las aggregations analytics que usan `getTeacherSessionIds` no sigan
+  // viendo este sessionId en su set durante el TTL (300s).
+  const { cacheInvalidatePattern } = require('../utils/cacheHelper');
+  cacheInvalidatePattern('cache:analytics', `teacherSessions:${req.user._id}:*`).catch(() => {});
 
   logger.info('Sesión eliminada', {
     sessionId: session._id,
@@ -454,8 +525,12 @@ const endSession = async (req, res) => {
   const activePlays = await gamePlayService.countActivePlays(session._id);
 
   if (activePlays > 0) {
+    // Concordancia singular/plural (QA 2026-05-21).
+    const isSingular = activePlays === 1;
+    const playWord = isSingular ? 'partida' : 'partidas';
+    const adjWord = isSingular ? 'activa' : 'activas';
     throw new ConflictError(
-      `No se puede finalizar la sesión: hay ${activePlays} partida(s) activa(s)`
+      `No se puede finalizar la sesión: hay ${activePlays} ${playWord} ${adjWord}`
     );
   }
 

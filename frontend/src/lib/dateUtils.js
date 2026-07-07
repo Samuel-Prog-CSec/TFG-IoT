@@ -59,22 +59,29 @@ export function formatRelativeTime(input, options = {}) {
 
   const rtfAuto = getRtf('auto');
 
+  // En cada rango, si `Math.round` empuja el valor al máximo de la unidad
+  // (p. ej. 59.6 min → 60, o 23.6 h → 24) se PROMOCIONA a la unidad superior
+  // para no mostrar "Hace 60 min" / "Hace 24 h": se deja caer al siguiente
+  // bloque, cuyo `absDiff < ...` sigue siendo cierto y redondea a "Hace 1 h" /
+  // "Ayer" de forma natural.
   if (absDiff < HOUR) {
     const mins = Math.round(absDiff / MINUTE);
-    return `Hace ${mins} min`;
+    if (mins < 60) return `Hace ${mins} min`;
   }
   if (absDiff < DAY) {
     const hrs = Math.round(absDiff / HOUR);
-    return `Hace ${hrs} h`;
+    if (hrs < 24) return `Hace ${hrs} h`;
   }
   if (absDiff < WEEK) {
     // Entre 1 y 6 dias: usar RTF para "ayer" / "hace 2 dias" naturales
     const days = Math.round(absDiff / DAY);
-    if (rtfAuto) {
-      const text = rtfAuto.format(futureSign * days, 'day');
-      return text.charAt(0).toUpperCase() + text.slice(1);
+    if (days < 7) {
+      if (rtfAuto) {
+        const text = rtfAuto.format(futureSign * days, 'day');
+        return text.charAt(0).toUpperCase() + text.slice(1);
+      }
+      return `Hace ${days} d`;
     }
-    return `Hace ${days} d`;
   }
   if (absDiff < MONTH) {
     const weeks = Math.round(absDiff / WEEK);
@@ -86,8 +93,60 @@ export function formatRelativeTime(input, options = {}) {
   }
 
   // Fecha absoluta para >1 ano
-  if (typeof Intl !== 'undefined' && Intl.DateTimeFormat) {
-    return new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', year: 'numeric' }).format(date);
+  if (ABSOLUTE_DATE_FMT) {
+    return ABSOLUTE_DATE_FMT.format(date);
   }
   return date.toLocaleDateString('es-ES');
+}
+
+// Cacheado a nivel modulo: cada `new Intl.DateTimeFormat` reserva
+// docenas de objetos en cada llamada, asi que para fechas absolutas
+// (caso comun en listados densos) reutilizamos la instancia.
+const ABSOLUTE_DATE_FMT =
+  typeof Intl !== 'undefined' && Intl.DateTimeFormat
+    ? new Intl.DateTimeFormat('es-ES', { day: 'numeric', month: 'short', year: 'numeric' })
+    : null;
+
+// ────────────────────────────────────────────────────────────────────────
+// Cohort helpers (T-942 Fase E.1)
+//
+// Devuelven rangos { start, end } usados por el selector "Mes actual" y
+// "Trimestre actual" del Dashboard teacher. Útiles cuando el frontend
+// necesita filtrar localmente datos pre-agregados que no exponen un
+// `startDate` en el endpoint backend.
+//
+// Convención: `start` siempre es el primer día del periodo a las 00:00
+// horario local (sin desplazamiento UTC, para que la franja horaria del
+// docente sea la de su navegador). `end` es el `now` recibido (típicamente
+// `new Date()`), de forma que el rango es ventana cerrada-abierta del
+// periodo en curso.
+// ────────────────────────────────────────────────────────────────────────
+
+/**
+ * Devuelve el rango temporal del mes actual.
+ *
+ * Útil para el selector de cohort "Mes actual" del Dashboard teacher.
+ *
+ * @param {Date} [now=new Date()] Fecha actual (parametrizable para tests).
+ * @returns {{ start: Date, end: Date }} Inicio (1 del mes a las 00:00) y `now`.
+ */
+export function getCurrentMonthRange(now = new Date()) {
+  const start = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0, 0);
+  return { start, end: now };
+}
+
+/**
+ * Devuelve el rango temporal del trimestre actual (Q1: ene-mar,
+ * Q2: abr-jun, Q3: jul-sep, Q4: oct-dic).
+ *
+ * Útil para el selector de cohort "Trimestre actual" del Dashboard teacher.
+ *
+ * @param {Date} [now=new Date()] Fecha actual (parametrizable para tests).
+ * @returns {{ start: Date, end: Date }} Inicio (1 del primer mes del Q a las 00:00) y `now`.
+ */
+export function getCurrentQuarterRange(now = new Date()) {
+  const month = now.getMonth();
+  const quarterStartMonth = month - (month % 3);
+  const start = new Date(now.getFullYear(), quarterStartMonth, 1, 0, 0, 0, 0);
+  return { start, end: now };
 }

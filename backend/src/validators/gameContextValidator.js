@@ -5,20 +5,29 @@
  */
 
 const { z } = require('zod');
-const { objectIdSchema, paginationSchema } = require('./commonValidator');
+const { objectIdSchema, paginationSchema, sanitizedString } = require('./commonValidator');
 
-const booleanQuerySchema = z.preprocess(val => {
-  if (typeof val === 'string') {
-    const normalized = val.trim().toLowerCase();
-    if (normalized === 'true') {
-      return true;
+// Zod 4 cambió la semántica de `z.preprocess(fn, schema.optional())`: el
+// preprocess se invoca incluso cuando el valor entrante es `undefined` y
+// pasa el resultado al schema interno, que termina rechazando el undefined
+// con "expected nonoptional, received undefined". El patrón recomendado en
+// Zod 4 es envolver el preprocess completo en `.optional()` para que el outer
+// `ZodOptional` cortocircuite cuando el query param no viene presente
+// (QA 2026-05-07: panel /admin/contexts crasheaba con 400 al cargar).
+const booleanQuerySchema = z
+  .preprocess(val => {
+    if (typeof val === 'string') {
+      const normalized = val.trim().toLowerCase();
+      if (normalized === 'true') {
+        return true;
+      }
+      if (normalized === 'false') {
+        return false;
+      }
     }
-    if (normalized === 'false') {
-      return false;
-    }
-  }
-  return val;
-}, z.boolean().optional());
+    return val;
+  }, z.boolean())
+  .optional();
 
 /**
  * Schema para un asset individual dentro del contexto.
@@ -48,17 +57,9 @@ const assetSchema = z
         'La clave solo puede contener letras minúsculas, números, guiones y guiones bajos'
       ),
 
-    display: z
-      .string()
-      .min(1, 'El display del asset es requerido')
-      .max(200, 'El display no puede exceder 200 caracteres')
-      .trim(),
+    display: sanitizedString({ min: 1, max: 200, label: 'El display del asset' }),
 
-    value: z
-      .string()
-      .min(1, 'El valor del asset es requerido')
-      .max(200, 'El valor no puede exceder 200 caracteres')
-      .trim(),
+    value: sanitizedString({ min: 1, max: 200, label: 'El valor del asset' }),
 
     audioUrl: z.string().url({ message: 'La URL del audio debe ser válida' }).trim().optional(),
 
@@ -112,68 +113,39 @@ const contextIdSchema = z
     'El contextId solo puede contener letras minúsculas, números, guiones y guiones bajos'
   );
 
+// `assets` NO se acepta en la creación: el contexto se crea vacío y los assets se
+// añaden después por los endpoints dedicados (upload con WebP + ownership por
+// uploadedBy). Igual que en la actualización (ADR-197), esto impide inyectar URLs
+// externas arbitrarias vía la API JSON saltándose el pipeline de imágenes.
 const createGameContextSchema = z
   .object({
     contextId: contextIdSchema,
 
-    name: z
-      .string()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres')
-      .trim(),
-
-    assets: z
-      .array(assetSchema)
-      .min(0)
-      .max(30, 'No se pueden tener más de 30 assets')
-      .optional()
-      .default([])
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' })
   })
-  .strict()
-  .refine(
-    data => {
-      // Validar que las keys de los assets sean únicas (si hay alguno)
-      const keys = (data.assets || []).map(asset => asset.key);
-      const uniqueKeys = new Set(keys);
-      return keys.length === uniqueKeys.size;
-    },
-    {
-      message: 'Las claves (keys) de los assets deben ser únicas',
-      path: ['assets']
-    }
-  );
+  .strict();
 
 /**
  * Schema para actualizar un contexto existente.
  * Permite actualización parcial pero valida unicidad de keys si se modifican assets.
  */
+// NOTA SEGURIDAD (ADR-197): `assets` NO es actualizable por esta vía. Los assets se
+// gestionan EXCLUSIVAMENTE por los endpoints dedicados (POST /images|/audio,
+// DELETE .../:assetKey), que aplican validación de magic bytes, conversión WebP y
+// ownership por `uploadedBy`. Permitir reemplazar el array `assets` aquí dejaba que un
+// super_admin inyectara URLs externas arbitrarias (validadas solo como `z.string().url()`)
+// que el frontend renderiza como `<img src>`, saltándose el pipeline, perdiendo el
+// `uploadedBy` de los profesores y dejando archivos huérfanos en Storage.
 const updateGameContextSchema = z
   .object({
     contextId: contextIdSchema.optional(),
 
-    name: z.string().min(2).max(100).trim().optional(),
-
-    assets: z.array(assetSchema).min(0).max(30).optional()
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }).optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
     message: 'Debe proporcionar al menos un campo para actualizar'
-  })
-  .refine(
-    data => {
-      // Si se actualizan assets, validar unicidad
-      if (data.assets) {
-        const keys = data.assets.map(asset => asset.key);
-        const uniqueKeys = new Set(keys);
-        return keys.length === uniqueKeys.size;
-      }
-      return true;
-    },
-    {
-      message: 'Las claves (keys) de los assets deben ser únicas',
-      path: ['assets']
-    }
-  );
+  });
 
 /**
  * Schema para query params de búsqueda de contextos.

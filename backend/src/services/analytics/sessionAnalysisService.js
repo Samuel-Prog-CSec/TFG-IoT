@@ -135,34 +135,63 @@ async function getGameplayRounds(gameplayId) {
 async function getCardAnalysis(teacherId, { timeRange = '30d', contextId, limit = 20 } = {}) {
   const startDate = getStartDate(timeRange);
 
-  const matchStage = {
-    'session.createdBy': toObjectId(teacherId),
-    status: 'completed',
-    completedAt: { $gte: startDate }
-  };
-
-  if (contextId) {
-    matchStage['session.contextId'] = toObjectId(contextId);
-  }
+  // (B2) Prefiltro por sesiones del profesor ANTES del $lookup: el $match por
+  // sessionId usa el índice de game_plays y evita el $lookup sobre TODA la
+  // colección, especialmente caro aquí por el posterior `$unwind '$events'` que
+  // amplifica cada play. Mismo patrón A.3 que analyticsService.
+  const { getTeacherSessionIds } = require('../analyticsService');
+  const teacherSessionIds = await getTeacherSessionIds(teacherId);
 
   const pipeline = [
     {
-      $lookup: {
-        from: 'game_sessions',
-        localField: 'sessionId',
-        foreignField: '_id',
-        as: 'session'
-      }
-    },
-    { $unwind: '$session' },
-    { $match: matchStage },
-    { $unwind: '$events' },
-    {
       $match: {
-        'events.eventType': { $in: ['correct', 'error', 'timeout'] },
-        'events.cardUid': { $ne: null }
+        sessionId: { $in: teacherSessionIds },
+        status: 'completed',
+        completedAt: { $gte: startDate }
       }
     },
+    // El $lookup a game_sessions SOLO sirve para filtrar por contexto; sin
+    // contextId nos ahorramos el join sobre TODOS los plays del rango.
+    ...(contextId
+      ? [
+          {
+            $lookup: {
+              from: 'game_sessions',
+              localField: 'sessionId',
+              foreignField: '_id',
+              as: 'session'
+            }
+          },
+          { $unwind: '$session' },
+          { $match: { 'session.contextId': toObjectId(contextId) } }
+        ]
+      : []),
+    // Prefiltrar y proyectar ANTES del $unwind: nos quedamos solo con los eventos
+    // relevantes (correct/error/timeout con cardUid) y descartamos `session` y el
+    // resto de campos. Así el $unwind explota muchos menos sub-documentos y el
+    // $match por evento desenrollado deja de ser necesario.
+    {
+      $project: {
+        playerId: 1,
+        events: {
+          $filter: {
+            input: '$events',
+            as: 'e',
+            cond: {
+              $and: [
+                { $in: ['$$e.eventType', ['correct', 'error', 'timeout']] },
+                // `$gt: [campo, null]` excluye null Y ausente (los `timeout` no llevan
+                // cardUid), replicando `$match {cardUid: {$ne: null}}`. Un `$ne` en
+                // expresión NO descarta el campo ausente → dejaría pasar timeouts sin
+                // tarjeta y crearía un grupo `_id: null` espurio (verificado en vivo).
+                { $gt: ['$$e.cardUid', null] }
+              ]
+            }
+          }
+        }
+      }
+    },
+    { $unwind: '$events' },
     {
       $group: {
         _id: '$events.cardUid',
@@ -359,7 +388,7 @@ async function getClassroomFatigue(teacherId, { timeRange = '30d' } = {}) {
   // Obtener estudiantes del profesor
   const students = await userRepository.find(
     { createdBy: toObjectId(teacherId), role: 'student', status: 'active' },
-    { select: 'name' }
+    { select: 'name', lean: true }
   );
 
   const studentIds = students.map(s => toObjectId(s._id));
@@ -381,9 +410,24 @@ async function getClassroomFatigue(teacherId, { timeRange = '30d' } = {}) {
       }
     },
     {
+      // Filtrar los eventos de respuesta DENTRO de Mongo (mismo predicado que
+      // antes se aplicaba en JS) en vez de traer events[] íntegro (rfid_scan,
+      // round_start/end…) de todas las partidas de la clase. $filter preserva
+      // el orden, requerido por el cálculo de mitades.
       $project: {
         playerId: 1,
-        events: 1
+        answerEvents: {
+          $filter: {
+            input: '$events',
+            as: 'e',
+            cond: {
+              $and: [
+                { $in: ['$$e.eventType', ['correct', 'error', 'timeout']] },
+                { $gt: ['$$e.timeElapsed', 0] }
+              ]
+            }
+          }
+        }
       }
     }
   ];
@@ -396,9 +440,8 @@ async function getClassroomFatigue(teacherId, { timeRange = '30d' } = {}) {
   );
 
   for (const gp of gameplays) {
-    const answerEvents = gp.events.filter(
-      e => ['correct', 'error', 'timeout'].includes(e.eventType) && e.timeElapsed > 0
-    );
+    // answerEvents ya viene filtrado desde Mongo ($filter en el pipeline).
+    const answerEvents = gp.answerEvents;
 
     if (answerEvents.length < 4) {
       continue;

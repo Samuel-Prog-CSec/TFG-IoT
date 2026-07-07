@@ -53,24 +53,29 @@ describe('utils', () => {
   });
 
   describe('calculateStars', () => {
-    it('returns 3 stars for >= 90%', () => {
-      expect(calculateStars(90)).toBe(3);
-      expect(calculateStars(100)).toBe(3);
+    it('returns 5 stars for >= 90%', () => {
+      expect(calculateStars(90)).toBe(5);
+      expect(calculateStars(100)).toBe(5);
     });
 
-    it('returns 2 stars for 70-89%', () => {
-      expect(calculateStars(70)).toBe(2);
-      expect(calculateStars(89)).toBe(2);
+    it('returns 4 stars for 75-89%', () => {
+      expect(calculateStars(75)).toBe(4);
+      expect(calculateStars(89)).toBe(4);
     });
 
-    it('returns 1 star for 50-69%', () => {
-      expect(calculateStars(50)).toBe(1);
-      expect(calculateStars(69)).toBe(1);
+    it('returns 3 stars for 60-74%', () => {
+      expect(calculateStars(60)).toBe(3);
+      expect(calculateStars(74)).toBe(3);
     });
 
-    it('returns 0 stars for < 50%', () => {
-      expect(calculateStars(49)).toBe(0);
-      expect(calculateStars(0)).toBe(0);
+    it('returns 2 stars for 40-59%', () => {
+      expect(calculateStars(40)).toBe(2);
+      expect(calculateStars(59)).toBe(2);
+    });
+
+    it('returns 1 star (mínimo motivador) for < 40%', () => {
+      expect(calculateStars(39)).toBe(1);
+      expect(calculateStars(0)).toBe(1);
     });
   });
 

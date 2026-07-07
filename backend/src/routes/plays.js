@@ -55,6 +55,68 @@ router.get(
  * @access  Private
  * @validation query: gamePlayQuerySchema
  */
+
+/**
+ * @openapi
+ * /plays:
+ *   get:
+ *     tags: [Plays]
+ *     summary: Listar partidas con filtros
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: query
+ *         name: session
+ *         schema: { type: string, description: 'ID de la sesión' }
+ *       - in: query
+ *         name: student
+ *         schema: { type: string }
+ *       - in: query
+ *         name: status
+ *         schema: { type: string, enum: [active, paused, completed, abandoned] }
+ *     responses:
+ *       200:
+ *         description: Lista de partidas
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { type: array, items: { $ref: '#/components/schemas/GamePlay' } }
+ *       401: { $ref: '#/components/responses/UnauthorizedError' }
+ */
+
+/**
+ * @openapi
+ * /plays:
+ *   post:
+ *     tags: [Plays]
+ *     summary: Crear nueva partida
+ *     description: El profesor crea una partida asignándola a un alumno y a una sesión activa.
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     requestBody:
+ *       required: true
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             required: [session, student]
+ *             properties:
+ *               session: { type: string }
+ *               student: { type: string }
+ *     responses:
+ *       201:
+ *         description: Partida creada
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { $ref: '#/components/schemas/GamePlay' }
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       429: { $ref: '#/components/responses/RateLimitError' }
+ */
 router.get('/', validateQuery(gamePlayQuerySchema), asyncHandler(getPlays));
 
 /**
@@ -132,6 +194,66 @@ router.post(
  * @desc    Pausar una partida en curso
  * @access  Private (Teacher)
  * @validation params: gamePlayParamsSchema | body: emptyObjectSchema | query: emptyObjectSchema
+ */
+
+/**
+ * @openapi
+ * /plays/{id}/pause:
+ *   post:
+ *     tags: [Plays]
+ *     summary: Pausar partida en curso
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Partida pausada — guarda remainingTime }
+ *       400: { description: La partida no se puede pausar (ya completada o abandonada) }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
+ */
+
+/**
+ * @openapi
+ * /plays/{id}/resume:
+ *   post:
+ *     tags: [Plays]
+ *     summary: Reanudar partida pausada
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200: { description: Partida reanudada }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
+ */
+
+/**
+ * @openapi
+ * /plays/{id}/complete:
+ *   post:
+ *     tags: [Plays]
+ *     summary: Marcar partida como completada
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     responses:
+ *       200:
+ *         description: Partida completada con métricas finales
+ *         content:
+ *           application/json:
+ *             schema:
+ *               type: object
+ *               properties:
+ *                 success: { type: boolean }
+ *                 data: { $ref: '#/components/schemas/GamePlay' }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
  */
 router.post(
   '/:id/pause',

@@ -1,7 +1,7 @@
-import { useState, useCallback } from 'react';
+import { useState, useCallback, useMemo, useRef, useId } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   Palette,
   Search,
@@ -22,20 +22,26 @@ import { toast } from 'sonner';
 
 import GlassCard from '../components/ui/GlassCard';
 import HoverLiftCard from '../components/ui/HoverLiftCard';
+import CardAssetPreview from '../components/ui/CardAssetPreview';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import PageHeader from '../components/ui/PageHeader';
 import InputPremium from '../components/ui/InputPremium';
 import EmptyState from '../components/ui/EmptyState';
+import CharacterMascot from '../components/game/CharacterMascot';
 import { EmptyContextsIllustration } from '../components/ui/illustrations';
 import ErrorState from '../components/ui/ErrorState';
 import Tooltip from '../components/ui/Tooltip';
 import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import useInlineSuccess from '../hooks/useInlineSuccess';
+import useModalA11y from '../hooks/useModalA11y';
 import { useContexts } from '../hooks/useContexts';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 import { useAuth } from '../context/AuthContext';
 import { contextsAPI, extractData, extractErrorMessage } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { getId } from '../lib/entityId';
 import ScanlineOverlay from '../components/ui/ScanlineOverlay';
 import { listContainerVariants, motionConfig, DURATION, EASING } from '../lib/utils';
 import { getContextTheme } from '../lib/contextTheme';
@@ -135,30 +141,37 @@ export default function ContextsPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [showCreateModal, setShowCreateModal] = useState(false);
 
-  // Filtro local por nombre o contextId
-  const filteredContexts = contexts.filter(
-    ctx =>
-      ctx.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-      ctx.contextId.toLowerCase().includes(searchTerm.toLowerCase())
-  );
+  // Filtro local por nombre o contextId. Memoizado para no re-filtrar (ni
+  // re-bajar a minúsculas toda la lista) en cada render del input controlado.
+  const filteredContexts = useMemo(() => {
+    const q = searchTerm.toLowerCase();
+    return contexts.filter(
+      ctx =>
+        ctx.name.toLowerCase().includes(q) ||
+        ctx.contextId.toLowerCase().includes(q)
+    );
+  }, [contexts, searchTerm]);
 
-  // Stats globales
-  const totalAssets = contexts.reduce((acc, ctx) => acc + (ctx.assetsCount || ctx.assets?.length || 0), 0);
-  const totalAudio = contexts.reduce(
-    (acc, ctx) => acc + (ctx.audioCount ?? ctx.assets?.filter(a => a.audioUrl)?.length ?? 0),
-    0
-  );
-  const totalImages = contexts.reduce(
-    (acc, ctx) => acc + (ctx.imageCount ?? ctx.assets?.filter(a => a.imageUrl)?.length ?? 0),
-    0
-  );
+  // Stats globales: dependen solo de la lista (no del término de búsqueda).
+  // Una sola pasada en vez de 3 reduce con filter anidado (O(contextos×assets)).
+  const { totalAssets, totalAudio, totalImages } = useMemo(() => {
+    let assets = 0;
+    let audio = 0;
+    let images = 0;
+    for (const ctx of contexts) {
+      assets += ctx.assetsCount || ctx.assets?.length || 0;
+      audio += ctx.audioCount ?? ctx.assets?.filter(a => a.audioUrl)?.length ?? 0;
+      images += ctx.imageCount ?? ctx.assets?.filter(a => a.imageUrl)?.length ?? 0;
+    }
+    return { totalAssets: assets, totalAudio: audio, totalImages: images };
+  }, [contexts]);
 
   const handleCreateSuccess = useCallback(
     newContext => {
       setShowCreateModal(false);
       refetch();
       // Navegar al detalle del contexto recién creado
-      const destId = newContext?.id || newContext?._id;
+      const destId = getId(newContext);
       if (destId) {
         navigate(ROUTES.CONTEXT_DETAIL(destId));
       }
@@ -167,12 +180,12 @@ export default function ContextsPage() {
   );
 
   return (
-    <div className="min-h-full bg-background-deep p-4 lg:p-8">
+    <div className="page-container py-[var(--space-fluid-section)]">
       {/* Header y Stats */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
         animate={{ opacity: 1, y: 0 }}
-        className="max-w-7xl mx-auto mb-8"
+        className="mb-8"
       >
         <PageHeader
           icon={<Palette size={28} />}
@@ -192,46 +205,57 @@ export default function ContextsPage() {
         />
 
         {/* Stats globales */}
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
-          <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center">
-              <Palette size={22} className="text-accent-indigo" />
-            </div>
-            <div>
-              <p className="text-2xl font-semibold text-text-primary font-display">{contexts.length}</p>
-              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Contextos</p>
-            </div>
-          </GlassCard>
-
-          <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-success-base/10 flex items-center justify-center">
-              <ImageIcon size={22} className="text-success-base" />
-            </div>
-            <div>
-              <p className="text-2xl font-semibold text-text-primary font-display">{totalImages}</p>
-              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Imágenes</p>
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-[var(--space-fluid-gutter)] mb-8">
+          {/* El flex va en un div interno, NO en el className de GlassCard
+              (envuelve sus children → las clases de layout no alineaban los
+              hijos y el icono quedaba desplazado, mismo fix que Mazos). QA 2026-06-04. */}
+          <GlassCard className="p-4">
+            <div className="flex items-center gap-4">
+              <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center shrink-0">
+                <Palette size={22} className="text-accent-indigo" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold text-text-primary font-display">{contexts.length}</p>
+                <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Contextos</p>
+              </div>
             </div>
           </GlassCard>
 
-          <GlassCard className="p-4 flex items-center gap-4">
-            {/* Tile neutro cuando no hay audios: amarillo sugiere warning y
-                aquí es solo un contador informativo (QA 22/04/2026). */}
-            <div className={`size-12 rounded-xl flex items-center justify-center ${totalAudio > 0 ? 'bg-warning-base/10' : 'bg-background-surface/60'}`}>
-              <Music size={22} className={totalAudio > 0 ? 'text-warning-base' : 'text-text-muted'} />
-            </div>
-            <div>
-              <p className="text-2xl font-semibold text-text-primary font-display">{totalAudio}</p>
-              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Audios</p>
+          <GlassCard className="p-4">
+            <div className="flex items-center gap-4">
+              <div className="size-12 rounded-xl bg-success-base/10 flex items-center justify-center shrink-0">
+                <ImageIcon size={22} className="text-success-base" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold text-text-primary font-display">{totalImages}</p>
+                <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Imágenes</p>
+              </div>
             </div>
           </GlassCard>
 
-          <GlassCard className="p-4 flex items-center gap-4">
-            <div className="size-12 rounded-xl bg-brand-base/10 flex items-center justify-center">
-              <ImageIcon size={22} className="text-brand-light" />
+          <GlassCard className="p-4">
+            <div className="flex items-center gap-4">
+              {/* Tile neutro cuando no hay audios: amarillo sugiere warning y
+                  aquí es solo un contador informativo (QA 22/04/2026). */}
+              <div className={`size-12 rounded-xl flex items-center justify-center shrink-0 ${totalAudio > 0 ? 'bg-warning-base/10' : 'bg-background-surface/60'}`}>
+                <Music size={22} className={totalAudio > 0 ? 'text-warning-base' : 'text-text-muted'} />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold text-text-primary font-display">{totalAudio}</p>
+                <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Audios</p>
+              </div>
             </div>
-            <div>
-              <p className="text-2xl font-semibold text-text-primary font-display">{totalAssets}</p>
-              <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Assets totales</p>
+          </GlassCard>
+
+          <GlassCard className="p-4">
+            <div className="flex items-center gap-4">
+              <div className="size-12 rounded-xl bg-brand-base/10 flex items-center justify-center shrink-0">
+                <ImageIcon size={22} className="text-brand-light" />
+              </div>
+              <div className="min-w-0">
+                <p className="text-2xl font-semibold text-text-primary font-display">{totalAssets}</p>
+                <p className="text-xs text-text-muted font-medium uppercase tracking-wider">Recursos totales</p>
+              </div>
             </div>
           </GlassCard>
         </div>
@@ -244,15 +268,16 @@ export default function ContextsPage() {
             onChange={e => setSearchTerm(e.target.value)}
             icon={<Search size={18} />}
             className="md:w-96"
+            data-global-search="true"
           />
         </div>
       </motion.div>
 
       {/* Contenido */}
-      <div className="max-w-7xl mx-auto">
+      <div>
         {(() => {
           if (loading) return (
-            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[var(--space-fluid-gutter)]">
               {Array.from({ length: 6 }, (_, i) => `ctx-skeleton-${i}`).map(id => (
                 <SkeletonCard key={id} className="h-64" />
               ))}
@@ -260,7 +285,7 @@ export default function ContextsPage() {
           );
           if (error) return (
             <ErrorState
-              title="Error al cargar contextos"
+              title="No pudimos cargar tus contextos"
               message={`${error} Pulsa Reintentar o recarga la página.`}
               onRetry={refetch}
               className="max-w-lg mx-auto mt-12"
@@ -268,7 +293,8 @@ export default function ContextsPage() {
           );
           if (filteredContexts.length === 0) return (
             <EmptyState
-              illustration={<EmptyContextsIllustration size={180} />}
+              illustration={searchTerm ? <EmptyContextsIllustration size={180} /> : undefined}
+              mascot={searchTerm ? undefined : <CharacterMascot mood="encouraging" size="sm" noBubble />}
               variant={searchTerm ? 'filtered' : 'first-use'}
               title={searchTerm ? 'Nada coincide con tu búsqueda' : 'Aún no hay contextos'}
               description={
@@ -289,24 +315,30 @@ export default function ContextsPage() {
             const cardVariants = buildContextCardVariants(shouldReduceMotion);
             return (
               <motion.div
-                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6"
+                className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-[var(--space-fluid-gutter)]"
                 variants={shouldReduceMotion ? {} : listContainerVariants(0.06)}
                 initial={shouldReduceMotion ? false : "hidden"}
                 animate="visible"
               >
                 <AnimatePresence>
-                  {filteredContexts.map((context) => (
-                    <motion.div
-                      key={context._id || context.id}
-                      variants={cardVariants}
-                      exit="exit"
-                    >
-                      <ContextCard
-                        context={context}
-                        onClick={() => navigate(ROUTES.CONTEXT_DETAIL(context._id || context.id))}
-                      />
-                    </motion.div>
-                  ))}
+                  {filteredContexts.map((context) => {
+                    const contextResId = getId(context);
+                    return (
+                      <motion.div
+                        key={contextResId}
+                        // T-954 Fase B: shared layout id para hero
+                        // transition al detalle del contexto.
+                        layoutId={`context-${contextResId}`}
+                        variants={cardVariants}
+                        exit="exit"
+                      >
+                        <ContextCard
+                          context={context}
+                          onClick={() => navigate(ROUTES.CONTEXT_DETAIL(contextResId))}
+                        />
+                      </motion.div>
+                    );
+                  })}
                 </AnimatePresence>
               </motion.div>
             );
@@ -335,41 +367,79 @@ function ContextCard({ context, onClick }) {
   const assetCount = context.assetsCount ?? context.assets?.length ?? 0;
   const imagesCount = context.imageCount ?? context.assets?.filter(a => a.imageUrl)?.length ?? 0;
   const audioCount = context.audioCount ?? context.assets?.filter(a => a.audioUrl)?.length ?? 0;
-  // 3 previews (antes 5): con 5 chips + gap + badge "+N" los nombres quedaban
-  // ilegibles (cada chip recortado a 3-4 chars tipo "R... A... Ver..."). Con
-  // 3 chips y un ancho por chip mas generoso se leen palabras completas.
-  const previews = context.assets?.filter(a => a.display)?.slice(0, 3).map(a => a.display) || [];
+  // Galería (2026-06-04): las IMÁGENES reales de los recursos (banderas, formas,
+  // números…) son la identidad del contexto y van como banda héroe arriba.
+  // Antes eran chips de TEXTO que truncaban ("Cuadrado"→"Cuadr…", QA 2026-06-04).
+  const HERO_TILES = 4;
+  const tiles = context.assets?.slice(0, HERO_TILES) || [];
+  const hiddenAssets = Math.max(0, assetCount - tiles.length);
   const glowTint = resolveContextGlow(context);
 
   return (
     <HoverLiftCard
       glowTint={glowTint}
       onClick={onClick}
+      ariaLabel={`Ver detalles del contexto ${context.name}`}
       className="group cursor-pointer h-full"
     >
-      <GlassCard className="relative overflow-hidden h-full p-6 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
+      <GlassCard className="relative overflow-hidden h-full p-5 transition-colors hover:bg-background-elevated/40 hover:border-accent-indigo/30">
         {/* Scanline signature con visibilidad CSS-controlled via group-hover. */}
         <ScanlineOverlay className="opacity-0 group-hover:opacity-100 transition-opacity duration-300" />
-        <div className="flex justify-between items-start mb-6">
-          <div className="size-12 rounded-xl bg-accent-indigo/10 flex items-center justify-center border border-accent-indigo/20 group-hover:bg-accent-indigo/20 transition-colors">
-            <ContextIcon context={context} />
-          </div>
-          <div className="flex items-center gap-1 text-text-muted group-hover:text-accent-indigo transition-colors">
-            <span className="text-sm font-medium">Ver detalles</span>
-            <ChevronRight size={16} />
-          </div>
-        </div>
 
-        <h3 className="text-xl font-semibold text-text-primary tracking-tight mb-2 line-clamp-1">
+        {/* HERO: imágenes reales de los recursos del contexto. Sin icono
+            genérico — el contenido ES la identidad (galería, como en Mazos). */}
+        {tiles.length > 0 && (
+          <div className="relative mb-4 overflow-hidden rounded-xl p-3 bg-background-elevated/50 ring-1 ring-inset ring-border-subtle">
+            <div className="flex items-center gap-2">
+              {tiles.map((asset, i) => {
+                const label = asset.display || asset.value || '?';
+                const initials = (() => {
+                  if (!label || label === '?') return label;
+                  if (/\p{Emoji}/u.test(label)) return label;
+                  const words = label.trim().split(/\s+/);
+                  if (words.length >= 2) return (words[0][0] + words[1][0]).toUpperCase();
+                  return label.slice(0, 2).toUpperCase();
+                })();
+                return (
+                  <div
+                    key={asset.key || i}
+                    className="size-12 rounded-xl border border-white/10 flex items-center justify-center text-2xl overflow-hidden shadow-[var(--shadow-inset-card)] ring-1 ring-black/5 flex-shrink-0"
+                    style={{ backgroundColor: asset.dominantColor || 'var(--color-background-elevated)' }}
+                    title={label}
+                  >
+                    <CardAssetPreview
+                      asset={asset}
+                      className="w-full h-full rounded-xl"
+                      showSkeleton={false}
+                      fallbackLabel={initials}
+                      fallbackClassName={!asset.imageUrl ? 'p-0.5 text-white/90 font-bold' : undefined}
+                    />
+                  </div>
+                );
+              })}
+              {hiddenAssets > 0 && (
+                <div className="size-12 rounded-xl bg-background-base/60 border border-border-default flex items-center justify-center text-sm font-bold text-text-secondary flex-shrink-0">
+                  +{hiddenAssets}
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {/* Nombre en fila completa (hasta 2 líneas): compartir fila con
+            "Ver detalles" truncaba nombres normales ("Animales de Gr...").
+            La afordancia baja a la fila del estado, donde sobra espacio.
+            h2: la página tiene h1 "Contextos Temáticos"; saltar a h3 viola
+            heading-order (WCAG 1.3.1). */}
+        <h2 className="text-xl font-semibold text-text-primary tracking-tight line-clamp-2 mb-2" title={context.name}>
           {context.name}
-        </h3>
+        </h2>
 
-        <div className="flex items-center gap-2 mb-6">
-          {/* Slug técnico (`geography-europe`) se mantiene solo en la vista admin
-              (`/admin/contexts`) porque es útil como identificador; en la vista
-              teacher resulta ruido visual y mezcla español con kebab-case (QA 22/04/2026). */}
+        <div className="flex items-center gap-2 mb-4">
           {context.isActive ? (
-            <span className="text-xs font-medium text-success-base bg-success-base/10 px-2 py-1 rounded-full">
+            // BUG-A11Y-CONTRAST-CONTEXT-ACTIVE-A: text-success-on-alpha cumple AA
+            // en ambos temas sobre bg-success-base/10.
+            <span className="text-xs font-medium text-success-on-alpha bg-success-base/10 px-2 py-1 rounded-full">
               Activo
             </span>
           ) : (
@@ -377,11 +447,17 @@ function ContextCard({ context, onClick }) {
               Inactivo
             </span>
           )}
+          <span className="ml-auto flex items-center gap-1 text-text-muted group-hover:text-accent-indigo transition-colors">
+            <span className="text-sm font-medium">Ver detalles</span>
+            <ChevronRight size={16} />
+          </span>
         </div>
 
         <div className="flex items-center justify-between mt-auto pt-4 border-t border-border-subtle">
           <div className="flex items-center gap-3 text-sm text-text-muted">
-            <Tooltip content="Total Assets">
+            {/* Tooltip "{N} recursos en total" coincide con el texto visible
+                "{N} total" (WCAG 2.5.3 label-content-name-mismatch). */}
+            <Tooltip content={`${assetCount} ${assetCount === 1 ? 'recurso' : 'recursos'} en total`}>
               <div className="flex items-center gap-1.5">
                 <span className="font-medium text-text-secondary">{assetCount}</span> total
               </div>
@@ -401,27 +477,6 @@ function ContextCard({ context, onClick }) {
             </Tooltip>
           </div>
         </div>
-
-        {previews.length > 0 && (
-          <div
-            className="mt-4 flex items-center gap-2 pt-4 border-t border-border-subtle"
-            title={context.assets?.filter(a => a.display).map(a => a.display).join(', ')}
-          >
-            {previews.map((preview, i) => (
-              <span
-                key={`${preview}-${i}`}
-                className="flex-1 min-w-0 truncate rounded-full border border-border-subtle bg-background-elevated/40 px-2.5 py-1 text-xs font-medium text-text-secondary text-center"
-              >
-                {preview}
-              </span>
-            ))}
-            {assetCount > previews.length && (
-              <div className="shrink-0 flex items-center justify-center h-7 px-2 rounded-full border border-border-subtle bg-background-elevated/60 text-[11px] font-semibold text-text-muted">
-                +{assetCount - previews.length}
-              </div>
-            )}
-          </div>
-        )}
       </GlassCard>
     </HoverLiftCard>
   );
@@ -452,6 +507,17 @@ function CreateContextModal({ onClose, onSuccess }) {
   const [contextId, setContextId] = useState('');
   const [contextIdManuallyEdited, setContextIdManuallyEdited] = useState(false);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // T-955: feedback inline. El modal queda visible 1.1s tras el éxito para
+  // que el badge sea perceptible antes de cerrar y refrescar el grid.
+  const saveBadge = useInlineSuccess({ duration: 1500 });
+
+  // A11y del modal (foco inicial al primer campo, focus-trap por Tab, Escape
+  // para cerrar, lock de scroll y restauración de foco) centralizada en el
+  // hook compartido. El modal solo se monta cuando está abierto → isOpen true.
+  const titleId = useId();
+  const panelRef = useRef(null);
+  const firstFieldRef = useRef(null);
+  useModalA11y({ isOpen: true, onClose, panelRef, initialFocusRef: firstFieldRef, escapeDisabled: isSubmitting });
 
   const handleNameChange = e => {
     const newName = e.target.value;
@@ -487,8 +553,10 @@ function CreateContextModal({ onClose, onSuccess }) {
         contextId: contextId.trim()
       });
       const created = extractData(response);
+      saveBadge.trigger();
       toast.success(`Contexto "${name}" creado correctamente`);
-      onSuccess(created);
+      // Pequeño respiro para mostrar el badge antes de cerrar el modal.
+      setTimeout(() => onSuccess(created), 1100);
     } catch (err) {
       const msg = extractErrorMessage(err);
       if (msg?.toLowerCase().includes('ya existe')) {
@@ -496,7 +564,7 @@ function CreateContextModal({ onClose, onSuccess }) {
           description: 'Elige un identificador diferente.'
         });
       } else {
-        toast.error('Error al crear el contexto', { description: msg });
+        toast.error('No pudimos crear el contexto', { description: msg });
       }
     } finally {
       setIsSubmitting(false);
@@ -506,6 +574,10 @@ function CreateContextModal({ onClose, onSuccess }) {
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm">
       <motion.div
+        ref={panelRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={titleId}
         initial={{ scale: 0.9, opacity: 0 }}
         animate={{ scale: 1, opacity: 1 }}
         exit={{ scale: 0.9, opacity: 0 }}
@@ -518,7 +590,7 @@ function CreateContextModal({ onClose, onSuccess }) {
               <ShieldCheck size={20} className="text-accent-indigo" />
             </div>
             <div>
-              <h3 className="text-lg font-semibold text-text-primary">Nuevo Contexto</h3>
+              <h3 id={titleId} className="text-lg font-semibold text-text-primary">Nuevo Contexto</h3>
               <p className="text-xs text-text-muted">Los assets se añaden después</p>
             </div>
           </div>
@@ -532,8 +604,9 @@ function CreateContextModal({ onClose, onSuccess }) {
         </div>
 
         {/* Formulario */}
-        <form onSubmit={handleSubmit} className="p-6 space-y-5">
+        <form onSubmit={handleSubmit} noValidate className="p-6 space-y-5">
           <InputPremium
+            ref={firstFieldRef}
             label="Nombre del contexto"
             placeholder="ej: Animales del Bosque"
             value={name}
@@ -577,14 +650,17 @@ function CreateContextModal({ onClose, onSuccess }) {
             >
               Cancelar
             </ButtonPremium>
-            <ButtonPremium
-              type="submit"
-              loading={isSubmitting}
-              disabled={!name.trim() || !contextId.trim() || contextId.length < 2}
-              icon={isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
-            >
-              Crear Contexto
-            </ButtonPremium>
+            <div className="relative">
+              <ButtonPremium
+                type="submit"
+                loading={isSubmitting}
+                disabled={!name.trim() || !contextId.trim() || contextId.length < 2}
+                icon={isSubmitting ? <Loader2 size={16} className="animate-spin" /> : <Plus size={16} />}
+              >
+                Crear Contexto
+              </ButtonPremium>
+              <InlineSuccessBadge visible={saveBadge.visible} label="Contexto creado" placement="left" />
+            </div>
           </div>
         </form>
       </motion.div>

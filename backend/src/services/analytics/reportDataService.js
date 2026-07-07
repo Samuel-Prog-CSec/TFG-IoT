@@ -12,9 +12,67 @@ const userRepository = require('../../repositories/userRepository');
 const studentTrajectoryService = require('./studentTrajectoryService');
 const engagementService = require('./engagementService');
 const sessionAnalysisService = require('./sessionAnalysisService');
-const alertsService = require('./alertsService');
+const alertDetectionService = require('./alertDetectionService');
 const contentEffectivenessService = require('./contentEffectivenessService');
 const { toObjectId, classifyTier, calcAccuracyRate, enrichMetric } = require('./analyticsHelpers');
+const { MIN_ANALYTICS_GROUP_SIZE } = require('../../config/dataRetention');
+const logger = require('../../utils/logger').child({ component: 'reportDataService' });
+const { Sentry } = require('../../config/sentry');
+
+/**
+ * Timeout duro para la orquestación paralela del reporte. Sin esto, si una
+ * sub-agregación cuelga (Atlas M0 con cluster saturado), el request HTTP
+ * queda colgado indefinidamente bloqueando un slot del pool Mongoose. 8s es
+ * generoso para queries normales (~200-800ms) y suficientemente breve para
+ * que el usuario reciba un error claro en vez de un timeout HTTP de 30s+.
+ *
+ * Configurable via env `REPORT_TIMEOUT_MS`.
+ *
+ * @type {number}
+ */
+const REPORT_TIMEOUT_MS = Number.parseInt(process.env.REPORT_TIMEOUT_MS, 10) || 8000;
+
+class ReportTimeoutError extends Error {
+  constructor(label) {
+    super(`Reporte excedió ${REPORT_TIMEOUT_MS}ms (${label})`);
+    this.name = 'ReportTimeoutError';
+    this.isOperational = true;
+    this.statusCode = 504;
+    this.code = 'REPORT_TIMEOUT';
+  }
+}
+
+/**
+ * Envuelve una promesa con un timeout duro. Si vence, rechaza con
+ * `ReportTimeoutError` y notifica a Sentry con un tag dedicado para que el
+ * dashboard de errores muestre la tasa de timeouts del módulo de informes.
+ *
+ * @param {Promise<any>} promise
+ * @param {string} label - Etiqueta para logging/Sentry.
+ * @returns {Promise<any>}
+ */
+const withReportTimeout = (promise, label) => {
+  let timer;
+  const timeoutPromise = new Promise((_resolve, reject) => {
+    timer = setTimeout(() => {
+      const err = new ReportTimeoutError(label);
+      logger.warn({ label, timeoutMs: REPORT_TIMEOUT_MS }, 'reportDataService timeout');
+      Sentry.captureException(err, {
+        tags: { module: 'reportDataService', report: 'timeout', label }
+      });
+      reject(err);
+    }, REPORT_TIMEOUT_MS);
+    // `.unref()` evita que el timer mantenga el proceso vivo al shutdown.
+    if (timer.unref) {
+      timer.unref();
+    }
+  });
+  return Promise.race([promise, timeoutPromise]).finally(() => {
+    if (timer) {
+      clearTimeout(timer);
+    }
+  });
+};
 
 // ══════════════════════════════════════════════════════════════════════
 // E17 — Reporte completo de un estudiante
@@ -66,7 +124,7 @@ async function getStudentReport(studentId, { timeRange = '30d', format = 'summar
     );
   }
 
-  const results = await Promise.all(promises);
+  const results = await withReportTimeout(Promise.all(promises), `studentReport:${studentId}`);
 
   // Estructura jerárquica: Summary → Trends → Details (framework BI)
   const report = {
@@ -153,7 +211,7 @@ async function getClassroomReport(teacherId, { timeRange = '30d', format = 'summ
     engagementService.getClassroomEngagement(teacherId, {
       timeRange: timeRange === '7d' ? '30d' : timeRange
     }),
-    alertsService.getAlertsSummary(teacherId)
+    alertDetectionService.summaryForTeacher(teacherId)
   ];
 
   if (format === 'detailed') {
@@ -164,18 +222,26 @@ async function getClassroomReport(teacherId, { timeRange = '30d', format = 'summ
     );
   }
 
-  const results = await Promise.all(basePromises);
+  const results = await withReportTimeout(
+    Promise.all(basePromises),
+    `classroomReport:${teacherId}`
+  );
 
   // Enriquecer studentSummaries con averageScore de studentMetrics para que el
   // ranking "Mejores/En Riesgo" coincida con la tabla "Mis Alumnos" (que tambien
   // ordena por averageScore historico). Sin esto, el informe ordenaba por
   // engagementScore y producia rankings divergentes (QA 2026-04-29 BUG-2).
   const studentIdsForScore = results[3].students.map(s => s.studentId);
+  // `lean: true` evita hidratar documentos Mongoose: la consulta solo lee
+  // `_id` y `studentMetrics.averageScore` para construir un Map de lookup,
+  // sin métodos de instancia. En cache miss del namespace AUTH_USER (cold
+  // boot del proceso o refetch post-timeout) esto ahorra ~30 docs hidratados
+  // por informe en un aula típica.
   const studentDocsByScore =
     studentIdsForScore.length > 0
       ? await userRepository.find(
           { _id: { $in: studentIdsForScore } },
-          { select: '_id studentMetrics.averageScore' }
+          { select: '_id studentMetrics.averageScore', lean: true }
         )
       : [];
   const scoreById = new Map(
@@ -202,6 +268,10 @@ async function getClassroomReport(teacherId, { timeRange = '30d', format = 'summ
       avgScore: results[0].averageScore,
       studentsInRisk: results[0].studentsInRisk,
       classEngagementScore: results[3].classEngagementScore,
+      // Tasa de completado real (partidas completadas / totales). Sin este campo
+      // el informe caía al `classEngagementScore` y etiquetaba el engagement como
+      // "Completado", divergiendo de la "Tasa de completado" del dashboard.
+      completionRate: results[3].classCompletionRate,
       gamesToday: results[0].gamesToday
     },
     distribution: results[1],
@@ -235,9 +305,15 @@ async function getClassroomExport(teacherId, { timeRange: _timeRange = '30d' } =
     {
       createdBy: toObjectId(teacherId),
       role: 'student',
-      status: 'active'
+      status: 'active',
+      // Art. 21 RGPD: excluir del export a alumnos sin consentimiento de analytics
+      // (o cuyo tutor ejerció oposición). Paridad con getClassroomStudents; el export
+      // (dato que SALE del sistema) es la salida de mayor riesgo y no debe ser menos
+      // estricto que la vista en pantalla, que sí aplicaba este filtro.
+      'consent.granted': true,
+      'consent.purposes': 'performance_analytics'
     },
-    { select: 'name profile.classroom profile.age studentMetrics' }
+    { select: 'name profile.classroom profile.age studentMetrics', lean: true }
   );
 
   const headers = [
@@ -259,6 +335,31 @@ async function getClassroomExport(teacherId, { timeRange: _timeRange = '30d' } =
     good: 'Bueno',
     excellent: 'Excelente'
   };
+
+  // Protección k-anonimidad (Guía Anonimización AEPD 2019): por debajo del umbral,
+  // un CSV con filas individuales permitiría re-identificar a menores en aulas
+  // pequeñas una vez el archivo sale del sistema. Devolvemos solo agregados, igual
+  // que la vista getClassroomStudents.
+  if (students.length > 0 && students.length < MIN_ANALYTICS_GROUP_SIZE) {
+    const totalGames = students.reduce(
+      (sum, s) => sum + (s.studentMetrics?.totalGamesPlayed || 0),
+      0
+    );
+    const avgScore =
+      students.reduce((sum, s) => sum + (s.studentMetrics?.averageScore || 0), 0) / students.length;
+    return {
+      headers,
+      rows: [],
+      aggregatedOnly: true,
+      reason: `Protección k-anonimidad: grupo de ${students.length} estudiantes (mínimo ${MIN_ANALYTICS_GROUP_SIZE})`,
+      total: students.length,
+      aggregatedMetrics: {
+        totalGames,
+        averageScore: Math.round(avgScore * 10) / 10
+      },
+      generatedAt: new Date().toISOString()
+    };
+  }
 
   const rows = students.map(s => {
     const m = s.studentMetrics || {};

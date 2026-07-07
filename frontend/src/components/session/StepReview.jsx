@@ -6,6 +6,7 @@
  */
 
 import PropTypes from 'prop-types';
+import { m as motion } from 'framer-motion';
 import {
   CreditCard,
   Layers,
@@ -17,8 +18,14 @@ import GlassCard from '../ui/GlassCard';
 import InputPremium from '../ui/InputPremium';
 import CardAssetPreview from '../ui/CardAssetPreview';
 import AudioPlayBadge from '../ui/AudioPlayBadge';
+import CharacterMascot from '../game/CharacterMascot';
+import { getId } from '../../lib/entityId';
 import { normalizeMechanicName } from './sessionHelpers';
 import { deckShape, mechanicShape, configShape } from './sessionPropTypes';
+
+// Mecánicas con tinte de halo propio para Otto en la revisión. Si el nombre
+// no es una de estas, se omite `mechanicType` (el halo cae a su color neutro).
+const MASCOT_MECHANIC_TYPES = new Set(['memory', 'association', 'sequence']);
 
 /**
  * Paso 4: Revisar y Crear
@@ -26,20 +33,46 @@ import { deckShape, mechanicShape, configShape } from './sessionPropTypes';
 export default function StepReview({ sessionConfig, setSessionConfig, selectedDeck, selectedMechanic }) {
   const mechanicName = normalizeMechanicName(selectedMechanic);
   const isMemory = mechanicName === 'memory';
+  const mascotMechanicType = MASCOT_MECHANIC_TYPES.has(mechanicName) ? mechanicName : null;
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-      {/* Nombre de la sesion */}
-      <GlassCard className="p-6">
-        <h2 className="text-lg font-semibold text-text-primary mb-4">
-          Nombre de la Sesión
-        </h2>
-        <InputPremium
-          value={sessionConfig.name}
-          onChange={(e) => setSessionConfig(prev => ({ ...prev, name: e.target.value }))}
-          placeholder="Ej: Capitales de Europa - Nivel 1"
-          maxLength={100}
-          helperText="Un nombre descriptivo ayuda a identificar la sesión"
-        />
+    <div className="space-y-6">
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+      {/* Nombre de la sesion — Otto acompaña bajo el input, anclado al fondo
+          (mt-auto) para llenar el hueco de esta columna (más corta que el
+          resumen) en vez de quedar centrado bajo el grid dejando un vacío.
+          `h-full` estira la card a la altura del resumen para que Otto baje de
+          verdad al fondo y su bocadillo NO invada el texto de ayuda del input. */}
+      <GlassCard className="p-6 h-full">
+        {/* Envoltorio flex-col PROPIO: `GlassCard` mete un div block interno, así
+            que el `flex` puesto en la card no llega a estos hijos y `mt-auto` no
+            funcionaría. Con este div (a la altura completa de la card, estirada
+            por `h-full`) Otto se ancla al fondo y su bocadillo queda muy por
+            debajo del texto de ayuda del input. */}
+        <div className="flex h-full flex-col">
+          <h2 className="text-lg font-semibold text-text-primary mb-4">
+            Nombre de la Sesión
+          </h2>
+          <InputPremium
+            value={sessionConfig.name}
+            onChange={(e) => setSessionConfig(prev => ({ ...prev, name: e.target.value }))}
+            placeholder="Ej: Capitales de Europa - Nivel 1"
+            maxLength={100}
+            helperText="Un nombre descriptivo ayuda a identificar la sesión"
+          />
+          <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ delay: 0.15, ease: [0.22, 1, 0.36, 1] }}
+            className="mt-auto flex justify-center pt-6"
+          >
+            <CharacterMascot
+              mood="happy"
+              size="md"
+              mechanicType={mascotMechanicType}
+              message="¡Casi lista! ¿Empezamos?"
+            />
+          </motion.div>
+        </div>
       </GlassCard>
 
       {/* Resumen de configuracion */}
@@ -67,7 +100,7 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
               {selectedDeck?.cardMappings?.length > 0 && (
                 <div className="flex gap-1.5 mt-2 overflow-x-auto pb-1 max-w-full">
                   {selectedDeck.cardMappings.slice(0, 8).map((m) => (
-                    <div key={m.uid || m.id || m._id} className="relative flex-shrink-0">
+                    <div key={m.uid || getId(m)} className="relative flex-shrink-0">
                       <CardAssetPreview
                         asset={m.displayData}
                         className="size-10 rounded-lg"
@@ -145,6 +178,7 @@ export default function StepReview({ sessionConfig, setSessionConfig, selectedDe
           </div>
         </div>
       </GlassCard>
+      </div>
     </div>
   );
 }

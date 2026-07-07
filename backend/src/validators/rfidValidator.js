@@ -26,7 +26,16 @@ const rfidClientEventSchema = z
     timestamp: z.number().int().positive('timestamp inválido'),
     source: z.enum(RFID_EVENT_SOURCES, {
       message: 'origen del evento RFID no válido'
-    })
+    }),
+    // T-905 B8: contador monotónico EEPROM + HMAC-SHA256(secret, uid:counter).
+    // Opcionales para migración gradual (RFID_HMAC_ENABLED controla enforcement).
+    counter: z.number().int().min(0).max(Number.MAX_SAFE_INTEGER).optional(),
+    hmac: z
+      .string()
+      .trim()
+      .toLowerCase()
+      .regex(/^[a-f0-9]{64}$/, 'hmac inválido (esperado 64 hex chars)')
+      .optional()
   })
   .superRefine((value, ctx) => {
     if (Math.abs(Date.now() - value.timestamp) <= RFID_CLIENT_MAX_TIMESTAMP_SKEW_MS) {

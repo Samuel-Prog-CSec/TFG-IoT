@@ -7,7 +7,7 @@
  */
 
 import { useState, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Search, Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import CardAssetPreview from './CardAssetPreview';
@@ -46,14 +46,16 @@ import AudioPlayBadge from './AudioPlayBadge';
  * />
  * ```
  */
+const EMPTY_ARRAY = [];
+
 export default function AssetSelector({
-  assets = [],
+  assets = EMPTY_ARRAY,
   selectedAssetKey,
   onSelect,
-  assignedAssets = [],
+  assignedAssets = EMPTY_ARRAY,
   assetUsageCounts = null,
   showSearch = true,
-  placeholder = 'Buscar asset...',
+  placeholder = 'Buscar recurso...',
   className,
   columns = 4,
 }) {
@@ -145,10 +147,10 @@ export default function AssetSelector({
       <motion.div
         className={cn(
           'grid gap-3',
-          columns === 3 && 'grid-cols-3',
+          columns === 3 && 'grid-cols-2 sm:grid-cols-3',
           columns === 4 && 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4',
-          columns === 5 && 'grid-cols-2 sm:grid-cols-3 md:grid-cols-5',
-          columns === 6 && 'grid-cols-3 sm:grid-cols-4 md:grid-cols-6',
+          columns === 5 && 'grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5',
+          columns === 6 && 'grid-cols-3 sm:grid-cols-4 md:grid-cols-5 lg:grid-cols-6',
         )}
         variants={containerVariants}
         initial="hidden"
@@ -244,7 +246,7 @@ export default function AssetSelector({
                       initial={{ scale: 0 }}
                       animate={{ scale: 1 }}
                       exit={{ scale: 0 }}
-                      className="absolute top-2 left-2 px-1.5 py-0.5 rounded-full bg-success-base/20 text-success-base text-[10px] font-bold"
+                      className="absolute top-2 left-2 px-1.5 py-0.5 rounded-full bg-success-base/20 text-success-base text-nano font-bold"
                     >
                       {`×${usageCount}`}
                     </motion.div>
@@ -261,7 +263,7 @@ export default function AssetSelector({
                       className="absolute inset-0 flex items-center justify-center bg-background-base/80 rounded-xl"
                     >
                       <motion.span
-                        className="px-2 py-1 rounded-full bg-warning-base/20 text-warning-base text-[10px] font-bold uppercase tracking-wider"
+                        className="px-2 py-1 rounded-full bg-warning-base/20 text-warning-base text-nano font-bold uppercase tracking-wider"
                         // TOKEN-EXCEPTION: Framer Motion keyframe animation requires literal rgba values for boxShadow interpolation
                         animate={{
                           boxShadow: [
@@ -306,7 +308,7 @@ export default function AssetSelector({
           className="flex flex-col items-center justify-center py-12 text-text-muted"
         >
           <Search size={48} className="mb-4 opacity-50" />
-          <p className="text-sm">No se encontraron assets</p>
+          <p className="text-sm">No se encontraron recursos</p>
           {searchQuery && (
             <button
               onClick={() => setSearchQuery('')}
@@ -335,10 +337,10 @@ export default function AssetSelector({
  * AssetSelectorCompact - Versión compacta para espacios reducidos
  */
 export function AssetSelectorCompact({
-  assets = [],
+  assets = EMPTY_ARRAY,
   selectedAssetKey,
   onSelect,
-  assignedAssets = [],
+  assignedAssets = EMPTY_ARRAY,
   className,
 }) {
   const assignedSet = useMemo(() => {

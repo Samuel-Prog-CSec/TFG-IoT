@@ -6,20 +6,27 @@
  * @module context/AuthContext
  */
 
-import { createContext, useContext, useReducer, useEffect, useCallback, useRef, useMemo } from 'react';
+import { createContext, useContext, useReducer, useEffect, useCallback, useRef, useState, useMemo } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { toast } from 'sonner';
-import { 
-  authAPI, 
-  setTokens, 
+import {
+  authAPI,
+  setTokens,
   clearTokens,
-  extractData, 
+  getAccessToken,
+  extractData,
   extractErrorMessage,
-  AUTH_EVENTS 
+  API_BASE_URL,
+  AUTH_EVENTS
 } from '../services/api';
 import { socketService } from '../services/socket';
-import { ROUTES } from '../constants/routes';
+import { ROUTES, isSafeRedirectPath } from '../constants/routes';
 import { setUserContext, captureException } from '../lib/sentry';
+
+// T-957: ventana de cortesía del logout con undo. El cliente espera este
+// número de ms antes de invalidar tokens en el backend; si el usuario pulsa
+// "Deshacer" en el toast antes del timeout, el estado queda intacto.
+const DEFAULT_LOGOUT_UNDO_MS = 5000;
 
 // ============================================
 // TIPOS Y CONSTANTES
@@ -140,6 +147,14 @@ export function AuthProvider({ children }) {
   // refreshToken en cada POST /auth/refresh, así que la segunda llamada
   // recibe 401 con la cookie ya inválida y provocaba logout espurio.
   const didCheckSessionRef = useRef(false);
+  // T-957: estado del logout diferido (toast con "Deshacer").
+  // pendingLogoutRef guarda { timeoutId } cuando hay un logout planificado.
+  // pageHideHandlerRef guarda la referencia al listener de `pagehide` que
+  // dispara el beacon — necesaria para poder hacer removeEventListener si
+  // el usuario pulsa "Deshacer" antes de que la pestaña se cierre.
+  const pendingLogoutRef = useRef(null);
+  const pageHideHandlerRef = useRef(null);
+  const [isLoggingOut, setIsLoggingOut] = useState(false);
 
   // ============================================
   // FUNCIONES AUXILIARES
@@ -180,15 +195,31 @@ export function AuthProvider({ children }) {
    * @param {string} from - Ruta de origen (para volver después de login)
    */
   const redirectByRole = useCallback((user, from = null) => {
-    // Si hay una ruta guardada y no es de auth, ir ahí
-    if (from && !from.startsWith('/login') && !from.startsWith('/register')) {
+    // T-905 B6: whitelist positiva contra open redirect. Bloquea esquemas
+    // peligrosos (`javascript:`, `data:`), URLs protocol-relative (`//evil.com`)
+    // y cualquier path no incluido en `SAFE_REDIRECT_PREFIXES`.
+    //
+    // BUG-AUTH-A (QA Sprint 0 post-v0.5.0): además de validar la URL, la
+    // ruta `from` debe ser COMPATIBLE con el rol. Si un super_admin viene
+    // de /dashboard (teacher) o un teacher viene de /admin/* (super_admin),
+    // ignoramos el `from` y vamos al landing del rol. Sin esto el super_admin
+    // aterrizaba en /dashboard con KPIs a 0 porque no tiene partidas propias.
+    const isAdminPath = path => path.startsWith('/admin');
+    const isFromCompatible = path => {
+      if (!path) return false;
+      if (user.role === 'super_admin') return isAdminPath(path);
+      return !isAdminPath(path);
+    };
+
+    if (from && isSafeRedirectPath(from) && isFromCompatible(from)) {
       navigate(from, { replace: true });
       return;
     }
 
-    // Redirigir según rol
+    // Redirigir según rol. T-942 Fase D: super_admin aterriza en AdminDashboard
+    // (vista del centro con KPIs agregados); las aprobaciones quedan a un click.
     if (user.role === 'super_admin') {
-      navigate(ROUTES.ADMIN_APPROVALS, { replace: true });
+      navigate(ROUTES.ADMIN_DASHBOARD, { replace: true });
     } else {
       navigate(ROUTES.DASHBOARD, { replace: true });
     }
@@ -321,12 +352,22 @@ export function AuthProvider({ children }) {
    * @param {string} password - Contraseña
    * @returns {Promise<Object>} Usuario autenticado
    */
-  const login = useCallback(async (email, password) => {
-    dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: true });
+  const login = useCallback(async (email, password, captchaToken = null) => {
+    // BUG-LOGIN-A (QA Sprint 0 post-v0.5.0): no usamos `SET_LOADING: true`
+    // aquí porque `GuestRoute` reacciona a `isLoading` mostrando `<AuthLoader />`,
+    // lo que DESMONTA Login.jsx mientras corre la petición. Tras un 401, el
+    // remount crea un formData fresh y se pierde el email tecleado.
+    //
+    // El formulario ya gestiona su propio estado de submit (`isSubmitting`)
+    // y deshabilita el botón en consecuencia. El loading global del context
+    // sólo debe activarse en el bootstrap inicial (cargando user desde /me).
     dispatch({ type: AUTH_ACTIONS.CLEAR_ERROR });
 
     try {
-      const response = await authAPI.login({ email, password });
+      // T-905 B6: captchaToken se adjunta solo cuando el widget Turnstile ya
+      // generó uno; el backend lo exige tras 3 fallos previos del mismo email.
+      const credentials = captchaToken ? { email, password, captchaToken } : { email, password };
+      const response = await authAPI.login(credentials);
       const { user, accessToken, accessTokenExpiresIn } = extractData(response);
 
       // Guardar tokens
@@ -347,8 +388,8 @@ export function AuthProvider({ children }) {
         captureException(socketError);
       }
 
-      // Mensaje de bienvenida
-      toast.success(`¡Bienvenido, ${user.name}!`);
+      // Mensaje de bienvenida — fórmula neutra («Bienvenido» presupone género).
+      toast.success(`¡Te damos la bienvenida, ${user.name}!`);
 
       // Redirigir
       const from = location.state?.from?.pathname;
@@ -357,18 +398,28 @@ export function AuthProvider({ children }) {
       return user;
     } catch (error) {
       const message = extractErrorMessage(error);
-      
-      // Manejar estados especiales de cuenta
-      if (error.accountStatus === 'pending_approval') {
-        dispatch({ 
-          type: AUTH_ACTIONS.SET_ERROR, 
-          payload: 'Tu cuenta está pendiente de aprobación. Un administrador la revisará pronto.' 
+      const errorCode = error?.response?.data?.code || error?.code;
+
+      // T-905 B6: backend pide CAPTCHA tras 3 fallos. Si Turnstile está configurado
+      // y el frontend tiene VITE_TURNSTILE_SITEKEY, aquí se renderizará el widget
+      // (implementación frontend completa diferida a v1.0.x). De momento mensaje claro.
+      if (errorCode === 'CAPTCHA_REQUIRED' || errorCode === 'CAPTCHA_INVALID') {
+        dispatch({
+          type: AUTH_ACTIONS.SET_ERROR,
+          payload:
+            'Demasiados intentos. Se requiere verificación adicional. Si el problema persiste, contacta con un administrador.'
+        });
+        toast.warning('Verificación adicional requerida');
+      } else if (error.accountStatus === 'pending_approval') {
+        dispatch({
+          type: AUTH_ACTIONS.SET_ERROR,
+          payload: 'Tu cuenta está pendiente de aprobación. Un administrador la revisará pronto.'
         });
         toast.warning('Cuenta pendiente de aprobación');
       } else if (error.accountStatus === 'rejected') {
-        dispatch({ 
-          type: AUTH_ACTIONS.SET_ERROR, 
-          payload: 'Tu cuenta ha sido rechazada. Contacta con el administrador para más información.' 
+        dispatch({
+          type: AUTH_ACTIONS.SET_ERROR,
+          payload: 'Tu cuenta ha sido rechazada. Contacta con el administrador para más información.'
         });
         toast.error('Cuenta rechazada', {
           description: 'Contacta con un administrador si crees que es un error.'
@@ -388,15 +439,15 @@ export function AuthProvider({ children }) {
    * @returns {Promise<Object>} Respuesta del servidor
    */
   const register = useCallback(async (data) => {
-    dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: true });
+    // BUG-LOGIN-A: misma razón que en login() — no activar SET_LOADING aquí
+    // porque GuestRoute desmonta Register.jsx mientras corre la petición y
+    // se pierde formData. El formulario maneja su propio `isSubmitting`.
     dispatch({ type: AUTH_ACTIONS.CLEAR_ERROR });
 
     try {
       const response = await authAPI.register(data);
       const result = extractData(response);
 
-      dispatch({ type: AUTH_ACTIONS.SET_LOADING, payload: false });
-      
       toast.success(
         '¡Registro completado! Tu cuenta está pendiente de aprobación por un administrador.',
         { duration: 6000 }
@@ -418,9 +469,42 @@ export function AuthProvider({ children }) {
   }, [navigate]);
 
   /**
-   * Cerrar sesión
+   * Limpia cualquier listener de `pagehide` registrado por `deferLogout`.
+   * Idempotente: si no había handler, no hace nada.
+   * @private
    */
-  const logout = useCallback(async () => {
+  const clearPageHideHandler = useCallback(() => {
+    if (pageHideHandlerRef.current) {
+      window.removeEventListener('pagehide', pageHideHandlerRef.current);
+      pageHideHandlerRef.current = null;
+    }
+  }, []);
+
+  // T-957: al desmontar el provider, garantiza que no quede un listener
+  // de `pagehide` colgando (importante en tests con re-mounts y en
+  // hot-reload de Vite). El `pagehide` real del cierre de pestaña se
+  // dispara ANTES del unmount, por lo que el beacon sigue funcionando
+  // en producción.
+  useEffect(() => () => clearPageHideHandler(), [clearPageHideHandler]);
+
+  /**
+   * Ejecuta el cierre de sesión real: revoca tokens en backend, limpia
+   * estado local, desconecta socket y navega a /login. Esta función es la
+   * que materializa el logout — la usan tanto `logout` (inmediato) como
+   * `deferLogout` (al expirar la ventana de 5 s).
+   *
+   * Idempotente respecto al listener de `pagehide`: si había uno
+   * registrado, se desregistra antes de hacer la petición HTTP normal.
+   */
+  const finalizeLogout = useCallback(async () => {
+    // Cancelar timeout pendiente y listener de pagehide si los había.
+    if (pendingLogoutRef.current) {
+      clearTimeout(pendingLogoutRef.current.timeoutId);
+      pendingLogoutRef.current = null;
+    }
+    clearPageHideHandler();
+    setIsLoggingOut(false);
+
     try {
       await authAPI.logout();
     } catch (error) {
@@ -432,7 +516,7 @@ export function AuthProvider({ children }) {
     if (refreshTimeoutRef.current) {
       clearTimeout(refreshTimeoutRef.current);
     }
-    
+
     clearTokens();
     clearSessionMarker();
     socketService.disconnect();
@@ -440,7 +524,86 @@ export function AuthProvider({ children }) {
 
     toast.info('Sesión cerrada correctamente');
     navigate(ROUTES.LOGIN, { replace: true });
-  }, [navigate]);
+  }, [navigate, clearPageHideHandler]);
+
+  /**
+   * Cierre de sesión inmediato (sin ventana de undo).
+   *
+   * Conservado para casos administrativos o flujos automáticos donde no
+   * tiene sentido ofrecer "Deshacer": expiración de sesión gestionada por
+   * el backend, force-logout por single-session collision, errores de
+   * autorización irrecuperables, tests. Para el cierre voluntario desde
+   * la UI usar `deferLogout` (T-957).
+   */
+  const logout = useCallback(() => finalizeLogout(), [finalizeLogout]);
+
+  /**
+   * T-957: cierre de sesión con ventana de undo.
+   *
+   * Planifica el logout real dentro de `delayMs` y registra un listener
+   * `pagehide` que dispara `fetch keepalive: true` contra `/auth/logout`
+   * para garantizar la revocación incluso si el usuario cierra la pestaña
+   * antes de que la cuenta atrás expire.
+   *
+   * Mientras la ventana está abierta:
+   * - `isLoggingOut === true` (la UI puede deshabilitar el botón).
+   * - El estado de auth permanece intacto (`isAuthenticated`, tokens en
+   *   memoria, cookies, sessionMarker) — un refresh de pestaña dentro
+   *   de esos segundos NO desloguea al usuario.
+   *
+   * Idempotente: clicks repetidos durante el periodo abierto son no-op.
+   *
+   * @param {{ delayMs?: number }} [options]
+   * @returns {boolean} true si se programó, false si ya había uno pendiente.
+   */
+  const deferLogout = useCallback(({ delayMs = DEFAULT_LOGOUT_UNDO_MS } = {}) => {
+    if (pendingLogoutRef.current) return false;
+    setIsLoggingOut(true);
+
+    const beaconHandler = () => {
+      // Red de seguridad: si la pestaña se cierra antes del timeout, el
+      // backend recibe la petición igualmente. `keepalive: true` deja la
+      // request en vuelo aunque el documento se descargue. No leemos la
+      // respuesta (estamos saliendo); cualquier excepción se ignora.
+      try {
+        const accessToken = getAccessToken();
+        fetch(`${API_BASE_URL}/auth/logout`, {
+          method: 'POST',
+          credentials: 'include',
+          keepalive: true,
+          headers: accessToken
+            ? { Authorization: `Bearer ${accessToken}` }
+            : {}
+        }).catch(() => {});
+      } catch {
+        /* silencioso: la pestaña ya se está cerrando */
+      }
+    };
+    pageHideHandlerRef.current = beaconHandler;
+    window.addEventListener('pagehide', beaconHandler);
+
+    const timeoutId = setTimeout(() => {
+      finalizeLogout();
+    }, delayMs);
+    pendingLogoutRef.current = { timeoutId };
+    return true;
+  }, [finalizeLogout]);
+
+  /**
+   * T-957: cancela un logout planificado por `deferLogout`. No-op si no
+   * había uno pendiente. Tras invocarse, el usuario permanece autenticado
+   * con todos sus tokens y sesión socket intactos.
+   *
+   * @returns {boolean} true si se canceló, false si no había logout pendiente.
+   */
+  const undoLogout = useCallback(() => {
+    if (!pendingLogoutRef.current) return false;
+    clearTimeout(pendingLogoutRef.current.timeoutId);
+    pendingLogoutRef.current = null;
+    clearPageHideHandler();
+    setIsLoggingOut(false);
+    return true;
+  }, [clearPageHideHandler]);
 
   /**
    * Limpiar errores
@@ -467,15 +630,21 @@ export function AuthProvider({ children }) {
     isAuthenticated: state.isAuthenticated,
     isLoading: state.isLoading,
     error: state.error,
-    
+    // T-957: true entre el click en "Cerrar sesión" y la materialización
+    // efectiva del logout (5 s después o al pulsar Deshacer). La UI lo usa
+    // para deshabilitar el botón y evitar dobles clicks.
+    isLoggingOut,
+
     // Helpers
     isTeacher: state.user?.role === 'teacher',
     isSuperAdmin: state.user?.role === 'super_admin',
-    
+
     // Acciones
     login,
     register,
-    logout,
+    logout,           // cierre inmediato (administrativo / expirados)
+    deferLogout,      // T-957: cierre con ventana de undo (5 s)
+    undoLogout,       // T-957: cancela un deferLogout en curso
     clearError,
     updateUser,
   }), [
@@ -483,9 +652,12 @@ export function AuthProvider({ children }) {
     state.isAuthenticated,
     state.isLoading,
     state.error,
+    isLoggingOut,
     login,
     register,
     logout,
+    deferLogout,
+    undoLogout,
     clearError,
     updateUser,
   ]);

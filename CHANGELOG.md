@@ -5,6 +5,65 @@ Todas las notas notables de cambios en este proyecto serán documentadas en este
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased] - Sprint 6
+
+### Motion signature ampliada (T-954) + Notificaciones tiempo real (T-955)
+
+Cierre del paquete UI/UX iniciado en T-951…T-953. Dos pilares para v1.0.0:
+
+#### Añadido
+
+- **Atmósferas dinámicas por contexto:** el aurora del fondo, el gradient primary de `ButtonPremium` y el glow de las cards se tintan al contexto pedagógico activo (Geografía, Animales, Colores, Números, Formas). Funciona via CSS vars + atributo `[data-atmosphere]` en `<html>`. Crossfade 400ms entre rutas. Light mode usa variantes soft mezcladas con marfil para no romper el blend `multiply`.
+- **Hero transitions** en las 3 parejas `DeckCard ↔ CardDeckDetailPage`, `SessionCard ↔ SessionDetail`, `ContextCard ↔ ContextDetailPage` con `useSharedLayoutTransition` (respeta reduced-motion).
+- **Scroll parallax aurora** en AppLayout: los 3 orbes se desplazan a velocidades distintas (`useScroll + useTransform`) cuando el usuario hace scroll. Reduced-motion lo desactiva.
+- **Sistema de notificaciones tiempo real persistidas** con 5 tipos canónicos (`play_completed`, `registration_pending`, `student_at_risk`, `context_shared`, `system_announcement`). Backend completo: modelo Mongoose con TTL 90d, dedup window 60s en Redis, service + controller + routes (`/api/notifications`), DTO V1, emisión Socket.IO al room `user_<id>`. Triggers reales desde `gamePlayService.completePlay`, `authController.register` y `gameContextController.createContext`.
+- **NotificationBell + Panel** en la sidebar con badge contador, pulse subtle on unread, micro-celebración (scale+rotate) al recibir `play_completed` con 3⭐, panel popover con focus trap, infinite scroll cursor, empty state signature (sobre de papel cerrado SVG inline). Atajo `Shift+B`.
+- **InlineSuccessBadge** + hook `useInlineSuccess` para confirmaciones de éxito (✓ Guardado) adyacentes al botón Save. Integrado en `CreateSession`, `SessionEdit`, `DeckCreationWizard`, `DeckEditPage`, `AdminContexts`, `ContextsPage`. Sonner toast queda reservado para errores y destructivos.
+- **Atmósfera + mecánica en GameSession:** el fondo de la partida combina `mechanicTheme.backdropTintClass` con la atmósfera del contexto, generando un fondo único por cada combinación.
+
+#### Cambiado
+
+- `ButtonPremium` variant primary lee `--color-atmosphere-primary` / `--color-atmosphere-primary-alt` / `--color-atmosphere-glow` con fallback al brand cuando no hay atmósfera activa.
+- AppLayout aurora consume `--color-atmosphere-aurora-{1,2,3}` en lugar de `--color-aurora-*` directos.
+- `socket.join('user_'+userId)` confirmado en el authMiddleware de Socket.IO para que las notificaciones lleguen al cliente correcto.
+
+#### ADRs
+
+- ADR-130 — Atmósferas dinámicas por contexto + scroll parallax aurora.
+- ADR-131 — Sistema de notificaciones tiempo real persistidas.
+- ADR-132 — InlineSuccessBadge como complemento de Sonner toast.
+- ADR-133 — Divergencia formal Light / Dark (aurora, atmósferas, sombras).
+- ADR-134 — Hero transitions reusables (`useSharedLayoutTransition`).
+
+### Mecánica Secuencia (T-921 + T-922 + T-923)
+
+Tercera y última mecánica del proyecto. El alumno memoriza una secuencia ordenada de N cartas (3 a 7 según configuración) durante unos segundos definidos por el profesor; tras un flip de "vuelta a boca abajo" debe reproducirla escaneando las tarjetas en el mismo orden. Tres dificultades (fácil con pistas progresivas, medio con segundo intento, difícil one-shot) y un sistema de bloqueo de carta que **avanza el cursor sin reiniciar la secuencia** — decisión pedagógica para evitar frustración acumulativa.
+
+#### Añadido
+
+- **Backend Secuencia:** nuevo `SequenceStrategy` con fases memorizing → reproducing, evento `sequence_phase_*` y `sequence_card_result` / `sequence_round_result` en Socket.IO. Ocho métricas específicas (sequencesCompleted, maxSequenceLengthAchieved, partialReproductions, hintsUsed, etc.) persistidas en `GamePlay.metrics` y agregadas en `analyticsService.getStudentSummary`.
+- **Sistema de pistas progresivas (easy):** primera pista parcial con caracteres ocultos (`L?ó?`), segunda pista completa (`León`), tercer fallo bloquea la carta. El algoritmo prioriza preservar primera letra y vocales acentuadas si las hay; si no, caracteres en índices pares.
+- **Animaciones signature crupier:** reparto inicial con stagger 90 ms y spring físico (entrada desde fuera de pantalla con rotación), recogida final con stagger inverso. Respeta `prefers-reduced-motion`.
+- **Frontend Secuencia:** nueva familia de componentes en `components/game/sequence/` (SequenceBoard, SequenceCard, PhaseTransitionOverlay, SequenceProgressDots, FallbackTouchPanelSequence) + `SequenceGameplayPanel` orquestador. Tres SFX nuevos en `soundEffectsService` (cardDeal, cardSweep, sequenceComplete) usando Web Audio API.
+- **Wizard `StepSequenceRules`:** sliders min/max longitud, displaySeconds, dificultad con descripción contextual, regenerador de plan en tiempo real.
+- **GameOver per-mechanic:** refactor con compositor `GameOverStats` que delega a `GameOverStatsAssociation`/`Memory`/`Sequence`. Cada mecánica define sus métricas e iconos sin contaminar las demás. El bloque Secuencia destaca la mejor longitud alcanzada como hero metric.
+- **Analytics Secuencia:** `SequenceProgressChart` (Recharts, tint ámbar) + `SequenceHighlightCard` integrados en `StudentProfile` cuando el alumno tiene partidas Secuencia. Empty state con copy útil si todavía no hay datos.
+- **Single source of truth para mecánicas:** `frontend/src/constants/mechanicLabels.js` centraliza label, icono Lucide, tint y descripción. `StepMechanic` lo consume.
+- **Seeders demo:** 5 templates de Secuencia (3 dificultades × varios contextos) en `06-sessions.js` + métricas Secuencia derivadas del perfil del alumno en `07-gameplays.js`.
+
+#### Cambiado
+
+- `frontend/src/pages/GameSession.jsx` refactorizado: el boolean `sessionIsMemory` se reemplaza por un derived `mechanicMode = 'association' | 'memory' | 'sequence'` (los aliases booleanos se mantienen como variables locales derivadas para no romper los call-sites existentes).
+- `final_summary` del backend ahora incluye `mode` explícito; el frontend lo usa como source of truth en lugar de inferirlo localmente.
+- `User.studentMetrics` extendido con `maxSequenceLengthAchieved` (récord histórico monótono).
+- Mecánica `sequence` habilitada en seeder `03-mechanics.js` con `availability: 'available'`.
+
+#### ADRs
+
+- ADR-102 — Mecánica Secuencia: estado intra-ronda, validación ordenada y dificultades.
+- ADR-103 — Refactor `sessionIsMemory` → `mechanicMode` y compositor `GameOverStats`.
+- ADR-104 — Animaciones signature crupier (reparto + recogida) para Secuencia.
+
 ## [0.5.0] - 2026-04-24
 
 Cierre del Sprint 5 y última versión previa a la 1.0.0. Cinco ejes principales: backend robustecido (errores unificados, capa de datos completa, limitación de tráfico distribuida), suite completa de analytics (backend y frontend), protección de datos de menores conforme a RGPD y LOPDGDD, refactor de tarjetas RFID a tokens reutilizables y un nuevo lenguaje de movimiento "táctil + papel" aplicado a toda la app. Veintiocho tareas cerradas de treinta y una, con algunas menores diferidas al siguiente sprint. Incluye además un paquete de mantenimiento final que pule gameplay, dashboards y panel de administración antes del corte v1.0.0.

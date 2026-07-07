@@ -1,5 +1,5 @@
 import { memo, useState } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Clock, ChevronDown, ChevronUp } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { cn, formatDate } from '../../lib/utils';
@@ -28,24 +28,47 @@ const formatDuration = (ms) => {
  * @param {Array} props.games - Partidas del endpoint /student/:id/summary (lastGames)
  * @param {number} [props.initialCount=10] - Numero de partidas visibles inicialmente
  */
-function GameHistoryTable({ games, initialCount = 10 }) {
+function GameHistoryTable({ games, initialCount = 10, onLoadMore, hasMore: hasMoreProp = false, loadingMore = false, total }) {
   const { shouldReduceMotion } = useReducedMotion();
   const [showAll, setShowAll] = useState(false);
+  // Modo server-paginado: cuando el padre pasa `onLoadMore`, la tabla renderiza
+  // TODAS las `games` recibidas (ya paginadas) y delega «Cargar más» al servidor
+  // (endpoint /analytics/student/:id/games). Sin `onLoadMore` conserva el modo
+  // legacy (toggle in-memory con `initialCount`), usado por los tests unitarios.
+  const serverPaginated = typeof onLoadMore === 'function';
 
   if (!Array.isArray(games) || games.length === 0) {
     return (
       <GlassCard variant="default" padding="none" className="p-5">
-        <h3 className="text-base font-bold text-text-primary font-display mb-4">Historial de Partidas</h3>
+        <h2 className="text-base font-semibold text-text-primary font-display mb-4">Historial de Partidas</h2>
         <div className="py-6 text-center">
           <Clock size={24} className="text-text-muted mx-auto mb-2" aria-hidden="true" />
-          <p className="text-sm text-text-muted">Este alumno aun no tiene partidas registradas.</p>
+          <p className="text-sm text-text-muted">Este alumno aún no tiene partidas registradas.</p>
         </div>
       </GlassCard>
     );
   }
 
-  const visibleGames = showAll ? games : games.slice(0, initialCount);
-  const hasMore = games.length > initialCount;
+  const visibleGames = serverPaginated || showAll ? games : games.slice(0, initialCount);
+  const hasMore = serverPaginated ? hasMoreProp : games.length > initialCount;
+
+  // Etiquetas precomputadas (evita ternarios anidados en el JSX).
+  let countLabel;
+  if (!serverPaginated) {
+    countLabel = `Últimas ${games.length}`;
+  } else if (typeof total === 'number' && total > games.length) {
+    countLabel = `${games.length} de ${total}`;
+  } else {
+    countLabel = `${games.length} partidas`;
+  }
+
+  let loadMoreLabel;
+  if (serverPaginated) {
+    loadMoreLabel = loadingMore ? 'Cargando…' : 'Cargar más';
+  } else {
+    loadMoreLabel = showAll ? 'Mostrar menos' : `Ver todas (${games.length})`;
+  }
+  const showUpChevron = !serverPaginated && showAll;
 
   // Si ninguna partida trae completionTime, oculta la columna Duración para no
   // mostrar una retahila de "—". Backend todavia no persiste este campo en
@@ -55,9 +78,12 @@ function GameHistoryTable({ games, initialCount = 10 }) {
   return (
     <GlassCard variant="default" padding="none" className="p-5">
       <div className="flex items-center justify-between mb-4">
-        <h3 className="text-base font-bold text-text-primary font-display">Historial de Partidas</h3>
+        <h2 className="text-base font-semibold text-text-primary font-display">Historial de Partidas</h2>
+        {/* En modo legacy (sin paginación servidor) `games` son las RECIENTES
+            (cap 10) → «Últimas N» es fiel. En modo server-paginado mostramos
+            «cargadas de total» para que el docente sepa cuántas quedan por ver. */}
         <span className="text-xs text-text-muted bg-background-surface/50 px-2 py-1 rounded-lg">
-          {games.length} partidas
+          {countLabel}
         </span>
       </div>
 
@@ -68,7 +94,7 @@ function GameHistoryTable({ games, initialCount = 10 }) {
               <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Fecha</th>
               <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Contexto</th>
               <th className="text-left text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Mecánica</th>
-              <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Score</th>
+              <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Puntuación</th>
               <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 pr-3">Aciertos</th>
               {hasAnyDuration && (
                 <th className="text-right text-xs font-semibold text-text-muted uppercase tracking-wider pb-3 hidden sm:table-cell">Duración</th>
@@ -78,7 +104,14 @@ function GameHistoryTable({ games, initialCount = 10 }) {
           <tbody>
             <AnimatePresence>
               {visibleGames.map((game, index) => {
-                const tier = getGameTier(game.score ?? 0);
+                // score NORMALIZADO a % (score/maxScore×100): comparable entre
+                // mecánicas. El backend lo envía como `scorePercent`; el crudo
+                // (`game.score`) se queda solo como fallback de datos cacheados
+                // antiguos. El tier RAG usa umbrales 0-100, así que DEBE evaluarse
+                // sobre el %, no sobre el crudo (un 147 de Secuencia salía siempre
+                // "excelente"; un 24 de Memoria, "en riesgo").
+                const scorePct = game.scorePercent != null ? game.scorePercent : game.score;
+                const tier = getGameTier(scorePct ?? 0);
                 const badge = TIER_BADGE[tier];
                 // El backend puede enviar accuracy pre-calculada (%) o correctAttempts/totalAttempts
                 let accuracy = null;
@@ -106,9 +139,15 @@ function GameHistoryTable({ games, initialCount = 10 }) {
                       {game.mechanicName || game.mechanic || '—'}
                     </td>
                     <td className="py-2.5 pr-3 text-right">
-                      <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded-md inline-block", badge.className)} aria-label={`Puntuacion ${Math.round(game.score ?? 0)}, nivel ${badge.label}`}>
-                        {Math.round(game.score ?? 0)}
-                      </span>
+                      {scorePct != null ? (
+                        <span className={cn("text-xs font-semibold px-1.5 py-0.5 rounded-md inline-block", badge.className)} aria-label={`Puntuación ${Math.round(scorePct)} por ciento, nivel ${badge.label}`}>
+                          {Math.round(scorePct)}%
+                        </span>
+                      ) : (
+                        // Sin score real no mostramos "0" (que parecería la peor nota):
+                        // un guion neutro deja claro que no hay dato.
+                        <span className="text-xs text-text-muted" aria-label="Sin puntuación">—</span>
+                      )}
                     </td>
                     <td className="py-2.5 pr-3 text-right text-text-secondary tabular-nums">
                       {accuracy != null ? `${accuracy}%` : '—'}
@@ -128,14 +167,11 @@ function GameHistoryTable({ games, initialCount = 10 }) {
 
       {hasMore && (
         <button
-          onClick={() => setShowAll(!showAll)}
-          className="w-full mt-4 py-2.5 text-sm font-medium text-text-muted hover:text-text-primary flex items-center justify-center gap-1.5 transition-colors"
+          onClick={serverPaginated ? onLoadMore : () => setShowAll(!showAll)}
+          disabled={serverPaginated && loadingMore}
+          className="w-full mt-4 py-2.5 text-sm font-medium text-text-muted hover:text-text-primary flex items-center justify-center gap-1.5 transition-colors disabled:opacity-60 disabled:cursor-not-allowed"
         >
-          {showAll ? (
-            <>Mostrar menos <ChevronUp size={14} /></>
-          ) : (
-            <>Ver todas ({games.length}) <ChevronDown size={14} /></>
-          )}
+          {loadMoreLabel} {showUpChevron ? <ChevronUp size={14} /> : <ChevronDown size={14} />}
         </button>
       )}
     </GlassCard>
@@ -147,6 +183,7 @@ GameHistoryTable.propTypes = {
     gameplayId: PropTypes.string,
     _id: PropTypes.string,
     score: PropTypes.number,
+    scorePercent: PropTypes.number,
     accuracy: PropTypes.number,
     correctAttempts: PropTypes.number,
     totalAttempts: PropTypes.number,
@@ -158,6 +195,14 @@ GameHistoryTable.propTypes = {
     mechanic: PropTypes.string,
   })),
   initialCount: PropTypes.number,
+  /** Modo server-paginado: callback para pedir la siguiente página. */
+  onLoadMore: PropTypes.func,
+  /** ¿Quedan más páginas en el servidor? (solo modo server-paginado) */
+  hasMore: PropTypes.bool,
+  /** Cargando la siguiente página (deshabilita el botón). */
+  loadingMore: PropTypes.bool,
+  /** Total de partidas del alumno (para el contador «N de M»). */
+  total: PropTypes.number,
 };
 
 export default memo(GameHistoryTable);

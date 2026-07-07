@@ -19,6 +19,17 @@ const readStoredPreference = () => {
   }
 };
 
+// NOTA (mantenimiento 2026-07): se evaluó elevar `userPreference` a un store
+// módulo-level para que el toggle "Animaciones" propagara a las 70+ instancias
+// del hook a la vez. Se REVIRTIÓ: esa propagación provoca un re-render EN SITIO
+// masivo y simultáneo que, con extensiones de navegador que inyectan nodos en el
+// DOM gestionado por React (p. ej. antivirus tipo Kaspersky "protección web"),
+// dispara `NotFoundError: removeChild` y tumba la app al error boundary. El
+// atributo `data-reduced-motion` de `<html>` (más abajo) ya propaga la
+// preferencia a TODAS las animaciones/transiciones CSS de inmediato; los
+// componentes Framer Motion la recogen en su siguiente render. Ese pequeño
+// desfase es preferible a un crash con extensiones que mutan el DOM.
+
 /**
  * Hook para gestionar reduced motion solo por preferencia explícita del usuario.
  *
@@ -80,6 +91,19 @@ export function useReducedMotion() {
     return systemReducedMotion;
   }, [systemReducedMotion, userPreference]);
 
+  // Sincroniza la preferencia efectiva con `<html data-reduced-motion>` para que
+  // las reglas CSS (animaciones, transiciones, scanlines del aurora, hovers que
+  // dependen de transition-duration) también se enteren del toggle del sidebar.
+  useEffect(() => {
+    if (typeof document === 'undefined') return;
+    const root = document.documentElement;
+    if (shouldReduceMotion) {
+      root.setAttribute('data-reduced-motion', 'reduce');
+    } else {
+      root.removeAttribute('data-reduced-motion');
+    }
+  }, [shouldReduceMotion]);
+
   return {
     shouldReduceMotion,
     systemReducedMotion,
@@ -88,5 +112,3 @@ export function useReducedMotion() {
     resetUserPreference,
   };
 }
-
-export default useReducedMotion;

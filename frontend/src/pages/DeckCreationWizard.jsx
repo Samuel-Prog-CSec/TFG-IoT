@@ -14,7 +14,7 @@
 import { useState, useEffect, useCallback, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { useConfetti } from '../hooks/useConfetti';
 import {
   ArrowLeft,
@@ -33,15 +33,20 @@ import {
   Eye
 } from 'lucide-react';
 import { cn } from '../lib/utils';
+import { getId } from '../lib/entityId';
 import { buildCardMappingsPayload } from '../lib/cardMapping';
+import { validateAssignmentCardinality } from '../lib/deckCardinality';
 import WizardStepper from '../components/ui/WizardStepper';
 import RFIDScannerPanel from '../components/ui/RFIDScannerPanel';
 import AssetSelector from '../components/ui/AssetSelector';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
+import ErrorState from '../components/ui/ErrorState';
 import ConfirmationModal, { useConfirmationModal } from '../components/ui/ConfirmationModal';
 import { decksAPI, extractErrorMessage } from '../services/api';
 import useDeckWizardDraft, { formatDraftDate } from '../hooks/useDeckWizardDraft';
@@ -49,6 +54,7 @@ import { useContexts } from '../hooks/useContexts';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useReducedMotion } from '../hooks/useReducedMotion';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { ROUTES } from '../constants/routes';
 import { GAME_CONFIG } from '../constants/gameConfig';
 import { toast } from 'sonner';
@@ -67,18 +73,18 @@ const WIZARD_STEPS = [
     title: 'Elegir Contexto',
     subtitle: 'Selecciona el tema',
     icon: Palette,
-    description: 'El contexto determina los assets disponibles'
+    description: 'El contexto determina los recursos disponibles'
   },
   {
     id: 'assign',
-    title: 'Asignar Assets',
-    subtitle: 'Vincula cartas con contenido',
+    title: 'Vincular Recursos',
+    subtitle: 'Une cartas con contenido',
     icon: LinkIcon,
-    description: 'Asocia cada carta con un asset del contexto'
+    description: 'Asocia cada carta con un recurso del contexto'
   },
   {
     id: 'confirm',
-    title: 'Confirmar',
+    title: 'Guardar Mazo',
     subtitle: 'Revisa y guarda',
     icon: Check,
     description: 'Revisa tu mazo y dale un nombre'
@@ -112,6 +118,10 @@ export default function DeckCreationWizard() {
   const { shouldReduceMotion } = useReducedMotion();
   const { fireConfetti } = useConfetti();
   useDocumentTitle('Crear Mazo');
+  // T-955: confirmación inline tras crear el mazo, justo antes de navegar
+  // de vuelta a "Mis Mazos". Coexiste con el confetti y el toast: el badge
+  // es el ancla visual junto al botón "Crear Mazo".
+  const saveBadge = useInlineSuccess();
 
   // Estado del wizard
   const [currentStep, setCurrentStep] = useState(0);
@@ -143,21 +153,33 @@ export default function DeckCreationWizard() {
   const [showDraftModal, setShowDraftModal] = useState(false);
   const draftDecisionTakenRef = useRef(false);
   
-  // Modal de confirmación para salir
-  const exitConfirmation = useConfirmationModal();
-  
+  // T-957: confirmación danger antes de descartar el borrador. El click
+  // accidental en "Descartar" del modal "Borrador encontrado" perdía
+  // 10-15 min de trabajo sin red de seguridad — ahora pedimos una segunda
+  // confirmación con el flip 3D de variant 'danger'.
+  const discardConfirmation = useConfirmationModal();
+
   // Verificar si hay datos sin guardar
   const hasUnsavedData = selectedCards.length > 0 || selectedContext !== null || Object.keys(cardAssignments).length > 0 || deckName.trim() !== '';
+
+  // T-957: hook unificado de cambios sin guardar — beforeunload (cierre
+  // pestaña/refresh) + confirmExit (botones programáticos de navegación).
+  // Reemplaza al `exitConfirmation` anterior, que era el mismo patrón
+  // hecho a mano sin protección de refresh.
+  const { confirmExit, confirmExitModalProps } = useUnsavedChanges(
+    hasUnsavedData,
+    'Tienes cambios sin guardar. El borrador se mantendrá guardado automáticamente. ¿Seguro que quieres salir?'
+  );
   
   // Hook de persistencia de borrador
-  const { 
-    draft, 
-    hasDraft, 
-    saveDraft, 
-    restoreDraft, 
-    discardDraft, 
+  const {
+    draft,
+    hadDraftOnMount,
+    saveDraft,
+    restoreDraft,
+    discardDraft,
     clearDraft,
-    draftTimestamp 
+    draftTimestamp
   } = useDeckWizardDraft();
 
   useRefetchOnFocus({
@@ -167,13 +189,16 @@ export default function DeckCreationWizard() {
     hasError: Boolean(contextsError)
   });
 
-  // Mostrar modal si hay borrador guardado, solo si el usuario aún no ha
-  // tomado decisión sobre él en esta sesión del wizard.
+  // Mostrar el modal "Borrador encontrado" SOLO si al montar el wizard ya
+  // existía un borrador previo (`hadDraftOnMount`), no cuando el autosave de la
+  // sesión actual crea uno nuevo. Antes se usaba `hasDraft`, que `saveDraft`
+  // vuelve a poner true al guardar la 1ª carta de un mazo nuevo → el modal
+  // rebrotaba sobre el borrador que el usuario está creando (QA 2026-06-04).
   useEffect(() => {
-    if (hasDraft && !showDraftModal && !draftDecisionTakenRef.current) {
+    if (hadDraftOnMount && !showDraftModal && !draftDecisionTakenRef.current) {
       setShowDraftModal(true);
     }
-  }, [hasDraft, showDraftModal]);
+  }, [hadDraftOnMount, showDraftModal]);
 
   // Guardar borrador automáticamente
   useEffect(() => {
@@ -203,29 +228,35 @@ export default function DeckCreationWizard() {
     setShowDraftModal(false);
   }, [draft, restoreDraft]);
 
-  // Descartar borrador
+  // Descartar borrador (T-957: requiere confirmación danger explícita
+  // — el borrador puede contener 10-15 min de captura RFID + asignaciones).
   const handleDiscardDraft = useCallback(() => {
-    discardDraft();
-    draftDecisionTakenRef.current = true;
-    setShowDraftModal(false);
-  }, [discardDraft]);
+    discardConfirmation.openModal({
+      title: 'Descartar borrador',
+      description: 'Se perderá el progreso guardado del wizard (cartas escaneadas, contexto y asignaciones). Esta acción no se puede deshacer.',
+      variant: 'danger',
+      confirmText: 'Descartar borrador',
+      cancelText: 'Conservar',
+      onConfirm: () => {
+        discardDraft();
+        draftDecisionTakenRef.current = true;
+        setShowDraftModal(false);
+      },
+    });
+  }, [discardDraft, discardConfirmation]);
 
-  // Handler para salir del wizard con confirmación
+  // Handler para salir del wizard con confirmación (T-957: usa confirmExit
+  // del hook useUnsavedChanges, que añade además protección beforeunload).
   const handleExitWizard = useCallback(() => {
-    if (hasUnsavedData) {
-      exitConfirmation.openModal({
+    confirmExit(
+      () => navigate(ROUTES.CARD_DECKS),
+      {
         title: 'Salir sin guardar',
-        message: 'Tienes cambios sin guardar. El borrador se mantendrá guardado automáticamente. ¿Seguro que quieres salir?',
+        description: 'Tienes cambios sin guardar. El borrador se mantendrá guardado automáticamente. ¿Seguro que quieres salir?',
         confirmText: 'Salir',
-        variant: 'warning',
-        onConfirm: () => {
-          navigate(ROUTES.CARD_DECKS);
-        }
-      });
-    } else {
-      navigate(ROUTES.CARD_DECKS);
-    }
-  }, [hasUnsavedData, navigate, exitConfirmation]);
+      }
+    );
+  }, [navigate, confirmExit]);
 
   // Handler para escaneo RFID
   const handleRFIDScan = useCallback((card) => {
@@ -294,7 +325,9 @@ export default function DeckCreationWizard() {
       case 2: // Assign
         return Object.keys(cardAssignments).length === selectedCards.length;
       case 3: // Confirm
-        return deckName.trim().length >= 3;
+        // Mínimo 2 caracteres, alineado con el backend (antes 3, rechazaba
+        // nombres válidos de 2 letras).
+        return deckName.trim().length >= 2;
       default:
         return false;
     }
@@ -318,15 +351,23 @@ export default function DeckCreationWizard() {
   // Crear mazo
   const handleCreateDeck = async () => {
     if (!canProceed()) return;
-    
+
+    // Validar cardinalidad de recursos antes de llamar al backend para dar un
+    // mensaje claro en vez del 400 técnico (QA 2026-06-04). Ver lib/deckCardinality.
+    const cardinality = validateAssignmentCardinality(selectedCards, cardAssignments);
+    if (!cardinality.valid) {
+      toast.error('Recursos repetidos sin formar parejas', { description: cardinality.reason });
+      return;
+    }
+
     setIsSubmitting(true);
-    
+
     try {
       const deckData = {
         name: deckName.trim(),
         // El DTO del backend (toGameContextDTOV1) devuelve `id`, pero por
         // resiliencia ante futuros cambios de contrato aceptamos también `_id`.
-        contextId: selectedContext._id || selectedContext.id,
+        contextId: getId(selectedContext),
         cardMappings: buildCardMappingsPayload(selectedCards, cardAssignments)
       };
       
@@ -336,14 +377,15 @@ export default function DeckCreationWizard() {
       // Limpiar borrador
       clearDraft();
 
-      // Celebración
+      // Celebración + micro-confirmación inline.
       fireConfetti({
         particleCount: 150,
         spread: 80,
         origin: { y: 0.6 },
       });
+      saveBadge.trigger();
 
-      toast.success('¡Mazo creado!', {
+      toast.success('Mazo creado', {
         description: `"${deckName}" está listo para usar`
       });
 
@@ -363,7 +405,7 @@ export default function DeckCreationWizard() {
       }, shouldReduceMotion ? 400 : 1500);
       
     } catch (err) {
-      toast.error('Error al crear mazo', {
+      toast.error('No pudimos crear el mazo', {
         description: extractErrorMessage(err)
       });
       setIsSubmitting(false);
@@ -390,6 +432,8 @@ export default function DeckCreationWizard() {
           <StepContext
             contexts={contexts}
             loadingContexts={loadingContexts}
+            contextsError={contextsError}
+            onRetryContexts={refetchContexts}
             selectedContext={selectedContext}
             onSelectContext={handleSelectContext}
           />
@@ -419,7 +463,7 @@ export default function DeckCreationWizard() {
   };
 
   return (
-    <div className="min-h-full bg-background-deep p-4 lg:p-8">
+    <div className="page-container py-[var(--space-fluid-section)]">
       {/* Header */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: -20 }}
@@ -479,15 +523,16 @@ export default function DeckCreationWizard() {
         </AnimatePresence>
       </div>
 
-      {/* Footer con navegación */}
+      {/* Footer con navegación — sticky por el mismo motivo que en
+          CreateSession: que el CTA no quede bajo el fold en alturas cortas. */}
       <motion.div
         initial={shouldReduceMotion ? false : { opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ delay: shouldReduceMotion ? 0 : 0.3 }}
-        className="max-w-5xl mx-auto"
+        className="max-w-5xl mx-auto sticky bottom-4 z-30"
       >
         <GlassCard className="p-4">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <ButtonPremium
               variant="ghost"
               onClick={goBack}
@@ -497,19 +542,22 @@ export default function DeckCreationWizard() {
               Anterior
             </ButtonPremium>
 
-            <div className="flex items-center gap-2 text-sm text-text-muted">
+            <div className="flex items-center gap-2 text-sm text-text-muted order-last sm:order-none w-full sm:w-auto justify-center">
               <span>Paso {currentStep + 1} de {WIZARD_STEPS.length}</span>
             </div>
 
             {currentStep === WIZARD_STEPS.length - 1 ? (
-              <ButtonPremium
-                onClick={handleCreateDeck}
-                disabled={!canProceed() || isSubmitting}
-                loading={isSubmitting}
-                icon={<Sparkles size={18} />}
-              >
-                Crear Mazo
-              </ButtonPremium>
+              <div className="relative">
+                <ButtonPremium
+                  onClick={handleCreateDeck}
+                  disabled={!canProceed() || isSubmitting}
+                  loading={isSubmitting}
+                  icon={<Sparkles size={18} />}
+                >
+                  Crear Mazo
+                </ButtonPremium>
+                <InlineSuccessBadge visible={saveBadge.visible} label="Mazo creado" placement="left" />
+              </div>
             ) : (
               <ButtonPremium
                 onClick={goNext}
@@ -575,8 +623,12 @@ export default function DeckCreationWizard() {
         )}
       </AnimatePresence>
 
-      {/* Modal de confirmación para salir */}
-      <ConfirmationModal {...exitConfirmation.modalProps} />
+      {/* T-957: modal "cambios sin guardar" (sustituye al antiguo
+          exitConfirmation; ahora gestionado por useUnsavedChanges). */}
+      <ConfirmationModal {...confirmExitModalProps} />
+
+      {/* T-957: modal de confirmación al descartar borrador. */}
+      <ConfirmationModal {...discardConfirmation.modalProps} />
     </div>
   );
 }
@@ -622,15 +674,13 @@ function StepCards({
     setManualUid('');
   }, [manualUid, onRFIDScan]);
 
+  // "Generar UID" rellena el input con el siguiente UID secuencial sugerido.
+  // El usuario revisa y luego pulsa "Añadir". Antes anadia la carta directamente,
+  // lo que dejaba el boton "Añadir" disabled y rompia la expectativa del flujo
+  // (QA 2026-05-21 BUG-QA-8: el placeholder cambiaba pero el value seguia vacio).
   const handleGenerateUid = useCallback(() => {
-    const uid = nextSuggestedUid;
-    onRFIDScan({
-      _id: `manual-${uid}`,
-      uid,
-      type: 'MANUAL',
-      scannedAt: new Date()
-    });
-  }, [nextSuggestedUid, onRFIDScan]);
+    setManualUid(nextSuggestedUid);
+  }, [nextSuggestedUid]);
 
   return (
     <GlassCard className="p-6">
@@ -681,7 +731,7 @@ function StepCards({
             <RFIDScannerPanel
               onCardScanned={onRFIDScan}
               scannedCards={selectedCards}
-              onRemoveCard={onRemoveCard}
+              onCardRemoved={onRemoveCard}
               maxCards={maxCards}
               showMockButton={import.meta.env.MODE === 'development'}
             />
@@ -727,7 +777,7 @@ function StepCards({
                   disabled={!manualUid.trim() || selectedCards.length >= maxCards}
                   icon={<Check size={16} />}
                 >
-                  Agregar
+                  Añadir
                 </ButtonPremium>
               </div>
             </div>
@@ -736,7 +786,7 @@ function StepCards({
             <RFIDScannerPanel
               onCardScanned={onRFIDScan}
               scannedCards={selectedCards}
-              onRemoveCard={onRemoveCard}
+              onCardRemoved={onRemoveCard}
               maxCards={maxCards}
               showMockButton={import.meta.env.MODE === 'development'}
             />
@@ -767,13 +817,15 @@ function StepCards({
 function StepContext({
   contexts,
   loadingContexts,
+  contextsError,
+  onRetryContexts,
   selectedContext,
   onSelectContext
 }) {
   if (loadingContexts) {
     return (
       <GlassCard className="p-6">
-        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+        <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-[var(--space-fluid-gutter)]">
           {Array.from({ length: 6 }, (_, i) => `ctx-wizard-skeleton-${i}`).map(id => (
             <div
               key={id}
@@ -785,28 +837,41 @@ function StepContext({
     );
   }
 
+  // Estado de error: si la carga de contextos falló no debemos mostrar el
+  // empty-state (que sugeriría que no hay contextos), sino un error con
+  // reintento — así el profesor entiende que es un fallo de red, no falta de datos.
+  if (contextsError) {
+    return (
+      <ErrorState
+        title="No se pudieron cargar los contextos"
+        message={contextsError}
+        onRetry={onRetryContexts}
+      />
+    );
+  }
+
   return (
     <GlassCard className="p-6">
       <div className="mb-6">
         <h2 className="text-lg font-semibold text-text-primary mb-1">Elige un contexto</h2>
         <p className="text-sm text-text-muted">
-          El contexto determina los assets que podrás asignar a las cartas
+          El contexto determina los recursos que podrás asignar a las cartas
         </p>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-3 gap-[var(--space-fluid-gutter)]">
         {contexts.map((context) => {
           // El DTO toGameContextDTOV1 expone `id`; mantenemos compat con `_id`
           // por si en algun consumidor el documento Mongoose llega crudo.
-          const contextKey = context._id || context.id;
-          const selectedKey = selectedContext?._id || selectedContext?.id;
+          const contextKey = getId(context);
+          const selectedKey = getId(selectedContext);
           const isSelected = Boolean(selectedKey) && selectedKey === contextKey;
           return (
           <motion.button
             key={contextKey}
             onClick={() => onSelectContext(context)}
             className={cn(
-              'relative p-4 rounded-xl border-2 transition-[border-color,background-color] text-left',
+              'relative p-4 rounded-xl border-2 transition-[border-color,background-color] duration-200 text-left focus-ring',
               'hover:border-accent-indigo/50 hover:bg-accent-indigo/5',
               isSelected
                 ? 'border-accent-indigo bg-accent-indigo/10'
@@ -826,12 +891,17 @@ function StepContext({
               </motion.div>
             )}
 
-            {/* Preview de assets */}
+            {/* Preview de assets — imágenes reales (no solo el emoji): el
+                contenido ES la identidad del contexto (paridad con StepAssign). */}
             <div className="flex flex-wrap gap-1.5 mb-3 h-10 overflow-hidden">
               {context.assets?.slice(0, 6).map((asset, i) => (
-                <span key={asset.key || `${asset.display || 'asset'}-${i}`} className="text-2xl">
-                  {asset.display || '📦'}
-                </span>
+                <CardAssetPreview
+                  key={asset.key || `${asset.display || 'asset'}-${i}`}
+                  asset={asset}
+                  className="size-8 rounded-lg flex-shrink-0"
+                  showSkeleton={false}
+                  fallbackLabel={asset.display}
+                />
               ))}
               {context.assets?.length > 6 && (
                 <span className="text-text-muted text-xs self-end">
@@ -842,7 +912,7 @@ function StepContext({
 
             <h3 className="font-medium text-text-primary mb-1">{context.name}</h3>
             <p className="text-xs text-text-muted">
-              {context.assets?.length || 0} assets disponibles
+              {context.assets?.length || 0} recursos disponibles
             </p>
           </motion.button>
           );
@@ -868,6 +938,7 @@ function StepAssign({
   cardAssignments,
   onAssignAsset
 }) {
+  const { shouldReduceMotion } = useReducedMotion();
   const [activeCardId, setActiveCardId] = useState(selectedCards[0]?.uid || null);
   const assetUsageCounts = useMemo(() => {
     return Object.values(cardAssignments).reduce((acc, asset) => {
@@ -889,7 +960,7 @@ function StepAssign({
   );
 
   const assignedAssetKeys = useMemo(
-    () => new Set(Object.values(cardAssignments).map(a => a?.key).filter(Boolean)),
+    () => new Set(Object.values(cardAssignments).flatMap(a => a?.key ? [a.key] : [])),
     [cardAssignments]
   );
 
@@ -905,8 +976,8 @@ function StepAssign({
     for (let i = 0; i < count; i++) {
       onAssignAsset(unassignedCards[i].uid, unassignedAssets[i]);
     }
-    toast.success('Auto-asignacion completada', {
-      description: `${count} carta(s) asignada(s) automaticamente`
+    toast.success('Auto-asignación completada', {
+      description: `${count} carta(s) asignada(s) automáticamente`
     });
   }, [unassignedCards, unassignedAssets, onAssignAsset]);
 
@@ -918,11 +989,11 @@ function StepAssign({
           initial={{ opacity: 0, y: -10 }}
           animate={{ opacity: 1, y: 0 }}
         >
-          <GlassCard className="p-3 flex items-center justify-between">
+          <GlassCard className="p-3" contentClassName="flex items-center justify-between">
             <div className="flex items-center gap-2 text-sm text-text-secondary">
               <Wand2 size={16} className="text-accent-indigo" />
               <span>
-                {unassignedCards.length} carta(s) y {unassignedAssets.length} asset(s) sin asignar
+                {unassignedCards.length} carta(s) y {unassignedAssets.length} recurso(s) sin asignar
               </span>
             </div>
             <ButtonPremium
@@ -937,17 +1008,19 @@ function StepAssign({
         </motion.div>
       )}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
         {/* Lista de cartas */}
         <GlassCard className="p-4 lg:col-span-1">
           <div className="mb-4">
             <h3 className="font-medium text-text-primary mb-1">Cartas del mazo</h3>
             <div className="h-1.5 bg-background-elevated rounded-full overflow-hidden">
+              {/* Animamos scaleX (compositor) en vez de width (layout) para no
+                  disparar reflow en cada asignación. Requiere w-full + origin-left. */}
               <motion.div
-                className="h-full bg-gradient-to-r from-accent-indigo to-brand-base"
-                initial={{ width: 0 }}
-                animate={{ width: `${progress}%` }}
-                transition={{ duration: 0.5 }}
+                className="h-full w-full origin-left bg-gradient-to-r from-accent-indigo to-brand-base"
+                initial={shouldReduceMotion ? false : { scaleX: 0 }}
+                animate={{ scaleX: progress / 100 }}
+                transition={{ duration: shouldReduceMotion ? 0 : 0.5 }}
               />
             </div>
             <p className="text-xs text-text-muted mt-1">
@@ -999,7 +1072,7 @@ function StepAssign({
                         ? <>
                             {cardAssignments[card.uid]?.value}
                             {(assetUsageCounts.get(cardAssignments[card.uid]?.key) || 0) >= 2 && (
-                              <span className="ml-1 text-success-base font-medium">
+                              <span className="ml-1 text-success-on-alpha font-medium">
                                 {`(×${assetUsageCounts.get(cardAssignments[card.uid]?.key)})`}
                               </span>
                             )}
@@ -1027,10 +1100,10 @@ function StepAssign({
             <>
               <div className="mb-4">
                 <h3 className="font-medium text-text-primary mb-1">
-                  Asignar asset a <span className="text-accent-indigo">{activeCard.uid}</span>
+                  Asignar recurso a <span className="text-accent-indigo">{activeCard.uid}</span>
                 </h3>
                 <p className="text-sm text-text-muted">
-                  Selecciona un asset del contexto &quot;{selectedContext?.name}&quot;
+                  Selecciona un recurso del contexto &quot;{selectedContext?.name}&quot;
                 </p>
               </div>
 
@@ -1086,7 +1159,7 @@ function StepAssign({
             </>
           ) : (
             <div className="flex items-center justify-center h-64 text-text-muted">
-              <p>Selecciona una carta para asignar un asset</p>
+              <p>Selecciona una carta para asignar un recurso</p>
             </div>
           )}
         </GlassCard>
@@ -1105,16 +1178,30 @@ function StepConfirm({
   selectedContext,
   cardAssignments
 }) {
+  // Error inline cuando el nombre es demasiado corto (mismo patrón que
+  // DeckEditPage): sólo se muestra tras tocar el campo, para no marcar error
+  // antes de que el docente empiece a escribir. Mínimo 2 caracteres (backend).
+  const [nameTouched, setNameTouched] = useState(false);
+  const nameError =
+    nameTouched && deckName.trim().length < 2
+      ? 'El nombre debe tener al menos 2 caracteres'
+      : '';
+
   return (
-    <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+    <div className="grid grid-cols-1 md:grid-cols-2 gap-[var(--space-fluid-gutter)]">
       {/* Nombre del mazo */}
       <GlassCard className="p-6">
         <h2 className="text-lg font-semibold text-text-primary mb-4">Nombre del mazo</h2>
-        
+
         <InputPremium
           label="Nombre"
           value={deckName}
-          onChange={(e) => setDeckName(e.target.value)}
+          onChange={(e) => {
+            setDeckName(e.target.value);
+            if (!nameTouched) setNameTouched(true);
+          }}
+          onBlur={() => setNameTouched(true)}
+          error={nameError}
           placeholder="Ej: Capitales de Europa"
           maxLength={50}
           helperText={`${deckName.length}/50 caracteres`}
@@ -1154,7 +1241,7 @@ function StepConfirm({
                 <div className="relative flex-shrink-0">
                   <CardAssetPreview
                     asset={assignment}
-                    alt={`Asset de carta ${card.uid}`}
+                    alt={`Recurso de carta ${card.uid}`}
                     className="size-10 rounded-lg"
                     fit="cover"
                     fallbackClassName="bg-gradient-to-br from-accent-indigo/20 to-brand-base/20 text-xl"
@@ -1198,6 +1285,8 @@ StepCards.propTypes = {
 StepContext.propTypes = {
   contexts: PropTypes.arrayOf(PropTypes.object).isRequired,
   loadingContexts: PropTypes.bool.isRequired,
+  contextsError: PropTypes.string,
+  onRetryContexts: PropTypes.func,
   selectedContext: PropTypes.object,
   onSelectContext: PropTypes.func.isRequired
 };

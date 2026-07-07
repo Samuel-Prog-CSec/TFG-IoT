@@ -9,27 +9,61 @@
  */
 
 const gamePlayRepository = require('../../repositories/gamePlayRepository');
-const { toObjectId, getStartDate, linearRegression, enrichMetric } = require('./analyticsHelpers');
+const {
+  toObjectId,
+  getStartDate,
+  linearRegression,
+  enrichMetric,
+  // % normalizado (score/maxScore×100) — fuente única compartida; antes se
+  // redefinía aquí un literal idéntico (riesgo de divergencia, gotcha maxScore).
+  SCORE_PERCENT_EXPR
+} = require('./analyticsHelpers');
+
+// Sub-agregaciones para el informe `format=detailed` del docente; se acotan a
+// 7 s para que MongoDB aborte antes que el `Promise.race` (8 s) de
+// `reportDataService`, evitando queries zombie.
+const REPORT_AGGREGATE_TIMEOUT_MS = 7000;
 
 // ══════════════════════════════════════════════════════════════════════
-// E12 — Efectividad de contenido por contexto/mecánica
+// E12 — Efectividad de contenido por contexto/mecánica (y cross matrix)
 // ══════════════════════════════════════════════════════════════════════
 
 /**
- * Analiza qué contextos o mecánicas producen mejor aprendizaje.
+ * Stages comunes a todas las variantes: lookup de la sesión, filtro de
+ * `teacherId` + plays completadas dentro del rango temporal.
  *
+ * @private
  * @param {string} teacherId
- * @param {Object} options
- * @param {string} [options.timeRange='30d']
- * @param {string} [options.groupBy='context']
- * @returns {Promise<Object>} { items, groupBy }
+ * @param {Date} startDate
+ * @returns {Array} Stages del pipeline ($lookup sessions + $unwind + $match)
  */
-async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy = 'context' } = {}) {
-  const startDate = getStartDate(timeRange);
-  const lookupCollection = groupBy === 'context' ? 'game_contexts' : 'game_mechanics';
-  const lookupField = groupBy === 'context' ? 'session.contextId' : 'session.mechanicId';
+const buildBaseStages = async (teacherId, startDate) => {
+  // (B1) Prefiltramos por las sesiones del profesor (helper cacheado, devuelve
+  // ObjectId) y hacemos el `$match` ANTES del `$lookup`. Antes el pipeline hacía
+  // `$lookup` sobre TODA la colección game_plays y filtraba `session.createdBy`
+  // después — coste O(total_plays). Ahora el primer stage usa el índice de
+  // game_plays.sessionId y reduce a las plays del profesor. Mismo patrón A.3 ya
+  // aplicado en analyticsService. La staleness del caché (300s) la cubre la
+  // invalidación de gameSessionService al crear/archivar/eliminar sesiones.
+  const { getTeacherSessionIds, getAnalyticsExcludedPlayerIds } = require('../analyticsService');
+  // Exclusión por oposición al tratamiento (Art. 21 RGPD): las partidas de
+  // alumnos sin consentimiento de `performance_analytics` NO deben contar en las
+  // métricas de efectividad/cross-matrix (igual que en classroom summary/trends).
+  // Antes faltaba aquí → la matriz inflaba avgScore/uniqueStudents con no-consentidos.
+  const [teacherSessionIds, excludedIds] = await Promise.all([
+    getTeacherSessionIds(teacherId),
+    getAnalyticsExcludedPlayerIds(teacherId)
+  ]);
 
-  const pipeline = [
+  return [
+    {
+      $match: {
+        sessionId: { $in: teacherSessionIds },
+        status: 'completed',
+        completedAt: { $gte: startDate },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } })
+      }
+    },
     {
       $lookup: {
         from: 'game_sessions',
@@ -38,14 +72,61 @@ async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy =
         as: 'session'
       }
     },
-    { $unwind: '$session' },
-    {
-      $match: {
-        'session.createdBy': toObjectId(teacherId),
-        status: 'completed',
-        completedAt: { $gte: startDate }
-      }
-    },
+    { $unwind: '$session' }
+  ];
+};
+
+/**
+ * Bloque de agregaciones reutilizado por las tres variantes de groupBy.
+ * Calcula avgScore, avgAccuracy, totalPlays, uniqueStudents, avgCompletionTime
+ * y empuja `scoreDates` para el slope del improvement rate.
+ *
+ * @private
+ * @returns {Object} Sub-objeto de campos para el `$group` stage
+ */
+const buildSharedAggregates = () => ({
+  avgScore: { $avg: SCORE_PERCENT_EXPR },
+  avgAccuracy: {
+    $avg: {
+      $cond: [
+        { $gt: ['$metrics.totalAttempts', 0] },
+        {
+          $multiply: [{ $divide: ['$metrics.correctAttempts', '$metrics.totalAttempts'] }, 100]
+        },
+        0
+      ]
+    }
+  },
+  totalPlays: { $sum: 1 },
+  uniqueStudents: { $addToSet: '$playerId' },
+  avgCompletionTime: { $avg: '$metrics.completionTime' },
+  // Para calcular improvement rate: guardar scores NORMALIZADOS a % con fecha.
+  // Antes se empujaba el `score` crudo, pero varía por mecánica (Asociación
+  // 50-90, Memoria 90, Secuencia 210-420); la pendiente/regresión sobre crudo
+  // con groupBy='context' mezcla escalas y produce ruido, no aprendizaje real.
+  scoreDates: {
+    $push: {
+      score: SCORE_PERCENT_EXPR,
+      date: '$completedAt'
+    }
+  }
+});
+
+/**
+ * Construye el pipeline para la vista 1D (groupBy='context' | 'mechanic').
+ *
+ * @private
+ * @param {string} teacherId
+ * @param {Date} startDate
+ * @param {'context'|'mechanic'} groupBy
+ * @returns {Array} Pipeline de agregación completo
+ */
+const buildSingleDimensionPipeline = async (teacherId, startDate, groupBy) => {
+  const lookupCollection = groupBy === 'context' ? 'game_contexts' : 'game_mechanics';
+  const lookupField = groupBy === 'context' ? 'session.contextId' : 'session.mechanicId';
+
+  return [
+    ...(await buildBaseStages(teacherId, startDate)),
     {
       $lookup: {
         from: lookupCollection,
@@ -63,31 +144,7 @@ async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy =
           entityId: '$entity._id',
           entityName: { $ifNull: ['$entity.displayName', '$entity.name'] }
         },
-        avgScore: { $avg: '$score' },
-        avgAccuracy: {
-          $avg: {
-            $cond: [
-              { $gt: ['$metrics.totalAttempts', 0] },
-              {
-                $multiply: [
-                  { $divide: ['$metrics.correctAttempts', '$metrics.totalAttempts'] },
-                  100
-                ]
-              },
-              0
-            ]
-          }
-        },
-        totalPlays: { $sum: 1 },
-        uniqueStudents: { $addToSet: '$playerId' },
-        avgCompletionTime: { $avg: '$metrics.completionTime' },
-        // Para calcular improvement rate: guardar scores con fecha
-        scoreDates: {
-          $push: {
-            score: '$score',
-            date: '$completedAt'
-          }
-        }
+        ...buildSharedAggregates()
       }
     },
     {
@@ -103,51 +160,183 @@ async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy =
         totalPlays: 1,
         uniqueStudents: { $size: '$uniqueStudents' },
         avgCompletionTime: { $round: ['$avgCompletionTime', 0] },
-        scoreDates: 1
+        // `$sortArray` (MongoDB 5.2+) emite `scoreDates` ya ordenado por fecha.
+        // El JS posterior (`enrichWithLearningMetrics.sortedScores`) mantiene un
+        // `.sort()` defensivo pero la regresión lineal recibe el array O(N)
+        // ya ordenado, evitando el O(N log N) en el server Node por cada
+        // contexto/mecánica que entra en el reporte.
+        scoreDates: { $sortArray: { input: '$scoreDates', sortBy: { date: 1 } } }
       }
     },
     { $sort: { avgScore: -1 } }
   ];
+};
 
-  const results = await gamePlayRepository.aggregate(pipeline);
-
-  // Calcular improvement rate y learning efficiency para cada item
-  const items = results.map(r => {
-    // Improvement rate: pendiente de scores a lo largo del tiempo
-    const sortedScores = r.scoreDates
-      .sort((a, b) => new Date(a.date) - new Date(b.date))
-      .map((sd, i) => ({ x: i, y: sd.score }));
-
-    const { slope } = linearRegression(sortedScores);
-
-    let learningEfficiency;
-    if (slope > 1) {
-      learningEfficiency = 'high';
-    } else if (slope > 0) {
-      learningEfficiency = 'medium';
-    } else {
-      learningEfficiency = 'low';
+/**
+ * Construye el pipeline para la vista cruzada (groupBy='cross').
+ * Hace doble $lookup (contextos + mecánicas) y agrupa por composite key
+ * `{ mechanicId, mechanicName, contextId, contextName }`.
+ *
+ * @private
+ * @param {string} teacherId
+ * @param {Date} startDate
+ * @returns {Array} Pipeline de agregación completo
+ */
+const buildCrossPipeline = async (teacherId, startDate) => [
+  ...(await buildBaseStages(teacherId, startDate)),
+  {
+    $lookup: {
+      from: 'game_contexts',
+      localField: 'session.contextId',
+      foreignField: '_id',
+      as: 'context'
     }
+  },
+  { $unwind: '$context' },
+  {
+    $lookup: {
+      from: 'game_mechanics',
+      localField: 'session.mechanicId',
+      foreignField: '_id',
+      as: 'mechanic'
+    }
+  },
+  { $unwind: '$mechanic' },
+  {
+    $group: {
+      _id: {
+        mechanicId: '$mechanic._id',
+        mechanicName: { $ifNull: ['$mechanic.displayName', '$mechanic.name'] },
+        contextId: '$context._id',
+        contextName: { $ifNull: ['$context.displayName', '$context.name'] }
+      },
+      ...buildSharedAggregates()
+    }
+  },
+  {
+    $project: {
+      _id: 0,
+      mechanicId: '$_id.mechanicId',
+      mechanicName: '$_id.mechanicName',
+      contextId: '$_id.contextId',
+      contextName: '$_id.contextName',
+      // Mismo clamp defensivo que la versión 1D (ver ADR-057).
+      avgScore: { $min: [{ $round: ['$avgScore', 1] }, 100] },
+      avgAccuracy: { $min: [{ $round: ['$avgAccuracy', 1] }, 100] },
+      totalPlays: 1,
+      uniqueStudents: { $size: '$uniqueStudents' },
+      avgCompletionTime: { $round: ['$avgCompletionTime', 0] },
+      // `$sortArray` (MongoDB 5.2+) emite `scoreDates` ya ordenado por fecha,
+      // espejo del 1D-pipeline para que `enrichWithLearningMetrics` reciba el
+      // array O(N) ordenado en cada celda de la matriz cross.
+      scoreDates: { $sortArray: { input: '$scoreDates', sortBy: { date: 1 } } }
+    }
+  },
+  // Orden principal por score desc, secundario por nombre de mecánica asc
+  // para que la matriz quede estable cuando hay ties.
+  { $sort: { avgScore: -1, mechanicName: 1 } }
+];
 
-    // Enriquecer con RAG e interpretación (framework BI)
-    const scoreEnriched = enrichMetric('score', r.avgScore);
-    const learningEnriched = enrichMetric('learningRate', slope);
+/**
+ * Calcula `improvementRate`, `learningEfficiency`, `scoreRag`, `learningRag`
+ * e `interpretation` a partir del `scoreDates` agregado.
+ *
+ * @private
+ * @param {Array<{score:number,date:Date}>} scoreDates
+ * @param {number} avgScore
+ * @returns {Object} Campos derivados comunes a 1D y cross
+ */
+const enrichWithLearningMetrics = (scoreDates, avgScore) => {
+  // Improvement rate: pendiente de scores a lo largo del tiempo
+  const sortedScores = scoreDates
+    .sort((a, b) => new Date(a.date) - new Date(b.date))
+    .map((sd, i) => ({ x: i, y: sd.score }));
 
-    return {
-      name: r.name,
-      id: r.id.toString(),
+  const { slope } = linearRegression(sortedScores);
+
+  let learningEfficiency;
+  if (slope > 1) {
+    learningEfficiency = 'high';
+  } else if (slope > 0) {
+    learningEfficiency = 'medium';
+  } else {
+    learningEfficiency = 'low';
+  }
+
+  // Enriquecer con RAG e interpretación (framework BI)
+  const scoreEnriched = enrichMetric('score', avgScore);
+  const learningEnriched = enrichMetric('learningRate', slope);
+
+  return {
+    improvementRate: Math.round(slope * 100) / 100,
+    learningEfficiency,
+    scoreRag: scoreEnriched.rag,
+    learningRag: learningEnriched.rag,
+    interpretation: learningEnriched.interpretation
+  };
+};
+
+/**
+ * Analiza qué contextos, mecánicas o pares mecánica×contexto producen
+ * mejor aprendizaje.
+ *
+ * @param {string} teacherId
+ * @param {Object} options
+ * @param {string} [options.timeRange='30d']
+ * @param {'context'|'mechanic'|'cross'} [options.groupBy='context']
+ * @param {boolean} [options.includeEmpty=false] - Sólo aplica a `cross`.
+ *   Si es `false` (default), filtra celdas sin partidas (`totalPlays === 0`).
+ *   Mongo nunca emite celdas sin plays por la naturaleza del `$group`, pero
+ *   la lógica defensiva queda en JS para futuros cambios del pipeline.
+ * @returns {Promise<Object>} { items, groupBy }
+ */
+async function getContentEffectiveness(
+  teacherId,
+  { timeRange = '30d', groupBy = 'context', includeEmpty = false } = {}
+) {
+  const startDate = getStartDate(timeRange);
+
+  const pipeline =
+    groupBy === 'cross'
+      ? await buildCrossPipeline(teacherId, startDate)
+      : await buildSingleDimensionPipeline(teacherId, startDate, groupBy);
+
+  const results = await gamePlayRepository.aggregate(pipeline, {
+    maxTimeMS: REPORT_AGGREGATE_TIMEOUT_MS
+  });
+
+  if (groupBy === 'cross') {
+    // Filtrar celdas sin partidas por defecto. `$group` sólo emite combinaciones
+    // con al menos una partida, pero mantenemos el filtro como salvaguarda.
+    const filtered = includeEmpty ? results : results.filter(r => r.totalPlays > 0);
+
+    const items = filtered.map(r => ({
+      mechanicId: r.mechanicId.toString(),
+      mechanicName: r.mechanicName,
+      contextId: r.contextId.toString(),
+      contextName: r.contextName,
       avgScore: r.avgScore,
       avgAccuracy: r.avgAccuracy,
       totalPlays: r.totalPlays,
       uniqueStudents: r.uniqueStudents,
       avgCompletionTime: r.avgCompletionTime,
-      improvementRate: Math.round(slope * 100) / 100,
-      learningEfficiency,
-      scoreRag: scoreEnriched.rag,
-      learningRag: learningEnriched.rag,
-      interpretation: learningEnriched.interpretation
-    };
-  });
+      ...enrichWithLearningMetrics(r.scoreDates, r.avgScore)
+    }));
+
+    return { items, groupBy: 'cross' };
+  }
+
+  // Variante 1D (context | mechanic)
+  const items = results.map(r => ({
+    name: r.name,
+    id: r.id.toString(),
+    avgScore: r.avgScore,
+    avgAccuracy: r.avgAccuracy,
+    totalPlays: r.totalPlays,
+    uniqueStudents: r.uniqueStudents,
+    avgCompletionTime: r.avgCompletionTime,
+    ...enrichWithLearningMetrics(r.scoreDates, r.avgScore)
+  }));
 
   return { items, groupBy };
 }
@@ -169,17 +358,25 @@ async function getContentEffectiveness(teacherId, { timeRange = '30d', groupBy =
 async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, threshold = 40 } = {}) {
   const startDate = getStartDate(timeRange);
 
-  const matchStage = {
-    'session.createdBy': toObjectId(teacherId),
-    status: 'completed',
-    completedAt: { $gte: startDate }
-  };
-
-  if (contextId) {
-    matchStage['session.contextId'] = toObjectId(contextId);
-  }
+  // (B1) Prefiltro por sesiones del profesor ANTES del $lookup (ver buildBaseStages).
+  // Además excluimos las partidas de alumnos cuyo tutor se opuso al tratamiento
+  // analítico (Art. 21 RGPD), igual que buildBaseStages y el resto de analytics;
+  // sin esto, los menores opuestos se colaban en la dificultad de cartas de clase.
+  const { getTeacherSessionIds, getAnalyticsExcludedPlayerIds } = require('../analyticsService');
+  const [teacherSessionIds, excludedIds] = await Promise.all([
+    getTeacherSessionIds(teacherId),
+    getAnalyticsExcludedPlayerIds(teacherId)
+  ]);
 
   const pipeline = [
+    {
+      $match: {
+        sessionId: { $in: teacherSessionIds },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } }),
+        status: 'completed',
+        completedAt: { $gte: startDate }
+      }
+    },
     {
       $lookup: {
         from: 'game_sessions',
@@ -189,7 +386,8 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
       }
     },
     { $unwind: '$session' },
-    { $match: matchStage },
+    // El filtro por contexto sigue requiriendo el doc de sesión (post-lookup).
+    ...(contextId ? [{ $match: { 'session.contextId': toObjectId(contextId) } }] : []),
     {
       $lookup: {
         from: 'game_contexts',
@@ -199,13 +397,36 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
       }
     },
     { $unwind: { path: '$context', preserveNullAndEmptyArrays: true } },
-    { $unwind: '$events' },
+    // Proyectar ANTES del $unwind de events: sin esto, el doc de sesión completo
+    // (cardMappings[≤20], boardLayout, sequencePlan, config) se replicaba a través
+    // de cada uno de los ≤500 eventos de la partida → amplificación de bytes
+    // inter-stage que puede superar el límite de 100MB/stage de Atlas M0. Además
+    // pre-filtramos los eventos a los de respuesta con carta, reduciendo el array
+    // antes de desenrollarlo (mismo patrón que getCardAnalysis en sessionAnalysisService).
     {
-      $match: {
-        'events.eventType': { $in: ['correct', 'error', 'timeout'] },
-        'events.cardUid': { $ne: null }
+      $project: {
+        playerId: 1,
+        contextName: '$context.name',
+        events: {
+          $filter: {
+            input: '$events',
+            as: 'e',
+            cond: {
+              $and: [
+                { $in: ['$$e.eventType', ['correct', 'error', 'timeout']] },
+                // `$gt: [campo, null]` excluye null Y ausente; un `$ne` en expresión
+                // NO descarta el campo ausente (los `timeout` no llevan cardUid) →
+                // dejaría pasar timeouts sin tarjeta creando un grupo `_id: null`
+                // espurio ("tarjeta fantasma" con errorRate ~100% al frente del
+                // informe). Mismo fix ya aplicado en sessionAnalysisService.getCardAnalysis.
+                { $gt: ['$$e.cardUid', null] }
+              ]
+            }
+          }
+        }
       }
     },
+    { $unwind: '$events' },
     {
       $group: {
         _id: '$events.cardUid',
@@ -217,7 +438,7 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
           $sum: { $cond: [{ $eq: ['$events.eventType', 'timeout'] }, 1, 0] }
         },
         uniqueStudents: { $addToSet: '$playerId' },
-        contextName: { $first: '$context.name' },
+        contextName: { $first: '$contextName' },
         sampleExpectedValue: { $first: '$events.expectedValue' }
       }
     },
@@ -285,7 +506,16 @@ async function getCardDifficulty(teacherId, { timeRange = '30d', contextId, thre
 async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mechanicId } = {}) {
   const startDate = getStartDate(timeRange);
 
-  const sessionMatch = { 'session.createdBy': toObjectId(teacherId) };
+  // (B1) Prefiltro por sesiones del profesor ANTES del $lookup (ver buildBaseStages).
+  // Excluimos partidas de alumnos opuestos al tratamiento analítico (Art. 21 RGPD).
+  const { getTeacherSessionIds, getAnalyticsExcludedPlayerIds } = require('../analyticsService');
+  const [teacherSessionIds, excludedIds] = await Promise.all([
+    getTeacherSessionIds(teacherId),
+    getAnalyticsExcludedPlayerIds(teacherId)
+  ]);
+
+  // El filtro por contexto/mecánica sigue requiriendo el doc de sesión (post-lookup).
+  const sessionMatch = {};
   if (contextId) {
     sessionMatch['session.contextId'] = toObjectId(contextId);
   }
@@ -295,6 +525,14 @@ async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mech
 
   const pipeline = [
     {
+      $match: {
+        sessionId: { $in: teacherSessionIds },
+        ...(excludedIds.length > 0 && { playerId: { $nin: excludedIds } }),
+        status: 'completed',
+        completedAt: { $gte: startDate }
+      }
+    },
+    {
       $lookup: {
         from: 'game_sessions',
         localField: 'sessionId',
@@ -303,11 +541,18 @@ async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mech
       }
     },
     { $unwind: '$session' },
+    ...(Object.keys(sessionMatch).length > 0 ? [{ $match: sessionMatch }] : []),
+    // Proyectamos SOLO lo necesario antes del $lookup de contexto + $sort + $group:
+    // descarta el array `events[]` (hasta 500 sub-docs/partida) que de otro modo se
+    // arrastraría por las etapas pesadas (in-memory sort). Mantiene `session.contextId`
+    // para el lookup y `maxScore` por convención (gotcha del cálculo de porcentaje).
     {
-      $match: {
-        ...sessionMatch,
-        status: 'completed',
-        completedAt: { $gte: startDate }
+      $project: {
+        playerId: 1,
+        score: 1,
+        maxScore: 1,
+        completedAt: 1,
+        'session.contextId': 1
       }
     },
     {
@@ -323,7 +568,10 @@ async function getLearningCurves(teacherId, { timeRange = '90d', contextId, mech
     {
       $group: {
         _id: { playerId: '$playerId', contextId: '$context._id', contextName: '$context.name' },
-        plays: { $push: { score: '$score', date: '$completedAt' } }
+        // score NORMALIZADO a % (no crudo): la curva agrupa por contexto y mezcla
+        // mecánicas de escalas distintas; promediar el crudo daría saltos que no
+        // reflejan aprendizaje. `maxScore` va proyectado justo para esto.
+        plays: { $push: { score: SCORE_PERCENT_EXPR, date: '$completedAt' } }
       }
     }
   ];

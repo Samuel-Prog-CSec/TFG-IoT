@@ -17,15 +17,19 @@ import {
   extractErrorMessage,
   isAbortError
 } from '../services/api';
+import { getId } from '../lib/entityId';
 import { toast } from 'sonner';
 
 const SOCKET_ERROR_MESSAGES = {
   RFID_MODE_INVALID: 'El lector de tarjetas no está listo. Avisa al profesor.',
-  RFID_SENSOR_UNAUTHORIZED: 'Este lector no está configurado para esta sesión. Avisa al profesor.',
-  RFID_SENSOR_MISMATCH: 'Se detectó un cambio en el lector durante la partida.',
+  RFID_SENSOR_UNAUTHORIZED: 'Este lector no está autorizado para esta sesión. Reconecta el lector configurado o continúa en modo táctil.',
+  RFID_SENSOR_MISMATCH: 'El lector cambió durante la partida. Reconecta el lector original.',
+  RFID_HMAC_INVALID: 'Lectura rechazada por seguridad (firma no válida). Reconecta el lector.',
   RFID_SENSOR_NOT_CONNECTED: 'El sensor RFID no está conectado. Conéctalo para continuar.',
   RFID_SENSOR_STALE: 'El sensor no responde. Comprueba que esté encendido.',
   RFID_DISABLED: 'El servicio RFID está desactivado por configuración del servidor.',
+  RFID_CLIENT_CLOCK_SKEW:
+    'La fecha y hora de este equipo están desincronizadas. Ajusta el reloj del ordenador (o sincronízalo por internet) para poder escanear tarjetas.',
   PLAY_NOT_ACTIVE: 'La partida ha terminado o fue interrumpida.',
   ROUND_BLOCKED: 'Espera un momento antes de pasar la siguiente tarjeta.',
   RFID_SOCKET_NOT_ACTIVE: 'El juego se abrió en otra ventana. Cierra las demás para continuar.',
@@ -38,6 +42,14 @@ const SOCKET_ERROR_MESSAGES = {
   TEMP_BLOCKED: 'Has ido demasiado rápido. Espera unos segundos antes de continuar.',
   PAYLOAD_TOO_LARGE: 'Hubo un problema con tu acción. Inténtalo de nuevo.',
   DUPLICATE_RFID_EVENT: 'Espera un momento antes del siguiente escaneo.'
+};
+
+// El backend emite `rfid_scan_error` con `{ code: 'RFID_HMAC_INVALID', reason }`
+// donde `reason` discrimina el motivo real del rechazo. Resolvemos el mensaje
+// por `reason` (más preciso) y caemos al mensaje por `code` si no viniera.
+const RFID_SCAN_ERROR_REASONS = {
+  COUNTER_REPLAY: 'Lectura rechazada: posible repetición de una lectura anterior. Reconecta el lector.',
+  HMAC_INVALID: 'Lectura rechazada por seguridad (firma no válida). Reconecta el lector.'
 };
 
 const SCAN_IGNORED_MESSAGES = {
@@ -60,16 +72,18 @@ const SCAN_IGNORED_TOAST_LEVEL = {
 const SCAN_RESPONSE_TIMEOUT_MS = 3000;
 
 // PROP-90 / ADR-090: cooldown de dedupe local diferenciado por fuente del scan.
-// El sensor hardware necesita 1200-1300ms para protegerse del chattering del
-// RC522, pero los taps táctiles deben permitir secuencias rápidas. Backend
-// espeja la misma política en `socketRateLimits.rfidDedupeConfig`.
+// El sensor hardware necesita ~1200ms para protegerse del chattering del RC522,
+// pero los taps táctiles deben permitir secuencias rápidas. Alineado con la
+// política del backend (`socketRateLimits.rfidDedupeConfig` = 1200ms para las
+// fuentes hardware): antes el cliente usaba 1300ms y era 100ms MÁS estricto,
+// descartando scans rápidos (1200–1300ms) que el backend sí habría aceptado.
 const DEDUPE_MS_BY_SOURCE = {
-  web_serial_hardware: 1300,
-  web_serial: 1300,
+  web_serial_hardware: 1200,
+  web_serial: 1200,
   touch_fallback: 250,
   touch_memory_flip: 250
 };
-const DEFAULT_DEDUPE_MS = 1300;
+const DEFAULT_DEDUPE_MS = 1200;
 
 const REALTIME_STATUS_COPY = {
   connected: { label: 'Juego listo', announcement: 'El juego está conectado.' },
@@ -130,7 +144,11 @@ export function useGameSocket({
     onPlayState,
     onMemoryTurnState,
     onPlayInterrupted,
-    onSrAnnouncement
+    onSrAnnouncement,
+    onSequencePhaseMemorizing,
+    onSequencePhaseReproducing,
+    onSequenceCardResult,
+    onSequenceRoundResult
   } = callbacks;
 
   // Estados propios del hook
@@ -144,15 +162,50 @@ export function useGameSocket({
   const [sessionError, setSessionError] = useState(null);
   const [rfidConnected, setRfidConnected] = useState(false);
   const [bestScore, setBestScore] = useState(0);
+  // Estado de "lector bloqueado": el sensor físico real está conectado pero el
+  // backend rechaza sus escaneos (no autorizado, cambio de lector o firma HMAC
+  // inválida/replay). Lo expone el hook para que la UI muestre un banner guiado
+  // de reconexión. `null` = sin bloqueo. Forma: { code, message }.
+  const [rfidBlocked, setRfidBlocked] = useState(null);
 
   // Refs internos
   const initCalledRef = useRef(false);
   const lastSocketErrorToastRef = useRef(0);
+  const lastScanExpiredToastRef = useRef(0);
   const lastRetryAtRef = useRef(0);
   const previousRealtimeStatusRef = useRef('connecting');
   const playIdRef = useRef(null);
   const gameStateRef = useRef('waiting');
   const pendingScanTimeoutRef = useRef(null);
+
+  // Ref a los últimos callbacks de gameplay. Los listeners de socket se registran
+  // UNA sola vez (el efecto depende solo de [sessionId, retryKey]), pero estos
+  // callbacks se recrean en cada render del padre (cierran sobre currentRound,
+  // totalRounds, isMemoryMode...). Sin este ref, los `wrapped*` invocaban SIEMPRE
+  // la versión del primer render: en Memoria reactivaba la lógica de Asociación
+  // (doble conteo de fallos/racha) y los mensajes de "última ronda"/presión de
+  // tiempo salían mal. Mismo patrón que useKeyboardShortcuts/useRefetchOnFocus.
+  const gameplayCallbacksRef = useRef(null);
+  // (F2) Incluir TAMBIÉN los callbacks de Secuencia: antes se omitían del ref, así
+  // que sus listeners invocaban la versión del primer render (closures obsoletas de
+  // currentRound/totalRounds) durante toda la partida — mensajes de ronda/última
+  // ronda incorrectos en Secuencia.
+  // (FE-2) Incluir onPlayInterrupted: el resumen de una partida interrumpida por el
+  // servidor cierra sobre `score`/`correctAnswers` (deps INESTABLES en GameSession),
+  // pero su listener se registraba con la versión del PRIMER render → el GameOver de
+  // interrupción pintaba 0 aciertos/score inicial. Leerlo del ref lo mantiene fresco.
+  // (Los otros handlers directos —onPlayPaused/Resumed/PlayState/SequencePhase*— son
+  // seguros HOY solo porque sus deps son estables; es una regla implícita frágil: si
+  // se añade una dep inestable a alguno, moverlo también a este ref.)
+  gameplayCallbacksRef.current = {
+    onNewRound,
+    onValidationResult,
+    onMemoryTurnState,
+    onGameOver,
+    onSequenceCardResult,
+    onSequenceRoundResult,
+    onPlayInterrupted
+  };
 
   const RETRY_COOLDOWN_MS = 5000;
 
@@ -171,7 +224,7 @@ export function useGameSocket({
       return searchParamsPlayerId;
     }
 
-    const teacherId = user?.id || user?._id;
+    const teacherId = getId(user);
     if (!teacherId) {
       throw new Error('No se pudo determinar el profesor para crear la partida.');
     }
@@ -182,7 +235,7 @@ export function useGameSocket({
     });
     const students = extractData(studentsRes) || [];
 
-    const firstStudentId = students?.[0]?.id || students?.[0]?._id;
+    const firstStudentId = getId(students?.[0]);
     if (!firstStudentId) {
       throw new Error('No hay alumnos disponibles para iniciar la partida.');
     }
@@ -194,20 +247,20 @@ export function useGameSocket({
     const inProgressRes = await playsAPI.getPlays({ sessionId, status: 'in-progress', limit: 1 }, { signal });
     const inProgressPlays = extractData(inProgressRes) || [];
     const foundInProgress = inProgressPlays?.[0];
-    if (foundInProgress?.id || foundInProgress?._id) {
+    if (getId(foundInProgress)) {
       return {
-        playId: foundInProgress.id || foundInProgress._id,
-        playerId: foundInProgress.playerId || foundInProgress.player?.id || foundInProgress.player?._id
+        playId: getId(foundInProgress),
+        playerId: foundInProgress.playerId || getId(foundInProgress.player)
       };
     }
 
     const pausedRes = await playsAPI.getPlays({ sessionId, status: 'paused', limit: 1 }, { signal });
     const pausedPlays = extractData(pausedRes) || [];
     const foundPaused = pausedPlays?.[0];
-    if (foundPaused?.id || foundPaused?._id) {
+    if (getId(foundPaused)) {
       return {
-        playId: foundPaused.id || foundPaused._id,
-        playerId: foundPaused.playerId || foundPaused.player?.id || foundPaused.player?._id
+        playId: getId(foundPaused),
+        playerId: foundPaused.playerId || getId(foundPaused.player)
       };
     }
 
@@ -216,7 +269,7 @@ export function useGameSocket({
     const createdPlay = extractData(createPlayRes);
 
     return {
-      playId: createdPlay?.id || createdPlay?._id,
+      playId: getId(createdPlay),
       playerId
     };
   }, [resolvePlayerId, sessionId]);
@@ -228,8 +281,21 @@ export function useGameSocket({
     const onSocketError = payload => {
       const normalized = resolveSocketError(payload);
 
-      // No mostrar warning de sensor RFID en modo fallback táctil
-      if (normalized.code === 'RFID_SENSOR_UNAUTHORIZED') {
+      // Errores de lector físico que requieren reconexión guiada
+      // (no autorizado para esta sesión / cambio de lector a media partida).
+      // Heurística sensor-real-vs-táctil: solo molestamos cuando hay un sensor
+      // físico realmente conectado (`deviceState === 'ready'`). En modo táctil
+      // (sin sensor) estos errores no deberían dispararse en la práctica y, si
+      // lo hacen, los silenciamos para no confundir al docente que juega con
+      // los botones del fallback. Cuando el sensor SÍ está activo, exponemos
+      // `rfidBlocked` para que la UI pinte el banner guiado de reconexión.
+      const sensorBlockingCodes = new Set(['RFID_SENSOR_UNAUTHORIZED', 'RFID_SENSOR_MISMATCH']);
+      if (sensorBlockingCodes.has(normalized.code)) {
+        if (webSerialService.deviceState === 'ready') {
+          setRfidBlocked({ code: normalized.code, message: normalized.message });
+          onSrAnnouncement(normalized.message);
+        }
+        // Sin sensor físico (modo táctil): silenciar. No banner, no toast.
         return;
       }
 
@@ -297,10 +363,29 @@ export function useGameSocket({
     // (NEW_ROUND o VALIDATION_RESULT): el hint "Espera un momento entre
     // intentos" persistía visualmente aunque el turno se hubiera completado
     // correctamente (detectado en QA 2026-04-23).
-    const wrappedOnNewRound = data => { cancelPendingScanTimeout(); setRealtimeError(null); onNewRound(data); };
-    const wrappedOnValidationResult = data => { cancelPendingScanTimeout(); setRealtimeError(null); onValidationResult(data); };
-    const wrappedOnMemoryTurnState = data => { cancelPendingScanTimeout(); onMemoryTurnState(data); };
-    const wrappedOnGameOver = data => { cancelPendingScanTimeout(); onGameOver(data); };
+    const wrappedOnNewRound = data => { cancelPendingScanTimeout(); setRealtimeError(null); gameplayCallbacksRef.current.onNewRound(data); };
+    const wrappedOnValidationResult = data => { cancelPendingScanTimeout(); setRealtimeError(null); gameplayCallbacksRef.current.onValidationResult(data); };
+    const wrappedOnMemoryTurnState = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onMemoryTurnState(data); };
+    const wrappedOnGameOver = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onGameOver(data); };
+    // (FE-2) play_interrupted vía ref para leer score/correctAnswers actuales.
+    const wrappedOnPlayInterrupted = data => { cancelPendingScanTimeout(); gameplayCallbacksRef.current.onPlayInterrupted?.(data); };
+    // (F2) Wrappers de Secuencia vía ref (igual que los de arriba): resuelven la
+    // versión ACTUAL del callback en cada evento, no la del primer render.
+    // `cancelPendingScanTimeout()` es OBLIGATORIO aquí, igual que en los wrappers
+    // de Memoria/Asociación: cada scan hardware/sim arma un timeout de 3s que
+    // muestra "Tarjeta no reconocida". Sin cancelarlo al recibir la respuesta del
+    // servidor (`sequence_card_result`/`round_result`), tras la última carta de
+    // cada ronda saltaba un toast rojo espurio ~3s después, aunque la carta SÍ se
+    // aceptó — falso negativo confuso para el niño y el docente.
+    const wrappedOnSequenceCardResult = data => {
+      cancelPendingScanTimeout();
+      setRealtimeError(null);
+      gameplayCallbacksRef.current.onSequenceCardResult?.(data);
+    };
+    const wrappedOnSequenceRoundResult = data => {
+      cancelPendingScanTimeout();
+      gameplayCallbacksRef.current.onSequenceRoundResult?.(data);
+    };
 
     const onScanIgnored = payload => {
       cancelPendingScanTimeout();
@@ -323,9 +408,36 @@ export function useGameSocket({
       toastFn(message, { id: 'scan-ignored', duration: 3000 });
     };
 
-    // Timeout client-side: si el frontend envía un scan y no recibe respuesta en 3s
+    // Rechazos de escaneo por seguridad: el backend emite `rfid_scan_error` con
+    // `{ code: 'RFID_HMAC_INVALID', reason }` donde `reason` es 'HMAC_INVALID' o
+    // 'COUNTER_REPLAY'. Sin este listener esos rechazos eran invisibles. Los
+    // elevamos a `rfidBlocked` para que la UI muestre el banner guiado de
+    // reconexión, eligiendo el mensaje por `reason` (más preciso) con fallback
+    // al mensaje por `code`.
+    const onRfidScanError = payload => {
+      cancelPendingScanTimeout();
+      const securityBlockingCodes = new Set(['RFID_HMAC_INVALID', 'COUNTER_REPLAY']);
+      if (!securityBlockingCodes.has(payload?.code)) {
+        return;
+      }
+      const message = RFID_SCAN_ERROR_REASONS[payload?.reason]
+        || SOCKET_ERROR_MESSAGES[payload?.code]
+        || RFID_SCAN_ERROR_REASONS.HMAC_INVALID;
+      setRfidBlocked({ code: payload.code, message });
+      onSrAnnouncement(message);
+    };
+
+    // Timeout client-side: si el frontend envía un scan y no recibe respuesta en 3s.
+    // `webSerialService` emite `scan` SIEMPRE, incluso cuando el socket está caído
+    // y la lectura solo se ENCOLA (no se envía). En ese caso NO armamos el timeout:
+    // no habrá respuesta del servidor y el toast "Tarjeta no reconocida" sería
+    // factualmente incorrecto (la carta era válida y quedó en cola para reenviar).
+    // El feedback correcto de ese caso ya lo cubren la cola + el evento `scan_expired`.
     const handleLocalScan = () => {
       cancelPendingScanTimeout();
+      if (!socketService.isGameSocketConnected()) {
+        return;
+      }
       pendingScanTimeoutRef.current = setTimeout(() => {
         toast.warning('Tarjeta no reconocida. Verifica que pertenece a esta sesión.', {
           id: 'scan-timeout',
@@ -336,7 +448,22 @@ export function useGameSocket({
       }, SCAN_RESPONSE_TIMEOUT_MS);
     };
 
+    // `webSerialService` emite `scan_expired` cuando descarta un scan caducado
+    // en el flush (p.ej. tras una desconexión del sensor). Sin este listener el
+    // docente no se entera de que una lectura se perdió. Lo avisamos con un
+    // toast, deduplicado (max 1 cada 5s) para no spamear si caducan varios.
+    const onScanExpired = () => {
+      const now = Date.now();
+      if (now - lastScanExpiredToastRef.current > 5000) {
+        lastScanExpiredToastRef.current = now;
+        toast.warning('Un escaneo se perdió por una desconexión. Vuelve a acercar la tarjeta.', {
+          id: 'scan-expired'
+        });
+      }
+    };
+
     webSerialService.on('scan', handleLocalScan);
+    webSerialService.on('scan_expired', onScanExpired);
 
     const initRealtimePlay = async () => {
       // Prevenir re-inicialización cuando useEffect se re-ejecuta por cambios de dependencias
@@ -354,8 +481,14 @@ export function useGameSocket({
         setBootstrappingPlay(true);
         setSessionError(null);
 
-        // 1. Conectar socket primero (crea this.socket si no existe)
-        if (!socketService.isSocketConnected()) {
+        // 1. Conectar socket primero (crea this.socket/this.gameSocket si no
+        //    existen). Asegurar AMBOS namespaces: isSocketConnected() solo mira
+        //    el socket de sistema; si el de /game cayó de forma independiente
+        //    (timeout/transport) con el de sistema aún arriba, sin comprobar
+        //    isGameSocketConnected() se saltaba el connect() y los onGame() de
+        //    abajo se registraban sobre un gameSocket inexistente. connect() es
+        //    idempotente (no-op si ambos ya están conectados).
+        if (!socketService.isSocketConnected() || !socketService.isGameSocketConnected()) {
           await socketService.connect();
         }
         if (controller.signal.aborted) return undefined;
@@ -368,9 +501,27 @@ export function useGameSocket({
         socketService.onGame(GAME_EVENTS.PLAY_PAUSED, onPlayPaused);
         socketService.onGame(GAME_EVENTS.PLAY_RESUMED, onPlayResumed);
         socketService.onGame(GAME_EVENTS.PLAY_STATE, onPlayState);
-        socketService.onGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
+        socketService.onGame(GAME_EVENTS.PLAY_INTERRUPTED, wrappedOnPlayInterrupted);
         socketService.onGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
+        socketService.onGame(GAME_EVENTS.RFID_SCAN_ERROR, onRfidScanError);
         socketService.onGame(GAME_EVENTS.ERROR, onSocketError);
+        // Mecánica Secuencia (T-921): listeners registrados aquí para garantizar
+        // que están activos ANTES del primer evento del backend (se emiten en
+        // start_play, antes de que el panel de Secuencia se monte por
+        // mechanicMode resolver). Sin esto se pierde el sequence_phase_memorizing
+        // inicial y el board queda vacío (QA 2026-05-03 BUG-QA-6).
+        if (typeof onSequencePhaseMemorizing === 'function') {
+          socketService.onGame(GAME_EVENTS.SEQUENCE_PHASE_MEMORIZING, onSequencePhaseMemorizing);
+        }
+        if (typeof onSequencePhaseReproducing === 'function') {
+          socketService.onGame(GAME_EVENTS.SEQUENCE_PHASE_REPRODUCING, onSequencePhaseReproducing);
+        }
+        if (typeof onSequenceCardResult === 'function') {
+          socketService.onGame(GAME_EVENTS.SEQUENCE_CARD_RESULT, wrappedOnSequenceCardResult);
+        }
+        if (typeof onSequenceRoundResult === 'function') {
+          socketService.onGame(GAME_EVENTS.SEQUENCE_ROUND_RESULT, wrappedOnSequenceRoundResult);
+        }
         socketService.on(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
         socketService.on(SOCKET_EVENTS.CONNECT, onSocketConnect);
 
@@ -464,11 +615,25 @@ export function useGameSocket({
       socketService.offGame(GAME_EVENTS.PLAY_PAUSED, onPlayPaused);
       socketService.offGame(GAME_EVENTS.PLAY_RESUMED, onPlayResumed);
       socketService.offGame(GAME_EVENTS.PLAY_STATE, onPlayState);
-      socketService.offGame(GAME_EVENTS.PLAY_INTERRUPTED, onPlayInterrupted);
+      socketService.offGame(GAME_EVENTS.PLAY_INTERRUPTED, wrappedOnPlayInterrupted);
       socketService.offGame(GAME_EVENTS.SCAN_IGNORED, onScanIgnored);
+      socketService.offGame(GAME_EVENTS.RFID_SCAN_ERROR, onRfidScanError);
       socketService.offGame(GAME_EVENTS.ERROR, onSocketError);
+      if (typeof onSequencePhaseMemorizing === 'function') {
+        socketService.offGame(GAME_EVENTS.SEQUENCE_PHASE_MEMORIZING, onSequencePhaseMemorizing);
+      }
+      if (typeof onSequencePhaseReproducing === 'function') {
+        socketService.offGame(GAME_EVENTS.SEQUENCE_PHASE_REPRODUCING, onSequencePhaseReproducing);
+      }
+      if (typeof onSequenceCardResult === 'function') {
+        socketService.offGame(GAME_EVENTS.SEQUENCE_CARD_RESULT, wrappedOnSequenceCardResult);
+      }
+      if (typeof onSequenceRoundResult === 'function') {
+        socketService.offGame(GAME_EVENTS.SEQUENCE_ROUND_RESULT, wrappedOnSequenceRoundResult);
+      }
       // Limpiar listener de scan local y timeout pendiente
       webSerialService.off('scan', handleLocalScan);
+      webSerialService.off('scan_expired', onScanExpired);
       cancelPendingScanTimeout();
       // Limpiar listeners de sistema (namespace /)
       socketService.off(SOCKET_EVENTS.DISCONNECT, onSocketDisconnect);
@@ -493,9 +658,35 @@ export function useGameSocket({
       }
     };
 
+    // El socket de /game puede reconectar de forma independiente al de sistema
+    // (son conexiones io() separadas). Al hacerlo cambia su socket.id y el
+    // backend ya limpió el modo RFID gameplay del socket anterior, por lo que
+    // hay que re-emitir JOIN_PLAY para re-registrarlo; de lo contrario los
+    // escaneos del sensor y los taps del fallback táctil se rechazan con
+    // "El lector no está listo". Tras re-unirnos, resincronizamos el estado.
+    const handleGameSocketReconnected = () => {
+      const currentPlayId = playIdRef.current;
+      if (!currentPlayId || gameStateRef.current === 'finished') {
+        return;
+      }
+      socketService.sendGameCommand(GAME_EVENTS.JOIN_PLAY, { playId: currentPlayId });
+      // Reenviar los escaneos encolados durante la caída de /game. El socket de
+      // sistema (`onSocketConnect`) ya hace flush, pero /game es una conexión io()
+      // INDEPENDIENTE que puede caer y volver sola (blip de WiFi de aula) sin que
+      // el de sistema lo haga; sin este flush las respuestas del niño quedaban
+      // varadas hasta el siguiente escaneo hardware. Orden correcto: JOIN_PLAY re-
+      // registra el modo RFID ANTES de reenviar (mismo socket → FIFO).
+      if (typeof webSerialService.flushPendingScans === 'function') {
+        webSerialService.flushPendingScans();
+      }
+      socketService.requestPlayStateSync(currentPlayId);
+    };
+
     window.addEventListener('socket_reconnected', handleSocketReconnected);
+    window.addEventListener('game_socket_reconnected', handleGameSocketReconnected);
     return () => {
       window.removeEventListener('socket_reconnected', handleSocketReconnected);
+      window.removeEventListener('game_socket_reconnected', handleGameSocketReconnected);
     };
   }, []);
 
@@ -625,7 +816,7 @@ export function useGameSocket({
 
     const createPlayRes = await playsAPI.createPlay({ sessionId, playerId });
     const newPlay = extractData(createPlayRes);
-    const nextPlayId = newPlay?.id || newPlay?._id;
+    const nextPlayId = getId(newPlay);
 
     if (!nextPlayId) {
       throw new Error('No se pudo crear una nueva partida.');
@@ -643,6 +834,10 @@ export function useGameSocket({
     return socketService.sendGameCommand(GAME_EVENTS.BOARD_READY, { playId: playIdRef.current });
   }, []);
 
+  // Descarta el banner de lector bloqueado (lo invoca la UI al reconectar o
+  // al cerrar el aviso manualmente).
+  const clearRfidBlocked = useCallback(() => setRfidBlocked(null), []);
+
   return {
     // Estados
     realtimeStatus,
@@ -655,9 +850,11 @@ export function useGameSocket({
     sessionError,
     rfidConnected,
     bestScore,
+    rfidBlocked,
 
     // Setters necesarios para el componente padre
     setRealtimeError,
+    clearRfidBlocked,
 
     // Sincronización de gameState
     syncGameState,

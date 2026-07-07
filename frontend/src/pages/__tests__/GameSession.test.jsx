@@ -42,14 +42,11 @@ vi.mock('../../components/game/ScoreDisplay', () => ({
   ScoreDisplayCompactMemo: () => <div data-testid="score">score</div>
 }));
 
-vi.mock('../../components/game/FeedbackOverlay', () => ({
-  default: () => <div data-testid="feedback">feedback</div>
-}));
-
 vi.mock('../../components/game/GameOverScreen', () => ({
   default: ({ score, summary }) => (
     <div data-testid="game-over">
       <span>{score}</span>
+      <span data-testid="go-mode">{summary?.mode || 'none'}</span>
       {summary && (
         <>
           <span>Errores</span>
@@ -139,6 +136,7 @@ vi.mock('../../services/socket', () => {
     SCAN_IGNORED: 'scan_ignored',
     RFID_EVENT: 'rfid_event',
     RFID_STATUS: 'rfid_status',
+    RFID_SCAN_ERROR: 'rfid_scan_error',
     ERROR: 'error',
   };
 
@@ -203,13 +201,28 @@ vi.mock('../../services/webSerialService', () => {
     }
   };
 
+  // `deviceState` arranca en un valor distinto de 'ready' para reflejar el
+  // modo táctil por defecto (sin sensor físico). Los tests que necesitan
+  // simular un lector real conectado lo fuerzan a 'ready' vía __setDeviceState.
+  const service = {
+    on: vi.fn(addListener),
+    off: vi.fn(removeListener),
+    // Reconexión guiada del banner de lector bloqueado (Task 7): el handler de
+    // GameSession llama a disconnect() y connect() en secuencia. connect() abre
+    // el selector de puerto del navegador, aquí simulado como no-op resuelto.
+    connect: vi.fn(async () => {}),
+    disconnect: vi.fn(async () => {}),
+    deviceState: 'unknown',
+    hmacEnabled: false,
+    __emit: emitEvent,
+    __setDeviceState: (value) => {
+      service.deviceState = value;
+    }
+  };
+
   return {
     __esModule: true,
-    default: {
-      on: vi.fn(addListener),
-      off: vi.fn(removeListener),
-      __emit: emitEvent
-    }
+    default: service
   };
 });
 
@@ -264,6 +277,10 @@ describe('GameSession realtime gameplay', () => {
 
     socketService.__setConnected(false);
     socketService.sendGameCommand.mockReturnValue(true);
+    // Reset del estado del sensor a modo táctil (sin lector físico) entre tests
+    // para que un test que fuerza 'ready' no contamine a los demás.
+    webSerialService.__setDeviceState('unknown');
+    webSerialService.hmacEnabled = false;
   });
 
   it('renders association gameplay and updates round event in realtime', async () => {
@@ -287,7 +304,10 @@ describe('GameSession realtime gameplay', () => {
     });
 
     expect(await screen.findByText(/Encuentra:/i)).toBeInTheDocument();
-    expect(screen.getByText(/Puntos/i)).toBeInTheDocument();
+    // El marcador de puntos vive en la cabecera (ScoreDisplayCompact, mockeado
+    // aquí). El footer de métricas muestra ahora datos de rendimiento distintos
+    // y no redundantes: en Asociación, "Aciertos".
+    expect(screen.getByText(/Aciertos/i)).toBeInTheDocument();
   });
 
   it('renders memory-specific panel and pair progress from memory_turn_state', async () => {
@@ -345,6 +365,8 @@ describe('GameSession realtime gameplay', () => {
     renderGameSession();
     await screen.findByRole('button', { name: /empezar/i });
 
+    // En modo táctil el sensor físico NO está 'ready' (deviceState='unknown' por
+    // defecto), así que el error debe silenciarse: ni toast ni anuncio guiado.
     act(() => {
       socketService.__emit(SOCKET_EVENTS.ERROR, {
         code: 'RFID_SENSOR_UNAUTHORIZED',
@@ -354,6 +376,116 @@ describe('GameSession realtime gameplay', () => {
 
     // RFID_SENSOR_UNAUTHORIZED se suprime en modo fallback táctil (Fix 2D)
     expect(toast.warning).not.toHaveBeenCalled();
+    const announcedWhileTouch = screen
+      .getAllByRole('status', { hidden: true })
+      .some(node => node.textContent?.includes('no está autorizado'));
+    expect(announcedWhileTouch).toBe(false);
+  });
+
+  it('expone rfidBlocked vía banner guiado cuando un lector físico real recibe RFID_SENSOR_UNAUTHORIZED', async () => {
+    // Heurística sensor-real-vs-táctil: con un sensor físico conectado
+    // (deviceState='ready') el rechazo de autorización SÍ debe hacerse visible.
+    // Task 7: GameSession ahora consume `rfidBlocked` y pinta un banner guiado
+    // con botón «Reconectar lector», además del anuncio en la live region.
+    webSerialService.__setDeviceState('ready');
+
+    renderGameSession();
+    await screen.findByRole('button', { name: /empezar/i });
+
+    act(() => {
+      socketService.__emit(SOCKET_EVENTS.ERROR, {
+        code: 'RFID_SENSOR_UNAUTHORIZED',
+        message: 'legacy'
+      });
+    });
+
+    // (a) Banner guiado visible con la acción de reconexión.
+    expect(await screen.findByText('Lector RFID bloqueado')).toBeInTheDocument();
+    expect(
+      await screen.findByRole('button', { name: /reconectar lector/i })
+    ).toBeInTheDocument();
+
+    // El anuncio guiado sigue llegando a la live region para lectores de pantalla.
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole('status', { hidden: true })
+          .some(node => node.textContent?.includes('Este lector no está autorizado para esta sesión'))
+      ).toBe(true);
+    });
+  });
+
+  it('reconecta el lector (disconnect + connect) al pulsar «Reconectar lector» en el banner guiado', async () => {
+    const user = userEvent.setup();
+    webSerialService.__setDeviceState('ready');
+
+    renderGameSession();
+    await screen.findByRole('button', { name: /empezar/i });
+
+    act(() => {
+      socketService.__emit(SOCKET_EVENTS.ERROR, {
+        code: 'RFID_SENSOR_UNAUTHORIZED',
+        message: 'legacy'
+      });
+    });
+
+    const reconnectButton = await screen.findByRole('button', { name: /reconectar lector/i });
+    await user.click(reconnectButton);
+
+    // (b) La reconexión guiada cierra y reabre el puerto serial.
+    await waitFor(() => {
+      expect(webSerialService.disconnect).toHaveBeenCalled();
+      expect(webSerialService.connect).toHaveBeenCalled();
+    });
+
+    // El banner se descarta tras la reconexión (clearRfidBlocked en finally).
+    await waitFor(() => {
+      expect(screen.queryByText('Lector RFID bloqueado')).not.toBeInTheDocument();
+    });
+  });
+
+  it('expone un indicador de diagnóstico del lector RFID en el HUD con modo seguro', async () => {
+    // (c) El HUD muestra el indicador del lector con tooltip de diagnóstico.
+    // device_init con hmac:"enabled" propaga el modo seguro a la UI.
+    renderGameSession();
+    await screen.findByRole('button', { name: /empezar/i });
+
+    act(() => {
+      webSerialService.__emit('device_state_change', { state: 'ready', hmacEnabled: true });
+      webSerialService.__emit('device_init', { status: 'success', version: '1.1', hmacEnabled: true });
+    });
+
+    // El tooltip envuelve el indicador en un trigger con aria-label de diagnóstico
+    // que incluye el estado del lector y la firma activa (modo seguro).
+    await waitFor(() => {
+      expect(
+        screen.getByLabelText(/Lector conectado y listo.*Firma activa/i)
+      ).toBeInTheDocument();
+    });
+  });
+
+  it('expone rfidBlocked al recibir rfid_scan_error con RFID_HMAC_INVALID', async () => {
+    // El backend emite `rfid_scan_error` (no `error`) para rechazos de seguridad
+    // HMAC/replay. Sin listener eran invisibles; ahora elevan a rfidBlocked y se
+    // anuncian. No depende de deviceState: la firma inválida es un rechazo de
+    // seguridad que debe verse siempre.
+    renderGameSession();
+    await screen.findByRole('button', { name: /empezar/i });
+
+    act(() => {
+      socketService.__emit(SOCKET_EVENTS.RFID_SCAN_ERROR, {
+        code: 'RFID_HMAC_INVALID',
+        message: 'legacy'
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen
+          .getAllByRole('status', { hidden: true })
+          .some(node => node.textContent?.includes('rechazada por seguridad'))
+      ).toBe(true);
+    });
   });
 
   it('requires realtime socket to pause or resume gameplay', async () => {
@@ -458,6 +590,30 @@ describe('GameSession realtime gameplay', () => {
     });
 
     expect(await screen.findByTestId('game-over')).toBeInTheDocument();
+  });
+
+  it('conserva la mecánica en el summary al interrumpirse la partida (no cae a Asociación por defecto)', async () => {
+    currentSessionData = {
+      ...currentSessionData,
+      mechanic: { name: 'memory' }
+    };
+
+    renderGameSession();
+    await screen.findByRole('button', { name: /empezar/i });
+
+    act(() => {
+      socketService.__emit(SOCKET_EVENTS.PLAY_INTERRUPTED, {
+        reason: 'server_restart',
+        message: 'La partida fue interrumpida por reinicio.',
+        finalScore: 12
+      });
+    });
+
+    expect(await screen.findByTestId('game-over')).toBeInTheDocument();
+    // El GameOver de una partida interrumpida debe reflejar la mecánica real
+    // (Memoria), no el fallback por defecto a Asociación que aparecía cuando
+    // `playSummary` quedaba null (GameOverStats default = Asociación).
+    expect(screen.getByTestId('go-mode')).toHaveTextContent('memory');
   });
 
   it('updates RFID connection indicator from web serial runtime events', async () => {

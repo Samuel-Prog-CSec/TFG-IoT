@@ -20,6 +20,14 @@ vi.mock('lucide-react', () => ({
   Home: (props) => <span data-testid="home-icon" {...props} />
 }));
 
+// Mock CharacterMascot (presentacional): el fallback de ErrorBoundary ahora
+// muestra a Otto, que transita mechanicTheme→lucide. Aislamos el test de la
+// boundary de ese árbol (e impedimos que el mock parcial de lucide rompa al
+// pedir iconos como `Brain`).
+vi.mock('../../game/CharacterMascot', () => ({
+  default: () => <div data-testid="mascot" />
+}));
+
 import ErrorBoundary from '../ErrorBoundary';
 import { captureException } from '../../../lib/sentry';
 

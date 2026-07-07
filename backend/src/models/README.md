@@ -229,7 +229,7 @@ await GamePlay.create({ sessionId: session._id, playerId: studentId });
 - **User**: roles con login requieren `email/password`; `student` no puede tener credenciales.
 - **CardDeck**: `cardMappings` entre 2 y 30; UIDs validados por regex hex y unicidad.
 - **GameContext**: `assets` entre 1 y 30.
-- **GameSession**: `config.numberOfCards` entre 2 y 30 y `cardMappings.length` debe coincidir.
+- **GameSession**: `config.numberOfCards` entre 2 y 20 y `cardMappings.length` debe coincidir.
 
 ---
 

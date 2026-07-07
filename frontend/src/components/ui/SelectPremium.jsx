@@ -1,5 +1,5 @@
 import { useState, useRef, useEffect, useId, useCallback, useMemo } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { ChevronDown, Check, Search } from 'lucide-react';
 import { cn } from '../../lib/utils';
 
@@ -21,8 +21,10 @@ const SEARCHABLE_AUTO_THRESHOLD = 20;
  *   interno. Por defecto 'auto': se activa cuando hay más de 20 opciones.
  *   `true` lo fuerza siempre, `false` lo desactiva (PROP-70/84).
  */
+const EMPTY_OPTIONS = [];
+
 export default function SelectPremium({
-  options = [],
+  options = EMPTY_OPTIONS,
   value,
   onChange,
   placeholder = 'Seleccionar…',
@@ -30,6 +32,12 @@ export default function SelectPremium({
   disabled = false,
   className,
   searchable = 'auto',
+  // BUG-A11Y-SELECT-NAME-B (QA 2026-06-04): capturamos `aria-label` explícito.
+  // Antes caía en `{...props}` sobre el `<div>` contenedor y el combobox se
+  // quedaba con el placeholder ("Seleccionar…") como nombre — los filtros del
+  // dashboard (contexto/mecánica/rango) sonaban idénticos al lector de pantalla
+  // y no anunciaban su valor.
+  'aria-label': ariaLabelProp,
   ...props
 }) {
   const [isOpen, setIsOpen] = useState(false);
@@ -48,6 +56,21 @@ export default function SelectPremium({
     (searchable === 'auto' && options.length > SEARCHABLE_AUTO_THRESHOLD);
 
   const selected = options.find(o => o.value === value);
+
+  // Nombre accesible del combobox (BUG-A11Y-SELECT-NAME-B):
+  // - Si hay `aria-label` explícito y NO label visible (caso filtros del
+  //   dashboard): combinamos propósito + valor seleccionado para que el lector
+  //   anuncie "Filtrar por contexto temático: Todos los contextos" y cada
+  //   filtro sea distinguible.
+  // - Si hay label visible: lo provee `aria-labelledby` (el valor queda
+  //   visualmente adyacente).
+  // - Fallback legacy: placeholder.
+  let comboAriaLabel;
+  if (!label && ariaLabelProp) {
+    comboAriaLabel = `${ariaLabelProp}: ${selected?.label || placeholder}`;
+  } else if (!label) {
+    comboAriaLabel = placeholder;
+  }
 
   // Filtrar opciones por la query (case-insensitive, match parcial). Si no hay
   // query, devolver el array intacto para evitar trabajar de más.
@@ -213,6 +236,10 @@ export default function SelectPremium({
         aria-haspopup="listbox"
         aria-controls={listboxId}
         aria-labelledby={label ? labelId : undefined}
+        // BUG-A11Y-SELECT-NAME-A/B: sin label visible, el combobox necesita
+        // nombre accesible propio. `comboAriaLabel` combina el `aria-label`
+        // explícito con el valor seleccionado (o cae al placeholder legacy).
+        aria-label={comboAriaLabel}
         aria-activedescendant={isOpen ? activeDescendantId : undefined}
         onClick={() => isOpen ? setIsOpen(false) : openDropdown()}
         onKeyDown={handleKeyDown}
@@ -231,15 +258,17 @@ export default function SelectPremium({
           !disabled && 'hover:border-border-strong'
         )}
       >
-        {/* Selected value or placeholder */}
+        {/* Selected value or placeholder. `truncate` va en un span propio
+            (hijo del flex): aplicado al contenedor flex recortaba el texto en
+            seco y sin elipsis ("Clase comple" en Informes a 1366px). */}
         <span className={cn(
-          'flex items-center gap-2 truncate',
+          'flex min-w-0 flex-1 items-center gap-2',
           selected ? 'text-text-primary' : 'text-text-muted'
         )}>
           {selected?.icon && (
             <span className="flex-shrink-0">{selected.icon}</span>
           )}
-          {selected?.label || placeholder}
+          <span className="truncate">{selected?.label || placeholder}</span>
         </span>
 
         {/* Chevron */}
@@ -268,7 +297,8 @@ export default function SelectPremium({
               'absolute z-40 w-full mt-2',
               'bg-background-elevated/95 backdrop-blur-xl',
               'border border-border-default rounded-xl',
-              'shadow-xl shadow-black/30',
+              // Sombra del dropdown semántica por tema (T-951 Fase 1).
+              'shadow-[var(--shadow-lg)]',
               'overflow-hidden'
             )}
           >
@@ -306,7 +336,7 @@ export default function SelectPremium({
                     id={liveRegionId}
                     aria-live="polite"
                     aria-atomic="true"
-                    className="block mt-1.5 text-[11px] text-text-muted px-1"
+                    className="block mt-1.5 text-micro text-text-muted px-1"
                   >
                     {(() => {
                       if (filteredOptions.length === 0) return 'Sin coincidencias';
@@ -356,8 +386,12 @@ export default function SelectPremium({
                       <span className="flex-shrink-0">{option.icon}</span>
                     )}
 
-                    {/* Label */}
-                    <span className="flex-1 truncate">{option.label}</span>
+                    {/* Label — envuelve en vez de truncar: en dropdowns con
+                        frases largas (p.ej. tipos de alerta "Caída repentina
+                        de puntuación") el truncado impedía saber qué opción
+                        era cada una. El trigger sí trunca (una línea); la
+                        lista muestra el texto completo. */}
+                    <span className="flex-1 min-w-0 break-words">{option.label}</span>
 
                     {/* Check mark */}
                     {isSelected && (

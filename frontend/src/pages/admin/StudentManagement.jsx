@@ -5,7 +5,7 @@
  * @module pages/admin/StudentManagement
  */
 
-import { useState, useEffect, useCallback, useDeferredValue } from 'react';
+import { useState, useEffect, useCallback, useDeferredValue, useRef } from 'react';
 import {
   Users,
   UserPlus,
@@ -23,22 +23,33 @@ import {
   Download
 } from 'lucide-react';
 import ConsentDetailPanel from './ConsentDetailPanel';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { usersAPI, extractErrorMessage, isAbortError } from '../../services/api';
+import { getId } from '../../lib/entityId';
 import ButtonPremium from '../../components/ui/ButtonPremium';
 import InputPremium from '../../components/ui/InputPremium';
 import SelectPremium from '../../components/ui/SelectPremium';
 import GlassCard from '../../components/ui/GlassCard';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
+import ErrorState from '../../components/ui/ErrorState';
 import { EmptyStudentsIllustration } from '../../components/ui/illustrations';
 import StatusBadge from '../../components/ui/StatusBadge';
 import Tooltip from '../../components/ui/Tooltip';
+import AdminPageShell from '../../components/admin/AdminPageHero';
 import ConfirmationModal from '../../components/ui/ConfirmationModal';
 import { useRefetchOnFocus } from '../../hooks/useRefetchOnFocus';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
-import { cn, pageVariants, staggerContainer, staggerItem } from '../../lib/utils';
+import { useVirtualizedList } from '../../hooks/useVirtualizedList';
+import useModalA11y from '../../hooks/useModalA11y';
+import { cn } from '../../lib/utils';
+
+// Plantilla de columnas compartida por la cabecera y cada fila de la tabla de
+// alumnos: Alumno (flexible) · Profesor (flexible) · Estado · Consentimiento ·
+// Acciones. Las dos primeras usan minmax(0,fr) para truncar en vez de desbordar.
+const STUDENT_ROW_GRID =
+  'grid grid-cols-[minmax(0,2.4fr)_minmax(0,1.3fr)_7rem_8.5rem_2.5rem] items-center gap-3';
 
 /**
  * Modal para crear un nuevo alumno
@@ -53,6 +64,11 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
     age: '',
     classroom: ''
   });
+  // Andamiaje accesible inline (datos de menores): foco inicial al primer
+  // campo, focus-trap por Tab, cierre con Escape, restauracion de foco y
+  // bloqueo de scroll del body mientras el modal esta abierto.
+  const panelRef = useRef(null);
+  const firstFieldRef = useRef(null);
 
   useEffect(() => {
     if (isOpen && student) {
@@ -63,6 +79,9 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
       });
     }
   }, [isOpen, student]);
+
+  // Foco inicial, focus-trap, Escape, bloqueo de scroll y restauracion de foco.
+  useModalA11y({ isOpen, onClose, panelRef, initialFocusRef: firstFieldRef, escapeDisabled: loading });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -86,7 +105,7 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
         }
       };
 
-      await usersAPI.updateUser(student.id || student._id, payload);
+      await usersAPI.updateUser(getId(student), payload);
       toast.success('Alumno actualizado correctamente');
       onUpdated();
       // Pequeña pausa para que el usuario perciba el toast antes de que
@@ -111,23 +130,28 @@ function EditStudentModal({ isOpen, onClose, onUpdated, student }) {
         onClick={onClose}
       >
         <motion.div
+          ref={panelRef}
           initial={{ scale: 0.95, opacity: 0, y: 20 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 20 }}
           className="w-full max-w-lg"
           onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="edit-student-title"
         >
           <GlassCard className="p-8" variant="solid">
             <header className="mb-6">
               <div className="size-12 rounded-xl bg-brand-base/20 flex items-center justify-center text-brand-base mb-4">
                 <Edit size={24} />
               </div>
-              <h2 className="text-2xl font-bold text-text-primary">Editar Alumno</h2>
+              <h2 id="edit-student-title" className="text-2xl font-bold text-text-primary">Editar Alumno</h2>
               <p className="text-text-muted">Modifica los datos del alumno.</p>
             </header>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} noValidate className="space-y-6">
               <InputPremium
+                ref={firstFieldRef}
                 label="Nombre completo"
                 placeholder="Ej: Juan Pérez"
                 value={formData.name}
@@ -197,6 +221,11 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
     consentGranted: false,
     consentGrantedBy: ''
   });
+  // Andamiaje accesible inline (datos de menores): foco inicial al primer
+  // campo, focus-trap por Tab, cierre con Escape, restauracion de foco y
+  // bloqueo de scroll del body mientras el modal esta abierto.
+  const panelRef = useRef(null);
+  const firstFieldRef = useRef(null);
 
   useEffect(() => {
     if (!isOpen) {
@@ -210,6 +239,9 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
       });
     }
   }, [isOpen]);
+
+  // Foco inicial, focus-trap, Escape, bloqueo de scroll y restauracion de foco.
+  useModalA11y({ isOpen, onClose, panelRef, initialFocusRef: firstFieldRef, escapeDisabled: loading });
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -269,23 +301,28 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
         onClick={onClose}
       >
         <motion.div
+          ref={panelRef}
           initial={{ scale: 0.95, opacity: 0, y: 20 }}
           animate={{ scale: 1, opacity: 1, y: 0 }}
           exit={{ scale: 0.95, opacity: 0, y: 20 }}
           className="w-full max-w-lg"
           onClick={(e) => e.stopPropagation()}
+          role="dialog"
+          aria-modal="true"
+          aria-labelledby="create-student-title"
         >
           <GlassCard className="p-8" variant="solid">
             <header className="mb-6">
               <div className="size-12 rounded-xl bg-brand-base/20 flex items-center justify-center text-brand-base mb-4">
                 <UserPlus size={24} />
               </div>
-              <h2 className="text-2xl font-bold text-text-primary">Crear Nuevo Alumno</h2>
+              <h2 id="create-student-title" className="text-2xl font-bold text-text-primary">Crear Nuevo Alumno</h2>
               <p className="text-text-muted">Asigna un nuevo alumno a un profesor y clase.</p>
             </header>
 
-            <form onSubmit={handleSubmit} className="space-y-6">
+            <form onSubmit={handleSubmit} noValidate className="space-y-6">
               <InputPremium
+                ref={firstFieldRef}
                 label="Nombre completo"
                 placeholder="Ej: Juan Pérez"
                 value={formData.name}
@@ -319,7 +356,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                 label="Profesor Responsable"
                 placeholder="Selecciona un profesor"
                 options={teachers.map(t => ({
-                  value: t.id || t._id,
+                  value: getId(t),
                   label: t.name || t.email,
                   icon: <Users size={16} />
                 }))}
@@ -336,7 +373,7 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                 </div>
                 <p className="text-xs text-text-muted leading-relaxed">
                   De acuerdo con el Art. 8 del RGPD y el Art. 7 de la LOPDGDD,
-                  el tratamiento de datos de menores de 14 a{'\u00F1'}os requiere
+                  el tratamiento de datos de menores de 14 años requiere
                   el consentimiento del titular de la patria potestad o tutela.
                 </p>
 
@@ -350,20 +387,20 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
                         consentGranted: e.target.checked
                       }))
                     }
-                    className="mt-1 size-4 rounded border-border-primary text-brand-base
-                      focus:ring-brand-base focus:ring-offset-0"
+                    className="mt-1 size-4 rounded border-border-strong text-brand-base
+                      focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2"
                   />
                   <span className="text-sm text-text-primary leading-relaxed">
                     Confirmo que el tutor/a legal ha otorgado consentimiento
                     expreso para el tratamiento de datos con fines de
-                    seguimiento educativo y an{'\u00E1'}lisis de rendimiento.
+                    seguimiento educativo y análisis de rendimiento.
                   </span>
                 </label>
 
                 {formData.consentGranted && (
                   <InputPremium
                     label="Nombre del tutor/a legal"
-                    placeholder="Ej: Ana Garc\u00EDa L\u00F3pez"
+                    placeholder="Ej: Ana García López"
                     value={formData.consentGrantedBy}
                     onChange={(e) =>
                       setFormData(prev => ({
@@ -410,10 +447,13 @@ function CreateStudentModal({ isOpen, onClose, onCreated, teachers }) {
 export default function StudentManagement() {
   useDocumentTitle('Gestión de Alumnos');
   const [students, setStudents] = useState([]);
-  const [, setTeachers] = useState([]);
+  const [teachers, setTeachers] = useState([]);
   const [loading, setLoading] = useState(true);
-  const [, setError] = useState(null);
-  const [, setIsModalOpen] = useState(false);
+  const [error, setError] = useState(null);
+  // BUG-STUDENTS-CREATE-A (QA Sprint 0 post-v0.5.0): antes era `const [, setIsModalOpen]`
+  // descartando el state value y además el componente `CreateStudentModal` ni siquiera
+  // estaba montado en el JSX. Resultado: el botón "Nuevo Alumno" no abría nada.
+  const [isModalOpen, setIsModalOpen] = useState(false);
   const [isEditModalOpen, setIsEditModalOpen] = useState(false);
   const [selectedStudent, setSelectedStudent] = useState(null);
 
@@ -430,25 +470,37 @@ export default function StudentManagement() {
   const deferredSearch = useDeferredValue(searchQuery);
   const [pagination, setPagination] = useState({ page: 1, limit: 12, total: 0, totalPages: 1 });
 
-  const fetchInitialData = useCallback(async (page = 1) => {
+  // Virtualización condicional (T-952 Fase B). Cuando un centro tiene
+  // >=50 alumnos en la página actual (configurable vía limit), el grid
+  // CSS clásica se sustituye por una lista virtualizada vertical para
+  // mantener el scroll fluido aunque haya 1000+ filas sintéticas. Si la
+  // página tiene menos items, el grid CSS sigue siendo la mejor opción.
+  const virtual = useVirtualizedList({
+    count: students.length,
+    enableAt: 50,
+    estimateSize: 232,
+  });
+
+  // D.1 (pre-v1.0.0): AbortController propagado. La navegación rápida en
+  // el sidebar admin dejaba dos requests `/api/users` colgadas — no graves
+  // pero pulidas para que el contador de comandos Redis no infle.
+  const fetchStudents = useCallback(async (page = 1, signal) => {
     setLoading(true);
     setError(null);
     try {
-      const [studentsRes, teachersRes] = await Promise.all([
-        usersAPI.getUsers({ 
-          role: 'student', 
-          page, 
+      const studentsRes = await usersAPI.getUsers(
+        {
+          role: 'student',
+          page,
           limit: pagination.limit,
-          search: deferredSearch || undefined 
-        }),
-        usersAPI.getUsers({ role: 'teacher', status: 'active', limit: 100 })
-      ]);
+          search: deferredSearch || undefined
+        },
+        { signal }
+      );
 
       const studentsData = studentsRes.data;
-      const teachersData = teachersRes.data;
 
       setStudents(Array.isArray(studentsData.data) ? studentsData.data : []);
-      setTeachers(Array.isArray(teachersData.data) ? teachersData.data : []);
       
       setPagination(prev => ({
         ...prev,
@@ -459,7 +511,7 @@ export default function StudentManagement() {
     } catch (err) {
       if (!isAbortError(err)) {
         setError(extractErrorMessage(err));
-        toast.error('Error al cargar datos', {
+        toast.error('No pudimos cargar el alumnado', {
           description: 'Recarga la página o inténtalo de nuevo en unos segundos.'
         });
       }
@@ -468,12 +520,59 @@ export default function StudentManagement() {
     }
   }, [deferredSearch, pagination.limit]);
 
+  // Profesores: una sola carga (no depende de la búsqueda de alumnos ni de la
+  // paginación). Pagina hasta agotar (backend capa a 100/página) para que el
+  // selector de asignación tenga la lista completa aunque haya >100 activos.
+  // Antes vivía dentro del mismo fetch que los alumnos, así que cada tecla de
+  // búsqueda re-bajaba todas las páginas de profesores.
+  const fetchTeachers = useCallback(async (signal) => {
+    try {
+      const TEACHERS_PAGE_SIZE = 100;
+      const collected = [];
+      let tPage = 1;
+      let tTotalPages = 1;
+      do {
+        const res = await usersAPI.getUsers(
+          { role: 'teacher', status: 'active', page: tPage, limit: TEACHERS_PAGE_SIZE },
+          { signal }
+        );
+        const body = res.data;
+        if (Array.isArray(body.data)) collected.push(...body.data);
+        tTotalPages = body.pagination?.totalPages || 1;
+        tPage += 1;
+      } while (tPage <= tTotalPages);
+      setTeachers(collected);
+    } catch (err) {
+      // No bloqueante: si los profesores fallan, el selector de asignación
+      // queda incompleto pero la gestión de alumnos sigue operativa.
+      if (!isAbortError(err)) {
+        toast.error('No se pudo cargar la lista de profesores', {
+          description: 'El selector de asignación puede estar incompleto.'
+        });
+      }
+    }
+  }, []);
+
+  // En React StrictMode (dev) este effect se monta dos veces y dispara
+  // dos fetchs idénticos a /api/users. En producción ocurre una sola vez.
+  // No hay bug funcional, es el comportamiento documentado de StrictMode.
+  // D.1: AbortController para que la segunda llamada del StrictMode (o la
+  // navegación rápida) no deje requests colgadas en background.
   useEffect(() => {
-    fetchInitialData();
-  }, [fetchInitialData]);
+    const controller = new AbortController();
+    fetchStudents(1, controller.signal);
+    return () => controller.abort();
+  }, [fetchStudents]);
+
+  // Carga one-shot de la lista de profesores al montar.
+  useEffect(() => {
+    const controller = new AbortController();
+    fetchTeachers(controller.signal);
+    return () => controller.abort();
+  }, [fetchTeachers]);
 
   useRefetchOnFocus({
-    refetch: () => fetchInitialData(pagination.page),
+    refetch: () => fetchStudents(pagination.page),
     isLoading: loading,
     hasData: students.length > 0
   });
@@ -493,7 +592,7 @@ export default function StudentManagement() {
   };
 
   const handleExportClick = async (student) => {
-    const studentId = student.id || student._id;
+    const studentId = getId(student);
     setActiveMenuId(null);
     try {
       const res = await usersAPI.exportStudentData(studentId);
@@ -518,9 +617,9 @@ export default function StudentManagement() {
 
     setIsHardDeleting(true);
     try {
-      await usersAPI.hardDeleteUser(selectedStudent.id || selectedStudent._id);
+      await usersAPI.hardDeleteUser(getId(selectedStudent));
       toast.success('Datos del alumno eliminados permanentemente (Art. 17 RGPD)');
-      fetchInitialData(pagination.page);
+      fetchStudents(pagination.page);
       setIsHardDeleteModalOpen(false);
     } catch (err) {
       toast.error(extractErrorMessage(err));
@@ -530,25 +629,164 @@ export default function StudentManagement() {
     }
   };
 
-  return (
-    <motion.div 
-      className="p-6 lg:p-10 max-w-7xl mx-auto"
-      variants={pageVariants}
-      initial="initial"
-      animate="animate"
-      exit="exit"
-    >
-      <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
-        <div className="flex items-center gap-4">
-          <div className="size-14 rounded-2xl bg-gradient-to-br from-brand-base to-brand-dark flex items-center justify-center text-white shadow-lg shadow-brand-base/20">
-            <GraduationCap size={30} />
+  // Fila de la tabla de alumnos. El super_admin gestiona muchos alumnos: una
+  // tabla escaneable es la afordancia profesional (y coherente con "Mis Alumnos"
+  // del docente) frente a un grid de cards idénticas. role="row"/"cell" da
+  // semántica de tabla al layout en grid. Captura handlers + state via closure.
+  const renderStudentRow = (student) => {
+    const id = getId(student);
+    const teacherName =
+      (typeof student.createdBy === 'object' && student.createdBy?.name) || 'Sistema';
+    const classroom = student.profile?.classroom || 'Sin clase';
+    return (
+      <div
+        key={id}
+        role="row"
+        className={cn(
+          STUDENT_ROW_GRID,
+          'group relative px-3 py-2.5 rounded-xl transition-colors hover:bg-background-elevated/50'
+        )}
+      >
+        {/* Alumno: avatar + nombre + aula */}
+        <div role="cell" className="flex items-center gap-3 min-w-0">
+          <div className="size-10 rounded-full bg-background-base border border-border-subtle flex items-center justify-center text-base font-semibold text-text-secondary shadow-inner shrink-0 overflow-hidden">
+            {student.profile?.avatar ? (
+              <img
+                src={student.profile.avatar}
+                alt=""
+                width={40}
+                height={40}
+                loading="lazy"
+                decoding="async"
+                className="w-full h-full rounded-full object-cover"
+              />
+            ) : (
+              student.name.charAt(0).toUpperCase()
+            )}
           </div>
-          <div>
-            <h1 className="text-3xl font-bold text-text-primary font-display">Gestión de Alumnos</h1>
-            <p className="text-text-muted">Administración centralizada de identidades de alumnos.</p>
+          <div className="min-w-0">
+            <p className="font-semibold text-text-primary truncate">{student.name}</p>
+            <p className="flex items-center gap-1 text-text-muted text-xs">
+              <School size={12} className="shrink-0" />
+              <span className="truncate">{classroom}</span>
+            </p>
           </div>
         </div>
 
+        {/* Profesor */}
+        <div role="cell" className="min-w-0 text-sm text-text-secondary truncate" title={teacherName}>
+          {teacherName}
+        </div>
+
+        {/* Estado */}
+        <div role="cell">
+          <StatusBadge status={student.status === 'active' ? 'success' : 'inactive'} size="sm">
+            {student.status === 'active' ? 'Activo' : 'Inactivo'}
+          </StatusBadge>
+        </div>
+
+        {/* Consentimiento */}
+        <div role="cell">
+          <StatusBadge
+            status={student.consent?.granted ? 'active' : 'error'}
+            size="sm"
+            pulse={student.consent?.granted === false}
+          >
+            {student.consent?.granted ? 'Activo' : 'Revocado'}
+          </StatusBadge>
+        </div>
+
+        {/* Acciones */}
+        <div role="cell" className="relative flex justify-end">
+          <Tooltip content="Acciones">
+            <button
+              onClick={(e) => {
+                e.stopPropagation();
+                setActiveMenuId(activeMenuId === id ? null : id);
+              }}
+              className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-background-surface transition-colors opacity-60 group-hover:opacity-100 focus-visible:opacity-100"
+              aria-label={`Acciones para ${student.name}`}
+              aria-haspopup="menu"
+              aria-expanded={activeMenuId === id}
+            >
+              <MoreVertical size={16} />
+            </button>
+          </Tooltip>
+
+          <AnimatePresence>
+            {activeMenuId === id && (
+                <>
+                  <button
+                    type="button"
+                    aria-label="Cerrar menú"
+                    className="fixed inset-0 z-20 cursor-default border-0 bg-transparent p-0"
+                    onClick={() => setActiveMenuId(null)}
+                    onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setActiveMenuId(null); }}
+                  />
+                  <motion.div
+                    role="menu"
+                    initial={{ opacity: 0, scale: 0.96, y: -6 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.96, y: -6 }}
+                    transition={{ duration: 0.15, ease: [0.16, 1, 0.3, 1] }}
+                    className="absolute right-0 top-full mt-1 w-48 bg-background-elevated border border-border-subtle rounded-xl shadow-xl z-30 py-1"
+                  >
+                    <button
+                      role="menuitem"
+                      onClick={() => handleEditClick(student)}
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-background-surface flex items-center gap-2 transition-colors"
+                    >
+                      <Edit size={14} /> Editar
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => handleConsentClick(student)}
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-background-surface flex items-center gap-2 transition-colors"
+                    >
+                      <ShieldCheck size={14} /> Consentimiento
+                    </button>
+                    <button
+                      role="menuitem"
+                      onClick={() => handleExportClick(student)}
+                      className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-background-surface flex items-center gap-2 transition-colors"
+                    >
+                      <Download size={14} /> Exportar datos
+                    </button>
+                    <hr className="my-1 border-border-subtle" />
+                    <button
+                      role="menuitem"
+                      onClick={() => handleHardDeleteClick(student)}
+                      className="w-full px-4 py-2 text-left text-sm text-error-base hover:bg-error-base/10 flex items-center gap-2 transition-colors"
+                    >
+                      <Trash2 size={14} /> Eliminar datos
+                    </button>
+                  </motion.div>
+                </>
+              )}
+            </AnimatePresence>
+        </div>
+      </div>
+    );
+  };
+
+  // Cabecera de la tabla (mismo grid que las filas).
+  const studentTableHeader = (
+    <div role="row" className={cn(STUDENT_ROW_GRID, 'px-3 pb-2.5 mb-1 border-b border-border-subtle')}>
+      <span role="columnheader" className="text-xs uppercase tracking-wider text-text-muted font-bold">Alumno</span>
+      <span role="columnheader" className="text-xs uppercase tracking-wider text-text-muted font-bold">Profesor</span>
+      <span role="columnheader" className="text-xs uppercase tracking-wider text-text-muted font-bold">Estado</span>
+      <span role="columnheader" className="text-xs uppercase tracking-wider text-text-muted font-bold">Consentimiento</span>
+      <span role="columnheader" className="sr-only">Acciones</span>
+    </div>
+  );
+
+  return (
+    <AdminPageShell
+      icon={GraduationCap}
+      title="Gestión de Alumnos"
+      description="Administración centralizada de identidades de alumnos del centro."
+      ariaLabel="Gestión de alumnos"
+      rightSlot={
         <ButtonPremium
           onClick={() => setIsModalOpen(true)}
           icon={<UserPlus size={18} />}
@@ -556,44 +794,75 @@ export default function StudentManagement() {
         >
           Nuevo Alumno
         </ButtonPremium>
-      </header>
+      }
+    >
 
-      <section className="grid grid-cols-1 md:grid-cols-4 gap-6 mb-8 items-stretch">
-        <GlassCard className="p-4 flex items-center gap-4">
-          <div className="size-12 rounded-xl bg-brand-base/10 text-brand-base flex items-center justify-center">
-            <Users size={24} />
+      {/* Barra de herramientas: total (pill compacto) · buscador (principal) ·
+          alumnos por página. Antes era un grid 4-col que mezclaba una card ALTA
+          de KPI (2 líneas) con inputs sin label y un select CON label encima →
+          alturas y baselines distintos que parecían colocados al azar. Ahora un
+          flex alineado a la misma altura (QA 2026-06-04). */}
+      <section className="flex flex-col sm:flex-row gap-3 mb-8">
+        <div className="flex items-center gap-2.5 px-4 py-3 sm:py-0 rounded-xl bg-background-elevated/40 border border-border-subtle shrink-0">
+          <div className="size-8 rounded-lg bg-brand-base/10 text-brand-base flex items-center justify-center shrink-0">
+            <Users size={16} />
           </div>
-          <div>
-            <p className="text-2xl font-bold text-text-primary font-display">{pagination.total}</p>
-            <p className="text-xs text-text-muted uppercase tracking-wider font-bold">Total Alumnos</p>
-          </div>
-        </GlassCard>
+          <p className="text-sm text-text-secondary whitespace-nowrap">
+            <span className="font-bold text-text-primary tabular-nums">{pagination.total}</span> alumnos
+          </p>
+        </div>
 
-        <div className="md:col-span-3">
+        <div className="flex-1 min-w-0">
           <InputPremium
             placeholder="Buscar por nombre o clase…"
             value={searchQuery}
             onChange={(e) => setSearchQuery(e.target.value)}
             icon={<Search size={20} className={cn(searchQuery !== deferredSearch && "animate-pulse")} />}
             className="h-full"
+            data-global-search="true"
           />
         </div>
+
+        {/* Alumnos por página. Sin label visible (el valor "12 por página" ya es
+            autoexplicativo) → alinea con el buscador. 50/100/200 activan la vista
+            compacta virtualizada (T-952 Fase B, threshold 50). */}
+        <SelectPremium
+          aria-label="Alumnos por página"
+          value={String(pagination.limit)}
+          onChange={(value) => setPagination(prev => ({ ...prev, limit: Number(value), page: 1 }))}
+          options={[
+            { value: '12', label: '12 por página' },
+            { value: '50', label: '50 por página' },
+            { value: '100', label: '100 por página' },
+            { value: '200', label: '200 por página' },
+          ]}
+          className="h-full shrink-0 sm:w-48"
+        />
       </section>
 
       <AnimatePresence mode="wait">
         {(() => {
           if (loading) return (
-            <motion.div
-              key="loading"
-              variants={staggerContainer}
-              initial="hidden"
-              animate="show"
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
-            >
-              {Array.from({ length: 6 }, (_, i) => `student-skeleton-${i}`).map(id => (
-                <SkeletonCard key={id} className="h-48" />
-              ))}
+            <motion.div key="loading" initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+              <GlassCard padding="none" className="overflow-hidden">
+                <div className="p-2 space-y-1.5">
+                  {Array.from({ length: 8 }, (_, i) => `student-skeleton-${i}`).map(id => (
+                    <SkeletonCard key={id} className="h-14" />
+                  ))}
+                </div>
+              </GlassCard>
             </motion.div>
+          );
+          if (error) return (
+            // BUG-STUDENTS-ERROR (auditoría 2026-06-30): antes el valor de `error`
+            // se descartaba y un fallo de red caía al empty-state "Sin alumnos…",
+            // engañando al director (parecía un centro sin alumnos). Ahora se
+            // muestra ErrorState con reintento (paridad con ApprovalPanel/AdminContexts).
+            <ErrorState
+              key="error"
+              message={error}
+              onRetry={() => fetchStudents()}
+            />
           );
           if (students.length === 0) return (
             <EmptyState
@@ -608,127 +877,72 @@ export default function StudentManagement() {
               }
             />
           );
+          // Rama "list": grid CSS clásica para listados pequeños; lista
+          // virtualizada vertical cuando hay >=50 alumnos (T-952 Fase B).
+          // El switch automático mantiene UX óptima para 99% de aulas (<30
+          // alumnos) y rendimiento constante en centros grandes (1000+).
+          if (virtual.shouldVirtualize) {
+            return (
+              <motion.div
+                key="list-virtualized"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                className="rounded-2xl bg-background-elevated/20 border border-border-subtle overflow-hidden"
+              >
+                <p className="px-4 py-2 text-xs text-text-muted border-b border-border-subtle">
+                  Vista compacta activa: {students.length} alumnos cargados. Desplázate para verlos todos.
+                </p>
+                <div className="px-4 pt-2" role="table" aria-label="Tabla de alumnos del centro">
+                  {studentTableHeader}
+                </div>
+                <div
+                  ref={virtual.scrollElementRef}
+                  className="overflow-y-auto custom-scrollbar"
+                  style={{ maxHeight: '70vh' }}
+                >
+                  <div style={{ height: virtual.totalSize, position: 'relative' }}>
+                    {virtual.virtualItems.map((vItem) => {
+                      const student = students[vItem.index];
+                      if (!student) return null;
+                      return (
+                        <div
+                          key={getId(student)}
+                          data-index={vItem.index}
+                          ref={virtual.measureElement}
+                          style={{
+                            position: 'absolute',
+                            top: 0,
+                            left: 0,
+                            width: '100%',
+                            transform: `translateY(${vItem.start}px)`,
+                            padding: '6px 16px',
+                          }}
+                        >
+                          {renderStudentRow(student)}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </div>
+              </motion.div>
+            );
+          }
           return (
             <motion.div
               key="list"
-              variants={staggerContainer}
-              initial="hidden"
-              animate="show"
-              className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-4 gap-6"
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              exit={{ opacity: 0 }}
+              transition={{ duration: 0.25, ease: [0.16, 1, 0.3, 1] }}
             >
-              {students.map((student) => (
-                <motion.div key={student.id || student._id} variants={staggerItem}>
-                  <GlassCard className="p-5 hover:border-brand-base/40 group transition-[border-color] duration-300 relative overflow-hidden h-full flex flex-col">
-                  {/* Acciones */}
-                  <div className="absolute top-3 right-3 z-10">
-                    <div className="relative">
-                      <Tooltip content="Acciones">
-                        <button
-                          onClick={(e) => {
-                            e.stopPropagation();
-                            setActiveMenuId(activeMenuId === (student.id || student._id) ? null : (student.id || student._id));
-                          }}
-                          className="p-1.5 rounded-lg text-text-muted hover:text-text-primary hover:bg-white/5 transition-colors"
-                          aria-label="Acciones"
-                        >
-                          <MoreVertical size={16} />
-                        </button>
-                      </Tooltip>
-                      
-                      <AnimatePresence>
-                        {activeMenuId === (student.id || student._id) && (
-                          <>
-                            <button
-                              type="button"
-                              aria-label="Cerrar menú"
-                              className="fixed inset-0 z-10 cursor-default border-0 bg-transparent p-0"
-                              onClick={() => setActiveMenuId(null)}
-                              onKeyDown={(e) => { if (e.key === 'Escape' || e.key === 'Enter') setActiveMenuId(null); }}
-                            />
-                            <motion.div
-                              initial={{ opacity: 0, scale: 0.95, y: -10 }}
-                              animate={{ opacity: 1, scale: 1, y: 0 }}
-                              exit={{ opacity: 0, scale: 0.95, y: -10 }}
-                              className="absolute right-0 mt-2 w-48 bg-background-elevated border border-border-subtle rounded-xl shadow-xl z-20 py-1 overflow-hidden"
-                            >
-                              <button
-                                onClick={() => handleEditClick(student)}
-                                className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
-                              >
-                                <Edit size={14} /> Editar
-                              </button>
-                              <button
-                                onClick={() => handleConsentClick(student)}
-                                className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
-                              >
-                                <ShieldCheck size={14} /> Consentimiento
-                              </button>
-                              <button
-                                onClick={() => handleExportClick(student)}
-                                className="w-full px-4 py-2 text-left text-sm text-text-primary hover:bg-white/5 flex items-center gap-2 transition-colors"
-                              >
-                                <Download size={14} /> Exportar datos
-                              </button>
-                              <hr className="my-1 border-border-subtle" />
-                              <button
-                                onClick={() => handleHardDeleteClick(student)}
-                                className="w-full px-4 py-2 text-left text-sm text-error-base hover:bg-error-base/10 flex items-center gap-2 transition-colors"
-                              >
-                                <Trash2 size={14} /> Eliminar datos
-                              </button>
-                            </motion.div>
-                          </>
-                        )}
-                      </AnimatePresence>
-                    </div>
+              <GlassCard padding="none" className="overflow-visible">
+                <div className="p-2" role="table" aria-label="Tabla de alumnos del centro">
+                  {studentTableHeader}
+                  <div role="rowgroup">
+                    {students.map((student) => renderStudentRow(student))}
                   </div>
-
-                  <div className="flex items-center gap-4 mb-4">
-                    <div className="size-12 rounded-full bg-background-base border border-border-subtle flex items-center justify-center text-xl shadow-inner">
-                      {student.profile?.avatar ? (
-                        <img src={student.profile.avatar} alt="" className="w-full h-full rounded-full object-cover" />
-                      ) : (
-                        student.name.charAt(0).toUpperCase()
-                      )}
-                    </div>
-                    <div className="min-w-0 flex-1">
-                      <h3 className="font-bold text-text-primary truncate">{student.name}</h3>
-                      <div className="flex items-center gap-1.5 text-text-muted text-xs">
-                        <School size={12} />
-                        <span className="truncate">{student.profile?.classroom || 'Sin clase'}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="mt-auto pt-4 border-t border-border-subtle space-y-3">
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Profesor</span>
-                      <span className="text-xs text-text-primary font-medium truncate max-w-[160px]">
-                        {/* createdBy puede venir poblado ({id, name}) o como string ObjectId.
-                            Si es objeto, mostramos el nombre; si es string sin populate o falta, "Sistema". */}
-                        {(typeof student.createdBy === 'object' && student.createdBy?.name) || 'Sistema'}
-                      </span>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Estado</span>
-                      <StatusBadge status={student.status === 'active' ? 'success' : 'inactive'} size="sm">
-                        {student.status === 'active' ? 'Activo' : 'Inactivo'}
-                      </StatusBadge>
-                    </div>
-                    <div className="flex items-center justify-between gap-3">
-                      <span className="text-xs uppercase tracking-wider text-text-muted font-bold shrink-0">Consentimiento</span>
-                      <StatusBadge
-                        status={student.consent?.granted ? 'active' : 'error'}
-                        size="sm"
-                        pulse={student.consent?.granted === false}
-                      >
-                        {student.consent?.granted ? 'Activo' : 'Revocado'}
-                      </StatusBadge>
-                    </div>
-                  </div>
-                </GlassCard>
-              </motion.div>
-            ))}
+                </div>
+              </GlassCard>
             </motion.div>
           );
         })()}
@@ -739,7 +953,7 @@ export default function StudentManagement() {
           <ButtonPremium
             variant="ghost"
             size="sm"
-            onClick={() => fetchInitialData(pagination.page - 1)}
+            onClick={() => fetchStudents(pagination.page - 1)}
             disabled={pagination.page <= 1}
             icon={<ChevronLeft size={16} />}
           >
@@ -751,7 +965,7 @@ export default function StudentManagement() {
           <ButtonPremium
             variant="ghost"
             size="sm"
-            onClick={() => fetchInitialData(pagination.page + 1)}
+            onClick={() => fetchStudents(pagination.page + 1)}
             disabled={pagination.page >= pagination.totalPages}
             icon={<ChevronRight size={16} />}
             iconPosition="right"
@@ -761,13 +975,20 @@ export default function StudentManagement() {
         </footer>
       )}
 
+      <CreateStudentModal
+        isOpen={isModalOpen}
+        onClose={() => setIsModalOpen(false)}
+        onCreated={() => fetchStudents(pagination.page)}
+        teachers={teachers}
+      />
+
       <EditStudentModal
         isOpen={isEditModalOpen}
         onClose={() => {
           setIsEditModalOpen(false);
           setSelectedStudent(null);
         }}
-        onUpdated={() => fetchInitialData(pagination.page)}
+        onUpdated={() => fetchStudents(pagination.page)}
         student={selectedStudent}
       />
 
@@ -779,7 +1000,7 @@ export default function StudentManagement() {
           setSelectedStudent(null);
         }}
         student={selectedStudent}
-        onConsentChanged={() => fetchInitialData(pagination.page)}
+        onConsentChanged={() => fetchStudents(pagination.page)}
       />
 
       {/* Modal de borrado efectivo Art. 17 RGPD */}
@@ -796,6 +1017,6 @@ export default function StudentManagement() {
         variant="error"
         loading={isHardDeleting}
       />
-    </motion.div>
+    </AdminPageShell>
   );
 }

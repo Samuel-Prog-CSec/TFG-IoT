@@ -5,7 +5,13 @@
  */
 
 const { z } = require('zod');
-const { objectIdSchema, paginationSchema, uidSchema } = require('./commonValidator');
+const {
+  objectIdSchema,
+  paginationSchema,
+  uidSchema,
+  cardMappingSchema,
+  sanitizedString
+} = require('./commonValidator');
 const { DIFFICULTY, SESSION_STATUS } = require('../constants/enums');
 
 /**
@@ -33,43 +39,29 @@ const sessionConfigSchema = z.object({
     .max(300, 'El límite de tiempo no puede exceder 300 segundos')
     .default(15),
 
+  // QA 2026-05-06 (ADR-114): rangos unificados entre las 3 mecánicas para
+  // evitar deformación del ranking. `pointsPerCorrect` 5-15 y
+  // `penaltyPerError` -5..0 son los rangos pedagógicos válidos. Sin esta
+  // restricción el wizard permitía ratios extremos (Asociación 5-25,
+  // Memoria 5-30) que producían maxScores 6× más altos en una mecánica
+  // que en otra para el mismo número de aciertos.
   pointsPerCorrect: z
     .number()
     .int('pointsPerCorrect debe ser un número entero')
-    .positive('Los puntos por respuesta correcta deben ser positivos')
+    .min(5, 'Los puntos por acierto deben ser al menos 5')
+    .max(15, 'Los puntos por acierto no pueden exceder 15')
     .default(10),
 
   penaltyPerError: z
     .number()
     .int('penaltyPerError debe ser un número entero')
-    .nonpositive('La penalización debe ser cero o un número negativo')
+    .min(-5, 'La penalización por error no puede ser inferior a -5')
+    .max(0, 'La penalización debe ser cero o negativa')
     .default(-2)
 });
 
-/**
- * Schema para mapeo de token RFID fungible a valor de juego.
- * Relaciona una tarjeta RFID (identificada por UID) con un valor del contexto (ADR-012).
- *
- * @example
- * {
- *   uid: '32B8FA05',
- *   assignedValue: 'España',
- *   displayData: { emoji: '🇪🇸', audioUrl: '...', color: 'red' }
- * }
- */
-const cardMappingSchema = z
-  .object({
-    uid: uidSchema,
-
-    assignedValue: z
-      .string()
-      .min(1, 'El valor asignado es requerido')
-      .max(200, 'El valor asignado no puede exceder 200 caracteres')
-      .trim(),
-
-    displayData: z.record(z.string(), z.any()).optional().default({})
-  })
-  .strict();
+// cardMappingSchema se importa desde commonValidator (consolidado pre-v1.0.0).
+// Mantenemos el re-export en module.exports para preservar el API público existente.
 
 /**
  * Schema para crear una nueva sesión de juego.
@@ -116,11 +108,11 @@ const boardLayoutItemSchema = z
       .int('slotIndex debe ser un número entero')
       .min(0, 'slotIndex no puede ser negativo'),
     uid: uidSchema,
-    assignedValue: z
-      .string()
-      .min(1, 'assignedValue es requerido en boardLayout')
-      .max(200, 'assignedValue en boardLayout no puede exceder 200 caracteres')
-      .trim(),
+    assignedValue: sanitizedString({
+      min: 1,
+      max: 200,
+      label: 'assignedValue en boardLayout'
+    }),
     displayData: z.record(z.string(), z.any()).optional().default({})
   })
   .strict();
@@ -152,13 +144,13 @@ const associationChallengeItemSchema = z
       .int('roundNumber debe ser un número entero')
       .min(1, 'roundNumber debe ser >= 1'),
     uid: uidSchema,
-    assignedValue: z
-      .string()
-      .min(1, 'assignedValue es requerido en associationChallengePlan')
-      .max(200, 'assignedValue en associationChallengePlan no puede exceder 200 caracteres')
-      .trim(),
+    assignedValue: sanitizedString({
+      min: 1,
+      max: 200,
+      label: 'assignedValue en associationChallengePlan'
+    }),
     displayData: z.record(z.string(), z.any()).optional().default({}),
-    promptText: z.string().max(180, 'promptText no puede exceder 180 caracteres').trim().optional()
+    promptText: sanitizedString({ min: 0, max: 180, label: 'promptText' }).optional()
   })
   .strict();
 
@@ -174,6 +166,113 @@ const associationChallengePlanSchema = z
     return roundSet.size === plan.length;
   }, 'No puede haber rondas duplicadas en associationChallengePlan');
 
+/**
+ * Schema para un item individual dentro de la secuencia de una ronda.
+ */
+const sequenceItemSchema = z
+  .object({
+    uid: uidSchema,
+    assignedValue: sanitizedString({
+      min: 1,
+      max: 200,
+      label: 'assignedValue en sequencePlan'
+    }),
+    displayData: z.record(z.string(), z.any()).optional().default({})
+  })
+  .strict();
+
+/**
+ * Schema para una ronda completa del plan de secuencias.
+ * - sequence con al menos 1 elemento, sin UIDs duplicados.
+ * - length coincide con sequence.length.
+ */
+const sequencePlanRoundSchema = z
+  .object({
+    roundNumber: z
+      .number()
+      .int('roundNumber debe ser un número entero')
+      .min(1, 'roundNumber debe ser >= 1'),
+    length: z
+      .number()
+      .int('length debe ser un número entero')
+      .min(1, 'length debe ser >= 1')
+      .max(12, 'length no puede exceder 12'),
+    sequence: z.array(sequenceItemSchema).min(1, 'La secuencia debe tener al menos 1 elemento')
+  })
+  .strict()
+  .refine(round => round.length === round.sequence.length, {
+    message: 'length debe coincidir con sequence.length'
+  })
+  .refine(round => {
+    const uids = round.sequence.map(item => item.uid);
+    return new Set(uids).size === uids.length;
+  }, 'No puede haber UIDs duplicados dentro de una secuencia');
+
+const sequencePlanSchema = z
+  .array(sequencePlanRoundSchema)
+  .optional()
+  .refine(plan => {
+    if (!Array.isArray(plan) || plan.length === 0) {
+      return true;
+    }
+    const roundSet = new Set(plan.map(item => item.roundNumber));
+    return roundSet.size === plan.length;
+  }, 'No puede haber rondas duplicadas en sequencePlan');
+
+/**
+ * Schema para la configuración específica de Secuencia.
+ * `minSequenceLength <= maxSequenceLength` se valida al final con superRefine
+ * para que el mensaje de error sea más claro que un refine genérico.
+ */
+const sequenceConfigSchema = z
+  .object({
+    minSequenceLength: z
+      .number()
+      .int('minSequenceLength debe ser un número entero')
+      .min(1, 'minSequenceLength debe ser >= 1')
+      .max(12, 'minSequenceLength no puede exceder 12')
+      .optional(),
+    maxSequenceLength: z
+      .number()
+      .int('maxSequenceLength debe ser un número entero')
+      .min(1, 'maxSequenceLength debe ser >= 1')
+      .max(12, 'maxSequenceLength no puede exceder 12')
+      .optional(),
+    displaySeconds: z
+      .number()
+      .int('displaySeconds debe ser un número entero')
+      .min(2, 'displaySeconds debe ser >= 2')
+      .max(8, 'displaySeconds no puede exceder 8')
+      .optional(),
+    // Audio en las pistas: reproducir el audio de la carta esperada al fallar
+    // (Fácil: con cada pista de texto; Media: una vez; Difícil: nunca).
+    autoPlayHints: z.boolean().optional()
+  })
+  .strict()
+  .refine(
+    cfg => {
+      if (cfg.minSequenceLength === undefined || cfg.maxSequenceLength === undefined) {
+        return true;
+      }
+      return cfg.minSequenceLength <= cfg.maxSequenceLength;
+    },
+    {
+      message: 'minSequenceLength debe ser <= maxSequenceLength',
+      path: ['minSequenceLength']
+    }
+  );
+
+/**
+ * Configuración específica de la mecánica Asociación. Por ahora solo el flag
+ * `autoPlayPrompt` (locución automática de la consigna de audio). `.strict()`
+ * rechaza claves desconocidas para no colar campos arbitrarios.
+ */
+const associationConfigSchema = z
+  .object({
+    autoPlayPrompt: z.boolean().optional()
+  })
+  .strict();
+
 const createGameSessionSchema = z
   .object({
     mechanicId: objectIdSchema,
@@ -182,9 +281,9 @@ const createGameSessionSchema = z
 
     contextId: objectIdSchema.optional(),
 
-    sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
+    sensorId: sanitizedString({ min: 0, max: 100, label: 'sensorId' }).optional(),
 
-    name: z.string().max(100, 'El nombre no puede exceder 100 caracteres').trim().optional(),
+    name: sanitizedString({ min: 0, max: 100, label: 'El nombre de la sesión' }).optional(),
 
     difficulty: z.enum([...DIFFICULTY]).optional(),
 
@@ -192,7 +291,13 @@ const createGameSessionSchema = z
 
     boardLayout: boardLayoutSchema,
 
-    associationChallengePlan: associationChallengePlanSchema
+    associationChallengePlan: associationChallengePlanSchema,
+
+    sequencePlan: sequencePlanSchema,
+
+    sequenceConfig: sequenceConfigSchema.optional(),
+
+    associationConfig: associationConfigSchema.optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
@@ -210,9 +315,9 @@ const updateGameSessionSchema = z
   .object({
     deckId: objectIdSchema.optional(),
 
-    sensorId: z.string().max(100, 'sensorId no puede exceder 100 caracteres').trim().optional(),
+    sensorId: sanitizedString({ min: 0, max: 100, label: 'sensorId' }).optional(),
 
-    name: z.string().max(100, 'El nombre no puede exceder 100 caracteres').trim().optional(),
+    name: sanitizedString({ min: 0, max: 100, label: 'El nombre de la sesión' }).optional(),
 
     config: sessionConfigInputSchema.optional(),
 
@@ -220,11 +325,34 @@ const updateGameSessionSchema = z
 
     associationChallengePlan: associationChallengePlanSchema,
 
+    sequencePlan: sequencePlanSchema,
+
+    sequenceConfig: sequenceConfigSchema.optional(),
+
+    associationConfig: associationConfigSchema.optional(),
+
     difficulty: z.enum([...DIFFICULTY]).optional()
   })
   .strict()
   .refine(data => Object.keys(data).length > 0, {
     message: 'Debe proporcionar al menos un campo para actualizar'
+  })
+  .superRefine((data, ctx) => {
+    // Si el caller envía simultáneamente sequencePlan y config.numberOfRounds,
+    // ambos deben coincidir en longitud. Hasta T-921 era posible enviar un plan
+    // de 3 rondas y un numberOfRounds=5, dejando la mecánica Secuencia en estado
+    // incoherente (rondas pintadas sin entradas en el plan).
+    if (
+      Array.isArray(data.sequencePlan) &&
+      data.config?.numberOfRounds !== undefined &&
+      data.sequencePlan.length !== data.config.numberOfRounds
+    ) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: ['sequencePlan'],
+        message: 'sequencePlan debe tener el mismo número de rondas que config.numberOfRounds'
+      });
+    }
   });
 
 /**
@@ -291,5 +419,10 @@ module.exports = {
   cloneSessionParamsSchema,
   sessionConfigSchema,
   sessionConfigInputSchema,
-  cardMappingSchema
+  cardMappingSchema,
+  sequencePlanSchema,
+  sequenceConfigSchema,
+  associationConfigSchema,
+  sequenceItemSchema,
+  sequencePlanRoundSchema
 };

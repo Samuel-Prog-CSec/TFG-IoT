@@ -22,6 +22,33 @@ const {
 } = require('../config/redis');
 const logger = require('../utils/logger').child({ component: 'redisService' });
 const { CircuitBreaker } = require('../utils/circuitBreaker');
+const { recordCommand, categoryForNamespace } = require('../utils/redisCommandTracker');
+
+/**
+ * Contabiliza `count` comandos Redis bajo la categoría derivada del namespace
+ * (T-907 Fase D). Se invoca tras `redisBreaker.recordSuccess()` para que un
+ * fallo previo a la red no infle el contador. La telemetría es best-effort:
+ * cualquier excepción se silencia para no comprometer la operación principal.
+ *
+ * @param {string} namespace
+ * @param {number} [count=1]
+ */
+const track = (namespace, count = 1) => {
+  try {
+    recordCommand(categoryForNamespace(namespace), count);
+  } catch {
+    // Best-effort, nunca propaga.
+  }
+};
+
+/** Contabiliza 1 comando Lua (`EVAL`/`EVALSHA`) bajo la categoría 'lua'. */
+const trackLua = () => {
+  try {
+    recordCommand('lua', 1);
+  } catch {
+    // Best-effort.
+  }
+};
 
 const redisBreaker = new CircuitBreaker({
   name: 'redis',
@@ -56,9 +83,6 @@ const NAMESPACES = {
   /** Flags de seguridad (logout forzado) */
   SECURITY: 'security',
 
-  /** Familias de tokens por usuario */
-  TOKEN_FAMILY: 'tokenfamily',
-
   /** Cache de mecánicas de juego (TTL: 1h) */
   CACHE_MECHANIC: 'cache:mechanic',
 
@@ -72,7 +96,22 @@ const NAMESPACES = {
   AUTH_USER: 'auth:user',
 
   /** Lock distribuido de idempotencia para startPlay (TTL: 60s) */
-  PLAY_INIT_LOCK: 'play:init'
+  PLAY_INIT_LOCK: 'play:init',
+
+  /** Contador sliding de intentos fallidos de login por email (TTL: window) */
+  AUTH_FAILED: 'auth:fail',
+
+  /** Cuenta bloqueada temporalmente por intentos fallidos (TTL: lockout duration) */
+  AUTH_LOCKED: 'auth:lock',
+
+  /** Anti-replay TOTP: marca step ya usado por un super_admin (TTL: 90s) */
+  MFA_TOTP_USED: 'mfa:totp:used',
+
+  /** Contador sliding de challenges MFA fallidos por userId (TTL: window) */
+  MFA_CHALLENGE_FAILED: 'mfa:fail',
+
+  /** Bloqueo temporal del challenge MFA por fuerza bruta (TTL: lockout duration) */
+  MFA_CHALLENGE_LOCKED: 'mfa:lock'
 };
 
 /**
@@ -127,6 +166,7 @@ const setWithTTL = async (namespace, id, value, ttlSeconds) => {
     await redis.setex(key, ttlSeconds, String(value));
     logger.debug(`Redis SET: ${key} (TTL: ${ttlSeconds}s)`);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return true;
   } catch (error) {
     logger.error('Redis setWithTTL error:', { namespace, id, error: error.message });
@@ -154,6 +194,7 @@ const set = async (namespace, id, value) => {
     await redis.set(key, String(value));
     logger.debug(`Redis SET: ${key}`);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return true;
   } catch (error) {
     logger.error('Redis set error:', { namespace, id, error: error.message });
@@ -188,6 +229,7 @@ const setIfNotExists = async (namespace, id, value, ttlSeconds = null) => {
     }
 
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return result === 'OK';
   } catch (error) {
     logger.error('Redis setIfNotExists error:', { namespace, id, error: error.message });
@@ -216,12 +258,14 @@ const setMany = async (namespace, entries = []) => {
     const redis = getRedis();
     const pipeline = redis.pipeline();
 
+    let commandCount = 0;
     for (const entry of entries) {
       if (!entry?.id) {
         continue;
       }
       const key = buildKey(namespace, entry.id);
       pipeline.set(key, String(entry.value));
+      commandCount += 1;
     }
 
     const results = await pipeline.exec();
@@ -233,6 +277,7 @@ const setMany = async (namespace, entries = []) => {
       redisBreaker.recordFailure();
     } else {
       redisBreaker.recordSuccess();
+      track(namespace, commandCount);
     }
     return !hasError;
   } catch (error) {
@@ -259,37 +304,110 @@ const setManyIfNotExists = async (namespace, entries = [], ttlSeconds = null) =>
     return { ok: true, conflicts: [], acquiredIds: [] };
   }
 
+  const validEntries = entries.filter(e => e?.id);
+  if (validEntries.length === 0) {
+    return { ok: true, conflicts: [], acquiredIds: [] };
+  }
+
+  const redis = getRedis();
+  if (!redis) {
+    return { ok: false, conflicts: validEntries.map(e => e.id), acquiredIds: [] };
+  }
+
+  // B.5 (pre-v1.0.0): fallback transaccional con MULTI/EXEC + WATCH.
+  // Antes este fallback iteraba secuencialmente con `setIfNotExists` —
+  // sin atomicidad real, dos reservations concurrentes para la misma key
+  // podían colarse ambas. Con WATCH + EXEC optimista, si alguna key
+  // observada cambia entre WATCH y EXEC, la transacción se aborta y
+  // devolvemos conflict. Idempotente: si Lua vuelve a estar disponible
+  // (caso típico — esto solo se invoca tras SCRIPT FLUSH o en tests),
+  // la próxima llamada usa el path Lua atómico.
+  const keys = validEntries.map(e => buildKey(namespace, e.id));
   const acquiredIds = [];
   const conflicts = [];
 
   try {
-    for (const entry of entries) {
-      if (!entry?.id) {
-        continue;
-      }
+    // 1) WATCH sobre todas las keys candidatas.
+    await redis.watch(...keys);
 
-      const acquired = await setIfNotExists(namespace, entry.id, entry.value, ttlSeconds);
-      if (acquired) {
-        acquiredIds.push(entry.id);
+    // 2) Pre-check: si alguna ya existe, no hay nada que adquirir.
+    const existsResults = await redis.mget(...keys);
+    const preConflicts = [];
+    for (let i = 0; i < validEntries.length; i++) {
+      if (existsResults[i] !== null) {
+        preConflicts.push(validEntries[i].id);
+      }
+    }
+    if (preConflicts.length > 0) {
+      await redis.unwatch();
+      track(namespace, 1 + keys.length); // watch + mget cuentan
+      return { ok: false, conflicts: preConflicts, acquiredIds: [] };
+    }
+
+    // 3) MULTI: encolar SET para cada key + EXEC atómico.
+    const multi = redis.multi();
+    for (const entry of validEntries) {
+      const key = buildKey(namespace, entry.id);
+      if (ttlSeconds && ttlSeconds > 0) {
+        multi.set(key, String(entry.value), 'EX', ttlSeconds, 'NX');
       } else {
-        conflicts.push(entry.id);
+        multi.set(key, String(entry.value), 'NX');
+      }
+    }
+    const execResults = await multi.exec();
+
+    // 4) Si EXEC devuelve null, otra escritura modificó una de las keys
+    //    entre WATCH y EXEC — abortar.
+    if (execResults === null) {
+      track(namespace, 1 + keys.length); // watch + mget
+      return { ok: false, conflicts: validEntries.map(e => e.id), acquiredIds: [] };
+    }
+
+    // 5) Procesar resultado por entry. SET NX retorna 'OK' si acquired,
+    //    null si la key ya existía (race tras pre-check).
+    for (let i = 0; i < validEntries.length; i++) {
+      const [err, reply] = execResults[i];
+      if (err || reply === null) {
+        conflicts.push(validEntries[i].id);
+      } else {
+        acquiredIds.push(validEntries[i].id);
       }
     }
 
-    if (conflicts.length > 0) {
+    // 6) Si hubo conflictos parciales, revertir las acquired.
+    if (conflicts.length > 0 && acquiredIds.length > 0) {
       await delMany(namespace, acquiredIds);
-      return { ok: false, conflicts, acquiredIds };
+      redisBreaker.recordSuccess();
+      track(namespace, 1 + keys.length + acquiredIds.length);
+      return { ok: false, conflicts, acquiredIds: [] };
     }
 
-    return { ok: true, conflicts: [], acquiredIds };
+    redisBreaker.recordSuccess();
+    track(namespace, 1 + keys.length + validEntries.length);
+    return {
+      ok: conflicts.length === 0,
+      conflicts,
+      acquiredIds
+    };
   } catch (error) {
-    logger.error('Redis setManyIfNotExists error:', { namespace, error: error.message });
+    logger.error('Redis setManyIfNotExists transactional error:', {
+      namespace,
+      error: error.message
+    });
     redisBreaker.recordFailure();
-
+    try {
+      await redis.unwatch();
+    } catch {
+      // ignore
+    }
     if (acquiredIds.length > 0) {
       await delMany(namespace, acquiredIds);
     }
-    return { ok: false, conflicts, acquiredIds };
+    return {
+      ok: false,
+      conflicts: [...conflicts, ...validEntries.map(e => e.id)],
+      acquiredIds: []
+    };
   }
 };
 
@@ -315,6 +433,7 @@ const expire = async (namespace, id, ttlSeconds) => {
     const key = buildKey(namespace, id);
     const result = await redis.expire(key, ttlSeconds);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return result === 1;
   } catch (error) {
     logger.error('Redis expire error:', { namespace, id, error: error.message });
@@ -430,6 +549,7 @@ const get = async (namespace, id) => {
     const key = buildKey(namespace, id);
     const value = await redis.get(key);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return value;
   } catch (error) {
     logger.error('Redis get error:', { namespace, id, error: error.message });
@@ -455,6 +575,7 @@ const exists = async (namespace, id) => {
     const key = buildKey(namespace, id);
     const result = await redis.exists(key);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return result === 1;
   } catch (error) {
     logger.error('Redis exists error:', { namespace, id, error: error.message });
@@ -481,6 +602,7 @@ const del = async (namespace, id) => {
     await redis.del(key);
     logger.debug(`Redis DEL: ${key}`);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return true;
   } catch (error) {
     logger.error('Redis del error:', { namespace, id, error: error.message });
@@ -509,12 +631,14 @@ const delMany = async (namespace, ids = []) => {
     const redis = getRedis();
     const pipeline = redis.pipeline();
 
+    let commandCount = 0;
     for (const id of ids) {
       if (!id) {
         continue;
       }
       const key = buildKey(namespace, id);
       pipeline.del(key);
+      commandCount += 1;
     }
 
     const results = await pipeline.exec();
@@ -526,6 +650,7 @@ const delMany = async (namespace, ids = []) => {
       redisBreaker.recordFailure();
     } else {
       redisBreaker.recordSuccess();
+      track(namespace, commandCount);
     }
     return !hasError;
   } catch (error) {
@@ -607,6 +732,50 @@ const delManyIfValueMatches = async (namespace, entries = []) => {
 };
 
 /**
+ * Incrementa atomicamente un contador. Si la key no existe, la crea con valor 1.
+ * Opcionalmente establece TTL en el primer incremento (cuando newValue === 1).
+ *
+ * Usado por accountLockoutService para contar intentos fallidos de login.
+ *
+ * @param {string} namespace - Namespace de la key.
+ * @param {string} id - Identificador único.
+ * @param {number} [ttlSecondsIfNew] - TTL en segundos solo si la key se crea ahora.
+ * @returns {Promise<number>} Valor tras incrementar. 0 si Redis no disponible.
+ */
+const incr = async (namespace, id, ttlSecondsIfNew = null) => {
+  if (!checkRedisAvailable()) {
+    return 0;
+  }
+
+  try {
+    const redis = getRedis();
+    const key = buildKey(namespace, id);
+    const newValue = await redis.incr(key);
+
+    // TTL con `EXPIRE ... NX` (Redis 7+): fija el TTL solo si la key aún no tiene
+    // uno. Antes el EXPIRE se ejecutaba únicamente cuando newValue===1, de modo que
+    // un crash entre INCR y EXPIRE en la primera escritura dejaba la key SIN TTL
+    // para siempre (leak en Redis con `noeviction` + ventana de lockout que nunca
+    // expiraba). Reintentarlo con NX en cada incremento es idempotente (NX no
+    // reescribe un TTL ya fijado → la ventana sigue siendo fija desde el primer
+    // fallo) y auto-cura ese caso límite.
+    let extraCommands = 0;
+    if (Number.isInteger(ttlSecondsIfNew) && ttlSecondsIfNew > 0) {
+      await redis.expire(key, ttlSecondsIfNew, 'NX');
+      extraCommands = 1;
+    }
+
+    redisBreaker.recordSuccess();
+    track(namespace, 1 + extraCommands);
+    return newValue;
+  } catch (error) {
+    logger.error('Redis incr error:', { namespace, id, error: error.message });
+    redisBreaker.recordFailure();
+    return 0;
+  }
+};
+
+/**
  * Obtiene el TTL restante de una key.
  *
  * @param {string} namespace - Namespace de la key.
@@ -623,6 +792,7 @@ const ttl = async (namespace, id) => {
     const key = buildKey(namespace, id);
     const value = await redis.ttl(key);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return value;
   } catch (error) {
     logger.error('Redis ttl error:', { namespace, id, error: error.message });
@@ -661,12 +831,15 @@ const hset = async (namespace, id, data, ttlSeconds = null) => {
 
     await redis.hset(key, ...fields);
 
+    let extraCommands = 0;
     if (ttlSeconds) {
       await redis.expire(key, ttlSeconds);
+      extraCommands = 1;
     }
 
     logger.debug(`Redis HSET: ${key} (${Object.keys(data).length} fields)`);
     redisBreaker.recordSuccess();
+    track(namespace, 1 + extraCommands);
     return true;
   } catch (error) {
     logger.error('Redis hset error:', { namespace, id, error: error.message });
@@ -694,6 +867,8 @@ const hgetall = async (namespace, id) => {
 
     // hgetall devuelve {} si la key no existe
     if (!data || Object.keys(data).length === 0) {
+      redisBreaker.recordSuccess();
+      track(namespace, 1);
       return null;
     }
 
@@ -708,6 +883,7 @@ const hgetall = async (namespace, id) => {
     }
 
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return parsed;
   } catch (error) {
     logger.error('Redis hgetall error:', { namespace, id, error: error.message });
@@ -734,6 +910,7 @@ const hget = async (namespace, id, field) => {
     const key = buildKey(namespace, id);
     const value = await redis.hget(key, field);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return value;
   } catch (error) {
     logger.error('Redis hget error:', { namespace, id, field, error: error.message });
@@ -760,6 +937,7 @@ const hdel = async (namespace, id, field) => {
     const key = buildKey(namespace, id);
     await redis.hdel(key, field);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return true;
   } catch (error) {
     logger.error('Redis hdel error:', { namespace, id, field, error: error.message });
@@ -790,6 +968,7 @@ const sadd = async (namespace, id, member) => {
     const key = buildKey(namespace, id);
     await redis.sadd(key, member);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return true;
   } catch (error) {
     logger.error('Redis sadd error:', { namespace, id, error: error.message });
@@ -815,6 +994,7 @@ const smembers = async (namespace, id) => {
     const key = buildKey(namespace, id);
     const value = await redis.smembers(key);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return value;
   } catch (error) {
     logger.error('Redis smembers error:', { namespace, id, error: error.message });
@@ -841,6 +1021,7 @@ const sismember = async (namespace, id, member) => {
     const key = buildKey(namespace, id);
     const result = await redis.sismember(key, member);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return result === 1;
   } catch (error) {
     logger.error('Redis sismember error:', { namespace, id, error: error.message });
@@ -867,11 +1048,54 @@ const srem = async (namespace, id, member) => {
     const key = buildKey(namespace, id);
     await redis.srem(key, member);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return true;
   } catch (error) {
     logger.error('Redis srem error:', { namespace, id, error: error.message });
     redisBreaker.recordFailure();
     return false;
+  }
+};
+
+// =============================================================================
+// OPERACIONES PIPELINE NATIVAS (T-907 Fase D)
+// =============================================================================
+
+/**
+ * Ejecuta una pipeline arbitraria de comandos. Útil cuando un caller necesita
+ * agrupar lecturas heterogéneas (p. ej. middleware authenticate combinando
+ * `EXISTS blacklist:<jti>` + `GET security:<userId>` + `GET auth:user:<userId>`
+ * en un solo round-trip a Redis). Reduce 3 round-trips a Upstash a 1.
+ *
+ * El caller construye los comandos contra el cliente ioredis nativo y se
+ * encarga de mapear los resultados. Esta función solo expone el cliente y
+ * registra la telemetría (1 round-trip = N comandos en el contador pipeline).
+ *
+ * Si Redis no está disponible, devuelve `null` y el caller decide el fallback.
+ *
+ * @param {(redis: import('ioredis').Pipeline) => import('ioredis').Pipeline} buildFn
+ * @param {string} [namespace='pipeline'] - Categoría telemetría (default 'pipeline').
+ * @returns {Promise<Array<[Error|null, any]>|null>}
+ */
+const runPipeline = async (buildFn, namespace = 'pipeline') => {
+  if (!checkRedisAvailable()) {
+    return null;
+  }
+
+  try {
+    const redis = getRedis();
+    const pipeline = redis.pipeline();
+    buildFn(pipeline);
+    const results = await pipeline.exec();
+    redisBreaker.recordSuccess();
+    // Cada operación añadida cuenta como 1 comando.
+    const count = Array.isArray(results) ? results.length : 0;
+    track(namespace, count);
+    return results;
+  } catch (error) {
+    logger.error('Redis runPipeline error:', { error: error.message });
+    redisBreaker.recordFailure();
+    return null;
   }
 };
 
@@ -902,26 +1126,32 @@ const scanByNamespace = async (namespace, pattern = '*') => {
     if (process.env.NODE_ENV === 'test') {
       const keys = await redis.keys(fullPattern);
       redisBreaker.recordSuccess();
+      track(namespace, 1);
       return keys.map(k => k.replace(keyPrefix, ''));
     }
 
     const keys = [];
 
-    // Usar scanStream para no bloquear
+    // Usar scanStream para no bloquear. COUNT 100 reduce los round-trips
+    // respecto al default 10 — clave en namespaces con muchas keys.
     const stream = redis.scanStream({
       match: fullPattern,
       count: 100
     });
 
     return new Promise((resolve, reject) => {
+      let scanIterations = 0;
       stream.on('data', resultKeys => {
         // Eliminar el keyPrefix de las keys retornadas para mantener consistencia
         const strippedKeys = resultKeys.map(k => k.replace(keyPrefix, ''));
         keys.push(...strippedKeys);
+        scanIterations += 1;
       });
 
       stream.on('end', () => {
         redisBreaker.recordSuccess();
+        // Cada iteración del cursor es 1 SCAN real al servidor.
+        track(namespace, Math.max(1, scanIterations));
         resolve(keys);
       });
 
@@ -957,11 +1187,12 @@ const flushNamespace = async namespace => {
       return 0;
     }
 
-    // Eliminar en batch
+    // Eliminar en batch (1 DEL multi-key = 1 round-trip).
     await redis.del(...keys);
 
     logger.info(`Redis FLUSH: ${namespace} (${keys.length} keys eliminadas)`);
     redisBreaker.recordSuccess();
+    track(namespace, 1);
     return keys.length;
   } catch (error) {
     logger.error('Redis flushNamespace error:', { namespace, error: error.message });
@@ -990,6 +1221,7 @@ const getStats = async () => {
     stats.namespaces[namespace] = keys.length;
   }
 
+  // scanByNamespace ya registra cada SCAN; aquí solo confirmamos éxito del breaker.
   redisBreaker.recordSuccess();
   return stats;
 };
@@ -1024,7 +1256,9 @@ const evalLuaScript = async (scriptName, numKeys, ...args) => {
   const sha = getLuaScriptSHA(scriptName);
   if (sha) {
     try {
-      return await redis.evalsha(sha, numKeys, ...args);
+      const result = await redis.evalsha(sha, numKeys, ...args);
+      trackLua();
+      return result;
     } catch (error) {
       // NOSCRIPT = el SHA no está en caché del servidor (p.ej. tras restart Redis)
       if (error.message?.includes('NOSCRIPT')) {
@@ -1038,7 +1272,9 @@ const evalLuaScript = async (scriptName, numKeys, ...args) => {
   // Fallback: EVAL con el source completo
   const source = getLuaScriptSource(scriptName);
   if (source) {
-    return await redis.eval(source, numKeys, ...args);
+    const result = await redis.eval(source, numKeys, ...args);
+    trackLua();
+    return result;
   }
 
   throw new Error(`Lua script '${scriptName}' no disponible (ni SHA ni source)`);
@@ -1101,6 +1337,62 @@ const reserveCardsAtomic = async (namespace, entries = [], ttlSeconds = 0) => {
     });
     // Fallback: operación secuencial original
     return await setManyIfNotExists(namespace, entries, ttlSeconds);
+  }
+};
+
+/**
+ * Anti-replay del counter RFID con compare-and-set atómico (Lua).
+ *
+ * Lee y avanza el counter monotónico por sensor en UNA sola ejecución, cerrando
+ * la ventana TOCTOU del get-then-setex previo (dos scans del mismo sensor podían
+ * leer el mismo `previous`, pasar ambos y reabrir la ventana de replay).
+ * Fail-open si Redis/Lua no están disponibles: la firma HMAC sigue protegiendo;
+ * solo se podría reutilizar un scan capturado durante el outage (degradación
+ * consciente, alineada con `reserveCardsAtomic`).
+ *
+ * @param {string} namespace - Namespace del counter (p. ej. 'rfid:counter').
+ * @param {string} sensorId - Identificador del sensor.
+ * @param {number} counter - Counter entrante del firmware.
+ * @param {number} ttlSeconds - TTL del key en segundos.
+ * @returns {Promise<{accepted:boolean, degraded:boolean}>} accepted=false => replay.
+ */
+const rfidCounterCheckAndAdvance = async (namespace, sensorId, counter, ttlSeconds) => {
+  if (!checkRedisAvailable()) {
+    return { accepted: true, degraded: true };
+  }
+  try {
+    const counterKey = buildKey(namespace, sensorId);
+    const res = await evalLuaScript(
+      'rfidCounterCas',
+      1,
+      counterKey,
+      String(counter),
+      String(ttlSeconds)
+    );
+    redisBreaker.recordSuccess();
+    return { accepted: Number(res) === 1, degraded: false };
+  } catch (error) {
+    // Lua no disponible (entorno test con ioredis-mock, o fallo puntual): fallback
+    // secuencial get-then-setex. Reintroduce la ventana TOCTOU SOLO en este camino
+    // raro y no concurrente (en producción la CAS Lua es la vía normal), pero
+    // preserva la semántica anti-replay en vez de hacer fail-open.
+    logger.warn('Redis rfidCounterCheckAndAdvance: Lua no disponible, fallback get/set', {
+      error: error.message
+    });
+    try {
+      const previousRaw = await get(namespace, sensorId);
+      const previous = previousRaw ? Number.parseInt(previousRaw, 10) : -1;
+      if (Number.isFinite(previous) && counter <= previous) {
+        return { accepted: false, degraded: false };
+      }
+      await setWithTTL(namespace, sensorId, String(counter), ttlSeconds);
+      return { accepted: true, degraded: false };
+    } catch (fallbackError) {
+      logger.warn('Redis rfidCounterCheckAndAdvance: fallback get/set falló, fail-open', {
+        error: fallbackError.message
+      });
+      return { accepted: true, degraded: true };
+    }
   }
 };
 
@@ -1231,12 +1523,14 @@ const existsMany = async (namespace, ids = []) => {
     const redis = getRedis();
     const pipeline = redis.pipeline();
 
+    let commandCount = 0;
     for (const id of ids) {
       if (!id) {
         continue;
       }
       const key = buildKey(namespace, id);
       pipeline.exists(key);
+      commandCount += 1;
     }
 
     const results = await pipeline.exec();
@@ -1248,6 +1542,7 @@ const existsMany = async (namespace, ids = []) => {
     }
 
     redisBreaker.recordSuccess();
+    track(namespace, commandCount);
     return resultMap;
   } catch (error) {
     // Fallback secuencial (ioredis-mock puede no soportar pipeline correctamente)
@@ -1298,12 +1593,14 @@ const hgetallMany = async (namespace, ids = []) => {
     const redis = getRedis();
     const pipeline = redis.pipeline();
 
+    let commandCount = 0;
     for (const id of ids) {
       if (!id) {
         continue;
       }
       const key = buildKey(namespace, id);
       pipeline.hgetall(key);
+      commandCount += 1;
     }
 
     const results = await pipeline.exec();
@@ -1319,6 +1616,7 @@ const hgetallMany = async (namespace, ids = []) => {
     }
 
     redisBreaker.recordSuccess();
+    track(namespace, commandCount);
     return resultMap;
   } catch (error) {
     // Fallback secuencial (ioredis-mock puede no soportar pipeline correctamente)
@@ -1369,6 +1667,7 @@ module.exports = {
   expire,
   expireIfValueMatches,
   expireManyIfValueMatches,
+  incr,
   ttl,
 
   // Hashes
@@ -1392,10 +1691,12 @@ module.exports = {
   reserveCardsAtomic,
   releaseCardsAtomic,
   renewLeaseAtomic,
+  rfidCounterCheckAndAdvance,
 
   // Pipeline batch operations
   existsMany,
   hgetallMany,
+  runPipeline,
 
   // Diagnóstico
   getCircuitBreakerState: () => redisBreaker.getState()

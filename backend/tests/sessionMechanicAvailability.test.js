@@ -232,7 +232,7 @@ describe('Session mechanic availability (Sprint 4)', () => {
         config: {
           numberOfRounds: 5,
           timeLimit: 300,
-          pointsPerCorrect: 20,
+          pointsPerCorrect: 15,
           penaltyPerError: -3
         },
         boardLayout
@@ -257,7 +257,7 @@ describe('Session mechanic availability (Sprint 4)', () => {
         config: {
           numberOfRounds: 5,
           timeLimit: 120,
-          pointsPerCorrect: 20,
+          pointsPerCorrect: 15,
           penaltyPerError: -3
         }
       });
@@ -282,7 +282,7 @@ describe('Session mechanic availability (Sprint 4)', () => {
         config: {
           numberOfRounds: 5,
           timeLimit: 301,
-          pointsPerCorrect: 20,
+          pointsPerCorrect: 15,
           penaltyPerError: -3
         },
         boardLayout

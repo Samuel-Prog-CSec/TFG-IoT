@@ -44,7 +44,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -82,7 +82,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -102,63 +102,54 @@ jobs:
           npm ci --prefix frontend
 
       - name: Security gate (producción)
+        # La lógica de filtrado vive en backend/scripts/audit-with-exclusions.js
+        # (con tests en backend/tests/auditWithExclusions.test.js). Aquí solo
+        # mantenemos el catálogo legible de exclusiones documentadas y los
+        # invocamos por workspace. Cualquier cambio en la política se hace
+        # editando el JS + tests, no inline en el workflow.
         run: |
-          # Helper: ejecuta audit de un workspace aplicando una lista de advisories excluidas.
-          # Fallan solo los advisories que NO son transitivos (string via) y NO están en la lista.
-          audit_with_exceptions() {
-            local prefix="$1"
-            local excluded="$2"
-            local label="$3"
-
-            if npm --prefix "$prefix" audit --omit=dev 2>/dev/null; then
-              echo "✅ $label audit limpio"
-              return 0
-            fi
-
-            local real_vulns
-            real_vulns=$(npm --prefix "$prefix" audit --omit=dev --json 2>/dev/null | node -e "
-              const excluded = process.argv[1].split(',').filter(Boolean);
-              let input = '';
-              process.stdin.on('data', c => input += c);
-              process.stdin.on('end', () => {
-                const data = JSON.parse(input);
-                const vulns = Object.values(data.vulnerabilities || {});
-                const real = vulns.filter(v =>
-                  !v.via.every(a => typeof a === 'string' || excluded.includes((a.url || '').split('/').pop()))
-                );
-                console.log(real.length);
-              });
-            " "$excluded")
-
-            if [ "$real_vulns" != "0" ]; then
-              echo "❌ Vulnerabilidades de producción no excluidas en $label"
-              npm --prefix "$prefix" audit --omit=dev
-              return 1
-            fi
-            echo "✅ $label audit: solo vulnerabilidades excluidas (no alcanzables en este proyecto)"
-          }
+          set -e
 
           # ───── Backend ─────
-          # Exclusión documentada (no alcanzable en nuestra cadena de dependencias):
-          # - GHSA-w5hq-g745-h8pq: uuid <14.0.0 buffer bounds check en v3/v5/v6 cuando se pasa `buf`.
-          #   Único consumidor transitivo es bullmq, que solo invoca uuid.v4() sin `buf`.
-          #   No podemos forzar uuid@14+ via overrides: v12 eliminó soporte CommonJS y bullmq (CJS)
-          #   fallaría en runtime. A la espera de que bullmq actualice su peer deps.
-          BACKEND_EXCLUDED="GHSA-w5hq-g745-h8pq"
-          audit_with_exceptions backend "$BACKEND_EXCLUDED" "Backend"
+          # Sin exclusiones activas.
+          #
+          # Histórico (resueltas por `npm audit fix` el 2026-05-22, eliminadas del lockfile):
+          # GHSA-w5hq-g745-h8pq (uuid), GHSA-v2v4-37r5-5v8g (ip-address),
+          # GHSA-jxxr-4gwj-5jf2 (brace-expansion).
+          # Histórico (resueltas por `npm audit fix` el 2026-07-06, ws 8.20.1→8.21.0 vía bump
+          # de @sentry/node/@opentelemetry sin --force, sin cambios de código):
+          # GHSA-58qx-3vcg-4xpx (ws uninitialized memory disclosure), GHSA-96hv-2xvq-fx4p (ws
+          # memory exhaustion DoS), GHSA-8988-4f7v-96qf (@opentelemetry/core unbounded alloc),
+          # GHSA-h67p-54hq-rp68 (js-yaml quadratic DoS), GHSA-72gw-mp4g-v24j y
+          # GHSA-3p4h-7m6x-2hcm (multer DoS). Si volvieran a aparecer, restaurar entrada con
+          # justificación renovada y mover aquí.
+          BACKEND_EXCLUDED=""
+          node backend/scripts/audit-with-exclusions.js \
+            --workspace backend \
+            --label "Backend" \
+            --excluded "$BACKEND_EXCLUDED"
 
           # ───── Frontend ─────
-          # axios fijado a 1.14.0 (última versión pre-supply-chain-attack).
-          # Las siguientes advisories solo afectan Node.js server-side, no browsers:
-          # - GHSA-3p68-rc4w-qgx5: axios SSRF via NO_PROXY bypass
-          # - GHSA-fvcv-3m26-pcqx: axios Cloud Metadata Exfiltration via Header Injection
-          # - GHSA-r4q5-vmmm-2653: follow-redirects filtra cabeceras auth en redirects cross-domain
-          FRONTEND_EXCLUDED="GHSA-3p68-rc4w-qgx5,GHSA-fvcv-3m26-pcqx,GHSA-r4q5-vmmm-2653"
-          audit_with_exceptions frontend "$FRONTEND_EXCLUDED" "Frontend"
+          # Sin exclusiones activas.
+          #
+          # Histórico (resueltas por `npm audit fix` el 2026-05-22, axios subió de 1.14.0
+          # a 1.15.2 al regenerar el lockfile): GHSA-3p68-rc4w-qgx5 (axios SSRF),
+          # GHSA-fvcv-3m26-pcqx (axios cloud metadata), GHSA-r4q5-vmmm-2653 (follow-redirects).
+          # Histórico (resuelta por `npm audit fix` el 2026-07-06, ws transitivo vía
+          # engine.io-client): GHSA-58qx-3vcg-4xpx, GHSA-96hv-2xvq-fx4p.
+          FRONTEND_EXCLUDED=""
+          node backend/scripts/audit-with-exclusions.js \
+            --workspace frontend \
+            --label "Frontend" \
+            --excluded "$FRONTEND_EXCLUDED"
 
       - name: Security report (completo)
-        run: npm run audit:all
+        # Informe puramente diagnóstico (incluye devDeps); las exclusiones de
+        # producción ya las aplica el step anterior. Las moderates conocidas
+        # (BACKEND_EXCLUDED/FRONTEND_EXCLUDED) hacen que npm audit retorne
+        # exit 1 sin que eso refleje un fallo real. No bloquear el job.
         continue-on-error: true
+        run: npm run audit:all
 
   # ──────────────────────────────────────────────
   # Job 3: Tests backend (requiere MongoDB)
@@ -182,7 +173,7 @@ jobs:
           --health-retries 5
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -197,11 +188,20 @@ jobs:
         working-directory: ./backend
 
       - name: Ejecutar tests
+        # NODE_OPTIONS con más heap: jest.config.js fija maxWorkers=1 a propósito
+        # (los tests comparten una única instancia de DB/servidor — correr en
+        # paralelo produce 401/500 flaky por drops de DB entre workers, ver
+        # comentario en jest.config.js). Con un solo proceso Node acumulando
+        # cobertura de ~150 suites, el heap por defecto de V8 revienta
+        # ("Ineffective mark-compacts... heap out of memory") antes de agotar
+        # la RAM real del runner — el fix es subir el techo de V8, no repartir
+        # en más workers (eso reintroduciría la flakiness original).
         run: npm test
         working-directory: ./backend
         env:
           JWT_SECRET: "test_secret"
           MONGODB_URI: "mongodb://localhost:27017/rfid_games_test"
+          NODE_OPTIONS: "--max-old-space-size=6144"
 
       - name: Normalizar rutas LCOV para SonarCloud
         if: always()
@@ -232,7 +232,7 @@ jobs:
       contents: read
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           persist-credentials: false
 
@@ -302,13 +302,91 @@ jobs:
         env:
           NODE_ENV: production
 
+      - name: Bundle size budget
+        # Umbrales en KB. Si el bundle frontend crece por encima, el CI falla.
+        # Ajustar aquí cuando se añadan dependencias grandes con justificación.
+        #
+        # MAX_DIST_KB: total del directorio dist/ EXCLUYENDO artefactos secundarios
+        #   (sourcemaps .map, pre-compresiones .gz/.br generadas por vite-plugin-compression).
+        #   Mide lo que realmente se sirve al usuario: HTML, CSS, JS, fuentes, imágenes.
+        # MAX_JS_GZIP_KB: suma del gzip on-the-fly de cada .js — la métrica que
+        #   más impacta el tiempo de carga real para el usuario.
+        env:
+          MAX_DIST_KB: 6144       # 6 MB total (sin sourcemaps/pre-compresiones)
+          MAX_JS_GZIP_KB: 900     # 900 KB gzipped (JS chunks) — actual ~600 KB tras T-907
+        run: |
+          set -e
+          cd frontend/dist
+
+          # Tamaño total del dist en KB, excluyendo sourcemaps y pre-compresiones.
+          # Los .gz/.br son alternativos al original (no se sirven además), y los .map
+          # se eliminan antes del deploy (sentry-release.yml hace find -name '*.map' -delete).
+          DIST_KB=$(find . -type f ! -name "*.map" ! -name "*.gz" ! -name "*.br" -printf '%s\n' | awk '{s+=$1} END {print int((s+1023)/1024)}')
+
+          # JS gzipped: sumamos el size gzipped de cada .js bajo assets/
+          # gzip -c imprime a stdout, wc -c cuenta bytes, dividimos a KB.
+          JS_GZIP_BYTES=0
+          while IFS= read -r -d '' f; do
+            BYTES=$(gzip -c "$f" | wc -c)
+            JS_GZIP_BYTES=$((JS_GZIP_BYTES + BYTES))
+          done < <(find . -type f -name "*.js" -print0)
+          JS_GZIP_KB=$((JS_GZIP_BYTES / 1024))
+
+          echo "### Bundle Size Budget (frontend)" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Métrica | Valor actual | Umbral | Estado |" >> $GITHUB_STEP_SUMMARY
+          echo "|---------|--------------|--------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          FAILED=0
+
+          if [ "$DIST_KB" -gt "$MAX_DIST_KB" ]; then
+            echo "| dist/ total | ${DIST_KB} KB | ${MAX_DIST_KB} KB | ❌ Excede |" >> $GITHUB_STEP_SUMMARY
+            echo "::error::frontend/dist es de ${DIST_KB} KB (umbral ${MAX_DIST_KB} KB)"
+            FAILED=1
+          else
+            PCT=$((DIST_KB * 100 / MAX_DIST_KB))
+            echo "| dist/ total | ${DIST_KB} KB | ${MAX_DIST_KB} KB | ✅ ${PCT}% del budget |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$JS_GZIP_KB" -gt "$MAX_JS_GZIP_KB" ]; then
+            echo "| JS gzipped | ${JS_GZIP_KB} KB | ${MAX_JS_GZIP_KB} KB | ❌ Excede |" >> $GITHUB_STEP_SUMMARY
+            echo "::error::JS bundle gzipped ${JS_GZIP_KB} KB (umbral ${MAX_JS_GZIP_KB} KB)"
+            FAILED=1
+          else
+            PCT=$((JS_GZIP_KB * 100 / MAX_JS_GZIP_KB))
+            echo "| JS gzipped | ${JS_GZIP_KB} KB | ${MAX_JS_GZIP_KB} KB | ✅ ${PCT}% del budget |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          # Top 10 archivos más pesados (sin gzip) para investigación rápida.
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "<details><summary>Top 10 archivos más pesados</summary>" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          find . -type f \( -name "*.js" -o -name "*.css" -o -name "*.woff2" \) -exec du -k {} + | sort -rn | head -10 >> $GITHUB_STEP_SUMMARY
+          echo "\`\`\`" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "</details>" >> $GITHUB_STEP_SUMMARY
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> Si el aumento es justificado (nueva librería pesada), sube los umbrales en \`.github/workflows/build.yml\` con justificación en el PR." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi
+
   # ──────────────────────────────────────────────
   # Job 5: SonarCloud (informativo, no bloquea CI)
   # ──────────────────────────────────────────────
   sonar:
     name: SonarCloud Analysis (informativo)
     runs-on: ubuntu-latest
-    timeout-minutes: 10
+    # 20 min (no 10): observado en vivo que el análisis se queda esperando al
+    # procesamiento del lado de SonarCloud tras completar el escaneo local
+    # (85% → colgado varios minutos antes de cancelarse por timeout). Además,
+    # `continue-on-error: true` NO evita que una cancelación por timeout (a
+    # diferencia de un fallo normal) haga que la conclusión del workflow CI
+    # completo pase a "cancelled" en vez de "success" — y eso bloqueaba el
+    # disparo de deploy-staging.yml (exige CI conclusion == success).
+    timeout-minutes: 20
     continue-on-error: true
     needs: [backend-tests, frontend-checks]
     permissions:
@@ -320,7 +398,7 @@ jobs:
       SONAR_HOST_URL: https://sonarcloud.io
 
     steps:
-      - uses: actions/checkout@v6
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
           persist-credentials: false
@@ -346,7 +424,7 @@ jobs:
 
       - name: SonarCloud Scan
         id: sonar_scan
-        uses: sonarsource/sonarqube-scan-action@v7
+        uses: sonarsource/sonarqube-scan-action@713881670b6b3676cda39549040e2d88c70d582e # v8
         with:
           args: >-
             -Dsonar.token=${{ secrets.SONAR_TOKEN }}
@@ -429,3 +507,68 @@ jobs:
           echo "|-----|--------|" >> $GITHUB_STEP_SUMMARY
           echo "| Backend Tests | ${{ needs.backend-tests.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
           echo "| Frontend Tests & Build | ${{ needs.frontend-checks.result == 'success' && '✅ Passed' || '❌ Failed' }} |" >> $GITHUB_STEP_SUMMARY
+
+      - name: Coverage gate
+        # Umbrales mínimos de cobertura. Si bajan, el job (y por tanto el CI) falla.
+        # Ajustar aquí cuando se introduzcan tests nuevos masivos (subir baseline)
+        # o cuando se decida relajar (ej. refactor masivo en sprint específico).
+        #
+        # No correr si los tests originales fallaron — sólo evaluamos cobertura
+        # sobre runs verdes (no queremos doble-fallar el CI por la misma causa).
+        if: needs.backend-tests.result == 'success' && needs.frontend-checks.result == 'success'
+        env:
+          BACKEND_MIN_COVERAGE: 50
+          FRONTEND_MIN_COVERAGE: 30
+        run: |
+          set -e
+
+          compute_pct() {
+            local file="$1"
+            if [ ! -f "$file" ]; then
+              echo "missing"
+              return
+            fi
+            local lh=$(awk -F: '/^LH:/{s+=$2} END{print s+0}' "$file")
+            local lf=$(awk -F: '/^LF:/{s+=$2} END{print s+0}' "$file")
+            if [ "$lf" -eq 0 ]; then
+              echo "0"
+              return
+            fi
+            echo $((lh * 100 / lf))
+          }
+
+          BACKEND_PCT=$(compute_pct "backend/coverage/lcov.info")
+          FRONTEND_PCT=$(compute_pct "frontend/coverage/lcov.info")
+
+          echo "### Coverage Gate" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "| Workspace | Cobertura | Umbral mínimo | Estado |" >> $GITHUB_STEP_SUMMARY
+          echo "|-----------|-----------|---------------|--------|" >> $GITHUB_STEP_SUMMARY
+
+          FAILED=0
+
+          if [ "$BACKEND_PCT" = "missing" ]; then
+            echo "| Backend | sin LCOV | ${BACKEND_MIN_COVERAGE}% | ⚠️ Sin datos |" >> $GITHUB_STEP_SUMMARY
+          elif [ "$BACKEND_PCT" -lt "$BACKEND_MIN_COVERAGE" ]; then
+            echo "| Backend | ${BACKEND_PCT}% | ${BACKEND_MIN_COVERAGE}% | ❌ Por debajo |" >> $GITHUB_STEP_SUMMARY
+            echo "::error::Backend coverage ${BACKEND_PCT}% < ${BACKEND_MIN_COVERAGE}% (umbral mínimo)"
+            FAILED=1
+          else
+            echo "| Backend | ${BACKEND_PCT}% | ${BACKEND_MIN_COVERAGE}% | ✅ |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$FRONTEND_PCT" = "missing" ]; then
+            echo "| Frontend | sin LCOV | ${FRONTEND_MIN_COVERAGE}% | ⚠️ Sin datos |" >> $GITHUB_STEP_SUMMARY
+          elif [ "$FRONTEND_PCT" -lt "$FRONTEND_MIN_COVERAGE" ]; then
+            echo "| Frontend | ${FRONTEND_PCT}% | ${FRONTEND_MIN_COVERAGE}% | ❌ Por debajo |" >> $GITHUB_STEP_SUMMARY
+            echo "::error::Frontend coverage ${FRONTEND_PCT}% < ${FRONTEND_MIN_COVERAGE}% (umbral mínimo)"
+            FAILED=1
+          else
+            echo "| Frontend | ${FRONTEND_PCT}% | ${FRONTEND_MIN_COVERAGE}% | ✅ |" >> $GITHUB_STEP_SUMMARY
+          fi
+
+          if [ "$FAILED" -eq 1 ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> Sube la cobertura añadiendo tests o ajusta el umbral en \`.github/workflows/build.yml\` con justificación." >> $GITHUB_STEP_SUMMARY
+            exit 1
+          fi

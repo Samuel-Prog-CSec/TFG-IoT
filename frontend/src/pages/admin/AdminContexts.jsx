@@ -12,7 +12,7 @@
  */
 
 import { useState, useEffect, useCallback, useRef } from 'react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import {
   Palette,
   Plus,
@@ -20,22 +20,27 @@ import {
   Trash2,
   RefreshCw,
   AlertTriangle,
+  ShieldCheck,
   ImageIcon,
   Music
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { contextsAPI, extractData, extractErrorMessage, isAbortError } from '../../services/api';
+import { getId } from '../../lib/entityId';
 import ButtonPremium from '../../components/ui/ButtonPremium';
 import InputPremium from '../../components/ui/InputPremium';
+import AdminPageShell from '../../components/admin/AdminPageHero';
 import GlassCard from '../../components/ui/GlassCard';
 import StatusBadge from '../../components/ui/StatusBadge';
 import { SkeletonCard } from '../../components/ui/SkeletonShimmer';
 import EmptyState from '../../components/ui/EmptyState';
+import InlineSuccessBadge from '../../components/ui/InlineSuccessBadge';
 import ConfirmationModal, {
   useConfirmationModal
 } from '../../components/ui/ConfirmationModal';
 import { useDocumentTitle } from '../../hooks/useDocumentTitle';
-import { cn, formatDate } from '../../lib/utils';
+import useInlineSuccess from '../../hooks/useInlineSuccess';
+import { cn, formatDate, motionConfig, listContainerVariants, listItemVariants } from '../../lib/utils';
 
 const CONTEXT_ID_REGEX = /^[a-z0-9-]+$/;
 
@@ -48,7 +53,7 @@ const ADMIN_CONTEXTS_SKELETON_KEYS = ['ctx-sk-a', 'ctx-sk-b', 'ctx-sk-c', 'ctx-s
  * El backend impide cambiar `contextId` si ya hay assets en Storage,
  * por lo que en modo edicion el campo se desactiva en esa situacion.
  */
-function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoading }) {
+function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoading, successVisible = false }) {
   const [contextId, setContextId] = useState('');
   const [name, setName] = useState('');
   const [errors, setErrors] = useState({});
@@ -109,13 +114,14 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
         exit={{ opacity: 0, y: 8, scale: 0.97 }}
         transition={{ duration: 0.2 }}
         onSubmit={handleSubmit}
+        noValidate
         role="dialog"
         aria-modal="true"
         aria-labelledby="context-form-title"
         className="relative z-10 w-full max-w-lg rounded-2xl border border-border-default bg-background-elevated p-6 shadow-2xl"
       >
         <div className="mb-4 flex items-center gap-3">
-          <div className="flex h-10 w-10 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
+          <div className="flex size-10 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
             <Palette size={20} aria-hidden="true" />
           </div>
           <div>
@@ -153,10 +159,10 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
               required
             />
             {isEdit && hasStorageAssets && (
-              <p className="mt-1 flex items-start gap-1.5 text-xs text-warning-base">
-                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0" aria-hidden="true" />
+              <p className="mt-1 flex items-start gap-1.5 text-xs text-warning-on-alpha">
+                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-warning-base" aria-hidden="true" />
                 <span>
-                  No se puede cambiar el identificador porque ya hay archivos en Supabase Storage
+                  No se puede cambiar el identificador porque ya hay archivos en el almacenamiento
                   bajo <code className="rounded bg-background-base/60 px-1">ctx-{initialContext?.contextId}</code>.
                 </span>
               </p>
@@ -174,9 +180,16 @@ function ContextFormModal({ open, mode, initialContext, onClose, onSubmit, isLoa
           <ButtonPremium type="button" variant="secondary" onClick={onClose} disabled={isLoading}>
             Cancelar
           </ButtonPremium>
-          <ButtonPremium type="submit" variant="primary" loading={isLoading}>
-            {isEdit ? 'Guardar cambios' : 'Crear contexto'}
-          </ButtonPremium>
+          <div className="relative">
+            <ButtonPremium type="submit" variant="primary" loading={isLoading}>
+              {isEdit ? 'Guardar cambios' : 'Crear contexto'}
+            </ButtonPremium>
+            <InlineSuccessBadge
+              visible={successVisible}
+              label={isEdit ? 'Cambios guardados' : 'Contexto creado'}
+              placement="left"
+            />
+          </div>
         </div>
       </motion.form>
     </div>
@@ -192,19 +205,25 @@ function AdminContextCard({ context, onEdit, onDelete }) {
   const audiosCount = context.assets?.filter(a => a.audioUrl).length ?? 0;
 
   return (
-    <article className="flex flex-col gap-4 rounded-2xl border border-border-default bg-background-elevated/60 p-5">
+    <motion.article
+      variants={listItemVariants}
+      whileHover={{ y: -4, scale: 1.01 }}
+      whileTap={{ scale: 0.99 }}
+      transition={motionConfig.spring}
+      className="flex flex-col gap-4 rounded-2xl border border-border-default bg-background-elevated/60 p-5 transition-[box-shadow,border-color] duration-300 hover:border-border-strong hover:shadow-[var(--shadow-lg)]"
+    >
       <header className="flex items-start justify-between gap-3">
         <div className="flex min-w-0 items-start gap-3">
-          <div className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
+          <div className="flex size-10 flex-shrink-0 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
             <Palette size={18} aria-hidden="true" />
           </div>
           <div className="min-w-0">
-            <h3 className="truncate text-base font-bold text-text-primary">{context.name}</h3>
+            <h2 className="truncate text-base font-semibold text-text-primary">{context.name}</h2>
             <div className="mt-0.5 flex flex-wrap items-center gap-2">
-              <code className="rounded bg-background-base/60 px-1.5 py-0.5 text-[11px] text-text-muted">
+              <code className="rounded bg-background-base/60 px-1.5 py-0.5 text-micro text-text-muted">
                 {context.contextId}
               </code>
-              <StatusBadge variant={context.isActive ? 'success' : 'neutral'}>
+              <StatusBadge status={context.isActive ? 'success' : 'inactive'}>
                 {context.isActive ? 'Activo' : 'Inactivo'}
               </StatusBadge>
             </div>
@@ -214,20 +233,20 @@ function AdminContextCard({ context, onEdit, onDelete }) {
 
       <dl className="grid grid-cols-3 gap-2 text-center text-xs">
         <div className="rounded-lg border border-border-subtle bg-background-base/40 p-2">
-          <dt className="text-text-muted">Assets</dt>
-          <dd className="text-base font-bold text-text-primary">{totalAssets}</dd>
+          <dt className="text-text-muted">Recursos</dt>
+          <dd className="text-base font-bold text-text-primary tabular-nums">{totalAssets}</dd>
         </div>
         <div className="rounded-lg border border-border-subtle bg-background-base/40 p-2">
           <dt className="flex items-center justify-center gap-1 text-text-muted">
             <ImageIcon size={11} aria-hidden="true" /> Imágenes
           </dt>
-          <dd className="text-base font-bold text-text-primary">{imagesCount}</dd>
+          <dd className="text-base font-bold text-text-primary tabular-nums">{imagesCount}</dd>
         </div>
         <div className="rounded-lg border border-border-subtle bg-background-base/40 p-2">
           <dt className="flex items-center justify-center gap-1 text-text-muted">
             <Music size={11} aria-hidden="true" /> Audios
           </dt>
-          <dd className="text-base font-bold text-text-primary">{audiosCount}</dd>
+          <dd className="text-base font-bold text-text-primary tabular-nums">{audiosCount}</dd>
         </div>
       </dl>
 
@@ -245,12 +264,14 @@ function AdminContextCard({ context, onEdit, onDelete }) {
           variant="outline"
           size="sm"
           onClick={() => onDelete(context)}
-          className="border-error-base/60 text-error-base hover:bg-error-base hover:text-white hover:border-error-base focus-visible:bg-error-base focus-visible:text-white"
+          // BUG-A11Y-ADMIN-DELETE-BTN (QA Sprint 0): text-error-base sobre
+          // card dark daba 4.13-4.35:1. red-300 en dark + error-dark en light.
+          className="border-error-base/60 text-error-on-alpha hover:bg-error-base hover:text-white hover:border-error-base focus-visible:bg-error-base focus-visible:text-white"
         >
           <Trash2 size={14} className="mr-1" /> Eliminar
         </ButtonPremium>
       </div>
-    </article>
+    </motion.article>
   );
 }
 
@@ -268,12 +289,20 @@ function renderContextsSection({
   onDeleteRequest
 }) {
   if (error) {
+    // EmptyState espera `action` como nodo (JSX), NO como objeto `{label, onClick}`.
+    // El props.node se renderiza directo con `{action}` en EmptyState.jsx, así que
+    // pasar un objeto plano lanzaba "Objects are not valid as a React child" y
+    // disparaba el ErrorBoundary (QA 2026-05-07).
     return (
       <EmptyState
         icon={<AlertTriangle size={48} className="text-error-base" />}
-        title="Error al cargar contextos"
+        title="No pudimos cargar los contextos"
         description={error}
-        action={{ label: 'Reintentar', onClick: loadContexts }}
+        action={
+          <ButtonPremium variant="primary" onClick={loadContexts}>
+            <RefreshCw size={14} className="mr-1" /> Reintentar
+          </ButtonPremium>
+        }
       />
     );
   }
@@ -295,7 +324,7 @@ function renderContextsSection({
         title={search ? 'Sin resultados' : 'No hay contextos'}
         description={
           search
-            ? 'Prueba con otros terminos de busqueda.'
+            ? 'Prueba con otros términos de búsqueda.'
             : 'Crea el primer contexto para empezar.'
         }
       />
@@ -303,16 +332,21 @@ function renderContextsSection({
   }
 
   return (
-    <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+    <motion.div
+      className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3"
+      variants={listContainerVariants(0.04)}
+      initial="hidden"
+      animate="visible"
+    >
       {filtered.map(ctx => (
         <AdminContextCard
-          key={ctx.id || ctx._id}
+          key={getId(ctx)}
           context={ctx}
           onEdit={openEdit}
           onDelete={onDeleteRequest}
         />
       ))}
-    </div>
+    </motion.div>
   );
 }
 
@@ -330,12 +364,17 @@ export default function AdminContexts() {
   const [submitting, setSubmitting] = useState(false);
   const [pendingDeleteId, setPendingDeleteId] = useState(null);
   const deleteModal = useConfirmationModal();
+  // T-955: feedback inline tras crear/editar contexto. El modal queda
+  // abierto ~1.1s para que el badge sea perceptible antes del cierre.
+  const saveBadge = useInlineSuccess({ duration: 1500 });
 
-  const loadContexts = useCallback(async () => {
+  // D.1 (pre-v1.0.0): AbortController propagado para que la navegación
+  // rápida (sidebar admin) no deje colgada la request 100-contextos.
+  const loadContexts = useCallback(async (signal) => {
     setLoading(true);
     setError(null);
     try {
-      const res = await contextsAPI.getContexts({ limit: 100 });
+      const res = await contextsAPI.getContexts({ limit: 100 }, { signal });
       const data = extractData(res);
       const list = Array.isArray(data) ? data : data?.items || data?.contexts || [];
       setContexts(list);
@@ -348,7 +387,9 @@ export default function AdminContexts() {
   }, []);
 
   useEffect(() => {
-    loadContexts();
+    const controller = new AbortController();
+    loadContexts(controller.signal);
+    return () => controller.abort();
   }, [loadContexts]);
 
   const filtered = contexts.filter(c => {
@@ -375,14 +416,19 @@ export default function AdminContexts() {
     setSubmitting(true);
     try {
       if (formMode === 'edit' && editing) {
-        await contextsAPI.updateContext(editing.id || editing._id, payload);
+        await contextsAPI.updateContext(getId(editing), payload);
         toast.success(`Contexto "${payload.name}" actualizado.`);
       } else {
         await contextsAPI.createContext(payload);
         toast.success(`Contexto "${payload.name}" creado.`);
       }
-      closeForm();
-      await loadContexts();
+      // Disparamos el inline success y dejamos el modal abierto un instante
+      // para que el badge sea perceptible. Tras 1.1s cerramos y refrescamos.
+      saveBadge.trigger();
+      setTimeout(() => {
+        closeForm();
+        loadContexts();
+      }, 1100);
     } catch (err) {
       toast.error(extractErrorMessage(err) || 'No se pudo guardar el contexto.');
     } finally {
@@ -390,35 +436,107 @@ export default function AdminContexts() {
     }
   };
 
-  const handleDeleteRequest = ctx => {
+  // Concordancia singular/plural para el inventario del modal (QA 2026-05-21).
+  const plural = (n, singular, pluralForm) => (n === 1 ? singular : pluralForm);
+
+  /**
+   * Flujo de borrado en dos tiempos (ADR-231): primero se pide el inventario
+   * de impacto al backend y el modal muestra EXACTAMENTE qué se archivará,
+   * qué se eliminará y qué se conserva. Si hay partidas en curso, el confirm
+   * queda deshabilitado con el motivo a la vista.
+   */
+  const handleDeleteRequest = async ctx => {
     const totalAssets = ctx.assets?.length ?? ctx.assetsCount ?? 0;
+
+    let impact;
+    try {
+      impact = extractData(await contextsAPI.getContextDeletionImpact(getId(ctx)));
+    } catch (err) {
+      toast.error(extractErrorMessage(err) || 'No se pudo calcular el impacto del borrado.');
+      return;
+    }
+
+    const blocked = impact.activePlays > 0;
+    const affectedNames = (impact.teachersAffected || []).map(t => t.name).join(', ');
+
     deleteModal.openModal({
       title: `Eliminar contexto "${ctx.name}"`,
       variant: 'danger',
       confirmText: 'Eliminar definitivamente',
       cancelText: 'Cancelar',
+      confirmDisabled: blocked,
       description: (
         <div className="space-y-3 text-sm text-text-secondary">
           <p>Vas a eliminar el contexto <strong>{ctx.name}</strong> de forma permanente.</p>
+          {blocked && (
+            <div className="flex items-start gap-2 rounded-lg border border-error-base/40 bg-error-base/10 p-3 text-xs">
+              <AlertTriangle size={14} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
+              <span>
+                Ahora mismo hay <strong>{impact.activePlays}</strong>{' '}
+                {plural(impact.activePlays, 'partida en curso', 'partidas en curso')} con este
+                contexto. Espera a que {plural(impact.activePlays, 'termine', 'terminen')} para
+                poder eliminarlo.
+              </span>
+            </div>
+          )}
           <ul className="space-y-1 rounded-lg border border-error-base/30 bg-error-base/10 p-3 text-xs">
             <li className="flex items-start gap-2">
               <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
-              <span>Se borran <strong>{totalAssets}</strong> assets asociados (imágenes, thumbnails y audios).</span>
-            </li>
-            <li className="flex items-start gap-2">
-              <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
               <span>
-                Se elimina la carpeta <code className="rounded bg-background-base/60 px-1">ctx-{ctx.contextId}</code>{' '}
-                de Supabase Storage (image, thumbnail y audio).
+                Se {plural(totalAssets, 'borra', 'borran')} <strong>{totalAssets}</strong>{' '}
+                {plural(totalAssets, 'recurso', 'recursos')} (imágenes, miniaturas y audios) y su
+                carpeta <code className="rounded bg-background-base/60 px-1">ctx-{ctx.contextId}</code>{' '}
+                del almacenamiento del centro.
               </span>
             </li>
-            <li className="flex items-start gap-2">
-              <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
-              <span>
-                Si hay mazos, sesiones o partidas activas usando este contexto, la operación se rechazará.
-              </span>
-            </li>
+            {impact.decksToArchive > 0 && (
+              <li className="flex items-start gap-2">
+                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
+                <span>
+                  Se {plural(impact.decksToArchive, 'archivará', 'archivarán')}{' '}
+                  <strong>{impact.decksToArchive}</strong>{' '}
+                  {plural(impact.decksToArchive, 'mazo', 'mazos')} (no se podrán reactivar).
+                </span>
+              </li>
+            )}
+            {impact.sessionsToComplete > 0 && (
+              <li className="flex items-start gap-2">
+                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
+                <span>
+                  <strong>{impact.sessionsToComplete}</strong>{' '}
+                  {plural(impact.sessionsToComplete, 'sesión jugada pasará', 'sesiones jugadas pasarán')}{' '}
+                  a solo consulta (sin volver a jugar ni editar).
+                </span>
+              </li>
+            )}
+            {impact.draftSessionsToDelete > 0 && (
+              <li className="flex items-start gap-2">
+                <AlertTriangle size={12} className="mt-0.5 flex-shrink-0 text-error-base" aria-hidden="true" />
+                <span>
+                  Se {plural(impact.draftSessionsToDelete, 'eliminará', 'eliminarán')}{' '}
+                  <strong>{impact.draftSessionsToDelete}</strong>{' '}
+                  {plural(impact.draftSessionsToDelete, 'sesión en borrador', 'sesiones en borrador')}{' '}
+                  (sin partidas).
+                </span>
+              </li>
+            )}
           </ul>
+          <div className="flex items-start gap-2 rounded-lg border border-success-base/30 bg-success-base/10 p-3 text-xs">
+            <ShieldCheck size={14} className="mt-0.5 flex-shrink-0 text-success-base" aria-hidden="true" />
+            <span>
+              Las partidas y estadísticas del alumnado se conservan
+              {impact.playsPreserved > 0 && (
+                <> (<strong>{impact.playsPreserved}</strong> {plural(impact.playsPreserved, 'partida', 'partidas')})</>
+              )}
+              .
+            </span>
+          </div>
+          {affectedNames && (
+            <p className="text-xs text-text-muted">
+              {plural(impact.teachersAffected.length, 'Docente afectado', 'Docentes afectados')}:{' '}
+              {affectedNames}.
+            </p>
+          )}
         </div>
       ),
       onConfirm: () => performDelete(ctx)
@@ -426,10 +544,22 @@ export default function AdminContexts() {
   };
 
   const performDelete = async ctx => {
-    setPendingDeleteId(ctx.id || ctx._id);
+    setPendingDeleteId(getId(ctx));
     try {
-      await contextsAPI.deleteContext(ctx.id || ctx._id);
-      toast.success(`Contexto "${ctx.name}" eliminado junto con sus archivos en Storage.`);
+      const summary = extractData(await contextsAPI.deleteContext(getId(ctx)));
+      const parts = [];
+      if (summary?.decksToArchive > 0) {
+        parts.push(`${summary.decksToArchive} ${plural(summary.decksToArchive, 'mazo archivado', 'mazos archivados')}`);
+      }
+      if (summary?.sessionsToComplete > 0) {
+        parts.push(`${summary.sessionsToComplete} ${plural(summary.sessionsToComplete, 'sesión pasada a historial', 'sesiones pasadas a historial')}`);
+      }
+      if (summary?.draftSessionsToDelete > 0) {
+        parts.push(`${summary.draftSessionsToDelete} ${plural(summary.draftSessionsToDelete, 'borrador eliminado', 'borradores eliminados')}`);
+      }
+      toast.success(`Contexto "${ctx.name}" eliminado junto con sus archivos.`, {
+        description: parts.length > 0 ? parts.join(' · ') : undefined
+      });
       await loadContexts();
     } catch (err) {
       toast.error(extractErrorMessage(err) || 'No se pudo eliminar el contexto.');
@@ -439,19 +569,13 @@ export default function AdminContexts() {
   };
 
   return (
-    <main className="mx-auto max-w-7xl space-y-6 px-4 py-6 sm:px-6 lg:px-8">
-      <header className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
-        <div className="flex items-start gap-3">
-          <div className="flex h-12 w-12 items-center justify-center rounded-xl bg-brand-base/15 text-brand-base">
-            <Palette size={24} aria-hidden="true" />
-          </div>
-          <div>
-            <h1 className="text-2xl font-bold text-text-primary">Gestión de Contextos</h1>
-            <p className="text-sm text-text-muted">
-              Crea, edita y elimina contextos temáticos. Las eliminaciones también limpian Supabase Storage.
-            </p>
-          </div>
-        </div>
+    <AdminPageShell
+      icon={Palette}
+      eyebrow="Biblioteca"
+      title="Contextos del centro"
+      description="Crea y mantiene los temas (Geografía, Animales, Colores…) que los docentes usan en sus mazos."
+      ariaLabel="Gestión de contextos del centro"
+      rightSlot={
         <div className="flex items-center gap-2">
           <ButtonPremium variant="secondary" size="sm" onClick={loadContexts} disabled={loading}>
             <RefreshCw size={14} className={cn('mr-1', loading && 'animate-spin')} /> Actualizar
@@ -460,7 +584,8 @@ export default function AdminContexts() {
             <Plus size={16} className="mr-1" /> Nuevo contexto
           </ButtonPremium>
         </div>
-      </header>
+      }
+    >
 
       <GlassCard variant="default" className="p-4">
         <InputPremium
@@ -489,12 +614,13 @@ export default function AdminContexts() {
         onClose={closeForm}
         onSubmit={handleSubmit}
         isLoading={submitting}
+        successVisible={saveBadge.visible}
       />
 
       <ConfirmationModal
         {...deleteModal.modalProps}
         loading={Boolean(pendingDeleteId)}
       />
-    </main>
+    </AdminPageShell>
   );
 }

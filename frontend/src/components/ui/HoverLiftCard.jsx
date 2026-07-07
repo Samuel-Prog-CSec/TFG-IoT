@@ -1,5 +1,5 @@
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 
@@ -18,21 +18,29 @@ import { useReducedMotion } from '../../hooks/useReducedMotion';
  */
 
 const TINT_GLOW = {
-  // Glows pensados para dark theme con tokens OKLCH del sistema.
-  // Cada uno es sutil (alpha 0.25-0.35) para no competir con el contenido.
+  // Glows pensados para los dos temas con tokens OKLCH del sistema.
+  // Cada uno es sutil (alpha 0.25-0.45 según token) para no competir con el contenido.
+  // Antes los seis últimos usaban `rgba(...)` hardcoded — el alpha y la
+  // saturación no respetaban el ajuste por tema definido en `index.css`
+  // (auditoría UI/UX 24/05/2026). Ahora todos consumen el token
+  // `--color-{tone}-glow` correspondiente, que ya tiene variante por tema.
   brand: 'hover:shadow-[0_14px_38px_-14px_var(--color-brand-glow)]',
-  indigo: 'hover:shadow-[0_14px_38px_-14px_rgba(99,102,241,0.45)]',
-  cyan: 'hover:shadow-[0_14px_38px_-14px_rgba(34,211,238,0.4)]',
-  success: 'hover:shadow-[0_14px_38px_-14px_rgba(74,222,128,0.4)]',
-  warning: 'hover:shadow-[0_14px_38px_-14px_rgba(250,204,21,0.4)]',
-  error: 'hover:shadow-[0_14px_38px_-14px_rgba(248,113,113,0.4)]',
-  pink: 'hover:shadow-[0_14px_38px_-14px_rgba(244,114,182,0.4)]'
+  // `atmosphere` lee el glow del contexto pedagógico activo
+  // (`--color-atmosphere-glow`). Cuando no hay contexto activo el token
+  // cae al brand y el resultado es idéntico a `glowTint="brand"`. T-954.
+  atmosphere: 'hover:shadow-[0_14px_38px_-14px_var(--color-atmosphere-glow)]',
+  indigo: 'hover:shadow-[0_14px_38px_-14px_var(--color-accent-indigo-glow)]',
+  cyan: 'hover:shadow-[0_14px_38px_-14px_var(--color-accent-cyan-glow)]',
+  success: 'hover:shadow-[0_14px_38px_-14px_var(--color-success-glow)]',
+  warning: 'hover:shadow-[0_14px_38px_-14px_var(--color-warning-glow)]',
+  error: 'hover:shadow-[0_14px_38px_-14px_var(--color-error-glow)]',
+  pink: 'hover:shadow-[0_14px_38px_-14px_var(--color-accent-pink-glow)]'
 };
 
 /**
  * @param {Object} props
  * @param {React.ReactNode} props.children
- * @param {'brand'|'indigo'|'cyan'|'success'|'warning'|'error'|'pink'} [props.glowTint='brand']
+ * @param {'brand'|'atmosphere'|'indigo'|'cyan'|'success'|'warning'|'error'|'pink'} [props.glowTint='brand']
  * @param {string} [props.className]
  * @param {Function} [props.onClick]
  * @param {string} [props.ariaLabel]
@@ -48,6 +56,23 @@ export default function HoverLiftCard({
   const { shouldReduceMotion } = useReducedMotion();
   const glowCls = TINT_GLOW[glowTint] || TINT_GLOW.brand;
 
+  // Si la card es clicable debe ser operable por teclado: role=button, foco
+  // tabulable y activación con Enter/Espacio (WCAG 2.1.1 Keyboard + 2.4.7 Focus
+  // Visible). Sin esto, las cards con onClick sin botón interno (p. ej. las de
+  // Contextos) dejaban fuera a usuarios de teclado y lector de pantalla.
+  const interactiveProps = onClick
+    ? {
+        role: 'button',
+        tabIndex: 0,
+        onKeyDown: (e) => {
+          if (e.key === 'Enter' || e.key === ' ') {
+            e.preventDefault();
+            onClick(e);
+          }
+        },
+      }
+    : {};
+
   return (
     <motion.div
       onClick={onClick}
@@ -56,10 +81,20 @@ export default function HoverLiftCard({
       whileTap={shouldReduceMotion || !onClick ? undefined : { scale: 0.99 }}
       transition={{ type: 'spring', stiffness: 400, damping: 25 }}
       className={cn(
-        'relative transition-shadow duration-300 will-change-transform',
+        // `rounded-2xl` SIEMPRE (no solo con onClick): el glow de hover es un
+        // `box-shadow` que sigue el border-radius del elemento. Si el radio es 0
+        // (cuando la card no recibe onClick — Sesiones/Mazos/Contextos delegan el
+        // click en botones internos), el box-shadow dibuja esquinas cuadradas que
+        // asoman como "picos" por las esquinas redondeadas del GlassCard interno
+        // (rounded-2xl = 24px). Igualar el radio del wrapper al del contenido
+        // hace que el aura siga la silueta redondeada.
+        'relative rounded-2xl transition-shadow duration-300 will-change-transform',
+        onClick &&
+          'focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-brand-base focus-visible:ring-offset-2 focus-visible:ring-offset-background-base',
         glowCls,
         className
       )}
+      {...interactiveProps}
       {...rest}
     >
       {children}
@@ -69,7 +104,7 @@ export default function HoverLiftCard({
 
 HoverLiftCard.propTypes = {
   children: PropTypes.node.isRequired,
-  glowTint: PropTypes.oneOf(['brand', 'indigo', 'cyan', 'success', 'warning', 'error', 'pink']),
+  glowTint: PropTypes.oneOf(['brand', 'atmosphere', 'indigo', 'cyan', 'success', 'warning', 'error', 'pink']),
   className: PropTypes.string,
   onClick: PropTypes.func,
   ariaLabel: PropTypes.string

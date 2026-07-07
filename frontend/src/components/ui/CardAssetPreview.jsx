@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { CreditCard } from 'lucide-react';
 import { cn } from '../../lib/utils';
@@ -14,32 +14,45 @@ export default function CardAssetPreview({
   className,
   imageClassName,
   fallbackClassName,
-  fallbackIcon = <CreditCard size={16} className="text-text-muted" />,
+  fallbackIcon = <CreditCard size={16} className="text-card-ink/50" />,
   fallbackLabel,
   showSkeleton = true,
   largeFallback = false,
   onImageError
 }) {
   const imageUrl = getBestAssetImageUrl(asset);
-  const dominantColor = asset?.dominantColor;
   const [imageError, setImageError] = useState(false);
   const [imageLoading, setImageLoading] = useState(Boolean(imageUrl));
   // Retries permite recuperarse de fallos transitorios (red inestable, 5xx puntual).
-  // Cada retry invalida la cache del navegador con ?retry=N para forzar fetch nuevo.
+  // Cada retry remonta el <img> vía `key` (re-dispara la carga) manteniendo la URL
+  // canónica; antes se usaba ?retry=N, que rompía el cache de CDN/navegador.
   const [retries, setRetries] = useState(0);
+  // Referencia al nodo <img> real para poder consultar su estado de carga desde
+  // el efecto de cambio de URL (ver abajo por qué es imprescindible).
+  const imgNodeRef = useRef(null);
 
-  // Reset total cuando cambia la URL fuente (asset distinto).
+  // Reset al cambiar la URL fuente (asset distinto). NO ponemos `imageLoading`
+  // en true a ciegas: en Memoria la carta se voltea con la imagen YA precargada
+  // (prefetch del mazo), así que el <img> recién montado con el nuevo src suele
+  // estar `complete` en cache. En ese caso el navegador NO vuelve a disparar
+  // `onLoad` (la carga ya ocurrió), y como este efecto corre DESPUÉS del callback
+  // ref, dejaríamos `imageLoading=true` para siempre → la imagen queda cargada
+  // pero en opacity-0 (invisible). Por eso consultamos el nodo real (ya montado
+  // en la fase de commit) y solo mostramos "cargando" si de verdad no está listo.
   useEffect(() => {
     setImageError(false);
-    setImageLoading(Boolean(imageUrl));
     setRetries(0);
+    const node = imgNodeRef.current;
+    const alreadyLoaded = Boolean(node && node.complete && node.naturalWidth > 0);
+    setImageLoading(Boolean(imageUrl) && !alreadyLoaded);
   }, [imageUrl]);
 
-  // Callback ref: detecta imagenes que ya se cargaron desde cache antes de
-  // que React adjunte el handler onLoad. Tambien sincroniza el estado cuando
-  // un re-render reusa el mismo <img> con el mismo src (caso comun en juegos
-  // donde se barajan las cartas pero los assets se repiten entre rondas).
+  // Callback ref: guarda el nodo y detecta imagenes que ya se cargaron desde
+  // cache antes de que React adjunte el handler onLoad. Tambien sincroniza el
+  // estado cuando un re-render reusa el mismo <img> con el mismo src (caso comun
+  // en juegos donde se barajan las cartas pero los assets se repiten entre rondas).
   const imgRef = useCallback((node) => {
+    imgNodeRef.current = node;
     if (!node) return;
     if (node.complete && node.naturalWidth > 0) {
       setImageLoading(false);
@@ -65,18 +78,22 @@ export default function CardAssetPreview({
     }
   }, [retries, imageUrl, onImageError]);
 
-  // Cada retry añade ?retry=N al src para bypasear el cache del error.
-  let displaySrc = null;
-  if (imageUrl) {
-    if (retries > 0) {
-      const separator = imageUrl.includes('?') ? '&' : '?';
-      displaySrc = `${imageUrl}${separator}retry=${retries}`;
-    } else {
-      displaySrc = imageUrl;
-    }
-  }
+  // El src se mantiene canónico (cache-friendly). Para reintentar tras un error
+  // forzamos el remount del <img> vía `key` (re-dispara la carga) en lugar de
+  // ensuciar la URL con ?retry=N, que rompía el cache de CDN/navegador y volvía
+  // a descargar la imagen en cada reintento.
+  const displaySrc = imageUrl || null;
 
   const shouldShowImage = Boolean(imageUrl) && !imageError;
+  // Color dominante del asset (backfill server-side) para tintar el placeholder de
+  // carga: en vez de un blanco→imagen abrupto, el hueco ya insinúa el color que va a
+  // aparecer (carga percibida más suave, menos "flash"). Se mezcla suave (18%) sobre
+  // el blanco de la tarjeta para no romper la estética de tarjeta física. Validamos el
+  // formato hex por defensa: el valor viene del servidor, no del usuario, pero así
+  // evitamos inyectar CSS arbitrario en el `style` inline.
+  const dominantColor = /^#[0-9a-f]{6}$/i.test(asset?.dominantColor || '')
+    ? asset.dominantColor
+    : null;
   // Preferimos fallbackLabel explicito del caller sobre asset.display porque
   // el caller suele tener mejor contexto sobre que mostrar (e.g. "Vaca" vs
   // un emoji decorativo del seeder). Si no se pasa fallbackLabel, caemos a
@@ -87,28 +104,35 @@ export default function CardAssetPreview({
     <div
       className={cn(
         'relative overflow-hidden flex items-center justify-center',
-        // Sombra interior sutil para dar profundidad (asset "incrustado" en vez de "pegado")
-        shouldShowImage && 'shadow-[inset_0_2px_8px_rgba(0,0,0,0.25)]',
-        // Sin dominantColor: fondo base genérico
-        !dominantColor && 'bg-background-base/60',
+        // Soporte BLANCO de tarjeta física (MIFARE): el asset se ve como impreso
+        // sobre la tarjeta que el alumno maneja. Válido en light y dark.
+        'bg-card-surface',
+        // Sombra interior sutil para dar profundidad (asset "incrustado")
+        shouldShowImage && 'shadow-[inset_0_2px_8px_color-mix(in_oklab,var(--color-card-ink)_18%,transparent)]',
         className
       )}
-      // Con dominantColor: placeholder LQIP inmediato que coincide con la imagen
-      style={dominantColor ? { backgroundColor: dominantColor } : undefined}
     >
       {shouldShowImage ? (
         <>
-          {/* Placeholder: shimmer (sin dominantColor) o color sólido (con dominantColor) */}
-          {showSkeleton && imageLoading && !dominantColor && (
+          {/* Placeholder shimmer sobre el blanco de la tarjeta mientras carga. Si el
+              asset tiene color dominante conocido, el hueco se tinta suave con él para
+              que la carga sea menos abrupta (el shimmer va por encima). */}
+          {showSkeleton && imageLoading && (
             <div
-              className="absolute inset-0 bg-background-elevated/80 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2s_infinite] before:bg-gradient-to-r before:from-transparent before:via-text-primary/5 before:to-transparent"
+              className="absolute inset-0 before:absolute before:inset-0 before:-translate-x-full before:animate-[shimmer_2s_infinite] before:bg-gradient-to-r before:from-transparent before:via-[color-mix(in_oklab,var(--color-card-ink)_10%,transparent)] before:to-transparent"
+              style={
+                dominantColor
+                  ? { backgroundColor: `color-mix(in oklab, ${dominantColor} 18%, var(--color-card-surface))` }
+                  : undefined
+              }
             />
           )}
           {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- onLoad/onError are lifecycle events, not user interactions */}
           <img
+            key={imageUrl ? `${imageUrl}#${retries}` : undefined}
             ref={imgRef}
             src={displaySrc}
-            alt={alt || asset?.value || 'Asset'}
+            alt={alt || asset?.value || 'Recurso'}
             className={cn(
               'w-full h-full transition-opacity duration-400 ease-out',
               fit === 'contain' ? 'object-contain' : 'object-cover',
@@ -137,11 +161,14 @@ export default function CardAssetPreview({
             <span
               aria-hidden={alt === '' ? 'true' : undefined}
               className={cn(
-                'select-none truncate max-w-full font-medium text-text-secondary leading-tight',
+                // Tinta oscura fija (card-ink): el respaldo va sobre el blanco de
+                // la tarjeta, así que NO puede usar tokens de texto que en dark
+                // son claros (quedarían ilegibles sobre el blanco).
+                'select-none truncate max-w-full font-medium leading-tight text-card-ink',
                 // largeFallback: usado cuando el consumidor sabe que el fallback debe
                 // ser legible para sustituir una imagen que deberia haber cargado
                 // (caso FallbackTouchPanel). Escala con el tamaño de la tarjeta.
-                largeFallback ? 'text-sm sm:text-base font-semibold text-text-primary' : 'text-[0.65rem]'
+                largeFallback ? 'text-sm sm:text-base font-semibold' : 'text-[0.65rem]'
               )}
             >
               {fallbackText}

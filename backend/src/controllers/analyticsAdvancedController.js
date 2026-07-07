@@ -9,44 +9,24 @@
 
 const { sendSuccess } = require('../utils/responseHelper');
 const { cacheGet } = require('../utils/cacheHelper');
-const { ensureStudentBelongsToTeacher } = require('../utils/ownershipHelpers');
+const {
+  ensureStudentBelongsToTeacher,
+  ensureResourceOwnershipOrAdmin
+} = require('../utils/ownershipHelpers');
 const userRepository = require('../repositories/userRepository');
+const gamePlayRepository = require('../repositories/gamePlayRepository');
 const consentService = require('../services/consentService');
+const { NotFoundError } = require('../utils/errors');
 
 // Sub-servicios de analytics
-const alertsService = require('../services/analytics/alertsService');
+// NOTA (T-941): los endpoints de alertas viven ahora en `alertsController.js`
+// con `alertDetectionService` y SmartAlerts persistidas. El antiguo
+// `alertsService` (cálculo on-the-fly) fue eliminado.
 const studentTrajectoryService = require('../services/analytics/studentTrajectoryService');
 const sessionAnalysisService = require('../services/analytics/sessionAnalysisService');
 const engagementService = require('../services/analytics/engagementService');
 const contentEffectivenessService = require('../services/analytics/contentEffectivenessService');
 const reportDataService = require('../services/analytics/reportDataService');
-
-// ══════════════════════════════════════════════════════════════════════
-// Alertas inteligentes (E15, E16)
-// ══════════════════════════════════════════════════════════════════════
-
-/**
- * Obtiene alertas activas para los alumnos del profesor.
- * @route GET /api/analytics/alerts
- */
-exports.getAlerts = async (req, res) => {
-  const teacherId = req.user._id.toString();
-  const { severity, type, limit } = req.query;
-
-  // El `limit` forma parte de la cache key porque la respuesta lo aplica a la
-  // lista de alertas; sin él, el dashboard (que pide ?limit=5) y el panel de
-  // Insights (sin limit) compartían entrada de caché y se contaminaban entre sí
-  // (BUG-3 QA pre-release v0.5.0: el badge mostraba 5 cuando había 7).
-  const limitKey = limit ? String(limit) : 'all';
-  const data = await cacheGet(
-    'cache:analytics',
-    `alerts:${teacherId}:${severity || 'all'}:${type || 'all'}:${limitKey}`,
-    async () => alertsService.getAlerts(teacherId, { severity, type, limit }),
-    600
-  );
-
-  sendSuccess(res, data);
-};
 
 // ══════════════════════════════════════════════════════════════════════
 // Trayectoria de aprendizaje (E01-E04)
@@ -131,6 +111,23 @@ exports.getStudentEvolution = async (req, res) => {
  */
 exports.getGameplayRounds = async (req, res) => {
   const { id } = req.params;
+
+  // AUTHZ (corrige IDOR): resolver propiedad y consentimiento ANTES de servir
+  // el desglose ronda-a-ronda. Es el único endpoint de analytics que recibe un
+  // recurso por path; sin este check, cualquier profesor podía leer las partidas
+  // (cardUid, tiempos, fatiga) de alumnos de OTRO profesor saltándose además la
+  // puerta de consentimiento (RGPD Art. 21). Mismo patrón que
+  // gamePlayController.getPlayById: ownership sobre la sesión poblada (sin
+  // round-trip extra) + requireConsent sobre el alumno de la partida.
+  const play = await gamePlayRepository.findById(id, {
+    select: 'sessionId playerId',
+    populate: { path: 'sessionId', select: 'createdBy' }
+  });
+  if (!play) {
+    throw new NotFoundError('Partida');
+  }
+  ensureResourceOwnershipOrAdmin(play.sessionId, req.user, 'partida');
+  await consentService.requireConsent(play.playerId.toString(), 'performance_analytics');
 
   const data = await cacheGet(
     'cache:analytics',
@@ -261,18 +258,22 @@ exports.getStudentPlayPatterns = async (req, res) => {
 // ══════════════════════════════════════════════════════════════════════
 
 /**
- * Efectividad de contextos/mecánicas.
+ * Efectividad de contextos/mecánicas (vista 1D o cross matrix).
  * @route GET /api/analytics/classroom/content-effectiveness
  */
 exports.getContentEffectiveness = async (req, res) => {
   const teacherId = req.user._id.toString();
-  const { timeRange, groupBy } = req.query;
+  const { timeRange, groupBy, includeEmpty } = req.query;
 
   const data = await cacheGet(
     'cache:analytics',
-    `contentEffectiveness:${teacherId}:${timeRange}:${groupBy}`,
+    `contentEffectiveness:${teacherId}:${timeRange}:${groupBy}:${includeEmpty}`,
     async () =>
-      contentEffectivenessService.getContentEffectiveness(teacherId, { timeRange, groupBy }),
+      contentEffectivenessService.getContentEffectiveness(teacherId, {
+        timeRange,
+        groupBy,
+        includeEmpty
+      }),
     300
   );
 
@@ -381,19 +382,4 @@ exports.getClassroomExport = async (req, res) => {
   sendSuccess(res, data);
 };
 
-/**
- * Obtiene resumen de alertas (conteos por severidad y tipo).
- * @route GET /api/analytics/alerts/summary
- */
-exports.getAlertsSummary = async (req, res) => {
-  const teacherId = req.user._id.toString();
-
-  const data = await cacheGet(
-    'cache:analytics',
-    `alertsSummary:${teacherId}`,
-    async () => alertsService.getAlertsSummary(teacherId),
-    600
-  );
-
-  sendSuccess(res, data);
-};
+// (Alerts moved to alertsController.js — T-941)

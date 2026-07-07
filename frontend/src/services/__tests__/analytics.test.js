@@ -32,7 +32,20 @@ describe('analyticsService', () => {
   describe('Classroom Analytics', () => {
     it('getClassroomSummary llama GET /analytics/classroom/summary', async () => {
       await analyticsService.getClassroomSummary();
-      expect(mockGet).toHaveBeenCalledWith('/analytics/classroom/summary', {});
+      expect(mockGet).toHaveBeenCalledWith('/analytics/classroom/summary', {
+        params: {},
+      });
+    });
+
+    it('getClassroomSummary reenvia los filtros como query params', async () => {
+      await analyticsService.getClassroomSummary({
+        timeRange: '30d',
+        contextId: 'ctx-1',
+        mechanicId: 'mech-1',
+      });
+      expect(mockGet).toHaveBeenCalledWith('/analytics/classroom/summary', {
+        params: { timeRange: '30d', contextId: 'ctx-1', mechanicId: 'mech-1' },
+      });
     });
 
     it('getClassroomComparison llama GET /analytics/classroom/comparison con timeRange', async () => {
@@ -49,6 +62,16 @@ describe('analyticsService', () => {
       });
     });
 
+    it('getClassroomComparison reenvia contextId/mechanicId como query params', async () => {
+      await analyticsService.getClassroomComparison('90d', {
+        contextId: 'ctx-1',
+        mechanicId: 'mech-1',
+      });
+      expect(mockGet).toHaveBeenCalledWith('/analytics/classroom/comparison', {
+        params: { timeRange: '90d', contextId: 'ctx-1', mechanicId: 'mech-1' },
+      });
+    });
+
     it('getClassroomTrends llama GET /analytics/classroom/trends con timeRange', async () => {
       await analyticsService.getClassroomTrends('30d');
       expect(mockGet).toHaveBeenCalledWith('/analytics/classroom/trends', {
@@ -60,6 +83,16 @@ describe('analyticsService', () => {
       await analyticsService.getClassroomTrends();
       expect(mockGet).toHaveBeenCalledWith('/analytics/classroom/trends', {
         params: { timeRange: '7d' },
+      });
+    });
+
+    it('getClassroomTrends reenvia contextId/mechanicId como query params', async () => {
+      await analyticsService.getClassroomTrends('30d', {
+        contextId: 'ctx-1',
+        mechanicId: 'mech-1',
+      });
+      expect(mockGet).toHaveBeenCalledWith('/analytics/classroom/trends', {
+        params: { timeRange: '30d', contextId: 'ctx-1', mechanicId: 'mech-1' },
       });
     });
 

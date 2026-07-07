@@ -3,18 +3,15 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { playIdEventSchema } = require('../../validators/socketCommandsValidator');
 
 class JoinPlayCommand extends BaseSocketCommand {
   constructor() {
-    super('join_play');
+    super('join_play', { schema: playIdEventSchema });
   }
 
   async execute({ socket, data, helpers, logger, gameEngine }) {
-    const { playId } = data || {};
-    if (!playId) {
-      socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
-      return;
-    }
+    const { playId } = data;
 
     if (!helpers.validatePlayId(socket, playId, 'join_play')) {
       return;
@@ -35,7 +32,12 @@ class JoinPlayCommand extends BaseSocketCommand {
       userId: socket.data.userId
     });
 
-    helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id, {
+    // WS-12: `await` el cambio de modo RFID. Sin él, un RFID_LOCK_TIMEOUT (10s) en el
+    // lock RFID del usuario se convertía en unhandledRejection (escapa del try/catch
+    // del pipeline `executeSocketCommand`). Además, activar el modo GAMEPLAY ANTES de
+    // emitir `play_state` evita que un scan inmediato tras el join se rechace con
+    // RFID_MODE_INVALID porque la cola del lock RFID iba retrasada.
+    await helpers.setRfidModeState(socket.data.userId, helpers.RFID_MODES.GAMEPLAY, socket.id, {
       playId
     });
 

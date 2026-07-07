@@ -17,6 +17,25 @@ const { pseudonymize } = require('../utils/pseudonymize');
 const consentService = require('../services/consentService');
 
 /**
+ * T-942 Fase E: añade un sufijo de filtros a una cache key SOLO cuando hay
+ * algún filtro activo. Garantiza que la vista por defecto (sin contexto ni
+ * mecánica) conserve su key histórica intacta — los tests de cobertura de
+ * caché dependen de ello y, en particular, evita que un resultado filtrado se
+ * sirva (o sea servido) desde la entrada sin filtrar y viceversa.
+ *
+ * @param {string} baseKey - Key base ya construida (ej. `summary:<teacherId>`)
+ * @param {Object} filters - Filtros candidatos (contextId, mechanicId, timeRange)
+ * @returns {string} La key base intacta, o con el sufijo `:f:<ctx>:<mech>:<range>`
+ * @private
+ */
+const buildFilteredCacheKey = (baseKey, { contextId, mechanicId, timeRange } = {}) => {
+  if (!contextId && !mechanicId && !timeRange) {
+    return baseKey;
+  }
+  return `${baseKey}:f:${contextId || ''}:${mechanicId || ''}:${timeRange || ''}`;
+};
+
+/**
  * Obtiene el progreso temporal de un estudiante.
  * @route GET /api/analytics/student/:id/progress
  */
@@ -78,11 +97,23 @@ exports.getStudentDifficulties = async (req, res) => {
 exports.getClassroomSummary = async (req, res) => {
   // El ID del profesor viene del token (req.user)
   const teacherId = req.user?._id?.toString();
+  // T-942 Fase E: filtros opcionales del Dashboard (contexto/mecánica/rango).
+  const { contextId, mechanicId, timeRange } = req.query;
+
+  // La key incluye los filtros SOLO cuando hay alguno activo, de modo que la
+  // vista por defecto (sin filtros) conserve la key histórica `summary:<id>`
+  // y no sirva (ni sea servida por) resultados filtrados de forma cruzada.
+  const cacheKey = buildFilteredCacheKey(`summary:${teacherId}`, {
+    contextId,
+    mechanicId,
+    timeRange
+  });
 
   const summary = await cacheGet(
     'cache:analytics',
-    `summary:${teacherId}`,
-    async () => analyticsService.getClassroomSummary(teacherId),
+    cacheKey,
+    async () =>
+      analyticsService.getClassroomSummary(teacherId, { contextId, mechanicId, timeRange }),
     300
   );
 
@@ -95,12 +126,22 @@ exports.getClassroomSummary = async (req, res) => {
  */
 exports.getClassroomComparison = async (req, res) => {
   const teacherId = req.user?._id?.toString();
-  const { timeRange } = req.query;
+  // QA 2026-05-30: filtros opcionales del Dashboard (contexto/mecánica). La
+  // línea "Rendimiento de Clase (Tendencia)" debe responder al mismo subconjunto
+  // que los KPIs cuando el docente filtra por contenido. Sin filtro, la key y el
+  // resultado son idénticos al comportamiento previo.
+  const { timeRange, contextId, mechanicId } = req.query;
+
+  const cacheKey = buildFilteredCacheKey(`comparison:${teacherId}:${timeRange || 'default'}`, {
+    contextId,
+    mechanicId
+  });
 
   const comparison = await cacheGet(
     'cache:analytics',
-    `comparison:${teacherId}:${timeRange || 'default'}`,
-    async () => analyticsService.getClassroomComparison(teacherId, timeRange),
+    cacheKey,
+    async () =>
+      analyticsService.getClassroomComparison(teacherId, timeRange, { contextId, mechanicId }),
     300
   );
 
@@ -173,7 +214,11 @@ exports.getClassroomStudents = async (req, res) => {
             status: 'completed'
           });
           const playerIdSet = new Set(playerIds.map(id => id.toString()));
-          data.students = data.students.filter(s => playerIdSet.has(s._id.toString()));
+          // El DTO de estudiante expone `id` (string), no `_id`: usar `s._id`
+          // lanzaba TypeError (undefined.toString) → 500 al filtrar por
+          // contexto/mecánica. Bug latente: el frontend nunca enviaba un filtro
+          // válido por el bug de `value` en las opciones del Dashboard.
+          data.students = data.students.filter(s => playerIdSet.has(s.id));
         }
 
         data.total = data.students.length;
@@ -215,10 +260,20 @@ exports.getClassroomStudents = async (req, res) => {
  */
 exports.getClassroomDistribution = async (req, res) => {
   const teacherId = req.user._id.toString();
+  // T-942 Fase E: filtros opcionales del Dashboard (contexto/mecánica/rango).
+  const { contextId, mechanicId, timeRange } = req.query;
+
+  const cacheKey = buildFilteredCacheKey(`distribution:${teacherId}`, {
+    contextId,
+    mechanicId,
+    timeRange
+  });
+
   const data = await cacheGet(
     'cache:analytics',
-    `distribution:${teacherId}`,
-    async () => analyticsService.getClassroomDistribution(teacherId),
+    cacheKey,
+    async () =>
+      analyticsService.getClassroomDistribution(teacherId, { contextId, mechanicId, timeRange }),
     300
   );
   sendSuccess(res, data);
@@ -230,11 +285,22 @@ exports.getClassroomDistribution = async (req, res) => {
  */
 exports.getClassroomTrends = async (req, res) => {
   const teacherId = req.user._id.toString();
-  const { timeRange } = req.query;
+  // T-942 Fase E: filtros opcionales del Dashboard (contexto/mecánica).
+  const { timeRange, contextId, mechanicId } = req.query;
+
+  // timeRange ya formaba parte de la key (`trends:<id>:<timeRange>`); añadimos
+  // contexto/mecánica SOLO cuando hay alguno activo para no alterar la key de
+  // la vista por defecto.
+  const cacheKey = buildFilteredCacheKey(`trends:${teacherId}:${timeRange || 'default'}`, {
+    contextId,
+    mechanicId
+  });
+
   const data = await cacheGet(
     'cache:analytics',
-    `trends:${teacherId}:${timeRange || 'default'}`,
-    async () => analyticsService.getClassroomTrends(teacherId, timeRange),
+    cacheKey,
+    async () =>
+      analyticsService.getClassroomTrends(teacherId, timeRange, { contextId, mechanicId }),
     300
   );
   sendSuccess(res, data);
@@ -263,6 +329,35 @@ exports.getStudentSummary = async (req, res) => {
     `student:summary:${id}:${timeRange || 'default'}`,
     async () => analyticsService.getStudentSummary(id, timeRange),
     180
+  );
+  sendSuccess(res, data);
+};
+
+/**
+ * Historial completo de partidas de un alumno, paginado.
+ * Complementa `lastGames` del summary (cap 10) para acceder a la trayectoria
+ * entera desde `GameHistoryTable` («Cargar más»). Misma autorización/consent/audit.
+ * @route GET /api/analytics/student/:id/games
+ */
+exports.getStudentGames = async (req, res) => {
+  const { id } = req.params;
+  const { page, limit } = req.query;
+
+  await ensureStudentBelongsToTeacher(id, req.user, userRepository);
+  await consentService.requireConsent(id, 'performance_analytics');
+
+  // Audit trail — Art. 5.2 RGPD (accountability)
+  logSecurityEvent('DATA_ACCESS', {
+    ...getRequestContext(req),
+    studentPseudoId: pseudonymize(id),
+    endpoint: 'student/games'
+  });
+
+  const data = await cacheGet(
+    'cache:analytics',
+    `student:games:${id}:${page}:${limit}`,
+    async () => analyticsService.getStudentGames(id, { page, limit }),
+    120
   );
   sendSuccess(res, data);
 };

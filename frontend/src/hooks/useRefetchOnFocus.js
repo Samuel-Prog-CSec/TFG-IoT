@@ -22,6 +22,16 @@ export function useRefetchOnFocus({
 }) {
   const lastRunRef = useRef(0);
 
+  // (D-10-B3) `isLoading`, `hasData` y `hasError` cambian en cada ciclo de
+  // fetch (varias veces por segundo en dashboards con polling). Si entran en
+  // las deps del effect, el listener se reinstala-quita en cada cambio,
+  // generando un churn observable en DevTools Performance (sin ser leak: el
+  // cleanup limpia bien). Las leemos por ref para que el effect solo se
+  // re-ejecute si cambia `refetch`/`enabled`/`minIntervalMs` — el resto se
+  // consulta JIT cuando dispara focus/visibilitychange.
+  const stateRef = useRef({ isLoading, hasData, hasError });
+  stateRef.current = { isLoading, hasData, hasError };
+
   useEffect(() => {
     if (!enabled || typeof refetch !== 'function') {
       return undefined;
@@ -31,10 +41,11 @@ export function useRefetchOnFocus({
       if (document.visibilityState && document.visibilityState !== 'visible') {
         return false;
       }
-      if (isLoading) {
+      const { isLoading: nowLoading, hasData: nowData, hasError: nowError } = stateRef.current;
+      if (nowLoading) {
         return false;
       }
-      if (hasData && !hasError) {
+      if (nowData && !nowError) {
         return false;
       }
       const now = Date.now();
@@ -58,7 +69,6 @@ export function useRefetchOnFocus({
       window.removeEventListener('focus', handleFocus);
       document.removeEventListener('visibilitychange', handleFocus);
     };
-  }, [enabled, refetch, isLoading, hasData, hasError, minIntervalMs]);
+  }, [enabled, refetch, minIntervalMs]);
 }
 
-export default useRefetchOnFocus;

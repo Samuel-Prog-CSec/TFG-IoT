@@ -7,9 +7,10 @@
 
 import { useNavigate } from 'react-router-dom';
 import { Home } from 'lucide-react';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import { ROUTES } from '../constants/routes';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import CharacterMascot from '../components/game/CharacterMascot';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
 
 /**
@@ -20,13 +21,23 @@ export default function NotFound() {
   useDocumentTitle('Página no encontrada');
 
   return (
-    <div className="min-h-screen flex items-center justify-center bg-background-base px-4">
+    <main className="min-h-screen flex items-center justify-center bg-background-base px-4">
       <motion.div
         className="text-center max-w-md"
         initial={{ opacity: 0, y: 20 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.4, ease: [0.16, 1, 0.3, 1] }}
       >
+        {/* Otto recibe el desvío con confusión amable (`surprised`) — suaviza
+            el error y mantiene la voz de marca. La burbuja queda persistente. */}
+        <div className="mb-2 flex justify-center">
+          <CharacterMascot
+            mood="surprised"
+            size="md"
+            message="¡Ups! Aquí no hay nada"
+          />
+        </div>
+
         <p className="text-8xl font-bold text-brand-base select-none font-display">404</p>
 
         <h1 className="mt-4 text-2xl font-semibold text-text-primary">
@@ -47,6 +58,6 @@ export default function NotFound() {
           </ButtonPremium>
         </div>
       </motion.div>
-    </div>
+    </main>
   );
 }

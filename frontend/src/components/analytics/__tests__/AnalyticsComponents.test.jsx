@@ -16,8 +16,8 @@ vi.mock('../../../hooks/useReducedMotion', () => ({
   useReducedMotion: () => ({ shouldReduceMotion: true }),
 }));
 
-vi.mock('framer-motion', () => ({
-  motion: new Proxy(
+vi.mock('framer-motion', () => {
+  const motionProxy = new Proxy(
     {},
     {
       get: (_, tag) => {
@@ -41,9 +41,13 @@ vi.mock('framer-motion', () => ({
         return Component;
       },
     }
-  ),
-  AnimatePresence: ({ children }) => <>{children}</>,
-}));
+  );
+  return {
+    motion: motionProxy,
+    m: motionProxy,
+    AnimatePresence: ({ children }) => <>{children}</>,
+  };
+});
 
 vi.mock('../../ui/GlassCard', () => ({
   default: ({ children, className, ...props }) => (
@@ -165,6 +169,7 @@ describe('GameHistoryTable', () => {
     {
       gameplayId: 'gp1',
       score: 95,
+      scorePercent: 95,
       correctAttempts: 9,
       totalAttempts: 10,
       completedAt: '2026-03-01T10:00:00Z',
@@ -175,6 +180,7 @@ describe('GameHistoryTable', () => {
     {
       gameplayId: 'gp2',
       score: 45,
+      scorePercent: 45,
       correctAttempts: 4,
       totalAttempts: 10,
       completedAt: '2026-03-02T14:00:00Z',
@@ -187,14 +193,14 @@ describe('GameHistoryTable', () => {
   it('muestra mensaje vacio cuando games es null', () => {
     render(<GameHistoryTable games={null} />);
     expect(
-      screen.getByText('Este alumno aun no tiene partidas registradas.')
+      screen.getByText('Este alumno aún no tiene partidas registradas.')
     ).toBeTruthy();
   });
 
   it('muestra mensaje vacio cuando games es un array vacio', () => {
     render(<GameHistoryTable games={[]} />);
     expect(
-      screen.getByText('Este alumno aun no tiene partidas registradas.')
+      screen.getByText('Este alumno aún no tiene partidas registradas.')
     ).toBeTruthy();
   });
 
@@ -203,9 +209,11 @@ describe('GameHistoryTable', () => {
     expect(screen.getByText('Historial de Partidas')).toBeTruthy();
   });
 
-  it('muestra el contador de partidas', () => {
+  it('muestra el contador de partidas recientes', () => {
     render(<GameHistoryTable games={sampleGames} />);
-    expect(screen.getByText('2 partidas')).toBeTruthy();
+    // El historial muestra las partidas RECIENTES (capadas a 10 por backend),
+    // rotuladas "Últimas N" para no confundirlas con el total del alumno.
+    expect(screen.getByText('Últimas 2')).toBeTruthy();
   });
 
   it('renderiza los nombres de contexto y mecanica', () => {
@@ -216,10 +224,12 @@ describe('GameHistoryTable', () => {
     expect(screen.getByText('Quiz')).toBeTruthy();
   });
 
-  it('renderiza los scores redondeados', () => {
+  it('renderiza los scores normalizados a porcentaje', () => {
+    // El score se muestra como % (scorePercent), comparable entre mecánicas,
+    // no como puntos crudos.
     render(<GameHistoryTable games={sampleGames} />);
-    expect(screen.getByText('95')).toBeTruthy();
-    expect(screen.getByText('45')).toBeTruthy();
+    expect(screen.getByText('95%')).toBeTruthy();
+    expect(screen.getByText('45%')).toBeTruthy();
   });
 
   it('calcula y muestra el porcentaje de aciertos', () => {
@@ -316,7 +326,7 @@ describe('NarrativeCard', () => {
     render(<NarrativeCard interpretation={null} />);
     expect(
       screen.getByText(
-        'Se necesitan mas partidas para generar insights.'
+        'Se necesitan más partidas para sacar conclusiones.'
       )
     ).toBeTruthy();
   });
@@ -325,7 +335,7 @@ describe('NarrativeCard', () => {
     render(<NarrativeCard interpretation={{}} />);
     expect(
       screen.getByText(
-        'Se necesitan mas partidas para generar insights.'
+        'Se necesitan más partidas para sacar conclusiones.'
       )
     ).toBeTruthy();
   });
@@ -416,20 +426,20 @@ describe('EngagementRadar', () => {
   it('muestra estado vacio cuando engagement es null', () => {
     render(<EngagementRadar engagement={null} />);
     expect(
-      screen.getByText(/Sin datos de engagement aún/)
+      screen.getByText(/Sin datos de implicación aún/)
     ).toBeTruthy();
   });
 
   it('muestra estado vacio cuando no hay componentes', () => {
     render(<EngagementRadar engagement={{}} />);
     expect(
-      screen.getByText(/Sin datos de engagement aún/)
+      screen.getByText(/Sin datos de implicación aún/)
     ).toBeTruthy();
   });
 
-  it('renderiza el titulo "Engagement"', () => {
+  it('renderiza el titulo "Implicación"', () => {
     render(<EngagementRadar engagement={validEngagement} />);
-    expect(screen.getByText('Engagement')).toBeTruthy();
+    expect(screen.getByText('Implicación')).toBeTruthy();
   });
 
   it('muestra el score con la etiqueta RAG correcta (Alto para >= 60)', () => {

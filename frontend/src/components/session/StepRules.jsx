@@ -6,7 +6,7 @@
  */
 
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import {
   Check,
   Clock,
@@ -14,13 +14,15 @@ import {
   Zap,
   AlertTriangle,
   Sparkles,
-  Wifi
+  Wifi,
+  Volume2
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 import AssociationChallengeComposer from './AssociationChallengeComposer';
-import { DIFFICULTY_VARIANT_STYLES } from './sessionHelpers';
+import { DIFFICULTY_VARIANT_STYLES, getRangeFillPercent } from './sessionHelpers';
 import { configShape, cardMappingShape, challengePlanItemShape } from './sessionPropTypes';
+import { ASSOCIATION_LIMITS } from '../../constants/associationConfig';
 
 const DIFFICULTIES = [
   { id: 'easy', label: 'Fácil', description: 'Más tiempo, sin penalización' },
@@ -43,6 +45,8 @@ export default function StepRules({
   associationCards,
   associationChallengePlan,
   onAssociationChallengePlanChange,
+  autoPlayPrompt = false,
+  onAutoPlayPromptChange,
   contextName
 }) {
   return (
@@ -135,6 +139,7 @@ export default function StepRules({
                 min={1}
                 max={15}
                 value={config.numberOfRounds}
+                aria-valuetext={`${config.numberOfRounds} ronda${config.numberOfRounds === 1 ? '' : 's'}`}
                 onChange={(e) => onConfigChange('numberOfRounds', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-accent-indigo"
               />
@@ -154,10 +159,11 @@ export default function StepRules({
               <input
                 id="assoc-time-limit"
                 type="range"
-                min={5}
-                max={60}
+                min={ASSOCIATION_LIMITS.minTimeLimit}
+                max={ASSOCIATION_LIMITS.maxTimeLimit}
                 step={5}
                 value={config.timeLimit}
+                aria-valuetext={`${config.timeLimit} segundos`}
                 onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-brand-base"
               />
@@ -167,7 +173,7 @@ export default function StepRules({
             </div>
           </div>
 
-          {/* Puntos por acierto */}
+          {/* Puntos por acierto — rango unificado 5-15 (ADR-114) */}
           <div>
             <label htmlFor="assoc-points-correct" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <Zap size={14} className="text-success-base" />
@@ -178,9 +184,10 @@ export default function StepRules({
                 id="assoc-points-correct"
                 type="range"
                 min={5}
-                max={25}
+                max={15}
                 step={5}
                 value={config.pointsPerCorrect}
+                aria-valuetext={`+${config.pointsPerCorrect} puntos por acierto`}
                 onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-success-base"
               />
@@ -190,7 +197,7 @@ export default function StepRules({
             </div>
           </div>
 
-          {/* Penalizacion por error */}
+          {/* Penalizacion por error — rango unificado -5..0 (ADR-114) */}
           <div>
             <label htmlFor="assoc-penalty-error" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <AlertTriangle size={14} className="text-error-base" />
@@ -200,21 +207,25 @@ export default function StepRules({
               <input
                 id="assoc-penalty-error"
                 type="range"
-                min={-10}
-                max={0}
-                value={config.penaltyPerError}
-                onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
+                // El slider trabaja en MAGNITUD (0..5) y guarda el valor en
+                // negativo. Con min=0 el thumb se posiciona en value/5 y el
+                // fill pintado a mano (getRangeFillPercent) coincide EXACTO
+                // con el thumb: "mas a la derecha = mas penalizacion = mas
+                // relleno". Antes el input iba en negativo (min=-5..0) y el
+                // fill |value|/5 quedaba invertido respecto al thumb.
+                min={0}
+                max={5}
+                step={1}
+                value={Math.abs(config.penaltyPerError)}
+                aria-valuetext={config.penaltyPerError === 0 ? 'Sin penalización' : `${config.penaltyPerError} puntos por error`}
+                onChange={(e) => onConfigChange('penaltyPerError', -Number.parseInt(e.target.value, 10))}
                 className="flex-1 penalty-range"
-                // Ver nota en StepMemoryRules.jsx: con rango negativo el fill
-                // nativo del accent-color va al reves de lo intuitivo.
-                // Ocultamos el accent-color con transparent y pintamos un
-                // gradient explicito proporcional a |value| / 10.
                 style={{
                   accentColor: 'transparent',
                   background: `linear-gradient(to right, var(--color-error-base) 0%, var(--color-error-base) ${
-                    (Math.abs(config.penaltyPerError) / 10) * 100
+                    getRangeFillPercent(Math.abs(config.penaltyPerError), 0, 5)
                   }%, var(--color-background-elevated) ${
-                    (Math.abs(config.penaltyPerError) / 10) * 100
+                    getRangeFillPercent(Math.abs(config.penaltyPerError), 0, 5)
                   }%, var(--color-background-elevated) 100%)`
                 }}
               />
@@ -276,6 +287,55 @@ export default function StepRules({
         </div>
       </GlassCard>
 
+      {/* Locución automática de la consigna — solo Asociación. Accesibilidad para
+          alumnos pre-lectores: si las tarjetas del reto llevan audio, se reproduce
+          solo al empezar cada ronda (el objetivo del reto está oculto, así que el
+          audio hace de pregunta). El botón de reproducción manual sigue disponible. */}
+      {isAssociationSelected && (
+        <GlassCard className="p-6 lg:col-span-2">
+          <div className="flex flex-col md:flex-row md:items-center justify-between gap-6">
+            <div className="flex-1">
+              <h2 className="text-lg font-semibold text-text-primary mb-2 flex items-center gap-2 flex-wrap">
+                <Volume2 size={20} className="text-accent-indigo" />
+                Locución automática de la consigna
+                {/* Badge de recomendación: este toggle es la opción clave para
+                    infantil y pasaba desapercibido dentro del párrafo. */}
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full text-nano font-bold uppercase tracking-wider bg-accent-indigo/15 text-accent-indigo border border-accent-indigo/30">
+                  <Sparkles size={10} aria-hidden="true" />
+                  Ideal si aún no leen
+                </span>
+              </h2>
+              <p className="text-sm text-text-muted">
+                Si las tarjetas del reto tienen audio, se reproducirá automáticamente al
+                empezar cada ronda como pista sonora — así la pregunta también se escucha,
+                no solo se lee. El botón para escuchar la consigna manualmente sigue
+                disponible siempre.
+              </p>
+            </div>
+
+            <div className="flex flex-col items-end gap-2">
+              <button
+                type="button"
+                role="switch"
+                aria-checked={autoPlayPrompt}
+                aria-label="Reproducir la consigna de audio automáticamente"
+                className="flex items-center h-6 w-12 rounded-full bg-background-surface relative p-1 focus:outline-none focus-visible:ring-2 focus-visible:ring-accent-indigo focus-visible:ring-offset-2 focus-visible:ring-offset-background-base"
+                onClick={() => onAutoPlayPromptChange?.(!autoPlayPrompt)}
+              >
+                <motion.div
+                  className={cn('h-4 w-4 rounded-full shadow-sm', autoPlayPrompt ? 'bg-accent-indigo' : 'bg-text-muted')}
+                  transition={{ type: 'spring', stiffness: 500, damping: 30 }}
+                  animate={{ x: autoPlayPrompt ? 24 : 0 }}
+                />
+              </button>
+              <span className={cn('text-xs font-medium', autoPlayPrompt ? 'text-accent-indigo' : 'text-text-muted')}>
+                {autoPlayPrompt ? 'Activada' : 'Desactivada'}
+              </span>
+            </div>
+          </div>
+        </GlassCard>
+      )}
+
       {isAssociationSelected && (
         <AssociationChallengeComposer
           cards={associationCards}
@@ -300,5 +360,7 @@ StepRules.propTypes = {
   associationCards: PropTypes.arrayOf(cardMappingShape),
   associationChallengePlan: PropTypes.arrayOf(challengePlanItemShape),
   onAssociationChallengePlanChange: PropTypes.func,
+  autoPlayPrompt: PropTypes.bool,
+  onAutoPlayPromptChange: PropTypes.func,
   contextName: PropTypes.string
 };

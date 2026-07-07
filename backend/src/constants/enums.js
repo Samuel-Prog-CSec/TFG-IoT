@@ -60,6 +60,76 @@ const CONSENT_CHANNEL = Object.freeze(['web_form', 'api', 'admin_panel']);
 /** Acción registrada en el historial de consentimiento. */
 const CONSENT_ACTION = Object.freeze(['granted', 'withdrawn']);
 
+/**
+ * Reglas por dificultad de la mecánica Secuencia.
+ *
+ * Cada entrada define:
+ * - `maxAttemptsPerCard`: número total de intentos por carta antes de bloquearla.
+ *   Al alcanzar este límite, la carta se da por fallada y el cursor avanza
+ *   (la secuencia NO se reinicia, decisión pedagógica explícita).
+ * - `hints`: array ordenado de pistas que se entregan tras cada fallo previo
+ *   al bloqueo. Por ejemplo, en `easy` el primer fallo entrega `'partial'`
+ *   y el segundo `'full'`; el tercero bloquea sin pista.
+ *
+ * Tipos de pista:
+ * - `'partial'`: palabra parcialmente revelada (`L?ó?` para `León`).
+ * - `'full'`: palabra completa (`León`).
+ */
+const SEQUENCE_DIFFICULTY_RULES = Object.freeze({
+  easy: Object.freeze({
+    maxAttemptsPerCard: 3,
+    hints: Object.freeze(['partial', 'full'])
+  }),
+  medium: Object.freeze({
+    maxAttemptsPerCard: 2,
+    hints: Object.freeze([])
+  }),
+  hard: Object.freeze({
+    maxAttemptsPerCard: 1,
+    hints: Object.freeze([])
+  })
+});
+
+/** Tipos de pista soportados por Secuencia (para validadores y DTOs). */
+const SEQUENCE_HINT_TYPES = Object.freeze(['partial', 'full']);
+
+/** Estados intra-ronda de Secuencia. */
+const SEQUENCE_PHASE = Object.freeze(['memorizing', 'reproducing', 'completed']);
+
+/** Resultado de una carta dentro de una ronda Secuencia. */
+const SEQUENCE_CARD_STATUS = Object.freeze(['correct', 'blocked', 'timedOut']);
+
+/**
+ * Tipos canónicos de notificación (T-955 / v1.0.0).
+ *
+ * - `play_completed`: un alumno termina una partida → notif al docente que creó la sesión.
+ * - `registration_pending`: un profesor solicita acceso → notif a super_admin del centro.
+ * - `student_at_risk`: alertService detecta drop de rendimiento → notif al docente del alumno.
+ * - `context_shared`: super_admin publica un contexto/asset compartido → notif a docentes.
+ * - `system_announcement`: anuncio del sistema (mantenimiento, despliegue). Service-only en v1.
+ * - `account_approved`: el super_admin aprueba la cuenta de un docente → notif al docente
+ *   (la ve en su primer acceso, ya que estando pendiente no podía iniciar sesión).
+ * - `system_alert_critical`: alerta crítica del sistema escalada → notif al super_admin.
+ */
+const NOTIFICATION_TYPES = Object.freeze([
+  'play_completed',
+  'registration_pending',
+  'student_at_risk',
+  'context_shared',
+  'system_announcement',
+  // Cuenta de docente aprobada por el super_admin → notif al docente. Se persiste
+  // estando offline (no podía loguearse pendiente) y la ve al entrar por primera vez.
+  'account_approved',
+  // Alerta crítica del sistema escalada → notif al super_admin (emitida por
+  // systemAlertDetectionService.emitCriticalSystemNotification). Sin este valor,
+  // `Notification.create` lanzaba ValidationError, `notify()` lo tragaba, y NINGÚN
+  // super_admin recibía aviso de alertas críticas del sistema (fuga silenciosa).
+  'system_alert_critical'
+]);
+
+/** Prioridad visual y de orden de la notificación. */
+const NOTIFICATION_PRIORITIES = Object.freeze(['info', 'warning', 'critical']);
+
 module.exports = {
   DIFFICULTY,
   SESSION_STATUS,
@@ -71,5 +141,11 @@ module.exports = {
   EVENT_TYPE,
   CONSENT_PURPOSES,
   CONSENT_CHANNEL,
-  CONSENT_ACTION
+  CONSENT_ACTION,
+  SEQUENCE_DIFFICULTY_RULES,
+  SEQUENCE_HINT_TYPES,
+  SEQUENCE_PHASE,
+  SEQUENCE_CARD_STATUS,
+  NOTIFICATION_TYPES,
+  NOTIFICATION_PRIORITIES
 };

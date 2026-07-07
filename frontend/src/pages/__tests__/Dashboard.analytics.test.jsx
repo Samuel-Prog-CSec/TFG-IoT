@@ -26,27 +26,62 @@ vi.mock('../../hooks/useRefetchOnFocus', () => ({ useRefetchOnFocus: () => {} })
 vi.mock('../../lib/sentry', () => ({ captureException: vi.fn() }));
 
 // ── Mock framer-motion ──
-vi.mock('framer-motion', () => ({
-  motion: new Proxy({}, {
-    get: (_, tag) => {
-      const Component = (props) => {
-        const { children, initial, animate, exit, variants, transition, whileHover, whileTap, layout, ...rest } = props;
-        const domProps = {};
-        for (const [key, val] of Object.entries(rest)) {
-          if (typeof val !== 'object' || key === 'className' || key === 'style' || key.startsWith('data-') || key.startsWith('aria-') || key === 'role' || key === 'id' || key === 'onClick' || key === 'dateTime') {
-            domProps[key] = val;
+// T-907 INT2: la app migró a `<LazyMotion>` + `m` para reducir bundle. Los
+// componentes ahora importan `m as motion` desde framer-motion. Este mock
+// expone `motion` y `m` (mismo proxy) para cubrir ambos patrones. El proxy
+// se construye DENTRO del factory porque `vi.mock` se hoist al top del
+// archivo y no puede referenciar variables externas.
+vi.mock('framer-motion', () => {
+  const proxy = new Proxy(
+    {},
+    {
+      get: (_, tag) => {
+        const Component = props => {
+          const {
+            children,
+            initial,
+            animate,
+            exit,
+            variants,
+            transition,
+            whileHover,
+            whileTap,
+            layout,
+            ...rest
+          } = props;
+          const domProps = {};
+          for (const [key, val] of Object.entries(rest)) {
+            if (
+              typeof val !== 'object' ||
+              key === 'className' ||
+              key === 'style' ||
+              key.startsWith('data-') ||
+              key.startsWith('aria-') ||
+              key === 'role' ||
+              key === 'id' ||
+              key === 'onClick' ||
+              key === 'dateTime'
+            ) {
+              domProps[key] = val;
+            }
           }
-        }
-        const Tag = typeof tag === 'string' ? tag : 'div';
-        return <Tag {...domProps}>{children}</Tag>;
-      };
-      Component.displayName = `motion.${String(tag)}`;
-      return Component;
+          const Tag = typeof tag === 'string' ? tag : 'div';
+          return <Tag {...domProps}>{children}</Tag>;
+        };
+        Component.displayName = `motion.${String(tag)}`;
+        return Component;
+      }
     }
-  }),
-  AnimatePresence: ({ children }) => <>{children}</>,
-  animate: vi.fn(() => ({ stop: vi.fn() })),
-}));
+  );
+  return {
+    motion: proxy,
+    m: proxy,
+    AnimatePresence: ({ children }) => <>{children}</>,
+    LazyMotion: ({ children }) => <>{children}</>,
+    domAnimation: {},
+    animate: vi.fn(() => ({ stop: vi.fn() }))
+  };
+});
 
 // ── Mock analytics service (vi.hoisted para que este disponible antes de vi.mock) ──
 const mockAnalyticsService = vi.hoisted(() => ({
@@ -179,7 +214,9 @@ describe('Dashboard — integracion analytics', () => {
 
     expect(screen.getByText('Puntuación Media')).toBeInTheDocument();
     expect(screen.getByText('Partidas Hoy')).toBeInTheDocument();
-    expect(screen.getByText('Partidas Totales')).toBeInTheDocument();
+    // El KPI «Partidas Totales» se renombró a «Partidas» (ADR-192): ahora
+    // refleja el periodo seleccionado, no el acumulado de por vida.
+    expect(screen.getByText('Partidas')).toBeInTheDocument();
   });
 
   it('muestra KPIs secundarios con datos del summary', async () => {
@@ -206,11 +243,13 @@ describe('Dashboard — integracion analytics', () => {
     });
   });
 
-  it('muestra el subtitulo descriptivo del dashboard', async () => {
+  it('muestra el subtitulo contextual del saludo ligado al dato', async () => {
+    // Con `studentsInRisk: 2` el subtítulo se personaliza (momento de firma,
+    // 2026-06-04) en vez del genérico "Resumen de actividad…".
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText('Resumen de actividad y análisis de rendimiento')).toBeInTheDocument();
+      expect(screen.getByText('Hoy, 2 alumnos necesitan tu atención')).toBeInTheDocument();
     });
   });
 
@@ -236,7 +275,7 @@ describe('Dashboard — integracion analytics', () => {
     renderDashboard();
 
     await waitFor(() => {
-      expect(screen.getByText('Error al cargar datos')).toBeInTheDocument();
+      expect(screen.getByText('No pudimos cargar tu panel')).toBeInTheDocument();
     });
 
     expect(screen.getByText(/No se pudieron cargar los datos del dashboard/)).toBeInTheDocument();
@@ -249,8 +288,10 @@ describe('Dashboard — integracion analytics', () => {
       expect(screen.getByText('Alumnos en Riesgo')).toBeInTheDocument();
     });
 
-    // El SelectPremium de tiempo siempre se renderiza con aria-label
-    expect(screen.getByLabelText('Filtrar por rango de tiempo')).toBeInTheDocument();
+    // El SelectPremium de tiempo se renderiza con aria-label = propósito + valor
+    // seleccionado (BUG-A11Y-SELECT-NAME-B, QA 2026-06-04): "Filtrar por rango
+    // de tiempo: Últimos 7 días". Match por prefijo para no acoplar al valor.
+    expect(screen.getByLabelText(/^Filtrar por rango de tiempo/)).toBeInTheDocument();
   });
 
   it('muestra la lista de estudiantes cuando hay datos', async () => {
@@ -289,7 +330,11 @@ describe('Dashboard — integracion analytics', () => {
     expect(mariaElements.length).toBeGreaterThanOrEqual(1);
   });
 
-  it('no muestra actividad reciente cuando ningun estudiante tiene partidas', async () => {
+  it('muestra empty state en actividad reciente cuando ningun estudiante tiene partidas', async () => {
+    // Sesion pulido UI/UX final: el slot "Actividad Reciente" ahora siempre
+    // queda visible para mantener la simetría del grid; cuando no hay
+    // partidas se muestra un copy explicativo en lugar de desaparecer
+    // dejando hueco vertical.
     mockAnalyticsService.getClassroomStudents.mockResolvedValue({
       students: [
         { _id: 's1', name: 'Ana', averageScore: 50, lastPlayedAt: null },
@@ -303,7 +348,8 @@ describe('Dashboard — integracion analytics', () => {
       expect(screen.getByText('Alumnos en Riesgo')).toBeInTheDocument();
     });
 
-    expect(screen.queryByText('Actividad Reciente')).not.toBeInTheDocument();
+    expect(screen.getByText('Actividad Reciente')).toBeInTheDocument();
+    expect(screen.getByText(/Aún no hay partidas/i)).toBeInTheDocument();
   });
 
   it('maneja el caso de datos parciales sin crash', async () => {
@@ -323,7 +369,7 @@ describe('Dashboard — integracion analytics', () => {
     expect(screen.getByText('Puntuación Media')).toBeInTheDocument();
     expect(screen.getByText('Partidas Hoy')).toBeInTheDocument();
     // No debe haber mensaje de error si solo fallan los secundarios
-    expect(screen.queryByText('Error al cargar datos')).not.toBeInTheDocument();
+    expect(screen.queryByText('No pudimos cargar tu panel')).not.toBeInTheDocument();
   });
 
   it('renderiza los graficos stub correctamente', async () => {
@@ -379,7 +425,9 @@ describe('Dashboard — redireccion super_admin', () => {
     );
 
     await waitFor(() => {
-      expect(mockNavigate).toHaveBeenCalledWith('/admin/approvals', { replace: true });
+      // T-942 Fase D: el super_admin aterriza ahora en /admin/dashboard (vista
+      // del centro con KPIs agregados) en lugar de /admin/approvals.
+      expect(mockNavigate).toHaveBeenCalledWith('/admin/dashboard', { replace: true });
     });
   });
 });

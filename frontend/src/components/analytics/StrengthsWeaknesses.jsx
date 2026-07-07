@@ -1,8 +1,9 @@
 import { memo, useMemo } from 'react';
-import { motion } from 'framer-motion';
-import { ThumbsUp, AlertTriangle } from 'lucide-react';
+import { m as motion } from 'framer-motion';
+import { ThumbsUp, Target } from 'lucide-react';
 import PropTypes from 'prop-types';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
 
 /**
@@ -30,12 +31,32 @@ const deriveStrengthsWeaknesses = (performanceByContext = [], performanceByMecha
     })),
   ].filter(item => item.gamesPlayed > 0);
 
-  const sorted = [...allItems].sort((a, b) => b.score - a.score);
+  const sorted = allItems.toSorted((a, b) => b.score - a.score);
+
+  // Umbral de dominio: por encima de este % un área no es una "debilidad"
+  // accionable. Sin él, el bottom-3 entraba en «A mejorar» aunque tuviera un
+  // 100% (contradictorio para el docente).
+  const MASTERY_THRESHOLD = 90;
+  const weaknessCandidates = sorted
+    .slice(count)
+    .filter(item => item.score < MASTERY_THRESHOLD);
 
   return {
     strengths: sorted.slice(0, count),
-    weaknesses: sorted.length > count ? sorted.slice(-count).reverse() : [],
+    weaknesses: weaknessCandidates.slice(-count).reverse(),
+    // true si hay más áreas que las top-N y ninguna baja del umbral: el vacío
+    // de «A mejorar» es una buena noticia, no falta de datos.
+    masteredAll: sorted.length > count && weaknessCandidates.length === 0,
   };
+};
+
+// Tono por rendimiento REAL, no por posición en la lista: un ítem puede ser el
+// "peor" (aparece en «A mejorar») y aun así tener un 90%. Pintarlo en rojo sería
+// engañoso — el color comunica el nivel (bien / regular / flojo), no el ranking.
+const toneForScore = (score) => {
+  if (score >= 75) return { text: 'text-success-on-alpha', bg: 'bg-success-base/5', border: 'border-success-base/10' };
+  if (score >= 50) return { text: 'text-warning-on-alpha', bg: 'bg-warning-base/5', border: 'border-warning-base/10' };
+  return { text: 'text-error-on-alpha', bg: 'bg-error-base/5', border: 'border-error-base/10' };
 };
 
 /**
@@ -48,18 +69,31 @@ const deriveStrengthsWeaknesses = (performanceByContext = [], performanceByMecha
  */
 function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
   const { shouldReduceMotion } = useReducedMotion();
-  const { strengths, weaknesses } = useMemo(
+  const { strengths, weaknesses, masteredAll } = useMemo(
     () => deriveStrengthsWeaknesses(performanceByContext, performanceByMechanic),
     [performanceByContext, performanceByMechanic]
   );
 
+  // Si aún no hay datos suficientes (todos los contextos/mecánicas con 0 partidas),
+  // mostramos una card explicativa en vez de desaparecer del layout sin avisar
+  // (un hueco vacío inexplicado confunde al docente).
   if (strengths.length === 0 && weaknesses.length === 0) {
-    return null;
+    return (
+      <GlassCard variant="default" padding="none" className="p-5">
+        <h3 className="text-sm font-semibold text-text-primary mb-2">
+          Fortalezas y debilidades
+        </h3>
+        <p className="text-sm text-text-muted">
+          Se necesitan partidas completadas para analizar las fortalezas y
+          debilidades de este alumno.
+        </p>
+      </GlassCard>
+    );
   }
 
   return (
     <GlassCard variant="default" padding="none" className="p-5">
-      <h3 className="text-base font-bold text-text-primary font-display mb-4">Fortalezas y Debilidades</h3>
+      <h2 className="text-base font-semibold text-text-primary font-display mb-4">Fortalezas y Debilidades</h2>
 
       <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
         {/* Strengths */}
@@ -82,42 +116,50 @@ function StrengthsWeaknesses({ performanceByContext, performanceByMechanic }) {
                   <span className="text-sm font-bold text-success-base tabular-nums ml-2">{Math.min(100, Math.max(0, Math.round(item.score)))}%</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecánica'}</span>
-                  <span className="text-[10px] text-text-disabled">{'\u2022'}</span>
-                  <span className="text-[10px] text-text-muted">{item.gamesPlayed} {item.gamesPlayed === 1 ? 'partida' : 'partidas'}</span>
+                  <span className="text-nano text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecánica'}</span>
+                  <span className="text-nano text-text-disabled">{'\u2022'}</span>
+                  <span className="text-nano text-text-muted">{item.gamesPlayed} {item.gamesPlayed === 1 ? 'partida' : 'partidas'}</span>
                 </div>
               </motion.div>
             ))}
           </div>
         </div>
 
-        {/* Weaknesses */}
+        {/* Weaknesses — encabezado NEUTRO (no rojo): «A mejorar» es informativo,
+            no una alarma; cada ítem lleva su color según el nivel real. */}
         <div>
           <div className="flex items-center gap-2 mb-3">
-            <AlertTriangle size={14} className="text-error-base" aria-hidden="true" />
-            <span className="text-xs font-semibold text-error-base uppercase tracking-wider">A mejorar</span>
+            <Target size={14} className="text-text-muted" aria-hidden="true" />
+            <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">A mejorar</span>
           </div>
           <div className="space-y-2">
-            {weaknesses.length > 0 ? weaknesses.map((item, index) => (
+            {weaknesses.length > 0 ? weaknesses.map((item, index) => {
+              const tone = toneForScore(item.score);
+              return (
               <motion.div
                 key={`weakness-${index}-${item.name}`}
                 initial={shouldReduceMotion ? false : { opacity: 0, x: 10 }}
                 animate={{ opacity: 1, x: 0 }}
                 transition={{ delay: shouldReduceMotion ? 0 : index * 0.08 }}
-                className="p-3 rounded-lg bg-error-base/5 border border-error-base/10"
+                className={cn('p-3 rounded-lg border', tone.bg, tone.border)}
               >
                 <div className="flex items-center justify-between">
                   <span className="text-sm font-medium text-text-primary truncate">{item.name}</span>
-                  <span className="text-sm font-bold text-error-base tabular-nums ml-2">{Math.min(100, Math.max(0, Math.round(item.score)))}%</span>
+                  <span className={cn('text-sm font-bold tabular-nums ml-2', tone.text)}>{Math.min(100, Math.max(0, Math.round(item.score)))}%</span>
                 </div>
                 <div className="flex items-center gap-2 mt-1">
-                  <span className="text-[10px] text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecánica'}</span>
-                  <span className="text-[10px] text-text-disabled">{'\u2022'}</span>
-                  <span className="text-[10px] text-text-muted">{item.gamesPlayed} {item.gamesPlayed === 1 ? 'partida' : 'partidas'}</span>
+                  <span className="text-nano text-text-muted capitalize">{item.type === 'context' ? 'Contexto' : 'Mecánica'}</span>
+                  <span className="text-nano text-text-disabled">{'\u2022'}</span>
+                  <span className="text-nano text-text-muted">{item.gamesPlayed} {item.gamesPlayed === 1 ? 'partida' : 'partidas'}</span>
                 </div>
               </motion.div>
-            )) : (
-              <p className="text-xs text-text-muted py-4 text-center">Sin debilidades identificadas con los datos actuales.</p>
+              );
+            }) : (
+              <p className="text-xs text-text-muted py-4 text-center">
+                {masteredAll
+                  ? 'Todas sus áreas jugadas rondan o superan el 90% — no hay puntos flojos claros.'
+                  : 'Sin debilidades identificadas con los datos actuales.'}
+              </p>
             )}
           </div>
         </div>

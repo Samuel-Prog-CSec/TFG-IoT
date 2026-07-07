@@ -6,7 +6,7 @@
  * @module components/ui/WizardStepper
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Check } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { memo, useEffect, useMemo, useRef } from 'react';
@@ -77,11 +77,13 @@ const getStepPulseTransition = ({ reducedMotion, isActive }) => {
 };
 
 const getStepLabelClassName = ({ isActive, isCompleted }) =>
+  // BUG-A11Y-STEPPER-LABEL (QA Sprint 0 post-v0.5.0): text-text-disabled
+  // sobre bg light daba 2.37:1 en pasos futuros. text-text-muted cumple AA.
   cn(
     'text-xs font-medium uppercase tracking-wider transition-colors duration-300',
     isActive && 'text-accent-indigo',
     isCompleted && 'text-success-base',
-    !isActive && !isCompleted && 'text-text-disabled'
+    !isActive && !isCompleted && 'text-text-muted'
   );
 
 function WizardStepItem({
@@ -105,6 +107,13 @@ function WizardStepItem({
     onStepClick(index);
   };
 
+  let stepStateLabel = '';
+  if (isCompleted) {
+    stepStateLabel = ' (completado)';
+  } else if (isActive) {
+    stepStateLabel = ' (actual)';
+  }
+
   return (
     <motion.div
       className="flex flex-col items-center gap-2 relative"
@@ -116,6 +125,11 @@ function WizardStepItem({
         type="button"
         onClick={handleStepClick}
         disabled={!isClickable}
+        // BUG-A11Y-STEPPER-BUTTON (QA Sprint 0): el botón sólo tenía icono,
+        // sin nombre accesible. Añadir aria-label compuesto desde título +
+        // estado.
+        aria-label={`Paso ${index + 1}: ${step.title}${stepStateLabel}`}
+        aria-current={isActive ? 'step' : undefined}
         className={getStepButtonClassName({ isActive, isCompleted, isClickable })}
         whileHover={isClickable ? { scale: 1.1 } : {}}
         whileTap={isClickable ? { scale: 0.95 } : {}}
@@ -184,7 +198,9 @@ function WizardStepItem({
       </motion.span>
 
       {step.description && (
-        <span className="text-[10px] text-text-disabled max-w-[80px] text-center hidden sm:block">
+        // BUG-A11Y-STEPPER-DESC (QA Sprint 0): text-text-disabled daba 2.37
+        // en light. text-text-muted cumple AA y sigue siendo terciario.
+        <span className="text-nano text-text-muted max-w-[80px] text-center hidden sm:block">
           {step.description}
         </span>
       )}
@@ -225,7 +241,7 @@ WizardStepItem.propTypes = {
  *   steps={[
  *     { id: 1, title: "Tarjetas", icon: CreditCard },
  *     { id: 2, title: "Contexto", icon: Map },
- *     { id: 3, title: "Assets", icon: Tag },
+ *     { id: 3, title: "Recursos", icon: Tag },
  *     { id: 4, title: "Confirmar", icon: Check },
  *   ]}
  *   currentStep={2}
@@ -256,8 +272,8 @@ const WizardStepper = memo(function WizardStepper({
   }, [isLastStep]);
 
   // Calcular progreso
-  const totalSteps = useMemo(() => Math.max(steps.length - 1, 1), [steps.length]);
-  const progress = useMemo(() => (currentStep / totalSteps) * 100, [currentStep, totalSteps]);
+  const totalSteps = Math.max(steps.length - 1, 1);
+  const progress = (currentStep / totalSteps) * 100;
 
   // Cada item ocupa una fracción igual del contenedor (`grid` en lugar de
   // `flex justify-between`). Eso garantiza que los centros de los círculos

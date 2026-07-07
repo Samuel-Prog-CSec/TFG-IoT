@@ -15,7 +15,9 @@ import { getAccessToken, AUTH_EVENTS } from './api';
 const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
 const RECONNECTION_ATTEMPTS = 15;
 const RECONNECTION_DELAY = 1000;
-const RECONNECTION_DELAY_MAX = 15000;
+// Tope del backoff: bajado de 15s a 5s para reaccionar antes a redeploys cloud.
+// 15 intentos × 5s ≈ 1 minuto de window de reconexión, cubre rolling deploys Koyeb.
+const RECONNECTION_DELAY_MAX = 5000;
 const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
 /**
  * Intervalo del heartbeat de modo RFID. El backend lo usa para refrescar
@@ -24,6 +26,21 @@ const CONNECTION_TIMEOUT = 10000; // 10 segundos timeout para conexión inicial
  */
 const RFID_HEARTBEAT_INTERVAL_MS = 60_000;
 const IS_DEV = import.meta.env.DEV;
+
+/**
+ * Códigos de error de handshake (de `makeAuthError` en el backend) que implican
+ * que la sesión ya no es válida → forzar logout. `ORIGIN_INVALID` (config) y
+ * `CONNECTION_LIMIT` (transitorio) se excluyen: no significan "sesión caducada".
+ */
+const AUTH_ERROR_CODES = new Set([
+  'TOKEN_MISSING',
+  'TOKEN_INVALID',
+  'USER_NOT_FOUND',
+  'USER_INACTIVE',
+  'ACCOUNT_NOT_APPROVED',
+  'SESSION_INVALID',
+  'AUTH_FAILED',
+]);
 
 const socketLog = (level, ...args) => {
   if (!IS_DEV || typeof console === 'undefined') {
@@ -75,7 +92,16 @@ export const GAME_EVENTS = {
   SCAN_IGNORED: 'scan_ignored',
   RFID_EVENT: 'rfid_event',
   RFID_STATUS: 'rfid_status',
+  // Rechazos de escaneo por seguridad (firma HMAC inválida / replay de
+  // contador). El backend emite este evento SOLO para RFID_HMAC_INVALID y
+  // COUNTER_REPLAY, separado del genérico `error`.
+  RFID_SCAN_ERROR: 'rfid_scan_error',
   ERROR: 'error',
+  // Mecánica Secuencia (T-921). Server → cliente.
+  SEQUENCE_PHASE_MEMORIZING: 'sequence_phase_memorizing',
+  SEQUENCE_PHASE_REPRODUCING: 'sequence_phase_reproducing',
+  SEQUENCE_CARD_RESULT: 'sequence_card_result',
+  SEQUENCE_ROUND_RESULT: 'sequence_round_result',
 };
 
 /** Merge de ambos para retrocompatibilidad */
@@ -94,11 +120,80 @@ class SocketService {
     this.isConnected = false;
     /** Listeners registrados en el socket de sistema */
     this.listeners = new Map();
+    /**
+     * Listeners registrados vía `on()` ANTES de que el socket de sistema exista
+     * (race del render inicial: el effect de `useNotifications` corre antes que
+     * `connect()` cree el socket). Sin esto se descartaban en silencio y las
+     * notificaciones push no llegaban en tiempo real. Se aplican en
+     * `_connectNamespace` en cuanto el socket de sistema se crea.
+     * @type {Array<{event: string, callback: Function}>}
+     */
+    this.pendingListeners = [];
     /** Listeners registrados en el socket de juego */
     this.gameListeners = new Map();
+    /**
+     * Listeners registrados vía `onGame()` ANTES de que el socket de juego
+     * exista (mismo race que `pendingListeners` en el namespace de sistema: si
+     * se registran antes de `connect()`, el `if (!this.gameSocket) return` los
+     * descartaba en silencio y el gameplay se quedaba sin eventos en tiempo real
+     * sin error visible). Se aplican en `_connectNamespace` al crear el socket
+     * de juego.
+     * @type {Array<{event: string, callback: Function}>}
+     */
+    this.pendingGameListeners = [];
     this._wasConnected = false;
+    /**
+     * Igual que `_wasConnected` pero para el socket de /game. Al ser una
+     * conexión io() independiente, puede reconectar por su cuenta; este flag
+     * distingue la PRIMERA conexión de una RECONEXIÓN para, en esta última,
+     * re-registrar el modo RFID gameplay (ver `_connectNamespace`).
+     */
+    this._wasGameConnected = false;
     /** Timer del heartbeat de modo RFID (refresca watchdog del backend). */
     this._rfidHeartbeatTimerId = null;
+    /**
+     * B.8 (pre-v1.0.0): timer de refresh proactivo del JWT. Se programa
+     * tras cada `connect` exitoso del socket de sistema y se cancela en
+     * `disconnect()`. Evita que el token expire silenciosamente durante
+     * partidas largas (>15 min) sin que el cliente lo sepa.
+     */
+    this._proactiveRefreshTimerId = null;
+    /**
+     * Promise del `connect()` en vuelo. Evita handshakes paralelos cuando
+     * dos llamadores casi-simultáneos invocan connect() (ej. login +
+     * useGameSocket inmediatamente después de la redirección post-login).
+     * Ver BUG-WS-1 en memoria del proyecto.
+     */
+    this._connectPromise = null;
+  }
+
+  /**
+   * Refresco proactivo del socket — DESACTIVADO (consolidación de cadenas).
+   *
+   * `AuthContext.scheduleTokenRefresh` es ahora el ÚNICO refresco proactivo:
+   * refresca con un lead mayor (≈5 min vs el 1 min de aquí) y propaga el token
+   * nuevo al socket vía `socketService.updateAuth`, de modo que el socket
+   * siempre tiene un token fresco para el siguiente handshake de reconexión.
+   * El refresco proactivo propio del socket era redundante — un segundo POST
+   * `/auth/refresh` por ciclo de token, desincronizado del de AuthContext y
+   * consumiendo cuota del rate-limit del refresh. El path reactivo (interceptor
+   * 401) sigue siendo el fallback si algo fallara. Se conserva el método como
+   * no-op para no tocar los puntos de llamada de connect/disconnect.
+   * @private
+   */
+  _scheduleProactiveRefresh() {
+    // Intencionalmente vacío — ver doc arriba.
+  }
+
+  /**
+   * B.8: cancela el timer de refresh proactivo. Se llama en disconnect().
+   * @private
+   */
+  _cancelProactiveRefresh() {
+    if (this._proactiveRefreshTimerId) {
+      clearTimeout(this._proactiveRefreshTimerId);
+      this._proactiveRefreshTimerId = null;
+    }
   }
 
   /**
@@ -136,14 +231,23 @@ class SocketService {
   // ============================================
 
   /**
-   * Genera las opciones de conexión compartidas entre namespaces
-   * @param {string} token - Token de autenticación
+   * Genera las opciones de conexión compartidas entre namespaces.
+   *
+   * BUG-WS-1 (~0.6 reconexiones/navegación documentadas en memoria 2026-05-14):
+   * `auth` se entrega como **función** en lugar de objeto estático para que
+   * socket.io-client llame a `getAccessToken()` en CADA intento de handshake
+   * (conexión inicial y cada reconexión). Antes, con `{ token }` estático,
+   * tras un `/auth/refresh` el access token rotaba pero el socket usaba
+   * el token original en sus reconnects → `SESSION_MISMATCH` server-side →
+   * `io server disconnect` → reconexión forzada. Con la forma funcional el
+   * socket nunca queda "anclado" a un token caducado.
+   *
    * @returns {Object}
    * @private
    */
-  _connectionOptions(token) {
+  _connectionOptions() {
     return {
-      auth: { token },
+      auth: cb => cb({ token: getAccessToken() }),
       reconnection: true,
       reconnectionAttempts: RECONNECTION_ATTEMPTS,
       reconnectionDelay: RECONNECTION_DELAY,
@@ -159,6 +263,14 @@ class SocketService {
   /**
    * Conectar ambos namespaces (sistema y juego) al servidor WebSocket.
    * La promesa se resuelve cuando AMBOS están conectados.
+   *
+   * Idempotencia (BUG-WS-1): si ya hay un `connect()` en vuelo, devolvemos
+   * la promesa existente en lugar de crear handshakes paralelos. Antes, dos
+   * llamadores casi-simultáneos (ej. AuthContext.login + useGameSocket al
+   * mismo tiempo durante la navegación post-login) abrían dos handshakes,
+   * el server cerraba uno por SESSION_MISMATCH y veíamos `io server
+   * disconnect` + reconexión inmediata.
+   *
    * @returns {Promise<void>}
    */
   connect() {
@@ -167,8 +279,13 @@ class SocketService {
       return Promise.resolve();
     }
 
-    const token = getAccessToken();
-    const opts = this._connectionOptions(token);
+    // Si hay un connect() en vuelo, devolverlo: evita handshakes duplicados
+    // que provocan SESSION_MISMATCH server-side.
+    if (this._connectPromise) {
+      return this._connectPromise;
+    }
+
+    const opts = this._connectionOptions();
 
     // --- Socket de sistema (namespace /) ---
     const systemPromise = this._connectNamespace('system', SOCKET_URL, opts);
@@ -176,7 +293,12 @@ class SocketService {
     // --- Socket de juego (namespace /game) ---
     const gamePromise = this._connectNamespace('game', `${SOCKET_URL  }/game`, opts);
 
-    return Promise.all([systemPromise, gamePromise]).then(() => undefined);
+    this._connectPromise = Promise.all([systemPromise, gamePromise])
+      .then(() => undefined)
+      .finally(() => {
+        this._connectPromise = null;
+      });
+    return this._connectPromise;
   }
 
   /**
@@ -199,15 +321,50 @@ class SocketService {
         return;
       }
 
-      // Reconectar socket existente o crear uno nuevo
+      // Reconectar socket existente o crear uno nuevo. Con `auth` funcional
+      // (BUG-WS-1) no necesitamos asignar `sock.auth` manualmente: socket.io
+      // llama al resolver en cada handshake.
       if (this[prop]) {
-        this[prop].auth = { token: opts.auth.token };
         this[prop].connect();
       } else {
         this[prop] = io(url, opts);
       }
 
       const sock = this[prop];
+
+      // Aplicar listeners pendientes (registrados vía on() antes de que el socket
+      // de sistema existiera — race del render inicial). Solo el namespace de
+      // sistema usa on()/listeners; tras aplicarlos se vacía la cola para no
+      // re-registrarlos en reconexiones (socket.io conserva los handlers).
+      if (isSystem && this.pendingListeners.length > 0) {
+        for (const pending of this.pendingListeners) {
+          sock.on(pending.event, pending.callback);
+        }
+        this.pendingListeners = [];
+      } else if (!isSystem && this.pendingGameListeners.length > 0) {
+        // Aplicar listeners de juego registrados vía onGame() antes de que el
+        // socket de /game existiera. Ya están en gameListeners (tracking); aquí
+        // solo se enganchan al socket. Se vacía la cola para no re-registrarlos
+        // en reconexiones (socket.io conserva los handlers).
+        for (const pending of this.pendingGameListeners) {
+          sock.on(pending.event, pending.callback);
+        }
+        this.pendingGameListeners = [];
+      }
+      // (F1) Al REUTILIZAR un socket existente (reconexión vía connect() explícito,
+      // p. ej. remount de GameSession con WiFi inestable), sus handlers internos
+      // previos siguen enganchados. Registrar de nuevo los de abajo sin quitarlos
+      // acumulaba N handlers 'connect'/'disconnect'/'connect_error' → N eventos
+      // 'game_socket_reconnected', N JOIN_PLAY + N requestPlayStateSync (que chocan
+      // con el rate-limit) y N toasts. Los quitamos antes de re-registrar; NO afecta
+      // a los listeners de usuario (van por otros eventos vía on()/onGame()).
+      sock.off('connect');
+      sock.off('connect_error');
+      sock.off('disconnect');
+      if (isSystem) {
+        sock.off(SYSTEM_EVENTS.SESSION_INVALIDATED);
+      }
+
       let timeoutId = null;
       let isResolved = false;
 
@@ -237,6 +394,8 @@ class SocketService {
 
           if (isSystem) {
             this.isConnected = true;
+            // B.8: arrancar timer de refresh proactivo JWT.
+            this._scheduleProactiveRefresh();
           } else {
             // Arrancamos heartbeat de modo RFID en el namespace /game.
             this._startRfidHeartbeat();
@@ -254,6 +413,21 @@ class SocketService {
         } else {
           // Reasegurar heartbeat tras reconexión.
           this._startRfidHeartbeat();
+
+          // El socket de /game es una conexión io() independiente del de
+          // sistema: puede caerse y reconectar (con un socket.id nuevo) sin que
+          // el de sistema lo haga. Al desconectar el socket viejo, el backend
+          // limpia su modo RFID gameplay (clearRfidModeState); el socket nuevo
+          // debe re-emitir JOIN_PLAY para re-registrarlo. Sin esto, tras la
+          // reconexión los escaneos del sensor y los taps del fallback táctil se
+          // rechazan con RFID_MODE_INVALID ("El lector no está listo") hasta
+          // recargar la página. Avisamos con un evento global que useGameSocket
+          // escucha para re-unirse a la partida activa.
+          if (this._wasGameConnected) {
+            socketLog('warn', `${tag} Reconectado tras desconexión`);
+            window.dispatchEvent(new CustomEvent('game_socket_reconnected'));
+          }
+          this._wasGameConnected = true;
         }
       });
 
@@ -264,8 +438,13 @@ class SocketService {
         if (isSystem) {
           this.isConnected = false;
 
-          // Error de auth → evento global
-          if (error.message?.includes('auth') || error.message?.includes('token')) {
+          // Error de auth → evento global. El backend adjunta un `code` estable en
+          // `error.data` (contrato con makeAuthError en socketHandlers). Antes se
+          // comparaba `error.message` contra 'auth'/'token' en inglés, pero los
+          // mensajes del handshake van en español ('Token inválido', 'Sesión
+          // inválida'...) → el match nunca ocurría y el usuario quedaba en un bucle
+          // de reconexión sin redirigir a login. Ahora decidimos por código.
+          if (AUTH_ERROR_CODES.has(error?.data?.code)) {
             window.dispatchEvent(new CustomEvent(AUTH_EVENTS.UNAUTHORIZED));
           }
         }
@@ -325,6 +504,9 @@ class SocketService {
       this.socket = null;
     }
 
+    // B.8: cancelar refresh proactivo al desconectar.
+    this._cancelProactiveRefresh();
+
     // Limpiar socket de juego
     if (this.gameSocket) {
       this._stopRfidHeartbeat();
@@ -344,6 +526,8 @@ class SocketService {
 
     this.isConnected = false;
     this._wasConnected = false;
+    this._wasGameConnected = false;
+    this._connectPromise = null;
   }
 
   /**
@@ -356,18 +540,27 @@ class SocketService {
    * del listener previo (QA 22/04/2026).
    */
   updateAuth(token) {
-    const applyToNamespace = (sock) => {
-      if (!sock) return;
-      const previousToken = sock.auth?.token;
-      sock.auth = { token };
-      const tokenChanged = previousToken !== token;
-      if (tokenChanged && sock.connected) {
-        sock.disconnect();
-        sock.connect();
-      }
-    };
-    applyToNamespace(this.socket);
-    applyToNamespace(this.gameSocket);
+    // Con el `auth: cb => cb({ token: getAccessToken() })` funcional del
+    // `_connectionOptions()`, el socket resuelve el token dinámicamente en
+    // cada handshake — ya no es necesario sobreescribir `sock.auth` ni
+    // forzar disconnect+connect aquí. `setTokens(token)` (caller anterior)
+    // ya actualizó el getter al token nuevo, y cualquier reconnect futuro
+    // lo usará automáticamente.
+    //
+    // Esta función queda como hook de cara a observabilidad (logging, métricas)
+    // y para mantener su semántica explícita: "el token ha rotado". Si el
+    // socket no estaba conectado, la próxima conexión usará el nuevo.
+    //
+    // Cuando el token cambia Y el socket está conectado, dejamos que el
+    // server invalide vía SESSION_INVALIDATED o que el siguiente refresh
+    // del backend acepte el sid actual; no forzamos disconnect — antes era
+    // la causa del flicker conectado→desconectado→reconectado tras login.
+    if (!this.socket && !this.gameSocket) {
+      return;
+    }
+    socketLog('info', '[Socket] Token actualizado (auth dinámico)', {
+      hasToken: Boolean(token),
+    });
   }
 
   // ============================================
@@ -380,16 +573,21 @@ class SocketService {
    * @param {Function} callback - Callback a ejecutar
    */
   on(event, callback) {
-    if (!this.socket) {
-      return;
-    }
-
-    this.socket.on(event, callback);
-
+    // Registrar SIEMPRE en el tracking, aunque el socket aún no exista: así un
+    // on() llamado durante el render inicial (antes de que connect() cree el
+    // socket) NO se pierde — antes el `if (!this.socket) return` lo descartaba en
+    // silencio y los push (p. ej. notification:created) no llegaban en vivo.
     if (!this.listeners.has(event)) {
       this.listeners.set(event, new Set());
     }
     this.listeners.get(event).add(callback);
+
+    if (this.socket) {
+      this.socket.on(event, callback);
+    } else {
+      // Pendiente: se aplica cuando _connectNamespace cree el socket de sistema.
+      this.pendingListeners.push({ event, callback });
+    }
   }
 
   /**
@@ -398,10 +596,19 @@ class SocketService {
    * @param {Function} callback - Callback a remover (opcional, si no se pasa, remueve todos)
    */
   off(event, callback) {
-    if (!this.socket) return;
+    // Limpiar también pendientes (listeners aún no aplicados al socket): un
+    // off() durante el render inicial, antes de que el socket exista, debe
+    // poder cancelar una suscripción pendiente para no aplicarla luego.
+    if (this.pendingListeners.length > 0) {
+      this.pendingListeners = this.pendingListeners.filter(
+        p => p.event !== event || (callback && p.callback !== callback)
+      );
+    }
 
     if (callback) {
-      this.socket.off(event, callback);
+      if (this.socket) {
+        this.socket.off(event, callback);
+      }
       const callbacks = this.listeners.get(event);
       if (!callbacks) {
         return;
@@ -412,7 +619,9 @@ class SocketService {
         this.listeners.delete(event);
       }
     } else {
-      this.socket.off(event);
+      if (this.socket) {
+        this.socket.off(event);
+      }
       this.listeners.delete(event);
     }
   }
@@ -477,16 +686,22 @@ class SocketService {
    * @param {Function} callback - Callback a ejecutar
    */
   onGame(event, callback) {
-    if (!this.gameSocket) {
-      return;
-    }
-
-    this.gameSocket.on(event, callback);
-
+    // Registrar SIEMPRE en el tracking, aunque el socket de juego aún no exista:
+    // así un onGame() llamado antes de que connect() cree el socket de /game NO
+    // se pierde (mismo race que on()/pendingListeners en sistema; antes el
+    // `if (!this.gameSocket) return` lo descartaba en silencio y el gameplay se
+    // quedaba sin eventos en tiempo real, sin error visible).
     if (!this.gameListeners.has(event)) {
       this.gameListeners.set(event, new Set());
     }
     this.gameListeners.get(event).add(callback);
+
+    if (this.gameSocket) {
+      this.gameSocket.on(event, callback);
+    } else {
+      // Pendiente: se aplica cuando _connectNamespace cree el socket de juego.
+      this.pendingGameListeners.push({ event, callback });
+    }
   }
 
   /**
@@ -495,10 +710,19 @@ class SocketService {
    * @param {Function} callback - Callback a remover (opcional, si no se pasa, remueve todos)
    */
   offGame(event, callback) {
-    if (!this.gameSocket) return;
+    // Limpiar también pendientes (listeners aún no aplicados al socket de juego):
+    // un offGame() antes de que el socket de /game exista debe poder cancelar una
+    // suscripción pendiente para no aplicarla luego.
+    if (this.pendingGameListeners.length > 0) {
+      this.pendingGameListeners = this.pendingGameListeners.filter(
+        p => p.event !== event || (callback && p.callback !== callback)
+      );
+    }
 
     if (callback) {
-      this.gameSocket.off(event, callback);
+      if (this.gameSocket) {
+        this.gameSocket.off(event, callback);
+      }
       const callbacks = this.gameListeners.get(event);
       if (!callbacks) {
         return;
@@ -509,7 +733,9 @@ class SocketService {
         this.gameListeners.delete(event);
       }
     } else {
-      this.gameSocket.off(event);
+      if (this.gameSocket) {
+        this.gameSocket.off(event);
+      }
       this.gameListeners.delete(event);
     }
   }

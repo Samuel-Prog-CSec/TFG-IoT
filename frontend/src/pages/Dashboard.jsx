@@ -1,6 +1,6 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from 'react';
+import { useState, useEffect, useCallback, useRef, useMemo, lazy, Suspense } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { Users, Gamepad2, Trophy, AlertTriangle, Calendar, CalendarClock, Layers, ChevronRight, Target, Clock, UserCheck, CheckCircle2, Sparkles } from 'lucide-react';
 import ErrorState from '../components/ui/ErrorState';
 import { listContainerVariants, listItemVariants, crossfadeVariants, formatDate } from '../lib/utils';
@@ -14,28 +14,88 @@ import { useAuth } from '../context/AuthContext';
 import analyticsService from '../services/analytics';
 import { isAbortError, contextsAPI, mechanicsAPI } from '../services/api';
 import { captureException } from '../lib/sentry';
+import { getId } from '../lib/entityId';
 import { ROUTES } from '../constants/routes';
-import { useOnboarding } from '../hooks/useOnboarding';
-import OnboardingOverlay from '../components/onboarding/OnboardingOverlay';
+// El onboarding se monta a nivel de AppLayout para cubrir teacher y
+// super_admin desde cualquier ruta autenticada (T-951 Fase 4).
 import StatCard from '../components/dashboard/StatCard';
-import StudentProgressChart from '../components/dashboard/StudentProgressChart';
-import ClassroomOverview from '../components/dashboard/ClassroomOverview';
+import HeroStatCard from '../components/dashboard/HeroStatCard';
 import AlertsPanel from '../components/dashboard/AlertsPanel';
-import DifficultyHeatmap from '../components/dashboard/DifficultyHeatmap';
 import StudentsList from '../components/dashboard/StudentsList';
-import ActivityHeatmap from '../components/analytics/ActivityHeatmap';
 import SkeletonShimmer, { SkeletonCard, SkeletonStatCard, SkeletonChart } from '../components/ui/SkeletonShimmer';
 import SelectPremium from '../components/ui/SelectPremium';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import ChartErrorBoundary from '../components/common/ChartErrorBoundary';
 
-// eslint-disable-next-line sonarjs/cyclomatic-complexity -- dashboard principal con multiples widgets, filtros y estados de carga
+// T-907 Fase B: charts y heatmaps pesados (Recharts/canvas) se cargan via lazy
+// con Suspense para que KPIs, alertas y header del Dashboard se rendericen
+// antes de que el chunk `charts` esté disponible. El SkeletonChart cubre el
+// hueco hasta que el chart se monta. Solo aplica al Dashboard porque es la
+// primera página post-login y se beneficia más del FCP rápido.
+const StudentProgressChart = lazy(() => import('../components/dashboard/StudentProgressChart'));
+const ClassroomOverview = lazy(() => import('../components/dashboard/ClassroomOverview'));
+const DifficultyHeatmap = lazy(() => import('../components/dashboard/DifficultyHeatmap'));
+const ActivityHeatmap = lazy(() => import('../components/analytics/ActivityHeatmap'));
+
+/**
+ * T-942 Fase E.1: traduce cohort_mode → timeRange aceptado por backend.
+ *
+ * El backend solo soporta '7d' | '30d' | '90d' como `timeRange` para los
+ * endpoints de analytics de aula. Las opciones nuevas "Mes actual" y
+ * "Trimestre actual" del Dashboard teacher se mapean al rango aproximado
+ * más cercano (`30d` y `90d` respectivamente), evitando trabajo backend
+ * en esta sesion (T-942 Fase E). Para el docente la pérdida de precisión
+ * es despreciable: en el peor caso, "Mes actual" un 31 de un mes incluye
+ * 1 día anterior al periodo nominal; suficiente para la lectura
+ * pedagógica que el widget pretende. El label visible al usuario
+ * sigue siendo "Mes actual" / "Trimestre actual".
+ *
+ * @param {'7d'|'30d'|'90d'|'currentMonth'|'currentQuarter'} cohortMode
+ * @returns {'7d'|'30d'|'90d'}
+ */
+function cohortToTimeRange(cohortMode) {
+  if (cohortMode === 'currentMonth') return '30d';
+  if (cohortMode === 'currentQuarter') return '90d';
+  return cohortMode;
+}
+
+// (E2) Iconos de los KPI cards hoisteados a constantes de módulo: son JSX estático
+// sin props/estado. Pasarlos inline (`icon={<Trophy .../>}`) creaba un elemento nuevo
+// en cada render → anulaba el `memo` de StatCard/HeroStatCard (las 9 cards se
+// re-renderizaban con cada render del Dashboard). Ver rendering-hoist-jsx.
+const KPI_ICON_CLASS = 'text-white drop-shadow-sm';
+const ICON_RISK = <AlertTriangle className={KPI_ICON_CLASS} size={26} aria-hidden="true" />;
+const ICON_SCORE = <Trophy className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_GAMES_TODAY = <Gamepad2 className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_GAMES = <Users className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_ACTIVE = <UserCheck className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_ACCURACY = <Target className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_TIME = <Clock className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+const ICON_COMPLETION = <CheckCircle2 className={KPI_ICON_CLASS} size={24} aria-hidden="true" />;
+
+// "—" sin datos: con 0 partidas el 0 crudo se leía como "responden en 0s"
+// (QA cuenta virgen). Un tiempo medio real nunca es 0.
+const formatAvgResponseTime = (ms) => {
+  if (!Number.isFinite(ms) || ms <= 0) return '—';
+  return `${Math.round(ms / 100) / 10}s`;
+};
+
+// eslint-disable-next-line sonarjs/cyclomatic-complexity, sonarjs/cognitive-complexity -- dashboard principal con multiples widgets, filtros y estados de carga
 export default function Dashboard() {
   const { isSuperAdmin } = useAuth();
   const navigate = useNavigate();
+  // (E2) Handlers de navegación estables (useCallback) para no anular el memo de
+  // las KPI cards con una arrow nueva por render.
+  const goToStudents = useCallback(() => navigate('/analytics/students'), [navigate]);
+  const goToSessions = useCallback(() => navigate('/sessions'), [navigate]);
+  const goToInsights = useCallback(() => navigate('/analytics/insights'), [navigate]);
   useDocumentTitle('Dashboard');
   const { shouldReduceMotion } = useReducedMotion();
-  const onboarding = useOnboarding();
-  const [timeRange, setTimeRange] = useState('7d');
+  // T-942 Fase E.1: cohortMode incluye opciones nuevas "mes actual" y
+  // "trimestre actual" además de los rangos rolling clásicos. timeRange
+  // (derivado vía cohortToTimeRange) sigue siendo lo que pasa al backend.
+  const [cohortMode, setCohortMode] = useState('7d');
+  const timeRange = cohortToTimeRange(cohortMode);
   const [selectedContextId, setSelectedContextId] = useState('');
   const [selectedMechanicId, setSelectedMechanicId] = useState('');
   const [contextOptions, setContextOptions] = useState([]);
@@ -53,21 +113,27 @@ export default function Dashboard() {
       const mechanics = mechRes?.data?.data || [];
       setContextOptions([
         { value: '', label: 'Todos los contextos' },
-        ...contexts.map(c => ({ value: c._id, label: c.name }))
+        // El DTO de contexto expone `id` (no `_id`); usar `_id` dejaba el value
+        // en undefined → el SelectPremium seleccionaba siempre la 1ª opción y no
+        // se enviaba el filtro al backend.
+        ...contexts.map(c => ({ value: getId(c), label: c.name }))
       ]);
       setMechanicOptions([
         { value: '', label: 'Todas las mecánicas' },
-        ...mechanics.map(m => ({ value: m._id, label: m.displayName || m.name }))
+        ...mechanics.map(m => ({ value: getId(m), label: m.displayName || m.name }))
       ]);
       return undefined;
     }).catch(() => { /* errores individuales ya manejados */ });
     return () => { cancelled = true; };
   }, []);
 
-  // Redirigir super_admin a su panel
+  // Redirigir super_admin a su panel.
+  // T-942 Fase D: aterriza en /admin/dashboard (vista del centro con KPIs
+  // agregados) en lugar de /admin/approvals — el director del centro
+  // necesita primero la foto global, las aprobaciones siguen a un click.
   useEffect(() => {
     if (isSuperAdmin) {
-      navigate(ROUTES.ADMIN_APPROVALS, { replace: true });
+      navigate(ROUTES.ADMIN_DASHBOARD, { replace: true });
     }
   }, [isSuperAdmin, navigate]);
 
@@ -103,17 +169,33 @@ export default function Dashboard() {
         setLoading(true);
         // Summary y Trends son criticos (KPIs principales). El resto son secundarios:
         // si fallan, la pagina sigue funcionando con datos parciales.
+        // Filtros de contenido activos del Dashboard (contexto/mecánica). Se
+        // reparten a los endpoints de aula para que KPIs, tendencia y
+        // distribución respondan al mismo subconjunto que el listado de
+        // alumnos (T-942 Fase E).
+        const filterParams = {
+          ...(selectedContextId && { contextId: selectedContextId }),
+          ...(selectedMechanicId && { mechanicId: selectedMechanicId })
+        };
+        // El filtro temporal afecta al dashboard completo de forma coherente:
+        // resumen (KPIs) y distribución reciben siempre `timeRange`, igual que la
+        // tendencia, para que cambiar el periodo mueva todos los widgets y no solo
+        // unos pocos. Antes los KPIs y la distribución eran lifetime salvo que
+        // hubiera un filtro de contexto/mecánica activo, lo que resultaba confuso
+        // (2 de 8 KPIs reaccionaban al periodo y 6 no, sin pista para el usuario).
+        const summaryParams = { timeRange, ...filterParams };
+        const distributionParams = { timeRange, ...filterParams };
+
         const [summaryData, trendsData, progress, difficultiesData, students, distribution, alerts, heatmap] = await Promise.all([
-          analyticsService.getClassroomSummary({ signal: controller.signal }),
-          analyticsService.getClassroomTrends(timeRange, { signal: controller.signal }),
-          analyticsService.getClassroomComparison(timeRange, { signal: controller.signal }).catch(() => []),
+          analyticsService.getClassroomSummary(summaryParams, { signal: controller.signal }),
+          analyticsService.getClassroomTrends(timeRange, filterParams, { signal: controller.signal }),
+          analyticsService.getClassroomComparison(timeRange, filterParams, { signal: controller.signal }).catch(() => []),
           analyticsService.getClassroomDifficulties({ signal: controller.signal }).catch(() => []),
           analyticsService.getClassroomStudents({
             sort: 'score', order: 'desc',
-            ...(selectedContextId && { contextId: selectedContextId }),
-            ...(selectedMechanicId && { mechanicId: selectedMechanicId })
+            ...filterParams
           }, { signal: controller.signal }).catch(() => null),
-          analyticsService.getClassroomDistribution({}, { signal: controller.signal }).catch(() => null),
+          analyticsService.getClassroomDistribution(distributionParams, { signal: controller.signal }).catch(() => null),
           analyticsService.getAlerts({ limit: 5 }, { signal: controller.signal }).catch(() => null),
           analyticsService.getClassroomHeatmap(timeRange, { signal: controller.signal }).catch(() => null)
         ]);
@@ -154,6 +236,21 @@ export default function Dashboard() {
     hasError: Boolean(error)
   });
 
+  // T-941: refrescar alertas en tiempo real cuando llega una nueva critical.
+  // El evento lo dispara `useNotifications` al recibir `notification:created`
+  // con type='student_at_risk'.
+  useEffect(() => {
+    if (typeof window === 'undefined') return undefined;
+    const handler = () => {
+      analyticsService
+        .getAlerts({ limit: 5 })
+        .then(setAlertsData)
+        .catch(() => null);
+    };
+    window.addEventListener('smartalert:created', handler);
+    return () => window.removeEventListener('smartalert:created', handler);
+  }, []);
+
   // Extraer el cambio porcentual de un KPI por nombre.
   // PROP-88: si el KPI no tiene baseline (`previous` ausente, null o 0),
   // devolvemos "—" para que StatCard pinte el pill neutro en lugar de la
@@ -188,7 +285,12 @@ export default function Dashboard() {
     return kpi?.current ?? null;
   }, [trends]);
 
-  const periodLabel = timeRange === '30d' ? 'vs mes anterior' : 'vs semana pasada';
+  let periodLabel = 'vs semana pasada';
+  if (timeRange === '90d') {
+    periodLabel = 'vs trimestre anterior';
+  } else if (timeRange === '30d') {
+    periodLabel = 'vs mes anterior';
+  }
 
   // Derivar contadores de estudiantes activos
   const activeStudentsCount = useMemo(() => {
@@ -204,10 +306,11 @@ export default function Dashboard() {
 
   const totalStudents = studentsData?.students?.length || 0;
 
-  // Alertas inteligentes del backend (reemplaza la derivacion client-side)
+  // Alertas inteligentes del backend (T-941: shape `{ items, nextCursor }`).
   const backendAlerts = useMemo(() => {
-    if (!alertsData?.alerts) return [];
-    return alertsData.alerts;
+    if (!alertsData) return [];
+    // Compat: alertsData.items (T-941) | alertsData.alerts (legacy snapshot).
+    return alertsData.items || alertsData.alerts || [];
   }, [alertsData]);
 
   // Prevenir Layout Shifts (CLS) renderizando una estructura idéntica durante la carga
@@ -221,7 +324,7 @@ export default function Dashboard() {
         <motion.section
           key="skeleton"
           {...motionVariants}
-          className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
+          className="page-container py-[var(--space-fluid-section)] space-y-8"
         >
           {/* Header Skeleton Mimic */}
           <div className="flex flex-col sm:flex-row sm:items-end sm:justify-between gap-4 pt-4 lg:pt-0">
@@ -236,14 +339,14 @@ export default function Dashboard() {
           </div>
 
           {/* KPIs Skeleton */}
-          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6">
+          <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 xl:grid-cols-4 gap-[var(--space-fluid-gutter)]">
             {Array.from({ length: 8 }, (_, i) => `stat-skeleton-${i}`).map(id => (
               <SkeletonStatCard key={id} />
             ))}
           </div>
 
           {/* Main Visualizations Skeleton Grid */}
-          <div className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
             <div className="xl:col-span-2 space-y-6">
               <SkeletonChart height={384} />
               <SkeletonChart height={320} />
@@ -258,18 +361,19 @@ export default function Dashboard() {
         <motion.section
           key="content"
           {...motionVariants}
-          className="p-6 lg:p-8 max-w-7xl mx-auto space-y-8"
+          className="page-container py-[var(--space-fluid-section)] space-y-8"
           aria-label="Panel principal del dashboard"
         >
           <Header
-            timeRange={timeRange}
-            setTimeRange={setTimeRange}
+            cohortMode={cohortMode}
+            setCohortMode={setCohortMode}
             selectedContextId={selectedContextId}
             setSelectedContextId={setSelectedContextId}
             selectedMechanicId={selectedMechanicId}
             setSelectedMechanicId={setSelectedMechanicId}
             contextOptions={contextOptions}
             mechanicOptions={mechanicOptions}
+            studentsInRisk={summary?.studentsInRisk ?? null}
             reducedMotion={shouldReduceMotion}
           />
 
@@ -282,10 +386,29 @@ export default function Dashboard() {
 
             {error ? (
               <ErrorState
-                title="Error al cargar datos"
+                title="No pudimos cargar tu panel"
                 message={`${error} Pulsa Reintentar o recarga la página.`}
                 onRetry={fetchData}
               />
+            ) : null}
+
+            {/* k-anonimidad: en aulas pequeñas el endpoint de alumnos suprime los
+                perfiles individuales (protección de datos de menores) y solo
+                devuelve métricas agregadas. Sin este aviso, los widgets de alumnos
+                quedaban vacíos y los KPIs mostraban cifras → parecía un panel roto.
+                Aditivo: solo se renderiza cuando aggregatedOnly (nunca en aulas
+                normales como la de Carlos). */}
+            {studentsData?.aggregatedOnly ? (
+              <div className="bg-background-elevated/50 border border-border-default px-4 py-3 rounded-xl text-sm">
+                <p className="font-semibold text-text-primary">Datos agregados por privacidad</p>
+                <p className="text-text-muted mt-0.5">
+                  {studentsData.reason
+                    || 'Tu aula es pequeña; por protección de datos de menores (k-anonimidad) se omiten los perfiles individuales.'}
+                  {studentsData.aggregatedMetrics
+                    ? ` Media del grupo: ${studentsData.aggregatedMetrics.averageScore}% · ${studentsData.aggregatedMetrics.totalGames} partidas.`
+                    : ''}
+                </p>
+              </div>
             ) : null}
 
             {/* BI Principle: Jerarquía Visual - KPIs Arriba */}
@@ -296,20 +419,32 @@ export default function Dashboard() {
               aria-labelledby="stats-heading"
             >
               <h2 id="stats-heading" className="sr-only">KPIs Principales</h2>
-              {/* KPIs primarios — metricas clave */}
+              {/* Bento de KPIs (elevación 2026-06-04): una métrica protagonista
+                  —la acción del docente— rompe la rejilla uniforme y da un foco
+                  visual claro; las métricas de volumen la acompañan al lado y las
+                  de calidad van en un strip inferior. */}
               <ul
-                className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4 lg:gap-6"
+                className="list-none p-0 m-0 grid grid-cols-1 lg:grid-cols-4 lg:grid-rows-2 lg:auto-rows-fr gap-[var(--space-fluid-gutter)] items-stretch"
               >
-                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <StatCard
+                <motion.li
+                  variants={shouldReduceMotion ? {} : listItemVariants}
+                  className="lg:col-span-2 lg:row-span-2"
+                >
+                  <HeroStatCard
+                    eyebrow={(summary?.studentsInRisk || 0) > 0 ? 'Requiere atención' : 'Todo al día'}
                     title="Alumnos en Riesgo"
                     value={summary?.studentsInRisk || 0}
+                    total={totalStudents}
+                    context={(summary?.studentsInRisk || 0) > 0
+                      ? 'Conviene reforzar a estos alumnos esta semana'
+                      : 'Ningún alumno necesita apoyo ahora mismo'}
                     trend={getTrend('studentsInRisk')}
                     periodLabel={periodLabel}
-                    icon={<AlertTriangle className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
-                    color="bg-gradient-to-br from-error-base to-error-dark"
+                    icon={ICON_RISK}
+                    tone={(summary?.studentsInRisk || 0) > 0 ? 'warning' : 'success'}
+                    ctaLabel="Ver alumnos"
                     higherIsBetter={false}
-                    onClick={() => navigate('/analytics/students')}
+                    onClick={goToStudents}
                   />
                 </motion.li>
 
@@ -319,9 +454,10 @@ export default function Dashboard() {
                     value={`${summary?.averageScore || 0}%`}
                     trend={getTrend('averageScore')}
                     periodLabel={periodLabel}
-                    icon={<Trophy className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_SCORE}
                     color="bg-gradient-to-br from-success-base to-success-dark"
-                    onClick={() => navigate('/analytics/students')}
+                    compact
+                    onClick={goToStudents}
                   />
                 </motion.li>
 
@@ -331,53 +467,23 @@ export default function Dashboard() {
                     value={summary?.gamesToday || 0}
                     trend={getTrend('gamesToday')}
                     periodLabel={periodLabel}
-                    icon={<Gamepad2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_GAMES_TODAY}
                     color="bg-gradient-to-br from-brand-base to-accent-indigo"
-                    onClick={() => navigate('/sessions')}
+                    compact
+                    onClick={goToSessions}
                   />
                 </motion.li>
 
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
-                    title="Partidas Totales"
+                    title="Partidas"
                     value={summary?.totalGames || 0}
                     trend={getTrend('totalGames')}
                     periodLabel={periodLabel}
-                    icon={<Users className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_GAMES}
                     color="bg-gradient-to-br from-info-base to-accent-cyan"
-                    onClick={() => navigate('/sessions')}
-                  />
-                </motion.li>
-              </ul>
-
-              {/* KPIs secundarios — metricas complementarias */}
-              <ul
-                className="list-none p-0 m-0 grid grid-cols-2 lg:grid-cols-4 gap-3 lg:gap-4 mt-3 opacity-90"
-              >
-                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <StatCard
-                    title="Tasa de Acierto"
-                    value={`${getKPIValue('averageAccuracy') ?? summary?.averageAccuracy ?? 0}%`}
-                    trend={getTrend('averageAccuracy')}
-                    periodLabel={periodLabel}
-                    icon={<Target className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
-                    color="bg-gradient-to-br from-accent-cyan to-info-base"
                     compact
-                    onClick={() => navigate('/analytics/insights')}
-                  />
-                </motion.li>
-
-                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <StatCard
-                    title="Tiempo Medio"
-                    value={`${(getKPIValue('averageResponseTime') ?? summary?.averageResponseTime ?? 0) / 1000}s`}
-                    trend={getTrend('averageResponseTime')}
-                    periodLabel={periodLabel}
-                    icon={<Clock className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
-                    color="bg-gradient-to-br from-accent-orange to-warning-base"
-                    higherIsBetter={false}
-                    compact
-                    onClick={() => navigate('/analytics/insights')}
+                    onClick={goToSessions}
                   />
                 </motion.li>
 
@@ -387,108 +493,207 @@ export default function Dashboard() {
                     value={`${activeStudentsCount}/${totalStudents}`}
                     trend=""
                     periodLabel="últimos 7 días"
-                    icon={<UserCheck className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_ACTIVE}
                     color="bg-gradient-to-br from-brand-base to-accent-pink"
                     compact
-                    onClick={() => navigate('/analytics/students')}
+                    onClick={goToStudents}
+                  />
+                </motion.li>
+              </ul>
+
+              {/* Métricas de calidad — strip inferior de ancho completo */}
+              <ul
+                className="list-none p-0 m-0 grid grid-cols-1 sm:grid-cols-3 gap-3 lg:gap-4 mt-3"
+              >
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
+                  <StatCard
+                    title="Tasa de Acierto"
+                    value={`${getKPIValue('averageAccuracy') ?? summary?.averageAccuracy ?? 0}%`}
+                    trend={getTrend('averageAccuracy')}
+                    periodLabel={periodLabel}
+                    icon={ICON_ACCURACY}
+                    color="bg-gradient-to-br from-accent-cyan to-info-base"
+                    compact
+                    onClick={goToInsights}
+                  />
+                </motion.li>
+
+                <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
+                  <StatCard
+                    title="Tiempo Medio"
+                    value={formatAvgResponseTime(getKPIValue('averageResponseTime') ?? summary?.averageResponseTime)}
+                    trend={getTrend('averageResponseTime')}
+                    periodLabel={periodLabel}
+                    icon={ICON_TIME}
+                    color="bg-gradient-to-br from-accent-orange to-warning-base"
+                    higherIsBetter={false}
+                    compact
+                    onClick={goToInsights}
                   />
                 </motion.li>
 
                 <motion.li variants={shouldReduceMotion ? {} : listItemVariants}>
                   <StatCard
                     title="Tasa Completado"
-                    value={`${100 - (summary?.abandonmentRate || 0)}%`}
+                    // `completionRate` = completadas / (completadas + abandonadas)
+                    // del rango, calculado por el backend. Antes la tarjeta usaba
+                    // `100 - abandonmentRate`, pero el endpoint nunca devolvía
+                    // `abandonmentRate` → mostraba 100% fijo aunque hubiera
+                    // abandonadas. "—" cuando no hay partidas terminadas (sin baseline).
+                    value={Number.isFinite(summary?.completionRate) ? `${summary.completionRate}%` : '—'}
                     trend=""
                     periodLabel="partidas completadas"
-                    icon={<CheckCircle2 className="text-white drop-shadow-sm" size={24} aria-hidden="true" />}
+                    icon={ICON_COMPLETION}
                     color="bg-gradient-to-br from-success-dark to-success-base"
                     compact
-                    onClick={() => navigate('/sessions')}
+                    onClick={goToSessions}
                   />
                 </motion.li>
               </ul>
             </motion.section>
 
-            {/* Grid Principal: Gráficos y Listas */}
+            {/* T-942 Fase E.4: jerarquía revisada del Dashboard teacher.
+                Nueva secuencia: KPIs → Acción inmediata (alertas + actividad
+                reciente, primer foco docente) → Análisis profundo
+                (charts y heatmaps) → Información complementaria
+                (ClassroomOverview + StudentsList + QuickLinks). Prioriza lo
+                accionable arriba para que la primera lectura del Dashboard
+                apunte a "qué necesita mi atención ahora". */}
+
+            {/* Acción inmediata — alertas + actividad reciente.
+                T-942 fix Issue #2: stack vertical en lugar de grid 2 cols.
+                RecentActivity es un carrousel horizontal de tarjetas de
+                alumno y full-width le aprovecha la dimensión natural; con
+                grid 2 cols dejaba mucho aire vertical debajo a la derecha
+                mientras AlertsPanel (alto con varias alertas) marcaba el
+                ritmo del row. */}
             <motion.section
               variants={listContainerVariants(0.05)}
               initial={shouldReduceMotion ? false : "hidden"}
               animate="visible"
-              className="grid grid-cols-1 xl:grid-cols-3 gap-6 lg:gap-8"
-              aria-label="Análisis detallado"
+              aria-labelledby="action-heading"
+              className="space-y-4"
             >
-              {/* Columna Principal (2/3 de ancho).
-                  RecentActivity se movió aquí (antes era fullwidth bajo la
-                  sección) para absorber el hueco vertical que dejaba la
-                  columna lateral cuando terminaba antes que la principal —
-                  así el grid queda balanceado sin aire muerto (QA 22/04/2026).
-                  Convertida a `flex flex-col` con `flex-1` en el último item
-                  (RecentActivity) para estirarlo y eliminar definitivamente el
-                  hueco bajo la columna principal cuando la lateral es más alta
-                  (QA 2026-04-29). */}
-              <div className="xl:col-span-2 flex flex-col gap-6 lg:gap-8">
+              <h2 id="action-heading" className="text-sm font-display font-medium text-text-secondary uppercase tracking-wider px-1">
+                Acción inmediata
+              </h2>
+              <div className="space-y-[var(--space-fluid-gutter)]">
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <StudentProgressChart
-                    data={progressData}
-                    period={timeRange}
-                    onPeriodChange={setTimeRange}
-                    omitPeriodSelector
-                  />
-                </motion.div>
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <DifficultyHeatmap data={difficulties} />
-                </motion.div>
-                {heatmapData && (
-                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                    <ActivityHeatmap data={heatmapData} />
-                  </motion.div>
-                )}
-                {studentsData?.students?.length > 0 && (
-                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants} className="flex-1 flex flex-col">
-                    <RecentActivity students={studentsData.students} />
-                  </motion.div>
-                )}
-              </div>
-
-              {/* Columna Lateral (1/3 de ancho) */}
-              <aside className="flex flex-col gap-6 lg:gap-8">
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <ClassroomOverview summary={summary} distribution={distributionData} />
-                </motion.div>
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                  {/* Las alertas son la bandeja global del docente (las 5 más
+                      recientes), no se acotan al filtro de contenido. Lo
+                      etiquetamos cuando hay filtro activo para que no parezca
+                      contradictorio con "Actividad Reciente" (que sí filtra) al
+                      seleccionar una combinación sin partidas (QA 2026-06-04). */}
+                  {(selectedContextId || selectedMechanicId) && (
+                    <p className="text-xs text-text-muted mb-2 px-1">
+                      Bandeja global · no se ajusta al filtro de contenido
+                    </p>
+                  )}
                   <AlertsPanel alerts={backendAlerts} />
                 </motion.div>
                 <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <StudentsList students={studentsData?.students} />
+                  <RecentActivity students={studentsData?.students || []} />
                 </motion.div>
-                <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
-                  <QuickLinks navigate={navigate} />
-                </motion.div>
-              </aside>
+              </div>
+            </motion.section>
+
+            {/* Análisis profundo — tendencias y patrones a medio plazo */}
+            <motion.section
+              variants={listContainerVariants(0.05)}
+              initial={shouldReduceMotion ? false : "hidden"}
+              animate="visible"
+              aria-labelledby="analysis-heading"
+              className="space-y-4"
+            >
+              <div className="flex flex-col gap-1 px-1">
+                <h2 id="analysis-heading" className="text-sm font-display font-medium text-text-secondary uppercase tracking-wider">
+                  Análisis profundo
+                </h2>
+                <p className="text-xs text-text-muted">
+                  Tendencias y patrones de la clase a medio plazo
+                </p>
+              </div>
+              {/* T-942 fix Issue #2: ClassroomOverview (distribución por
+                  tier) sube a la columna principal — es analítica y casa con
+                  los otros charts. La aside queda con StudentsList +
+                  QuickLinks, alturas más equilibradas con la columna
+                  principal cuando los heatmaps están vacíos. */}
+              <div className="grid grid-cols-1 lg:grid-cols-2 xl:grid-cols-3 gap-[var(--space-fluid-gutter)]">
+                <div className="xl:col-span-2 flex flex-col gap-6 lg:gap-8">
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <ChartErrorBoundary>
+                      <Suspense fallback={<SkeletonChart height={320} />}>
+                        <StudentProgressChart
+                          data={progressData}
+                          period={timeRange}
+                          onPeriodChange={(val) => setCohortMode(val)}
+                          omitPeriodSelector
+                        />
+                      </Suspense>
+                    </ChartErrorBoundary>
+                  </motion.div>
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <ChartErrorBoundary>
+                      <Suspense fallback={<SkeletonChart height={280} />}>
+                        <ClassroomOverview summary={summary} distribution={distributionData} />
+                      </Suspense>
+                    </ChartErrorBoundary>
+                  </motion.div>
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    {/* QA 2026-05-30: el mapa de dificultad es una comparación
+                        cruzada Contexto×Mecánica, así que se mantiene global
+                        aunque haya un filtro de contenido activo. Lo etiquetamos
+                        para ser honestos (no es que el filtro no funcione). */}
+                    {(selectedContextId || selectedMechanicId) && (
+                      <p className="text-xs text-text-muted mb-2 px-1">
+                        Vista global · no se ajusta al filtro de contenido
+                      </p>
+                    )}
+                    <Suspense fallback={<SkeletonChart height={260} />}>
+                      <DifficultyHeatmap data={difficulties} />
+                    </Suspense>
+                  </motion.div>
+                  {heatmapData && (
+                    <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                      {(selectedContextId || selectedMechanicId) && (
+                        <p className="text-xs text-text-muted mb-2 px-1">
+                          Vista global · no se ajusta al filtro de contenido
+                        </p>
+                      )}
+                      <Suspense fallback={<SkeletonChart height={220} />}>
+                        <ActivityHeatmap data={heatmapData} />
+                      </Suspense>
+                    </motion.div>
+                  )}
+                </div>
+
+                {/* Columna Lateral (1/3 de ancho) — listado de alumnos +
+                    accesos rápidos. */}
+                <aside className="flex flex-col gap-6 lg:gap-8">
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <StudentsList students={studentsData?.students} />
+                  </motion.div>
+                  <motion.div variants={shouldReduceMotion ? {} : listItemVariants}>
+                    <QuickLinks navigate={navigate} />
+                  </motion.div>
+                </aside>
+              </div>
             </motion.section>
           </div>
         </motion.section>
       )}
     </AnimatePresence>
 
-    <OnboardingOverlay
-      isVisible={onboarding.isVisible}
-      currentStep={onboarding.currentStep}
-      totalSteps={onboarding.totalSteps}
-      onNext={onboarding.nextStep}
-      onPrev={onboarding.prevStep}
-      onComplete={onboarding.completeOnboarding}
-      onSkip={onboarding.skipOnboarding}
-    />
     </>
   );
 }
 
 function Header({
-  timeRange, setTimeRange,
+  cohortMode, setCohortMode,
   selectedContextId, setSelectedContextId,
   selectedMechanicId, setSelectedMechanicId,
   contextOptions, mechanicOptions,
+  studentsInRisk = null,
   reducedMotion = false,
 }) {
   const navigate = useNavigate();
@@ -501,6 +706,18 @@ function Header({
   const todayRaw = formatDate(new Date(), 'long');
   // Spanish dates should only capitalize the first letter (e.g. "Jueves, 19 de marzo de 2026")
   const today = todayRaw.charAt(0).toUpperCase() + todayRaw.slice(1).toLowerCase();
+
+  // Subtítulo contextual (momento de firma, 2026-06-04): liga el saludo al dato
+  // protagonista del bento. Si no hay datos cargados aún, cae al texto genérico.
+  let subtitle = 'Resumen de actividad y análisis de rendimiento';
+  if (typeof studentsInRisk === 'number') {
+    if (studentsInRisk > 0) {
+      const noun = studentsInRisk === 1 ? 'alumno necesita' : 'alumnos necesitan';
+      subtitle = `Hoy, ${studentsInRisk} ${noun} tu atención`;
+    } else {
+      subtitle = 'Hoy el aula va al día. Buen momento para crear una sesión';
+    }
+  }
 
   return (
     <motion.header
@@ -516,14 +733,14 @@ function Header({
             initial={reducedMotion ? false : { opacity: 0, x: -16 }}
             animate={{ opacity: 1, x: 0 }}
             transition={{ delay: reducedMotion ? 0 : 0.08 }}
-            className="text-3xl sm:text-4xl font-bold text-text-primary mb-1 font-display tracking-tight flex items-center gap-3"
+            className="text-[var(--text-fluid-2xl)] sm:text-[var(--text-fluid-3xl)] font-bold text-text-primary mb-1 font-display tracking-tight flex items-center gap-3"
           >
             <span className="truncate">
               {greeting}
               {firstName ? (
                 <>
                   ,{' '}
-                  <span className="bg-gradient-to-r from-brand-light via-accent-pink to-accent-orange bg-clip-text text-transparent">
+                  <span className="text-brand-base">
                     {firstName}
                   </span>
                 </>
@@ -532,7 +749,7 @@ function Header({
             {!reducedMotion && (
               <motion.span
                 aria-hidden="true"
-                className="inline-flex items-center justify-center size-9 rounded-xl bg-brand-base/15 text-brand-light"
+                className="inline-flex items-center justify-center size-9 rounded-xl bg-brand-base/15 text-brand-on-alpha"
                 animate={{ rotate: [0, 8, -4, 6, 0], scale: [1, 1.05, 1, 1.03, 1] }}
                 transition={{ duration: 1.6, times: [0, 0.25, 0.5, 0.75, 1], repeat: Infinity, repeatDelay: 3.5, ease: 'easeInOut' }}
               >
@@ -546,7 +763,7 @@ function Header({
             transition={{ delay: reducedMotion ? 0 : 0.16 }}
             className="text-sm sm:text-base text-text-muted font-medium"
           >
-            Resumen de actividad y análisis de rendimiento
+            {subtitle}
           </motion.p>
         </div>
 
@@ -576,7 +793,7 @@ function Header({
               onChange={(val) => setSelectedContextId(val)}
               options={contextOptions}
               className="w-full sm:w-52"
-              aria-label="Filtrar por contexto tematico"
+              aria-label="Filtrar por contexto temático"
             />
           )}
           {mechanicOptions.length > 1 && (
@@ -585,16 +802,18 @@ function Header({
               onChange={(val) => setSelectedMechanicId(val)}
               options={mechanicOptions}
               className="w-full sm:w-52"
-              aria-label="Filtrar por mecanica de juego"
+              aria-label="Filtrar por mecánica de juego"
             />
           )}
           <SelectPremium
-            value={timeRange}
-            onChange={(val) => setTimeRange(val)}
+            value={cohortMode}
+            onChange={(val) => setCohortMode(val)}
             options={[
               { value: '7d', label: 'Últimos 7 días' },
               { value: '30d', label: 'Últimos 30 días' },
               { value: '90d', label: 'Últimos 90 días' },
+              { value: 'currentMonth', label: 'Mes actual' },
+              { value: 'currentQuarter', label: 'Trimestre actual' },
             ]}
             className="w-full sm:w-52"
             aria-label="Filtrar por rango de tiempo"
@@ -627,21 +846,21 @@ const QUICK_LINKS = [
     label: 'Ver todas las sesiones',
     route: ROUTES.SESSIONS,
     icon: CalendarClock,
-    tintClass: 'text-brand-light',
+    tintClass: 'text-brand-on-alpha',
     tintBgClass: 'bg-brand-base/15 group-hover:bg-brand-base/25'
   },
   {
     label: 'Crear nueva sesión',
     route: ROUTES.CREATE_SESSION,
     icon: Gamepad2,
-    tintClass: 'text-accent-cyan',
+    tintClass: 'text-accent-cyan-on-alpha',
     tintBgClass: 'bg-accent-cyan/15 group-hover:bg-accent-cyan/25'
   },
   {
     label: 'Ver mazos de cartas',
     route: ROUTES.CARD_DECKS,
     icon: Layers,
-    tintClass: 'text-accent-pink',
+    tintClass: 'text-accent-pink-on-alpha',
     tintBgClass: 'bg-accent-pink/15 group-hover:bg-accent-pink/25'
   },
 ];
@@ -649,13 +868,13 @@ const QUICK_LINKS = [
 function QuickLinks({ navigate }) {
   return (
     <div className="rounded-2xl bg-background-elevated/60 backdrop-blur-sm border border-border-default p-5">
-      <h3 className="text-lg font-bold text-text-primary mb-3 px-1 font-display">Accesos rápidos</h3>
+      <h3 className="text-lg font-semibold text-text-primary mb-3 px-1 font-display">Accesos rápidos</h3>
       <nav className="space-y-1" aria-label="Accesos rápidos">
         {QUICK_LINKS.map(({ label, route, icon: Icon, tintClass, tintBgClass }) => (
           <button
             key={route}
             onClick={() => navigate(route)}
-            className="flex items-center gap-3 w-full px-2 py-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-background-surface/40 transition-[color,background-color,transform] duration-200 group hover:translate-x-0.5"
+            className="flex items-center gap-3 w-full p-2 rounded-xl text-sm font-medium text-text-secondary hover:text-text-primary hover:bg-background-surface/40 active:scale-[0.98] active:bg-background-surface/60 transition-[color,background-color,transform] duration-200 group hover:translate-x-0.5"
           >
             <span className={`inline-flex items-center justify-center size-9 rounded-lg ${tintBgClass} transition-colors`} aria-hidden="true">
               <Icon size={18} className={`${tintClass} transition-colors`} aria-hidden="true" />
@@ -686,7 +905,24 @@ function RecentActivity({ students }) {
   const { ref: scrollRef, hasOverflow, canScrollRight, scrollByOne } = useHorizontalScroll();
   const { shouldReduceMotion: reduced } = useReducedMotion();
 
-  if (recentStudents.length === 0) return null;
+  // Empty state integrado: el slot queda visible aunque no haya datos, así
+  // se mantiene la simetría del grid del dashboard (antes desaparecía y la
+  // columna lateral quedaba con un hueco vertical irregular).
+  if (recentStudents.length === 0) {
+    return (
+      <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 h-full flex flex-col">
+        <h3 className="text-lg font-semibold text-text-primary font-display mb-4">Actividad Reciente</h3>
+        <div className="flex-1 flex flex-col items-center justify-center text-center py-6">
+          <div className="inline-flex items-center justify-center size-14 rounded-2xl bg-background-elevated/80 border border-border-default mb-4 text-text-muted">
+            <Gamepad2 size={28} aria-hidden="true" />
+          </div>
+          <p className="text-sm text-text-muted max-w-[20rem]">
+            Aún no hay partidas. Cuando tus alumnos jueguen, aparecerán aquí sus últimas sesiones.
+          </p>
+        </div>
+      </section>
+    );
+  }
 
   const getInitials = (name) => {
     if (!name) return '?';
@@ -698,8 +934,20 @@ function RecentActivity({ students }) {
 
   return (
     <section className="bg-background-elevated/40 backdrop-blur-sm rounded-2xl border border-border-subtle p-5 relative overflow-hidden h-full flex flex-col">
-      <h3 className="text-lg font-bold text-text-primary font-display mb-4">Actividad Reciente</h3>
-      <div ref={scrollRef} className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar">
+      <h3 className="text-lg font-semibold text-text-primary font-display mb-4">Actividad Reciente</h3>
+      {/* BUG-A11Y-SCROLL-A (QA Sprint 0 post-v0.5.0): scrollable region
+          necesita keyboard focus para que el usuario pueda navegarla con
+          flechas (WCAG 2.1.1). Añadido tabIndex+role+aria-label.
+          eslint-disable: el rule jsx-a11y/no-noninteractive-tabindex no
+          contempla scrollable regions, pero axe y WCAG lo exigen. */}
+      <div
+        ref={scrollRef}
+        // eslint-disable-next-line jsx-a11y/no-noninteractive-tabindex
+        tabIndex={0}
+        role="region"
+        aria-label="Actividad reciente de alumnos"
+        className="flex gap-3 overflow-x-auto pb-2 -mx-1 px-1 custom-scrollbar focus-ring rounded-md"
+      >
         {recentStudents.map((student, index) => (
           <div
             key={student.studentId || student._id || `recent-${index}`}
@@ -712,9 +960,13 @@ function RecentActivity({ students }) {
               <p className="text-sm font-medium text-text-primary truncate">{student.name}</p>
               <div className="flex items-center gap-2">
                 <span className="text-xs text-text-muted font-bold tabular-nums">
-                  {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)} pts
+                  {/* averageScore es % real (score/maxScore×100) tras ADR-201, no puntos. */}
+                  {Math.round(student.studentMetrics?.averageScore || student.averageScore || 0)}%
                 </span>
-                <span className="text-[10px] text-text-disabled">
+                {/* BUG-A11Y-CONTRAST-A: text-text-disabled (oklch 0.6 sobre
+                    bg-background-surface/40) no llega a 4.5:1. Subir a
+                    text-text-muted que sí pasa AA. */}
+                <span className="text-nano text-text-muted">
                   {formatRelativeTime(student.lastPlayedAt || student.studentMetrics?.lastPlayedAt)}
                 </span>
               </div>

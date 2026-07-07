@@ -6,23 +6,32 @@
  */
 
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import PropTypes from 'prop-types';
 import { useNavigate, useParams } from 'react-router-dom';
-import { motion } from 'framer-motion';
-import { Save, Map as MapIcon, AlertTriangle } from 'lucide-react';
+import { m as motion } from 'framer-motion';
+import { Save, Map as MapIcon, AlertTriangle, ArrowLeft, FileQuestion, Lock } from 'lucide-react';
 import { toast } from 'sonner';
 import { sessionsAPI, decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
+import { getId, findById } from '../lib/entityId';
 import ButtonPremium from '../components/ui/ButtonPremium';
 import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import SelectPremium from '../components/ui/SelectPremium';
 import StatusBadge from '../components/ui/StatusBadge';
 import Breadcrumb from '../components/ui/Breadcrumb';
+import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
+import { SkeletonCard } from '../components/ui/SkeletonShimmer';
+import EmptyState from '../components/ui/EmptyState';
+import ErrorState from '../components/ui/ErrorState';
 import { pageVariants } from '../lib/utils';
 import { useRefetchOnFocus } from '../hooks/useRefetchOnFocus';
 import { useUnsavedChanges } from '../hooks/useUnsavedChanges';
 import { useDocumentTitle } from '../hooks/useDocumentTitle';
+import useInlineSuccess from '../hooks/useInlineSuccess';
 import ConfirmationModal from '../components/ui/ConfirmationModal';
+import { ASSOCIATION_LIMITS } from '../constants/associationConfig';
+import { SEQUENCE_LIMITS } from '../constants/sequenceConfig';
 
 const statusToBadge = (status) => {
   switch (status) {
@@ -38,6 +47,51 @@ const statusToBadge = (status) => {
 };
 
 const normalizeMechanicName = value => (value || '').toString().trim().toLowerCase();
+
+// Rango y etiqueta del campo "tiempo" según la mecánica (deben coincidir con los
+// step-rules del asistente). Asociación/Secuencia son tiempo POR RONDA; Memoria
+// es tiempo TOTAL de partida y admite hasta 300s. Con el rango fijo de Asociación
+// (3–60) una sesión de Memoria con timeLimit>60 quedaba en estado :invalid e
+// imposible de editar (la etiqueta "por ronda" además era incorrecta).
+const MEMORY_TIME_LIMITS = { min: 10, max: 300 };
+const getTimeFieldConfig = mechanicName => {
+  if (mechanicName === 'memory') {
+    return { min: MEMORY_TIME_LIMITS.min, max: MEMORY_TIME_LIMITS.max, label: 'Tiempo total (seg)' };
+  }
+  if (mechanicName === 'sequence') {
+    return {
+      min: SEQUENCE_LIMITS.minTimeLimit,
+      max: SEQUENCE_LIMITS.maxTimeLimit,
+      label: 'Tiempo por ronda (seg)'
+    };
+  }
+  return {
+    min: ASSOCIATION_LIMITS.minTimeLimit,
+    max: ASSOCIATION_LIMITS.maxTimeLimit,
+    label: 'Tiempo por ronda (seg)'
+  };
+};
+
+// Aviso para sesiones no-Asociación: el mazo/tablero/secuencias se gestionan en
+// el asistente (este editor no los regenera). Extraído como componente para
+// mantener baja la complejidad ciclomática del editor.
+function NonAssociationEditNotice({ isMemory }) {
+  return (
+    <GlassCard className="p-4 border border-border-default" contentClassName="flex items-start gap-3">
+      <AlertTriangle size={18} className="text-warning-base mt-0.5 shrink-0" />
+      <p className="text-sm text-text-muted">
+        En sesiones de {isMemory ? 'Memoria' : 'Secuencia'} solo puedes ajustar tiempo, puntos y
+        penalización. Para cambiar el mazo{isMemory ? ' o el tablero' : ', las rondas o las secuencias'},
+        recrea la sesión desde el asistente: así se regeneran correctamente
+        {isMemory ? ' el tablero' : ' las secuencias'}.
+      </p>
+    </GlassCard>
+  );
+}
+
+NonAssociationEditNotice.propTypes = {
+  isMemory: PropTypes.bool
+};
 
 const toDeckCards = mappings =>
   Array.isArray(mappings)
@@ -77,12 +131,68 @@ const buildAssociationPlanByRounds = ({ currentPlan, cards, numberOfRounds }) =>
   });
 };
 
+/**
+ * (D2) Fallback de carga de la sesión: distingue un fallo de red/servidor
+ * (reintentable) de un 404 real. Extraído a un componente propio para no inflar
+ * la complejidad ciclomática de SessionEdit.
+ */
+function SessionEditLoadFallback({ error, onRetry, onBack }) {
+  if (error && !error.isNotFound && !error.isForbidden) {
+    return (
+      <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+        <ErrorState
+          title="No pudimos cargar la sesión"
+          message={error.message || 'Hubo un problema al cargar la sesión. Inténtalo de nuevo.'}
+          onRetry={onRetry}
+        />
+      </div>
+    );
+  }
+  // 403 (sin permiso) y 404 (no existe): estado calmado con salida y SIN
+  // reintento; icono y texto distinguen ambos casos.
+  const forbidden = Boolean(error?.isForbidden);
+  return (
+    <div className="p-6 lg:p-8 max-w-5xl mx-auto">
+      <EmptyState
+        title={forbidden ? 'Sin acceso' : 'Sesión no encontrada'}
+        description={
+          forbidden
+            ? 'No tienes permiso para editar esta sesión. Solo puedes editar las sesiones que has creado.'
+            : 'La sesión solicitada no existe o no está disponible.'
+        }
+        icon={forbidden ? <Lock size={28} /> : <FileQuestion size={28} />}
+        action={(
+          <ButtonPremium variant="secondary" onClick={onBack}>
+            <ArrowLeft size={16} />
+            Volver a sesiones
+          </ButtonPremium>
+        )}
+      />
+    </div>
+  );
+}
+
+SessionEditLoadFallback.propTypes = {
+  error: PropTypes.shape({
+    isNotFound: PropTypes.bool,
+    isForbidden: PropTypes.bool,
+    message: PropTypes.string
+  }),
+  onRetry: PropTypes.func.isRequired,
+  onBack: PropTypes.func.isRequired
+};
+
 export default function SessionEdit() {
   const { sessionId } = useParams();
   const navigate = useNavigate();
   useDocumentTitle('Editar Sesión');
+  // Inline success badge: aparece junto al botón Guardar y queda visible
+  // 1.2s antes de navegar al detalle de la sesión. T-955.
+  const saveBadge = useInlineSuccess();
 
   const [session, setSession] = useState(null);
+  // (D2) 404 real vs fallo de red/servidor (reintentable).
+  const [error, setError] = useState(null);
   const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [decks, setDecks] = useState([]);
@@ -103,7 +213,10 @@ export default function SessionEdit() {
     return current !== initialValuesRef.current;
   }, [deckId, numberOfRounds, timeLimit, pointsPerCorrect, penaltyPerError]);
 
-  const { blocker, isBlocked } = useUnsavedChanges(isDirty);
+  // T-957: confirmExit envuelve callbacks de navegación programática
+  // (botones "Cancelar", "Ver mapping", "Configurar tablero") con un
+  // modal warning cuando hay cambios sin guardar.
+  const { confirmExit, confirmExitModalProps } = useUnsavedChanges(isDirty);
 
   const loadSession = useCallback(async (signal) => {
     if (!sessionId) return;
@@ -113,6 +226,7 @@ export default function SessionEdit() {
       const response = await sessionsAPI.getSessionById(sessionId, signal ? { signal } : {});
       const data = extractData(response);
       setSession(data);
+      setError(null);
       setDeckId(data.deckId || data.deck?.id || '');
       setNumberOfRounds(String(data.config?.numberOfRounds ?? ''));
       setTimeLimit(String(data.config?.timeLimit ?? ''));
@@ -132,8 +246,10 @@ export default function SessionEdit() {
       if (isAbortError(err)) {
         return;
       }
-      toast.error('No se pudo cargar la sesión', {
-        description: extractErrorMessage(err)
+      setError({
+        isNotFound: err?.response?.status === 404,
+        isForbidden: err?.response?.status === 403,
+        message: extractErrorMessage(err)
       });
     } finally {
       if (!signal?.aborted) {
@@ -190,12 +306,12 @@ export default function SessionEdit() {
   });
 
   const deckOptions = useMemo(() => decks.map((deck) => ({
-    value: deck.id || deck._id,
+    value: getId(deck),
     label: deck.name
   })), [decks]);
 
   const selectedDeckFromCatalog = useMemo(
-    () => decks.find(deck => (deck.id || deck._id) === deckId) || null,
+    () => findById(decks, deckId) || null,
     [decks, deckId]
   );
 
@@ -210,9 +326,17 @@ export default function SessionEdit() {
 
   const statusInfo = statusToBadge(session?.status);
   const canEdit = session?.status === 'created';
-  const isAssociationSession = normalizeMechanicName(session?.mechanic?.name) === 'association';
-  const isMemorySession = normalizeMechanicName(session?.mechanic?.name) === 'memory';
+  const mechanicName = normalizeMechanicName(session?.mechanic?.name);
+  const isAssociationSession = mechanicName === 'association';
+  const isMemorySession = mechanicName === 'memory';
+  const isSequenceSession = mechanicName === 'sequence';
   const hasMemoryBoardConfigured = Array.isArray(session?.boardLayout) && session.boardLayout.length > 0;
+  const timeFieldConfig = getTimeFieldConfig(mechanicName);
+  // El mazo y las rondas determinan los planes persistidos (boardLayout de
+  // Memoria, sequencePlan de Secuencia) que este editor NO regenera. Cambiarlos
+  // aquí dejaría la partida apuntando a cartas inexistentes, así que solo
+  // Asociación permite editar mazo/rondas; el resto se recrea desde el asistente.
+  const canEditStructure = canEdit && isAssociationSession;
 
   useEffect(() => {
     if (!isAssociationSession) {
@@ -251,7 +375,7 @@ export default function SessionEdit() {
 
     if (isAssociationSession) {
       if (associationChallengePlan.length !== parsedConfig.numberOfRounds) {
-        toast.error('Configura todos los retos de Association antes de guardar');
+        toast.error('Configura todos los retos de Asociación antes de guardar');
         return;
       }
 
@@ -267,8 +391,11 @@ export default function SessionEdit() {
     try {
       setSaving(true);
       await sessionsAPI.updateSession(sessionId, payload);
+      saveBadge.trigger();
       toast.success('Sesión actualizada');
-      navigate(ROUTES.SESSION_DETAIL(sessionId));
+      // Pequeño respiro para que el badge inline sea perceptible antes de
+      // navegar. Si reducedMotion el toast sigue siendo informativo.
+      setTimeout(() => navigate(ROUTES.SESSION_DETAIL(sessionId)), 900);
     } catch (err) {
       toast.error('No se pudo guardar', {
         description: extractErrorMessage(err)
@@ -310,13 +437,20 @@ export default function SessionEdit() {
 
   if (loading && !session) {
     return (
-      <div className="p-8 text-text-secondary">Cargando sesión...</div>
+      <div className="p-6 lg:p-8 max-w-5xl mx-auto space-y-6">
+        <SkeletonCard className="h-28" />
+        <SkeletonCard className="h-96" />
+      </div>
     );
   }
 
   if (!session) {
     return (
-      <div className="p-8 text-text-secondary">Sesión no encontrada.</div>
+      <SessionEditLoadFallback
+        error={error}
+        onRetry={() => loadSession()}
+        onBack={() => navigate(ROUTES.SESSIONS)}
+      />
     );
   }
 
@@ -345,7 +479,9 @@ export default function SessionEdit() {
             <StatusBadge status={statusInfo.tone}>{statusInfo.label}</StatusBadge>
             <ButtonPremium
               variant="secondary"
-              onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+              onClick={() =>
+                confirmExit(() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId)))
+              }
             >
               <MapIcon size={16} />
               Ver mapping
@@ -354,33 +490,39 @@ export default function SessionEdit() {
         </header>
 
         {!canEdit && (
-          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex items-center gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base" contentClassName="flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión ya no está en borrador y no se puede editar.
           </GlassCard>
         )}
 
         {canEdit && isAssociationSession && session.requiresAssociationPlanConfiguration && (
-          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex items-center gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base" contentClassName="flex items-center gap-3">
             <AlertTriangle size={18} />
             Esta sesión clonada tiene un borrador de retos precargado. Revísalo y guarda para confirmar antes de iniciar.
           </GlassCard>
         )}
 
         {canEdit && isMemorySession && !hasMemoryBoardConfigured && (
-          <GlassCard className="p-4 border border-warning-base/40 text-warning-base flex flex-wrap items-center justify-between gap-3">
+          <GlassCard className="p-4 border border-warning-base/40 text-warning-base" contentClassName="flex flex-wrap items-center justify-between gap-3">
             <div className="flex items-center gap-3">
               <AlertTriangle size={18} />
               Esta sesión de memoria requiere configurar el tablero antes de iniciar.
             </div>
             <ButtonPremium
               variant="secondary"
-              onClick={() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId))}
+              onClick={() =>
+                confirmExit(() => navigate(ROUTES.BOARD_SETUP_WITH_ID(sessionId)))
+              }
             >
               <MapIcon size={16} />
               Configurar tablero
             </ButtonPremium>
           </GlassCard>
+        )}
+
+        {canEdit && !isAssociationSession && (
+          <NonAssociationEditNotice isMemory={isMemorySession} />
         )}
 
         <GlassCard className="p-6 space-y-6">
@@ -391,7 +533,7 @@ export default function SessionEdit() {
               value={deckId}
               onChange={setDeckId}
               placeholder="Selecciona un mazo"
-              disabled={!canEdit}
+              disabled={!canEditStructure}
             />
             <InputPremium
               label="Número de tarjetas"
@@ -403,7 +545,7 @@ export default function SessionEdit() {
 
           {isAssociationSession && (
             <div className="space-y-4">
-              <h2 className="text-lg font-semibold text-text-primary">Retos de Association por ronda</h2>
+              <h2 className="text-lg font-semibold text-text-primary">Retos de Asociación por ronda</h2>
               {associationChallengePlan.length === 0 ? (
                 <p className="text-sm text-warning-base">
                   No hay retos configurables. Revisa el mazo o el número de rondas.
@@ -441,22 +583,25 @@ export default function SessionEdit() {
           )}
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+            {!isMemorySession && (
+              <InputPremium
+                label="Rondas"
+                type="number"
+                inputMode="numeric"
+                min={1}
+                max={20}
+                value={numberOfRounds}
+                onChange={(e) => setNumberOfRounds(e.target.value)}
+                disabled={!canEditStructure}
+                hint={isSequenceSession ? 'Se ajusta al recrear la sesión en el asistente' : undefined}
+              />
+            )}
             <InputPremium
-              label="Rondas"
+              label={timeFieldConfig.label}
               type="number"
               inputMode="numeric"
-              min={1}
-              max={20}
-              value={numberOfRounds}
-              onChange={(e) => setNumberOfRounds(e.target.value)}
-              disabled={!canEdit}
-            />
-            <InputPremium
-              label="Tiempo por ronda (seg)"
-              type="number"
-              inputMode="numeric"
-              min={3}
-              max={60}
+              min={timeFieldConfig.min}
+              max={timeFieldConfig.max}
               value={timeLimit}
               onChange={(e) => setTimeLimit(e.target.value)}
               disabled={!canEdit}
@@ -468,7 +613,8 @@ export default function SessionEdit() {
               label="Puntos por acierto"
               type="number"
               inputMode="numeric"
-              min={1}
+              min={5}
+              max={15}
               value={pointsPerCorrect}
               onChange={(e) => setPointsPerCorrect(e.target.value)}
               disabled={!canEdit}
@@ -477,7 +623,8 @@ export default function SessionEdit() {
               label="Penalización"
               type="number"
               inputMode="numeric"
-              max={-1}
+              min={-5}
+              max={0}
               value={penaltyPerError}
               onChange={(e) => setPenaltyPerError(e.target.value)}
               disabled={!canEdit}
@@ -487,32 +634,30 @@ export default function SessionEdit() {
           <div className="flex flex-wrap justify-end gap-3">
             <ButtonPremium
               variant="secondary"
-              onClick={() => navigate(ROUTES.SESSION_DETAIL(sessionId))}
+              onClick={() =>
+                confirmExit(() => navigate(ROUTES.SESSION_DETAIL(sessionId)))
+              }
             >
               Cancelar
             </ButtonPremium>
-            <ButtonPremium
-              variant="primary"
-              onClick={handleSave}
-              disabled={!canEdit || saving}
-            >
-              <Save size={16} />
-              {saving ? 'Guardando…' : 'Guardar cambios'}
-            </ButtonPremium>
+            <div className="relative">
+              <ButtonPremium
+                variant="primary"
+                onClick={handleSave}
+                disabled={!canEdit || saving}
+              >
+                <Save size={16} />
+                {saving ? 'Guardando…' : 'Guardar cambios'}
+              </ButtonPremium>
+              <InlineSuccessBadge visible={saveBadge.visible} label="Sesión guardada" placement="left" />
+            </div>
           </div>
         </GlassCard>
       </div>
 
-      <ConfirmationModal
-        open={isBlocked}
-        onConfirm={() => blocker.proceed()}
-        onClose={() => blocker.reset()}
-        title="Cambios sin guardar"
-        description="Tienes cambios sin guardar. Si sales ahora, perderás los cambios realizados."
-        variant="warning"
-        confirmText="Salir sin guardar"
-        cancelText="Seguir editando"
-      />
+      {/* T-957: modal de confirmación al salir con cambios sin guardar
+          (botones "Cancelar", "Ver mapping", "Configurar tablero"). */}
+      <ConfirmationModal {...confirmExitModalProps} />
     </motion.div>
   );
 }

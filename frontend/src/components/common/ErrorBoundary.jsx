@@ -1,7 +1,8 @@
 import { Component } from 'react';
 import PropTypes from 'prop-types';
-import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
+import { RefreshCw, Home } from 'lucide-react';
 import ButtonPremium from '../ui/ButtonPremium';
+import CharacterMascot from '../game/CharacterMascot';
 import { captureException } from '../../lib/sentry';
 
 /**
@@ -60,15 +61,15 @@ class ErrorBoundary extends Component {
           className="min-h-screen flex items-center justify-center p-4 bg-background-base"
         >
           <div className="max-w-md w-full text-center">
-            {/* Icono de error */}
-            <div className="mb-6">
-              <div className="size-20 mx-auto rounded-full bg-error-base/20 flex items-center justify-center">
-                <AlertTriangle
-                  size={40}
-                  className="text-error-base"
-                  aria-hidden="true"
-                />
-              </div>
+            {/* Otto pone cara amable al crash (`worried`) — humaniza el error
+                en lugar del icono de alerta frío. CharacterMascot es
+                presentacional y seguro, no puede re-disparar el boundary. */}
+            <div className="mb-6 flex justify-center">
+              <CharacterMascot
+                mood="worried"
+                size="md"
+                message="Algo se rompió…"
+              />
             </div>
 
             {/* Mensaje principal */}

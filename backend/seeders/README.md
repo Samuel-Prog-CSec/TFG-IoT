@@ -6,7 +6,7 @@ Sistema de seeders para poblar la base de datos con datos realistas que simulen 
 
 ### Docker (arranque automático)
 
-Los tres compose (`docker-compose.yml`, `docker-compose.dev.yml`, `docker-compose.prod.yml`) invocan `npm run seed:if-empty` como parte del comando del contenedor de backend. Este script comprueba si la base de datos tiene datos y, en caso contrario, ejecuta `runSeeders()` sin limpieza previa.
+Los tres compose (`docker-compose.yml`, `docker-compose.dev.yml` y, en testing local pre-deploy, `docker/archive/docker-compose.prod.yml`) invocan `npm run seed:if-empty` como parte del comando del contenedor de backend. Este script comprueba si la base de datos tiene datos y, en caso contrario, ejecuta `runSeeders()` sin limpieza previa. En el despliegue real de producción (VPS autoalojada) este paso lo lanza el comando del contenedor `backend` (`npm run seed:if-empty && npm run migrate:sessions && npm start`) definido en `docker-compose.yml`/`docker-compose.prod.yml`, documentado en `documentation/Deploy_VPS.md`.
 
 ### Manual
 
@@ -29,11 +29,11 @@ Los seeders se ejecutan en orden numérico (definido en `index.js`) para respeta
 |---|---------|------|-----------|
 | 0 | `00-super-admin.js` | 1 super administrador | — |
 | 1 | `01-users.js` | 2 profesores + 36 alumnos (18 por profesor) | — |
-| 3 | `03-mechanics.js` | 2 mecánicas (`association`, `memory`) | — |
+| 3 | `03-mechanics.js` | 3 mecánicas (`association`, `memory`, `sequence`) | — |
 | 4 | `04-contexts.js` | 5 contextos temáticos con 6 assets cada uno | — |
 | 5 | `05-carddecks.js` | 12 mazos (6 por profesor) | Users, Contexts |
-| 6 | `06-sessions.js` | 28 sesiones (14 por profesor) | Users, Mechanics, Contexts, Decks |
-| 7 | `07-gameplays.js` | ~414 partidas + recalc de métricas y estados | Sessions, Students |
+| 6 | `06-sessions.js` | 40 sesiones (20 por profesor) | Users, Mechanics, Contexts, Decks |
+| 7 | `07-gameplays.js` | ~406 partidas **deterministas** + recalc de métricas y estados | Sessions, Students |
 
 No existe `02-cards.js`: las tarjetas RFID no son entidad propia, se materializan como `cardMappings` dentro de cada mazo.
 
@@ -75,18 +75,17 @@ Los profesores se crean con `accountStatus: 'approved'` para que funcionen de in
   - `consent.grantedBy: "Tutor de <nombre>"`
   - `consent.purposes: ['educational_tracking', 'performance_analytics']`
   - `consent.policyVersion: '1.0'`
-- `studentMetrics` inicializadas a cero; se recalculan al final desde las partidas (`07-gameplays.js`)
+- `studentMetrics` inicializadas a cero; se recalculan al final desde las partidas (`07-gameplays.js`). `averageScore` es un **porcentaje** (media de `score/maxScore×100` por partida completada), coherente con `User.updateStudentMetrics` y con toda la app (tiers, "alumnos en riesgo"); `totalScore`/`bestScore` se mantienen en puntos crudos
 
 ### Mecánicas de juego (`03-mechanics.js`)
 
-Las mecánicas son **inmutables a nivel API**: solo se crean vía seeders. El seeder siembra únicamente las que el backend implementa:
+Las mecánicas son **inmutables a nivel API**: solo se crean vía seeders. El seeder siembra las tres que el backend implementa:
 
 | Mecánica | `displayName` | `isActive` | Notas |
 |----------|---------------|------------|-------|
 | `association` | Asociación | true | Consigna en pantalla + escaneo de tarjeta correcta |
 | `memory` | Memoria | true | Parejas boca abajo; buscar coincidencias |
-
-La mecánica `sequence` está reservada en el dominio pero **no se siembra hasta que haya implementación en `src/strategies/`** (evita mostrar opciones no funcionales en la UI).
+| `sequence` | Secuencia | true | Memorizar y reproducir una secuencia de cartas en orden |
 
 ### Contextos temáticos (`04-contexts.js`)
 
@@ -95,7 +94,7 @@ La mecánica `sequence` está reservada en el dominio pero **no se siembra hasta
 - `geography-europe` — Países de Europa (España, Francia, Italia, Alemania, Portugal, Grecia)
 - `animals-farm` — Animales de granja (Vaca, Cerdo, Gallina, Caballo, Pato, Gato)
 - `colors-basic` — Colores básicos (Rojo, Azul, Verde, Amarillo, Naranja, Morado)
-- `numbers-1-6` — Números del 1 al 6
+- `numbers-1-15` — Números del 1 al 6
 - `shapes-basic` — Formas básicas (Círculo, Cuadrado, Triángulo, Estrella, Corazón, Rombo)
 
 Cada asset incluye `imageUrl` y `thumbnailUrl` apuntando a Supabase Storage público, `dominantColor` en hex y `uploadedBy: null` (assets del sistema, no eliminables individualmente desde la UI — ADR-053).
@@ -119,16 +118,16 @@ Ejemplo: profesor 0 usa `00000000..00000029`, profesor 1 continúa desde `000000
 
 ### Sesiones de juego (`06-sessions.js`)
 
-14 sesiones por profesor, 28 en total. Distribuidas a lo largo de 60 días (de `daysAgo: 58` a `daysAgo: 3`) y una marcada como `created` (pendiente) con `daysAgo: 0`. Todas las completadas duran 30 minutos entre `startedAt` y `endedAt`.
+20 sesiones por profesor, 40 en total. Distribuidas a lo largo de 60 días (de `daysAgo: 58` a `daysAgo: 3`) y una marcada como `created` (pendiente) con `daysAgo: 0`. Todas las completadas duran 30 minutos entre `startedAt` y `endedAt`.
 
-- La `difficulty` se calcula automáticamente vía hook pre-save en función de `config.numberOfCards`.
+- La `difficulty` la calcula el hook pre-save por `config.numberOfCards`, pero los templates de Secuencia definen `easy`/`medium`/`hard` y el seeder **reaplica ese override tras el `create`** (vía `updateOne`, igual que el controller real). Sin esto, el hook —al ser `isNew`— las forzaría todas a `medium`.
 - Las sesiones con mecánica `association` incluyen `associationChallengePlan` generado determinísticamente.
 - Las sesiones con mecánica `memory` incluyen `boardLayout` barajado determinísticamente.
 - El seeder `07` recalcula el `status` final tras generar las partidas para mantener la coherencia de dominio (si hay partidas activas/paused, la sesión queda `active`).
 
 ### Partidas (`07-gameplays.js`)
 
-Entre 8 y 15 partidas por alumno, ~414 en total. Cada alumno se asigna cíclicamente a uno de 6 perfiles de rendimiento:
+Entre 8 y 15 partidas por alumno, ~406 en total, **deterministas** (PRNG `mulberry32` sembrado por alumno+partida → cada `seed:reset` produce exactamente los mismos resultados; solo varían los ObjectId y las fechas relativas a "hoy"). Cada alumno se asigna cíclicamente a uno de 6 perfiles de rendimiento:
 
 | Perfil | Éxito base | Timeout | Velocidad | Evolución |
 |--------|-----------|---------|-----------|-----------|
@@ -159,7 +158,7 @@ seeders/
 ├── index.js           # Orquestador (runSeeders + cleanDatabase + main CLI)
 ├── 00-super-admin.js  # Super administrador inicial
 ├── 01-users.js        # Profesores y alumnos
-├── 03-mechanics.js    # Mecánicas de juego (association, memory)
+├── 03-mechanics.js    # Mecánicas de juego (association, memory, sequence)
 ├── 04-contexts.js     # Contextos temáticos con assets
 ├── 05-carddecks.js    # Mazos de tarjetas
 ├── 06-sessions.js     # Sesiones de juego

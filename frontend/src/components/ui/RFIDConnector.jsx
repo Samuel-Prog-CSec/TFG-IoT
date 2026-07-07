@@ -76,13 +76,16 @@ const readPortInfo = (port) => {
 export default function RFIDConnector({
   className,
   onScan,
-  showSensorId = true
+  // El SensorId (UUID) y los IDs USB son jerga técnica para el docente; ocultos
+  // por defecto. Solo se muestran si un consumidor de depuración pide `true`
+  // explícitamente (QA 2026-06-04; GameSession ya lo ocultaba).
+  showSensorId = false
 }) {
   const [status, setStatus] = useState(webSerialService.status);
   const [deviceState, setDeviceState] = useState(webSerialService.deviceState || 'unknown');
   const [fwVersion, setFwVersion] = useState(webSerialService.firmwareVersion);
   const [error, setError] = useState(null);
-  const [isSupported, setIsSupported] = useState(webSerialService.isSupported());
+  const [isSupported, setIsSupported] = useState(() => webSerialService.isSupported());
   const [hasAttempted, setHasAttempted] = useState(false);
   const [portInfo, setPortInfo] = useState({ usbVendorId: null, usbProductId: null });
   const errorTimeoutRef = useRef(null);
@@ -149,7 +152,13 @@ export default function RFIDConnector({
   const handleConnect = async () => {
     setHasAttempted(true);
     try {
-      if (!socketService.isSocketConnected()) {
+      // Asegurar AMBOS namespaces: isSocketConnected() solo mira el socket de
+      // sistema, pero los scans RFID se reenvían por el namespace /game. Si
+      // /game cayó de forma aislada con el de sistema aún arriba, sin comprobar
+      // isGameSocketConnected() se saltaba el connect() y no se reconectaba
+      // /game (los scans quedaban encolados hasta la auto-reconexión). connect()
+      // es idempotente. Misma corrección que useGameSocket (gate dual).
+      if (!socketService.isSocketConnected() || !socketService.isGameSocketConnected()) {
         await socketService.connect();
       }
       await webSerialService.connect();
@@ -245,7 +254,7 @@ export default function RFIDConnector({
           <Usb size={14} />
           <span>SensorId: {webSerialService.sensorId}</span>
           {portInfo.usbVendorId && (
-            <span className="ml-2 rounded bg-background-surface px-1.5 py-0.5 font-mono text-[10px] text-text-secondary">
+            <span className="ml-2 rounded bg-background-surface px-1.5 py-0.5 font-mono text-nano text-text-secondary">
               USB {portInfo.usbVendorId}:{portInfo.usbProductId || '????'}
             </span>
           )}

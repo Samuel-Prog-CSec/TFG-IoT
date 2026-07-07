@@ -58,7 +58,7 @@ Proyecto optimizado para integrar un lector RFID RC522 (HW-126 clon) con Wemos D
 |---------------|--------------|-------------|
 | 3.3V         | VCC          | Alimentación |
 | GND          | GND          | Tierra común |
-| D2 (GPIO4)   | SS           | Chip Select |
+| D8 (GPIO15)  | SS           | Chip Select |
 | D1 (GPIO5)   | RST          | Reset |
 | D7 (GPIO13)  | MOSI         | SPI Data Out |
 | D6 (GPIO12)  | MISO         | SPI Data In |
@@ -132,9 +132,31 @@ Usa WebSocket/Socket.io para recibir UIDs del backend y actualizar UI.
 |-----------------|----------------------------------|-------------|
 | `init`         | `{"status": "success/fail", "version": "0xXX"}` | Inicialización del RC522 |
 | `error`        | `{"type": "string", "message": "string"}` | Errores (init, read, etc.) |
-| `card_detected`| `{"uid": "HEXSTRING", "type": "string", "size": int}` | Tarjeta detectada con detalles |
+| `card_detected`| `{"uid": "HEXMAYUS", "type": "string", "size": int, "counter": int, "hmac": "hex64"}` | Tarjeta detectada (firmada, T-905 B8) |
 | `card_removed` | `{"uid": "HEXSTRING"}` | Tarjeta removida |
-| `status`       | `{"uptime": int, "cards_detected": int, "free_heap": int}` | Heartbeat periódico (10s) |
+| `status`       | `{"uptime": int, "cards_detected": int, "free_heap": int, "counter": int}` | Heartbeat periódico (10s) |
+
+## 🔐 Provisionado del secret HMAC (T-905 B8)
+
+Cada lectura se firma con `HMAC-SHA256(secret, UID_MAYÚSCULAS + ":" + counter)` y
+lleva un `counter` monotónico persistido en EEPROM (anti-replay). El backend
+verifica la firma cuando `RFID_HMAC_ENABLED=true`.
+
+**El mismo secret debe estar en el firmware y en el backend.**
+
+1. Genera un secret de 32 bytes:
+   ```bash
+   node -e "console.log(require('crypto').randomBytes(32).toString('hex'))"
+   ```
+2. Compila/flashea el firmware con el secret en la env var (no se commitea):
+   ```bash
+   RFID_HMAC_SECRET=<hex> pio run -t upload
+   ```
+3. Pon el **mismo** valor en el backend (`RFID_HMAC_SECRET`) y activa
+   `RFID_HMAC_ENABLED=true` para forzar el enforcement.
+
+Sin secret en el build, el firmware usa un stub que el backend rechaza con el
+flag activo. El UID se firma en **mayúsculas** (forma canónica del sistema).
 
 ## 🔧 Troubleshooting
 

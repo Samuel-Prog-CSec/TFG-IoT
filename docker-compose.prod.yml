@@ -1,28 +1,26 @@
 # ============================================================================
-# Docker Compose - PRODUCCIÓN
+# Docker Compose - PRODUCCIÓN / STAGING (autoalojado, VPS)
 # ============================================================================
-# Override file para entorno de producción
+# Overlay real de despliegue (staging y producción) — promovido desde
+# docker/archive/ tras dejar de usar Koyeb. Usar SIEMPRE junto a un -p
+# <nombre-de-proyecto> distinto por entorno (eduplay-staging / eduplay-prod)
+# y un --env-file específico de ese entorno.
 #
 # Uso:
-#   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+#     -p eduplay-prod --env-file .env.prod up -d --build
 #
-# Características:
-#   - Sin herramientas de debug
-#   - Restart always
-#   - Límites de recursos
-#   - Sin puertos internos expuestos
-#   - Logging estructurado
-#
-# Autor: Samuel Blanchart Pérez
-# Versión: 1.0.0
+# `!override` (no `ports: []`): Compose fusiona `ports` de forma ADITIVA por
+# defecto — un override vacío NO retira los puertos ya publicados en la base.
+# `!override` fuerza el reemplazo real de la lista (Compose spec, soportado
+# desde v2.24+). Verificado localmente antes de adoptarlo.
 # ============================================================================
 
 services:
-  # ============================================
-  # FRONTEND - Producción
-  # ============================================
   frontend:
     restart: always
+    ports:
+      - !override "${FRONTEND_PORT_BINDING}"
     deploy:
       resources:
         limits:
@@ -34,36 +32,25 @@ services:
         max-size: "10m"
         max-file: "3"
 
-  # ============================================
-  # BACKEND - Producción
-  # ============================================
   backend:
     restart: always
-    ports: []  # No exponer puerto del backend
+    ports: !override []
+    stop_grace_period: 30s
     environment:
       - NODE_ENV=production
+      - TRUST_PROXY_HOPS=2
     command: >
       sh -c "npm run seed:if-empty && npm run migrate:sessions && npm start"
     deploy:
       resources:
         limits:
-          memory: 512M
-          cpus: '1'
-    logging:
-      driver: "json-file"
-      options:
-        max-size: "50m"
-        max-file: "5"
-
-  # ============================================
-  # MONGODB - Producción
-  # ============================================
-  mongo:
-    restart: always
-    ports: []  # No exponer puerto de MongoDB
-    deploy:
-      resources:
-        limits:
+          # 1G (no 512M, el techo exacto del free tier de Koyeb): con la VPS
+          # de 11 GB hay margen de sobra y 512M era un límite heredado de la
+          # plataforma anterior, no un análisis de necesidad real — más
+          # margen reduce el riesgo de OOM ante picos (analítica concurrente,
+          # varias partidas simultáneas). CPU se deja igual: los 6 vCPU se
+          # comparten entre los dos stacks + Nginx + Certbot + el runner, así
+          # que ahí el margen es proporcionalmente más ajustado que en RAM.
           memory: 1G
           cpus: '1'
     logging:
@@ -72,12 +59,43 @@ services:
         max-size: "50m"
         max-file: "5"
 
-  # ============================================
-  # REDIS - Producción
-  # ============================================
+  worker:
+    restart: always
+    stop_grace_period: 30s
+    environment:
+      - NODE_ENV=production
+    deploy:
+      resources:
+        limits:
+          memory: 256M
+          cpus: '0.5'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
+  mongo:
+    restart: always
+    ports: !override []
+    deploy:
+      resources:
+        limits:
+          # 2G (no 1G): MongoDB usa la RAM disponible para la caché de
+          # WiredTiger — con solo 1G esa caché es pequeña y limita el
+          # rendimiento de queries si el dataset crece. Con margen de sobra
+          # en la VPS, subirlo es prácticamente gratis.
+          memory: 2G
+          cpus: '1'
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "50m"
+        max-file: "5"
+
   redis:
     restart: always
-    ports: []  # No exponer puerto de Redis
+    ports: !override []
     command: >
       redis-server
       --appendonly yes

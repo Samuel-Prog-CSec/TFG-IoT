@@ -25,21 +25,24 @@ export const PERFORMANCE_TIERS = [
 /**
  * Configuración visual de cada tier para badges y cards.
  */
+// Tokens `-on-alpha` (definidos en index.css) garantizan AA 5.0:1+ sobre
+// bg alpha del mismo tono, en ambos temas. Eliminamos los workarounds
+// `light:text-{tone}-dark` y `text-red-300` heredados del Sprint 0.
 export const TIER_CONFIG = {
-  excellent: { label: 'Excelente', className: 'bg-success-base/15 text-success-base border-success-base/30' },
-  good: { label: 'Bueno', className: 'bg-success-base/10 text-success-base/80 border-success-base/20' },
-  average: { label: 'Promedio', className: 'bg-warning-base/15 text-warning-base border-warning-base/30' },
-  risk: { label: 'Necesita apoyo', className: 'bg-error-base/15 text-error-base border-error-base/30' },
+  excellent: { label: 'Excelente', className: 'bg-success-base/15 text-success-on-alpha border-success-base/30' },
+  good: { label: 'Bueno', className: 'bg-success-base/10 text-success-on-alpha border-success-base/20' },
+  average: { label: 'Promedio', className: 'bg-warning-base/15 text-warning-on-alpha border-warning-base/30' },
+  risk: { label: 'Necesita apoyo', className: 'bg-error-base/15 text-error-on-alpha border-error-base/30' },
 };
 
 /**
  * Badges compactos para tablas e historial de partidas.
  */
 export const TIER_BADGE = {
-  excellent: { label: 'Excelente', className: 'bg-success-base/15 text-success-base' },
-  good: { label: 'Bueno', className: 'bg-success-base/10 text-success-base/80' },
-  average: { label: 'Medio', className: 'bg-warning-base/15 text-warning-base' },
-  risk: { label: 'Bajo', className: 'bg-error-base/15 text-error-base' },
+  excellent: { label: 'Excelente', className: 'bg-success-base/15 text-success-on-alpha' },
+  good: { label: 'Bueno', className: 'bg-success-base/10 text-success-on-alpha' },
+  average: { label: 'Medio', className: 'bg-warning-base/15 text-warning-on-alpha' },
+  risk: { label: 'Bajo', className: 'bg-error-base/15 text-error-on-alpha' },
 };
 
 // ══════════════════════════════════════════════════════════════════════

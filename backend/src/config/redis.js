@@ -34,7 +34,14 @@ let isConnected = false;
  * Permite al GameEngine re-registrar card locks de partidas activas.
  * @type {Function|null}
  */
-let onReconnectCallback = null;
+/**
+ * B.4 (pre-v1.0.0): cambiamos `onReconnectCallback` (singular) por una
+ * lista de callbacks para que múltiples módulos puedan reaccionar a la
+ * reconexión Redis sin sobrescribirse. Antes solo el GameEngine podía
+ * registrar (re-registrar card locks); ahora también `socketHandlers`
+ * registra el flush de la queue de invalidaciones pendientes (B.4).
+ */
+const onReconnectCallbacks = [];
 
 /**
  * Prefijo para todas las keys del proyecto.
@@ -149,23 +156,36 @@ const getRedisConfig = () => {
   // Parsear URL para extraer componentes
   const url = new URL(redisUrl);
 
+  // El esquema `rediss://` exige TLS (Upstash escucha TLS en 6379). ioredis solo
+  // activa TLS automáticamente si se le pasa la CADENA `rediss://...`; al pasarle
+  // un objeto de opciones (como aquí) el esquema se pierde y conecta en claro, de
+  // modo que el handshake contra Upstash falla. Propagar `tls` explícitamente.
+  const useTls = url.protocol === 'rediss:';
+
   return {
     host: url.hostname || 'localhost',
     port: Number.parseInt(url.port, 10) || 6379,
     password: url.password || process.env.REDIS_PASSWORD || undefined,
     db: Number.parseInt(process.env.REDIS_DB, 10) || 0,
     keyPrefix: KEY_PREFIX,
+    ...(useTls ? { tls: { servername: url.hostname } } : {}),
 
-    // Configuración de reconexión
+    // Reconexión: NUNCA abandonar. El `return null` previo tras 10 intentos dejaba
+    // el cliente muerto hasta reiniciar el proceso; en Upstash (idle-timeouts,
+    // failover, jitter de red) un blip >11s dejaba el backend sin Redis y, como
+    // los rate-limiters de login son fail-closed, bloqueaba TODOS los logins.
     retryStrategy: times => {
-      if (times > 10) {
-        logger.error('Redis: Máximo de reintentos alcanzado, abandonando conexión');
-        return null; // Dejar de reintentar
+      const delay = Math.min(times * 200, 3000); // Máx 3s entre reintentos
+      if (times === 1 || times % 10 === 0) {
+        logger.warn(`Redis: reintentando conexión (intento ${times}, espera ${delay}ms)`);
       }
-      const delay = Math.min(times * 200, 3000); // Max 3 segundos entre reintentos
-      logger.warn(`Redis: Reintentando conexión en ${delay}ms (intento ${times})`);
       return delay;
     },
+
+    // Forzar reconexión ante errores que ioredis no resuelve solo: READONLY tras
+    // un failover de Upstash (la réplica promovida llega read-only un instante) o
+    // un socket reseteado.
+    reconnectOnError: err => /READONLY|ECONNRESET/i.test(err?.message || ''),
 
     // Timeouts
     connectTimeout: 10000, // 10 segundos para conectar
@@ -211,13 +231,17 @@ const connectRedis = async () => {
     isConnected = true;
     logger.info('Redis: Cliente listo para recibir comandos');
 
-    // Si Redis reconecta tras una desconexión, emitir evento para que
-    // el GameEngine pueda re-registrar card locks de partidas activas.
-    if (wasDisconnected && onReconnectCallback) {
-      logger.info('Redis: Reconexión detectada, ejecutando callback de recovery');
-      onReconnectCallback().catch(err => {
-        logger.error('Redis: Error en callback de reconexión', { error: err.message });
+    // Si Redis reconecta tras una desconexión, ejecutar TODOS los callbacks
+    // registrados (GameEngine card locks + B.4 flush invalidaciones, etc.).
+    if (wasDisconnected && onReconnectCallbacks.length > 0) {
+      logger.info('Redis: Reconexión detectada, ejecutando callbacks de recovery', {
+        count: onReconnectCallbacks.length
       });
+      for (const cb of onReconnectCallbacks) {
+        Promise.resolve(cb()).catch(err => {
+          logger.error('Redis: Error en callback de reconexión', { error: err.message });
+        });
+      }
     }
   });
 
@@ -354,13 +378,16 @@ const ping = async () => {
 };
 
 /**
- * Registra un callback que se ejecutará cuando Redis reconecte tras una desconexión.
- * Útil para que el GameEngine re-registre card locks de partidas activas.
+ * Registra un callback que se ejecutará cuando Redis reconecte tras una
+ * desconexión. Múltiples módulos pueden registrarse simultáneamente; los
+ * callbacks se ejecutan en orden de registro al disparar la reconexión.
  *
  * @param {Function} callback - Función async a ejecutar en reconexión
  */
 const onReconnect = callback => {
-  onReconnectCallback = callback;
+  if (typeof callback === 'function' && !onReconnectCallbacks.includes(callback)) {
+    onReconnectCallbacks.push(callback);
+  }
 };
 
 module.exports = {

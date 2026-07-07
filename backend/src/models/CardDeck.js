@@ -98,7 +98,7 @@ const CardDeckSchema = new mongoose.Schema(
   }
 );
 
-// Validación: el mazo debe tener al menos 2 mapeos y como máximo 30
+// Validación: el mazo debe tener al menos 2 mapeos y como máximo 20
 CardDeckSchema.path('cardMappings').validate(value => {
   if (!Array.isArray(value)) {
     return false;
@@ -106,11 +106,11 @@ CardDeckSchema.path('cardMappings').validate(value => {
   if (value.length < 2) {
     return false;
   }
-  if (value.length > 30) {
+  if (value.length > 20) {
     return false;
   }
   return true;
-}, 'El mazo debe tener entre 2 y 30 mapeos de tarjetas.');
+}, 'El mazo debe tener entre 2 y 20 mapeos de tarjetas.');
 
 // Validación: UIDs únicos dentro del mazo (defensa en profundidad — complementa Zod)
 CardDeckSchema.path('cardMappings').validate(value => {

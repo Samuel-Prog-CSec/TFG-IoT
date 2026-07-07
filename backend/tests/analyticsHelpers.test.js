@@ -18,7 +18,6 @@ const {
   getPeriodDates,
   getStartOfToday,
   toObjectId,
-  teacherSessionStages,
   linearRegression,
   classifyTrend,
   generateAlertId,
@@ -55,8 +54,8 @@ describe('analyticsHelpers — constantes', () => {
   });
 
   describe('ALERT_TYPES', () => {
-    it('debe tener exactamente 7 tipos de alerta', () => {
-      expect(Object.keys(ALERT_TYPES)).toHaveLength(7);
+    it('debe tener 13 tipos de alerta (T-941: 6 originales + 7 nuevos)', () => {
+      expect(Object.keys(ALERT_TYPES)).toHaveLength(13);
     });
 
     it('cada tipo debe tener label y thresholds', () => {
@@ -65,6 +64,22 @@ describe('analyticsHelpers — constantes', () => {
         expect(config).toHaveProperty('thresholds');
         expect(typeof config.label).toBe('string');
         expect(typeof config.thresholds).toBe('object');
+      }
+    });
+
+    it('incluye los detectores nuevos T-941 (plateau ya operativo + Secuencia + meta)', () => {
+      const keys = Object.keys(ALERT_TYPES);
+      const expectedNew = [
+        'plateau_detected',
+        'engagement_drop',
+        'recovery_after_drop',
+        'mastery_milestone',
+        'mechanic_specific_struggle',
+        'sequence_stagnation',
+        'sequence_order_errors'
+      ];
+      for (const k of expectedNew) {
+        expect(keys).toContain(k);
       }
     });
   });
@@ -344,43 +359,6 @@ describe('analyticsHelpers — toObjectId', () => {
     const result = toObjectId(id);
 
     expect(result.toString()).toBe(id);
-  });
-});
-
-// ══════════════════════════════════════════════════════════════════════
-// teacherSessionStages
-// ══════════════════════════════════════════════════════════════════════
-
-describe('analyticsHelpers — teacherSessionStages', () => {
-  it('debe devolver un array de 3 stages', () => {
-    const stages = teacherSessionStages('507f1f77bcf86cd799439011');
-
-    expect(stages).toHaveLength(3);
-  });
-
-  it('el primer stage debe ser $lookup a game_sessions', () => {
-    const stages = teacherSessionStages('507f1f77bcf86cd799439011');
-
-    expect(stages[0]).toHaveProperty('$lookup');
-    expect(stages[0].$lookup.from).toBe('game_sessions');
-    expect(stages[0].$lookup.localField).toBe('sessionId');
-    expect(stages[0].$lookup.foreignField).toBe('_id');
-    expect(stages[0].$lookup.as).toBe('session');
-  });
-
-  it('el segundo stage debe ser $unwind de session', () => {
-    const stages = teacherSessionStages('507f1f77bcf86cd799439011');
-
-    expect(stages[1]).toEqual({ $unwind: '$session' });
-  });
-
-  it('el tercer stage debe ser $match con el teacherId convertido a ObjectId', () => {
-    const teacherId = '507f1f77bcf86cd799439011';
-    const stages = teacherSessionStages(teacherId);
-
-    expect(stages[2]).toHaveProperty('$match');
-    expect(stages[2].$match['session.createdBy']).toBeInstanceOf(mongoose.Types.ObjectId);
-    expect(stages[2].$match['session.createdBy'].toString()).toBe(teacherId);
   });
 });
 

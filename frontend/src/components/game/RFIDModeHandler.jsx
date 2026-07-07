@@ -6,10 +6,10 @@
  */
 
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import {
   WifiOff,
-  Settings,
+  Minus,
   Gamepad2,
   CreditCard,
   AlertCircle,
@@ -22,16 +22,29 @@ import { useRfidMode } from '../../context/RfidModeContext';
 
 const MODES_CONFIG = {
   idle: {
-    label: 'Inactivo',
+    // "Sensor desconectado" (antes "Inactivo"): explicita el estado para
+    // que el docente sepa que tiene que enchufar el lector, no que la app
+    // está rota.
+    label: 'Sensor desconectado',
     icon: WifiOff,
     iconContainerClass: 'bg-background-surface/20 text-text-muted',
-    description: 'El sensor no está procesando tarjetas'
+    description: 'Conecta el lector RFID para empezar a escanear tarjetas'
+  },
+  // QA 2026-05-06: cuando el sensor está físicamente conectado pero el
+  // backend todavía no ha cambiado a modo gameplay/card_assignment, el
+  // copy "Inactivo" daba falso negativo (el alumno cree que algo va mal).
+  // Sustituimos por un copy explícito de "stand-by listo".
+  idle_connected: {
+    label: 'Listo para escanear',
+    icon: Activity,
+    iconContainerClass: 'bg-success-base/20 text-success-base',
+    description: 'El sensor está conectado y esperando a su turno'
   },
   gameplay: {
-    label: 'Modo Juego',
+    label: 'Leyendo tarjetas',
     icon: Gamepad2,
     iconContainerClass: 'bg-success-base/20 text-success-base',
-    description: 'Escaneando respuestas de los estudiantes'
+    description: 'Recibiendo respuestas de los alumnos en directo'
   },
   card_assignment: {
     label: 'Asignación',
@@ -48,7 +61,13 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
   const [deviceHealth, setDeviceHealth] = useState(null);
   const [expanded, setExpanded] = useState(false);
   const effectiveMode = mode || currentMode;
-  const modeInfo = MODES_CONFIG[effectiveMode] || MODES_CONFIG.idle;
+  // QA 2026-05-06 (BUG-G4): sin esta resolución contextual, un sensor
+  // conectado en stand-by mostraba "Inactivo" como descripción — daba
+  // falso negativo al docente. `idle_connected` aplica solo cuando hay
+  // sensor `ready` y el modo backend aún es `idle`.
+  const isConnected = deviceState === 'ready';
+  const resolvedMode = effectiveMode === 'idle' && isConnected ? 'idle_connected' : effectiveMode;
+  const modeInfo = MODES_CONFIG[resolvedMode] || MODES_CONFIG.idle;
   const Icon = modeInfo.icon;
 
   useEffect(() => {
@@ -67,12 +86,28 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
     };
   }, []);
 
-  const isConnected = deviceState === 'ready';
-  // Mostrar expandido si está conectado, o si el usuario hizo click
-  const showExpanded = isConnected || expanded;
+  // Al conectar (flanco de subida) abrimos la tarjeta para confirmar "Listo para
+  // escanear" y la AUTO-COLAPSAMOS a los pocos segundos: así el pill pequeño
+  // (verde, con pulso) sigue indicando "conectado" sin que la tarjeta fija
+  // (256px) tape controles de pantallas embebidas (p. ej. el "Siguiente" del
+  // asistente de Nueva Sesión a 1366×768). El usuario puede reabrirla con un
+  // clic. El widget vive en una instancia única global (App.jsx), por eso el
+  // estado persiste entre navegaciones.
+  useEffect(() => {
+    if (!isConnected) return undefined;
+    setExpanded(true);
+    const timer = setTimeout(() => setExpanded(false), 3500);
+    return () => clearTimeout(timer);
+  }, [isConnected]);
+
+  const showExpanded = expanded;
 
   return (
-    <div className={cn("fixed bottom-6 right-6 z-40 pointer-events-none", className)}>
+    // bottom/right-4 + opacidad reducida en reposo: el pill flotante llegaba a
+    // tapar botones de la última fila de cards (p.ej. "Archivar" en Mazos a
+    // 1366×768). Pegado a la esquina y semitransparente interfiere menos y
+    // recupera protagonismo al pasar el ratón o enfocarlo.
+    <div className={cn("fixed bottom-4 right-4 z-40 pointer-events-none opacity-75 hover:opacity-100 focus-within:opacity-100 transition-opacity duration-200", className)}>
       <AnimatePresence mode="wait">
         {showExpanded ? (
           <motion.div
@@ -90,22 +125,18 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                     "size-2 rounded-full",
                     isConnected ? "bg-success-base animate-pulse" : "bg-error-base"
                   )} />
-                  <span className="text-[10px] uppercase tracking-wider font-bold text-text-muted">
+                  <span className="text-nano uppercase tracking-wider font-bold text-text-muted">
                     {isConnected ? 'Sensor Conectado' : 'Sensor Desconectado'}
                   </span>
                 </div>
-                {!isConnected && (
-                  <button
-                    onClick={() => setExpanded(false)}
-                    className="text-text-muted cursor-pointer hover:text-text-primary transition-colors"
-                    aria-label="Minimizar widget RFID"
-                  >
-                    <Settings size={14} />
-                  </button>
-                )}
-                {isConnected && (
-                  <Settings size={14} className="text-text-muted cursor-pointer hover:text-text-primary transition-colors" />
-                )}
+                <button
+                  type="button"
+                  onClick={() => setExpanded(false)}
+                  className="text-text-muted cursor-pointer hover:text-text-primary transition-colors focus-ring rounded"
+                  aria-label="Minimizar widget RFID"
+                >
+                  <Minus size={14} aria-hidden="true" />
+                </button>
               </div>
 
               {/* Estado del Modo */}
@@ -120,7 +151,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                   <h4 className="text-sm font-bold text-text-primary">
                     {modeInfo.label}
                   </h4>
-                  <p className="text-[10px] text-text-muted leading-tight mt-0.5">
+                  <p className="text-nano text-text-muted leading-tight mt-0.5">
                     {modeInfo.description}
                   </p>
                 </div>
@@ -130,7 +161,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
-                  className="mt-3 pt-3 border-t border-border-subtle flex items-center gap-2 text-warning-base text-[10px]"
+                  className="mt-3 pt-3 border-t border-border-subtle flex items-center gap-2 text-warning-base text-nano"
                 >
                   <AlertCircle size={12} />
                   <span>Requiere conexión manual</span>
@@ -141,7 +172,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                 <motion.div
                   initial={{ opacity: 0, height: 0 }}
                   animate={{ opacity: 1, height: 'auto' }}
-                  className="mt-3 pt-3 border-t border-border-subtle flex items-center gap-3 text-[10px] text-text-muted"
+                  className="mt-3 pt-3 border-t border-border-subtle flex items-center gap-3 text-nano text-text-muted"
                 >
                   <Activity size={10} className="text-success-base" />
                   <span>Uptime: {Math.floor((deviceHealth.uptime || 0) / 1000)}s</span>
@@ -163,24 +194,28 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
             onClick={() => setExpanded(true)}
             className="pointer-events-auto group relative flex items-center gap-2.5 pl-2.5 pr-3.5 py-2 rounded-full bg-background-elevated/85 border border-border-default backdrop-blur-md shadow-lg hover:border-brand-base/40 hover:bg-background-surface/80 transition-[border-color,background-color] duration-200 cursor-pointer"
             aria-label="Expandir widget RFID"
-            title="Sensor RFID desconectado — click para expandir"
+            title={isConnected ? 'Sensor RFID conectado — click para ver detalle' : 'Sensor RFID desconectado — click para expandir'}
           >
+            {/* El pill colapsado refleja el estado real del sensor: verde con pulso
+                cuando está conectado (antes se mostraba siempre en rojo aunque el
+                sensor estuviera listo, porque el widget no podía colapsarse estando
+                conectado). */}
             <span className="relative flex items-center justify-center size-5" aria-hidden="true">
               <motion.span
-                className="absolute inset-0 rounded-full ring-2 ring-error-base/60"
+                className={cn('absolute inset-0 rounded-full ring-2', isConnected ? 'ring-success-base/60' : 'ring-error-base/60')}
                 initial={{ scale: 0.6, opacity: 0.6 }}
                 animate={{ scale: [0.6, 1.6], opacity: [0.6, 0] }}
                 transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
               />
               <motion.span
-                className="absolute inset-0 rounded-full ring-2 ring-error-base/40"
+                className={cn('absolute inset-0 rounded-full ring-2', isConnected ? 'ring-success-base/40' : 'ring-error-base/40')}
                 initial={{ scale: 0.6, opacity: 0.35 }}
                 animate={{ scale: [0.6, 2.1], opacity: [0.35, 0] }}
                 transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut', delay: 0.55 }}
               />
-              <span className="relative size-2 rounded-full bg-error-base shadow-[0_0_8px_var(--color-error-glow)]" />
+              <span className={cn('relative size-2 rounded-full', isConnected ? 'bg-success-base shadow-[0_0_8px_var(--color-success-glow)]' : 'bg-error-base shadow-[0_0_8px_var(--color-error-glow)]')} />
             </span>
-            <span className="text-[10px] uppercase tracking-[0.15em] font-bold text-text-secondary group-hover:text-text-primary transition-colors">RFID</span>
+            <span className="text-nano uppercase tracking-[0.15em] font-bold text-text-secondary group-hover:text-text-primary transition-colors">RFID</span>
           </motion.button>
         )}
       </AnimatePresence>

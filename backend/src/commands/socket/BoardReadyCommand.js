@@ -4,21 +4,31 @@
  */
 
 const BaseSocketCommand = require('./BaseSocketCommand');
+const { playIdEventSchema } = require('../../validators/socketCommandsValidator');
 
 class BoardReadyCommand extends BaseSocketCommand {
   constructor() {
-    super('board_ready');
+    super('board_ready', { schema: playIdEventSchema });
   }
 
   async execute({ socket, data, helpers, logger, gameEngine }) {
     try {
-      const { playId } = data || {};
-      if (!playId) {
-        socket.emit('error', { code: 'VALIDATION_ERROR', message: 'playId requerido' });
+      const { playId } = data;
+
+      if (!helpers.validatePlayId(socket, playId, 'board_ready')) {
         return;
       }
 
-      if (!helpers.validatePlayId(socket, playId, 'board_ready')) {
+      // Solo los roles con socket autenticado (docente/super_admin) y dueños de
+      // la sesión pueden arrancar el temporizador del tablero. Sin esta
+      // comprobación, cualquier socket autenticado podía disparar
+      // `confirmBoardReady` sobre la partida de OTRO docente (sabotaje del timer).
+      if (!helpers.requireSocketRole(socket, ['teacher', 'super_admin'], 'board_ready')) {
+        return;
+      }
+
+      const ownership = await helpers.requirePlayOwnership(socket, playId, 'board_ready');
+      if (!ownership) {
         return;
       }
 

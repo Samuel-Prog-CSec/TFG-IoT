@@ -21,6 +21,10 @@ const PENDING_SCAN_TTL_MS = 30 * 1000;
  * sesiones interrumpidas hasta 10 min.
  */
 const PENDING_SCAN_PERSISTENCE_TTL_MS = 10 * 60 * 1000;
+// Ventana de frescura: el backend rechaza scans con timestamp de más de 30s
+// (debe seguir a RFID_CLIENT_MAX_TIMESTAMP_SKEW_MS del backend). Un scan
+// encolado más viejo que esto se descarta en el flush (rechazo garantizado).
+const STALE_SCAN_THRESHOLD_MS = 30000;
 const MAX_RECONNECT_ATTEMPTS = 3;
 const RECONNECT_DELAY_BASE_MS = 1000;
 const HEARTBEAT_TIMEOUT_MS = 20000;
@@ -99,6 +103,10 @@ class WebSerialService {
     this.status = 'disconnected';
     this.deviceState = 'unknown';
     this.firmwareVersion = null;
+    // Modo seguro: el firmware (v1.x) anuncia `hmac:"enabled"` en el init de
+    // éxito cuando firma cada scan con HMAC. Lo capturamos para que la UI pueda
+    // mostrar el indicador "Firma activa" al docente.
+    this.hmacEnabled = false;
     this.sensorId = getOrCreateSensorId();
     this.dedupeCooldownMs = DEFAULT_DEDUPE_MS;
     this.lastScanByUid = new Map();
@@ -177,7 +185,8 @@ class WebSerialService {
     this.deviceState = nextState;
     this.emit('device_state_change', {
       state: nextState,
-      firmwareVersion: this.firmwareVersion
+      firmwareVersion: this.firmwareVersion,
+      hmacEnabled: this.hmacEnabled
     });
   }
 
@@ -284,6 +293,7 @@ class WebSerialService {
     this.stopReading();
     this._clearDeviceTimers();
     this.firmwareVersion = null;
+    this.hmacEnabled = false;
     this.setDeviceState('unknown');
     this.lastPort = this.port;
     this.port = null;
@@ -430,6 +440,7 @@ class WebSerialService {
     await this.stopReading();
     this._clearDeviceTimers();
     this.firmwareVersion = null;
+    this.hmacEnabled = false;
     this.setDeviceState('unknown');
 
     if (this.port) {
@@ -469,7 +480,13 @@ class WebSerialService {
     this._armInitTimeout();
     this._armLineTimeoutWatchdog();
 
-    const textDecoder = new TextDecoderStream();
+    // `fatal: false` evita que un byte UTF-8 inválido del firmware (boot
+    // ruidoso, fluctuación eléctrica) tire toda la pipeline de lectura.
+    // En su lugar, el decodificador inserta U+FFFD y seguimos leyendo;
+    // el parser de líneas descarta el fragmento corrupto y conserva el
+    // siguiente JSON válido. Sin este flag, una sola excepción hacía
+    // necesario reconectar el sensor manualmente.
+    const textDecoder = new TextDecoderStream('utf-8', { fatal: false });
     const readableStreamClosed = this.port.readable.pipeTo(textDecoder.writable);
     this.reader = textDecoder.readable.getReader();
 
@@ -572,15 +589,29 @@ class WebSerialService {
       case 'card_detected':
         this._handleCardDetected(event);
         break;
-      case 'card_removed':
-        this.emit('card_removed', {
-          uid: String(event.uid || '').trim().toUpperCase()
-        });
+      case 'card_removed': {
+        const removedUid = String(event.uid || '').trim().toUpperCase();
+        // Invalidar el cooldown de dedupe del UID retirado: una retirada REAL de
+        // la carta no es chattering del RC522, así que el próximo acercamiento —
+        // aunque ocurra en <DEDUPE_MS— es una lectura legítima que NO debe
+        // tragarse. Sin esto, si el niño levanta y reacerca la misma carta rápido
+        // (Secuencia con carta repetida, reintento tras fallo), el 2º escaneo se
+        // descartaba en silencio y parecía que el juego "no reacciona".
+        if (removedUid) {
+          this.lastScanByUid.delete(removedUid);
+        }
+        this.emit('card_removed', { uid: removedUid });
         break;
+      }
       case 'init':
+        // Modo seguro: el init de éxito incluye `hmac:"enabled"` cuando el
+        // firmware firma cada scan. Lo capturamos ANTES de emitir para que
+        // tanto `device_init` como el `device_state_change` posterior lo lleven.
+        this.hmacEnabled = event.hmac === 'enabled';
         this.emit('device_init', {
           status: event.status,
-          version: event.version
+          version: event.version,
+          hmacEnabled: this.hmacEnabled
         });
         if (this.initTimeoutId) {
           clearTimeout(this.initTimeoutId);
@@ -590,6 +621,11 @@ class WebSerialService {
           this.firmwareVersion = event.version || null;
           this.setDeviceState('ready');
           this._armHeartbeatWatchdog();
+        } else if (event.status === 'starting') {
+          // El firmware (v1.1) emite un init "starting" antes del "success".
+          // Es arranque normal, no un fallo: estado de inicialización + re-armar timeout.
+          this.setDeviceState('initializing');
+          this._armInitTimeout();
         } else {
           this.setDeviceState('error');
         }
@@ -659,6 +695,15 @@ class WebSerialService {
       source: 'web_serial'
     };
 
+    // T-905 B8: adjuntar la firma anti-replay del firmware si la trama la trae.
+    // Solo si AMBOS campos llegan bien formados — el backend rechazaría un parcial.
+    // El UID ya va canónico en mayúsculas (igual que el firmware firma), así que
+    // el HMAC recalculado en el servidor coincide.
+    if (Number.isInteger(event.counter) && /^[0-9a-f]{64}$/i.test(event.hmac || '')) {
+      payload.counter = event.counter;
+      payload.hmac = String(event.hmac).toLowerCase();
+    }
+
     this.emit('scan', payload);
 
     if (!this.forwardToServer) {
@@ -725,12 +770,43 @@ class WebSerialService {
     );
   }
 
+  /**
+   * Descarta los scans cuyo `timestamp` cae fuera de la ventana de frescura
+   * del backend (>STALE_SCAN_THRESHOLD_MS). Reenviarlos sería un rechazo
+   * garantizado, así que los borramos localmente (memoria + IndexedDB) y
+   * emitimos `scan_expired` por cada uno para dar feedback a la UI.
+   *
+   * Se ejecuta justo antes del flush para no enviar scans condenados.
+   *
+   * @param {number} [now]
+   * @private
+   */
+  discardStalePendingScans(now = Date.now()) {
+    if (this.pendingScans.length === 0) {
+      return;
+    }
+
+    const fresh = [];
+    for (const entry of this.pendingScans) {
+      if (now - entry.payload.timestamp > STALE_SCAN_THRESHOLD_MS) {
+        if (entry.persistedId !== null && entry.persistedId !== undefined) {
+          pendingScansStore.remove(entry.persistedId).catch(() => {});
+        }
+        this.emit('scan_expired', { uid: entry.payload.uid });
+      } else {
+        fresh.push(entry);
+      }
+    }
+    this.pendingScans = fresh;
+  }
+
   flushPendingScans() {
     if (!socketService.isGameSocketConnected()) {
       return { sent: 0, pending: this.pendingScans.length };
     }
 
     this.prunePendingScans();
+    this.discardStalePendingScans();
 
     let sent = 0;
     while (this.pendingScans.length > 0 && socketService.isGameSocketConnected()) {
@@ -769,7 +845,7 @@ class WebSerialService {
       await pendingScansStore.purgeOlderThan(PENDING_SCAN_PERSISTENCE_TTL_MS);
       const persisted = await pendingScansStore.getAll();
       const knownIds = new Set(
-        this.pendingScans.map(p => p.persistedId).filter(id => id !== null && id !== undefined)
+        this.pendingScans.flatMap(p => p.persistedId !== null && p.persistedId !== undefined ? [p.persistedId] : [])
       );
       let added = 0;
       for (const entry of persisted) {
@@ -817,3 +893,115 @@ class WebSerialService {
 
 export const webSerialService = new WebSerialService();
 export default webSerialService;
+
+// ---------------------------------------------------------------------------
+// Helper de simulación para QA / desarrollo sin sensor físico
+// ---------------------------------------------------------------------------
+// Expone `window.__rfidSim` que inyecta eventos en el mismo punto que el
+// firmware real (`handleRawEvent`), de modo que recorran el pipeline
+// completo (validación de UID, dedupe, persistencia IDB, forwarding a
+// socket). Sólo se monta en builds no-production para no exponer un canal
+// de inyección en producción.
+//
+// Uso desde DevTools:
+//   __rfidSim.init();                          // emula el handshake del sensor
+//   __rfidSim.detect('04A1B2C3', 'MIFARE_1KB'); // emula card_detected
+//   __rfidSim.heartbeat();                     // mantiene deviceState='ready'
+//   __rfidSim.removed('04A1B2C3');             // emula card_removed
+if (typeof globalThis !== 'undefined' && typeof window !== 'undefined') {
+  const env = (import.meta?.env?.MODE || import.meta?.env?.NODE_ENV || 'development').toLowerCase();
+  if (env !== 'production') {
+    // QA del enforcement HMAC (T-905 B8) sin firmware real. El secret se inyecta
+    // en runtime (__rfidSim.setSecret), NUNCA va en el bundle. Dev-only.
+    const SIM_SENSOR_ID = 'sensor-sim-dev';
+    const SIM_COUNTER_KEY = 'rfid-sim-counter';
+    // El secret SOLO se inyecta en runtime vía __rfidSim.setSecret() — nunca desde
+    // una env var (evita cualquier riesgo de embeberlo en el bundle).
+    let simSecret = null;
+
+    const simNextCounter = () => {
+      let n = Number.parseInt(globalThis.localStorage?.getItem(SIM_COUNTER_KEY) || '0', 10);
+      if (!Number.isFinite(n) || n < 0) n = 0;
+      n += 1;
+      try { globalThis.localStorage?.setItem(SIM_COUNTER_KEY, String(n)); } catch { /* best-effort */ }
+      return n;
+    };
+
+    const simSign = async (uidUpper, counter) => {
+      const enc = new TextEncoder();
+      const key = await globalThis.crypto.subtle.importKey(
+        'raw', enc.encode(simSecret), { name: 'HMAC', hash: 'SHA-256' }, false, ['sign']
+      );
+      const sig = await globalThis.crypto.subtle.sign('HMAC', key, enc.encode(`${uidUpper}:${counter}`));
+      return Array.from(new Uint8Array(sig)).map((b) => b.toString(16).padStart(2, '0')).join('');
+    };
+
+    window.__rfidSim = Object.freeze({
+      setSecret(secret) {
+        simSecret = String(secret || '').trim() || null;
+        // eslint-disable-next-line no-console -- helper de QA dev-only
+        console.info('[__rfidSim] secret HMAC cargado; detect() firmará los scans.');
+      },
+      init() {
+        // sensorId dedicado: aísla el counter del simulador del sensor físico.
+        webSerialService.sensorId = SIM_SENSOR_ID;
+        webSerialService.handleRawEvent({ event: 'init', status: 'success', version: 'sim-1.0' });
+      },
+      async detect(uid, type = 'MIFARE_1KB') {
+        const normalizedUid = String(uid || '').trim().toUpperCase();
+        if (!normalizedUid) {
+          console.warn('[__rfidSim] detect() llamado sin UID válido — scan ignorado.');
+          return;
+        }
+        // QA 2026-05-06: si `init()` no se llamó previamente o el sensor
+        // está en estado distinto de 'ready', el `_handleCardDetected` no
+        // forwardea el scan al socket (queda encolado en `pendingScans`).
+        // Avisamos al QA en consola para evitar la confusión "el detect no
+        // hace nada" — antes había que adivinarlo del flujo.
+        if (webSerialService.deviceState !== 'ready') {
+          console.warn(
+            '[__rfidSim] El sensor simulado no está en estado "ready". Llama __rfidSim.init() antes de detect(), o el scan se encolará en pendingScans.'
+          );
+        }
+        const raw = { event: 'card_detected', uid: normalizedUid, type };
+        // Con secret cargado, firmamos como el firmware (UID mayúsculas + counter).
+        if (simSecret) {
+          const counter = simNextCounter();
+          raw.counter = counter;
+          raw.hmac = await simSign(normalizedUid, counter);
+        } else {
+          console.warn(
+            '[__rfidSim] Sin secret. Con RFID_HMAC_ENABLED=true el scan será rechazado. Llama __rfidSim.setSecret("<secret>") primero.'
+          );
+        }
+        webSerialService.handleRawEvent(raw);
+      },
+      removed(uid) {
+        webSerialService.handleRawEvent({
+          event: 'card_removed',
+          uid: String(uid || '').trim().toUpperCase()
+        });
+      },
+      heartbeat() {
+        webSerialService.handleRawEvent({
+          event: 'status',
+          // ms desde la carga de la página, análogo al millis() del firmware
+          // (NO Date.now(): epoch daría un "uptime" de décadas en la UI).
+          uptime: Math.floor(performance.now()),
+          cards_detected: 0,
+          free_heap: 32768
+        });
+      },
+      // Devuelve un snapshot del estado interno para diagnóstico — útil
+      // cuando un detect "no parece hacer nada" (encolado vs forwardado).
+      status() {
+        return {
+          deviceState: webSerialService.deviceState,
+          pendingScans: webSerialService.pendingScans.length,
+          sensorId: webSerialService.sensorId,
+          firmwareVersion: webSerialService.firmwareVersion
+        };
+      }
+    });
+  }
+}

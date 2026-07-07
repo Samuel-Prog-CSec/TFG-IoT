@@ -6,12 +6,11 @@
  * @module components/game/ChallengeDisplay
  */
 
-import { motion, AnimatePresence } from 'framer-motion';
-import { useEffect, useState } from 'react';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { Sparkles } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
-import { getAssetImageUrl } from '../../lib/cardMapping';
 import AudioMiniPlayer from '../ui/AudioMiniPlayer';
 import FloatingPointsBadge from './FloatingPointsBadge';
 
@@ -99,19 +98,10 @@ const ChallengeDisplay = function ChallengeDisplay({
   feedbackPoints = 0,
   feedbackMessage = '',
   isTimeout = false,
+  autoPlayAudio = false,
   className
 }) {
   const { shouldReduceMotion } = useReducedMotion();
-  const [imageError, setImageError] = useState(false);
-  const [imageLoading, setImageLoading] = useState(false);
-
-  // Usar imagen completa para el display grande (768x768 para retina 2x a 160px CSS)
-  const assetImageUrl = getAssetImageUrl(asset, { preferFull: true });
-
-  useEffect(() => {
-    setImageError(false);
-    setImageLoading(Boolean(assetImageUrl));
-  }, [assetImageUrl]);
 
   const theme = themeColors[contextTheme] || themeColors.default;
   const isIdle = feedbackState === 'idle';
@@ -144,9 +134,9 @@ const ChallengeDisplay = function ChallengeDisplay({
       transition={shouldReduceMotion ? { duration: 0 } : { type: 'spring', stiffness: 300, damping: 20 }}
       className={cn(
         "relative flex flex-col items-center justify-center",
-        // Padding ajustado para que la tarjeta no domine la pantalla y deje
-        // espacio al fallback panel y a la mascota sin necesidad de scroll.
-        "p-4 sm:p-6",
+        // Padding vh-aware: se compacta en viewports de poca altura (720p) para
+        // que el reto + el panel táctil quepan SIN recorte (fit-to-viewport).
+        "p-[clamp(0.6rem,2.2vh,1.5rem)]",
         "rounded-3xl",
         `bg-gradient-to-br ${theme.bg}`,
         "border-2 transition-[border-color,box-shadow] duration-300",
@@ -228,56 +218,38 @@ const ChallengeDisplay = function ChallengeDisplay({
         {/* Emoji/Image — escalada generosamente en desktop para aprovechar
             el ancho disponible del panel de asociacion (QA 2026-04-23: antes
             quedaba muy pequeña y con aire alrededor). */}
-        {assetImageUrl && !imageError ? (
-          <div
+        {/* Objetivo OCULTO: durante el reto NO se muestra el asset de respuesta
+            (la imagen de la tarjeta correcta) — el alumno debe ASOCIAR la
+            consigna/nombre con la tarjeta física correcta, no copiar una imagen.
+            En su lugar, un signo de interrogación estilizado y animado; el
+            nombre/consigna de abajo hace de pista. */}
+        <motion.div
+          className={cn(
+            // Mismo marco tematizado y tamaño vh-aware que tenía la imagen.
+            "relative size-[clamp(4rem,13vh,12rem)] mx-auto mb-[clamp(0.2rem,0.9vh,0.5rem)] rounded-2xl",
+            "flex items-center justify-center",
+            `bg-gradient-to-br ${theme.bg}`,
+            "ring-2 ring-offset-2 ring-offset-transparent",
+            theme.border.replace('border-', 'ring-'),
+            "shadow-[inset_0_2px_6px_color-mix(in_oklab,var(--color-text-primary)_20%,transparent)]"
+          )}
+          animate={shouldReduceMotion ? undefined : { scale: [1, 1.04, 1] }}
+          transition={shouldReduceMotion ? undefined : { duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+        >
+          {/* Halo suave detrás del signo para darle profundidad de "carta boca abajo". */}
+          <div className={cn('absolute inset-6 rounded-2xl opacity-40', !shouldReduceMotion && 'animate-pulse-glow')} />
+          <motion.span
+            aria-hidden="true"
             className={cn(
-              "relative size-28 sm:size-40 lg:size-52 mx-auto mb-2 rounded-2xl overflow-hidden",
-              // Marco tematizado: ring + shadow con color del tema
-              `ring-2 ring-offset-2 ring-offset-transparent`,
-              theme.border.replace('border-', 'ring-'),
-              // Sombra interior para profundidad
-              "shadow-[inset_0_2px_6px_rgba(0,0,0,0.3)]"
+              'relative font-display font-black leading-none select-none text-[clamp(2.6rem,8vh,6rem)]',
+              theme.text
             )}
-            style={asset?.dominantColor ? { backgroundColor: asset.dominantColor } : undefined}
+            animate={shouldReduceMotion ? undefined : { y: [0, -6, 0], rotate: [0, -5, 5, 0] }}
+            transition={shouldReduceMotion ? undefined : { duration: 2.4, repeat: Infinity, ease: 'easeInOut' }}
           >
-            {imageLoading && !asset?.dominantColor && (
-              <div className="absolute inset-0 rounded-2xl border border-white/10 bg-white/5 animate-pulse" />
-            )}
-            <motion.img
-              src={assetImageUrl}
-              alt={asset.value}
-              className={cn(
-                "size-full object-contain drop-shadow-2xl transition-opacity duration-400 ease-out",
-                imageLoading ? "opacity-0" : "opacity-100"
-              )}
-              animate={shouldReduceMotion ? { scale: 1 } : { scale: [1, 1.05, 1] }}
-              transition={shouldReduceMotion ? { duration: 0 } : { duration: 2, repeat: Infinity, ease: "easeInOut" }}
-              onLoad={() => setImageLoading(false)}
-              onError={() => {
-                setImageError(true);
-                setImageLoading(false);
-              }}
-              loading="eager"
-              fetchPriority="high"
-              decoding="sync"
-            />
-          </div>
-        ) : (
-          <motion.div
-            className="text-7xl sm:text-9xl lg:text-[10rem] mb-2 select-none filter drop-shadow-lg leading-none"
-            animate={shouldReduceMotion ? { scale: 1, rotate: 0 } : {
-              scale: [1, 1.1, 1],
-              rotate: [0, 3, -3, 0]
-            }}
-            transition={shouldReduceMotion ? { duration: 0 } : {
-              duration: 2,
-              repeat: Infinity,
-              ease: "easeInOut"
-            }}
-          >
-            {revealed ? asset?.display : '❓'}
-          </motion.div>
-        )}
+            ?
+          </motion.span>
+        </motion.div>
 
         {/* Text value — el nombre del target como ayuda visual principal.
             Escalado para desktop porque acompaña a un asset image grande
@@ -288,7 +260,7 @@ const ChallengeDisplay = function ChallengeDisplay({
             animate={{ opacity: 1, y: 0 }}
             transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.2 }}
             className={cn(
-              "text-2xl sm:text-3xl lg:text-4xl font-bold font-display tracking-tight",
+              "text-[clamp(1.15rem,3.2vh,2.25rem)] font-bold font-display tracking-tight leading-tight",
               theme.text
             )}
           >
@@ -298,16 +270,22 @@ const ChallengeDisplay = function ChallengeDisplay({
         </motion.div>
       </AnimatePresence>
 
-      {/* Audio mini-player */}
+      {/* Audio de consigna como PISTA sonora AUTOMÁTICA (accesibilidad pre-lectora en
+          Asociación): el objetivo del reto está OCULTO ("?"), así que para un niño que
+          aún no lee el audio ES la pregunta. Se reproduce solo al empezar cada ronda
+          (`autoPlayToken={asset.value}` cambia por ronda → una reproducción por reto).
+          Va en modo OCULTO (`visuallyHidden`): el reproductor visible con barra y
+          tiempo descuadraba el layout bajo el "?"; el audio suena igual sin pintar
+          controles (el objeto Audio vive en JS, no en el DOM). */}
       {asset?.audioUrl && (
-        <motion.div
-          initial={shouldReduceMotion ? false : { opacity: 0, y: 10 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={shouldReduceMotion ? { duration: 0 } : { delay: 0.3 }}
-          className="mt-6 w-full max-w-xs"
-        >
-          <AudioMiniPlayer audioUrl={asset.audioUrl} size="sm" variant="glass" />
-        </motion.div>
+        <AudioMiniPlayer
+          audioUrl={asset.audioUrl}
+          size="sm"
+          variant="glass"
+          autoPlay={autoPlayAudio && revealed}
+          autoPlayToken={asset?.value}
+          visuallyHidden
+        />
       )}
 
       {/* Sparkles decoration */}
@@ -326,7 +304,12 @@ const ChallengeDisplay = function ChallengeDisplay({
 function ChallengeSparkle({ className, delay = 0 }) {
   return (
     <motion.div
-      className={cn("text-2xl pointer-events-none select-none", className)}
+      className={cn(
+        // Antes era emoji ✨ (text-2xl). Migrado a Lucide Sparkles con
+        // tono brand-light para coherencia con el resto del design system.
+        'pointer-events-none select-none text-brand-light/70',
+        className,
+      )}
       initial={{ opacity: 0, scale: 0 }}
       animate={{
         opacity: [0, 1, 0],
@@ -340,7 +323,7 @@ function ChallengeSparkle({ className, delay = 0 }) {
         ease: "easeInOut"
       }}
     >
-      ✨
+      <Sparkles size={20} strokeWidth={1.5} fill="currentColor" aria-hidden="true" />
     </motion.div>
   );
 }
@@ -359,6 +342,7 @@ ChallengeDisplay.propTypes = {
   feedbackPoints: PropTypes.number,
   feedbackMessage: PropTypes.string,
   isTimeout: PropTypes.bool,
+  autoPlayAudio: PropTypes.bool,
   className: PropTypes.string
 };
 

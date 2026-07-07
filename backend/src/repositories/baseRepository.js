@@ -21,6 +21,13 @@
  * desactivado por defecto porque muchos flujos hacen find → modify → .save().
  * Se puede forzar con lean: true/false explícito en cualquier caso.
  *
+ * **Regla operativa:** si tu query de `findById`/`findOne` es read-only
+ * (no hace `.save()` posterior, solo lectura para enriquecer una respuesta o
+ * construir un mapa de lookup), pasa `{ lean: true }` explícito. El default
+ * activa lean solo si detecta `sort`/`limit`/`skip`, por lo que un `findById`
+ * sin esas opciones devolverá un documento Mongoose hidratado innecesario.
+ * Ver `reportDataService.js` (enriquecimiento de scores) como referencia.
+ *
  * @param {import('mongoose').Query} query - Query de Mongoose en curso
  * @param {Object} options - Opciones a aplicar
  * @param {boolean} [options.lean] - true para POJOs, false para documentos Mongoose
@@ -102,6 +109,24 @@ const updateOne = (Model, filter, update, options = {}) =>
     ...options
   });
 
+/**
+ * Actualiza múltiples documentos que coincidan con el filtro.
+ * Pensado para operaciones batch (ej: archivado en cascada) donde no se
+ * necesitan los documentos actualizados de vuelta. Acepta { session } para
+ * participar en transacciones.
+ *
+ * @param {import('mongoose').Model} Model - Modelo de Mongoose
+ * @param {Object} filter - Filtro de búsqueda
+ * @param {Object} update - Campos a actualizar (operadores $ o campos planos)
+ * @param {Object} [options={}] - Opciones adicionales de Mongoose (ej: { session })
+ * @returns {Promise<{matchedCount: number, modifiedCount: number}>} Resultado
+ */
+const updateMany = (Model, filter, update, options = {}) =>
+  Model.updateMany(filter, update, {
+    runValidators: true,
+    ...options
+  });
+
 // ───────────────────────── Eliminación ─────────────────────────────
 
 /**
@@ -118,9 +143,10 @@ const deleteById = (Model, id) => Model.findByIdAndDelete(id);
  *
  * @param {import('mongoose').Model} Model - Modelo de Mongoose
  * @param {Object} filter - Filtro de búsqueda
+ * @param {Object} [options={}] - Opciones adicionales de Mongoose (ej: { session })
  * @returns {Promise<{deletedCount: number}>} Resultado de la eliminación
  */
-const deleteMany = (Model, filter) => Model.deleteMany(filter);
+const deleteMany = (Model, filter, options = {}) => Model.deleteMany(filter, options);
 
 // ────────────────────── Operaciones Batch ───────────────────────────
 
@@ -148,6 +174,7 @@ module.exports = {
   applyQueryOptions,
   updateById,
   updateOne,
+  updateMany,
   deleteById,
   deleteMany,
   insertMany,

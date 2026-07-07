@@ -3,6 +3,9 @@
 > [!NOTE]
 > Para una explicación operacional end-to-end de actores, ownership, modos y errores esperados en runtime RFID, ver [RFID_Runtime_Flows.md](RFID_Runtime_Flows.md).
 
+> [!NOTE]
+> **Endurecimiento ADR-224 (01-07-2026).** (F1) En el cliente (`services/socket.js`), al reutilizar un socket ya creado vía `connect()` explícito se hace `off()` de los handlers internos (`connect`/`disconnect`/`connect_error`/`SESSION_INVALIDATED`) ANTES de re-registrarlos: sin esto, cada reconexión acumulaba un listener más → N `JOIN_PLAY` + N `requestPlayStateSync` (chocando con el rate-limit) + N toasts duplicados. (F3) El evento `rfid_mode_heartbeat` pasa a registrarse a través de `socketRateLimiter.wrap` como el resto de eventos (el cliente lo emite cada 60 s, muy por debajo del límite por defecto de 10/s), cerrando un evento sin acotar. (B1, coste Upstash) El `PUBLISH`/`SUBSCRIBE` de `rfid-mode-changes` se auto-gatea tras `SOCKET_ADAPTER_ENABLED` (`config/scaling.js`): en single-instance no hay otro consumidor, así que era coste puro de comandos.
+
 ## Índice
 
 1. [Estado Actual](#1-estado-actual)
@@ -992,3 +995,281 @@ El sistema utiliza dos namespaces Socket.IO:
 **Frontend:** El `SocketService` gestiona dos conexiones multiplexadas sobre el mismo WebSocket. Métodos `on`/`emit` operan en el namespace default; `onGame`/`emitGame` operan en `/game`.
 
 **Backend:** El `GameEngine` recibe la referencia al namespace `/game` y emite gameplay events directamente. El `socketHandlers.js` registra handlers separados para cada namespace: el default maneja conexión/desconexión y RFID mode; `/game` maneja todos los comandos de juego con rate limiting.
+
+## Timeouts y reconexión cloud (ADR-141, ADR-142)
+
+### Configuración server
+
+`backend/src/server.js` (líneas 78-83) crea el Socket.IO server con:
+
+```js
+const io = new Server(server, {
+  pingTimeout: 60000,      // 60s sin pong → cliente considerado caído
+  pingInterval: 25000,     // 25s entre pings server → cliente
+  maxHttpBufferSize: socketPayloadLimits.globalBytes,
+  transports: ['websocket', 'polling'],
+  allowEIO3: false
+});
+```
+
+Estos valores son holgados a propósito: navegadores y proxies pueden tardar 5-10s en confirmar un pong cuando hay congestión de red. Bajar pingTimeout a 20s (como recomienda el plan original de cloud) desconecta a usuarios legítimos cuyo navegador estaba minimizado.
+
+### Configuración cliente
+
+`frontend/src/services/socket.js`:
+
+| Constante | Valor | Razón |
+|---|---|---|
+| `RECONNECTION_ATTEMPTS` | 15 | 15 intentos × 5s ≈ 75s de window de reconexión |
+| `RECONNECTION_DELAY` | 1000ms | primer reintento rápido tras desconexión normal |
+| `RECONNECTION_DELAY_MAX` | 5000ms | tope del backoff exponencial — bajado de 15s para cloud |
+| `CONNECTION_TIMEOUT` | 10000ms | timeout para la conexión inicial (cold start Koyeb) |
+
+### Evento `server_shutdown` (nuevo en ADR-142)
+
+Durante el graceful shutdown del backend, `server.js` emite `server_shutdown` a **ambos namespaces** (`/` y `/game`) ANTES de cerrar el server:
+
+```js
+io.emit('server_shutdown', { reason: signal, ts: Date.now() });
+gameNsp.emit('server_shutdown', { reason: signal, ts: Date.now() });
+```
+
+El frontend no lo escucha explícitamente (depende del manejo nativo de `disconnect` de Socket.IO), pero queda disponible para una mejora futura: los clientes podrían anticipar el deploy y mostrar "Conectando con nueva versión…" en lugar del genérico "Desconectado".
+
+### Idle timeout Koyeb
+
+Por defecto Koyeb cierra conexiones idle a los 60s. Para soportar partidas en pausa o pestañas en background, configurar `idle_timeout` en el servicio Koyeb a **120s o más** (settings → Networking).
+
+---
+
+## Validación multi-instancia con Redis adapter (T-907 Fase C — PROP-122)
+
+Koyeb free tier permite una sola instancia always-on por app, pero queremos garantizar que cuando escalemos (paid tier o migración) el `@socket.io/redis-adapter` propaga correctamente eventos de room entre instancias. Esta sección documenta el procedimiento manual de validación.
+
+### Setup local
+
+Levantar Mongo y Redis con Docker Compose (necesario para Lua scripts; ioredis-mock no los soporta):
+
+```bash
+docker compose up -d mongo redis
+```
+
+Arrancar dos instancias del backend compartiendo la misma Redis:
+
+```bash
+npm --prefix backend run dev:multi-1   # PORT=5000 INSTANCE_NAME=node-A
+npm --prefix backend run dev:multi-2   # PORT=5001 INSTANCE_NAME=node-B
+```
+
+Ambos scripts usan el mismo `REDIS_URL` (default `redis://localhost:6379`). El `INSTANCE_NAME` es informativo y se puede leer en logs si se referencia.
+
+### Script de test
+
+`backend/scripts/test-socket-multiinstance.js`:
+
+```bash
+npm --prefix backend run test:multi-instance
+```
+
+El script:
+1. Hace login HTTP contra ambos backends para obtener access tokens válidos.
+2. Conecta `clientA` al backend A (`/game`) y `clientB` al backend B.
+3. Ambos hacen `join_room('multiinstance-room-t907')`.
+4. `clientA` emite `test:ping` → `clientB` debe recibirlo (server-side propaga via Redis pub/sub).
+5. `clientB` emite `test:pong` → `clientA` debe recibirlo.
+
+Salida esperada (caso éxito):
+
+```
+✅ clientA conectado a http://localhost:5000 (socket=abc123)
+✅ clientB conectado a http://localhost:5001 (socket=def456)
+✅ clientB recibió ping de clientA → adapter Redis OK
+✅ clientA recibió pong de clientB → adapter Redis OK
+✅ TEST PASADO — el Socket.IO Redis adapter propaga mensajes entre instancias
+```
+
+Si alguno de los cruces falla, revisa:
+- Que `@socket.io/redis-adapter` esté inicializado correctamente en `server.js` (debe haber log "Socket.IO Redis adapter configurado para escalabilidad horizontal").
+- Que las dos instancias usen el mismo `REDIS_URL` y `REDIS_KEY_PREFIX`.
+- Que el room sea idéntico en ambos clientes (el script usa `multiinstance-room-t907`).
+
+### Limitaciones del test
+
+- Usa el mismo usuario (`maria@test.com`) para ambos clientes. Si el backend tiene `enforce single session` activo (revoca tokens previos al loguear de nuevo), pasar `TEST_EMAIL_B`/`TEST_PASSWORD_B` para un segundo usuario.
+- No usa `join_room` nativo del backend (que requiere lógica de partida); el room se crea dinámicamente. Algunos eventos custom del backend no se prueban.
+- No valida latencia. La propagación pub/sub añade ~1-2ms — imperceptible para el usuario pero a tener en cuenta en cálculos de p99.
+
+### Conclusión esperada
+
+El adapter Redis cumple su contrato: una emisión a `io.to(room).emit(...)` desde cualquier instancia llega a todos los clientes del room, independientemente de a qué instancia estén conectados. La plataforma puede escalarse horizontalmente sin perder coordinación de rooms cuando salgamos del free tier de Koyeb.
+
+### Validación ejecutada (2026-05-17, T-907 OP2)
+
+Ejecutada localmente contra Docker Compose (mongo + redis con password `devRedis123!`) y dos backends en puertos 5000 y 5001 compartiendo la misma instancia Redis:
+
+```
+ℹ️  Test multi-instancia adapter Socket.IO T-907 Fase C
+ℹ️  Backend A: http://localhost:5000
+ℹ️  Backend B: http://localhost:5001
+ℹ️  Room compartido: multiinstance-room-t907
+✅ Login OK contra backend A
+✅ clientA conectado a http://localhost:5000 (socket=kiehGs2Aww2kWV_1AAAB)
+✅ clientB conectado a http://localhost:5001 (socket=5nm7pqlOtBXGLvNNAAAB)
+✅ Ambos clientes en el room (test:join ack OK en ambas instancias)
+✅ clientB recibió ping de clientA → {"from":"A","ts":1779054887541}
+✅ clientA recibió pong de clientB → {"from":"B","ts":1779054887548}
+✅ TEST PASADO — el Socket.IO Redis adapter propaga mensajes entre instancias
+```
+
+**Conclusión empírica**:
+- El adapter Redis está correctamente inicializado en ambas instancias (log "Socket.IO Redis adapter configurado para escalabilidad horizontal" presente en ambos backends al boot).
+- Un cliente conectado a backend A recibe los `emit` que ejecuta backend B, y viceversa, a través de la coordinación pub/sub interna del adapter.
+- Latencia añadida por el round-trip Redis < 100 ms (no medida formalmente, instantánea para uso humano).
+
+### Handlers `test:join` y `test:broadcast` (solo NO-prod)
+
+`socketHandlers.js` registra dos handlers en el namespace `/game` **únicamente cuando `NODE_ENV !== 'production'`**:
+
+- `test:join { room }` → `socket.join(room)` y devuelve ack `{ ok, room, socketId }`.
+- `test:broadcast { room, event, data }` → `gameNsp.to(room).emit(event, data)`.
+
+El script de validación los utiliza para forzar el flujo emit-cross-instance sin acoplarse a la lógica de juego (que requeriría partidas reales con mecánicas, mappings, plays, etc.). En producción **no se registran**: son rutas inertes que no exponen datos ni superficie de ataque y solo viven en local/staging.
+
+### Notas operativas
+
+- **Redis password**: en el setup Docker Compose del proyecto, Redis arranca con `--requirepass devRedis123!`. Los scripts `dev:multi-1` y `dev:multi-2` pasan `REDIS_URL=redis://:devRedis123!@localhost:6379` y `MONGO_URI=mongodb://localhost:27017/rfid_games_db` vía `cross-env` para conectar desde host al puerto expuesto del contenedor.
+- **`.env` requerido**: el backend necesita un `.env` con `JWT_SECRET` y `JWT_REFRESH_SECRET` cargado por `dotenv.config()`. En esta validación se copió `.env` del raíz a `backend/` (dotenv busca en CWD del proceso node).
+- **Seed previo**: el script hace login con `maria@test.com / Test1234!`. Si la BD está vacía, ejecutar antes `npm run seed:if-empty`.
+
+---
+
+## T-941 / ADR-161 — Evento `notification:created` con `metadata.alertId`
+
+El sistema de alertas inteligentes (SmartAlert) emite notificaciones realtime al docente cuando se detecta una alerta `critical` nueva (o cuando una existente se promueve a `critical` por severity escalation). Reutiliza el canal existente `notification:created` (T-955) con shape:
+
+```json
+{
+  "id": "<notificationId>",
+  "type": "student_at_risk",
+  "priority": "critical",
+  "title": "Alerta crítica: <studentName>",
+  "body": "<alert.description truncado a 280>",
+  "link": "/students/<studentId>?alertId=<alertId>",
+  "metadata": {
+    "alertId": "<smartAlertId>",
+    "studentId": "<studentId>",
+    "alertType": "declining_performance | sudden_score_drop | ..."
+  },
+  "read": false,
+  "createdAt": "..."
+}
+```
+
+**Dedup**: `notificationService.notify` aplica una ventana de 60 s vía Redis SET NX para evitar duplicados ante triggers concurrentes (p.ej. dos instancias del backend procesando la misma corrida del worker `alert-detection`).
+
+**Frontend**: el hook `useNotifications` (`frontend/src/hooks/useNotifications.js`) escucha `notification:created` y, cuando `type === 'student_at_risk'`, dispara `window.dispatchEvent(new CustomEvent('smartalert:created', { detail: { alertId, payload } }))`. Dashboard y AlertsHub escuchan ese evento DOM y refetchan sin reload.
+
+**Solo critical**: las alertas `warning` e `info` actualizan contadores y la lista en el siguiente refresco (cache 60 s + acción del docente), pero NO emiten notificación para evitar fatiga.
+
+## Sprint 0 pre-v1.0.0 — Timeout duro en mutex RFID y nuevo evento `rfid_mode_error` (ADR-164)
+
+### `rfid_mode_error` (server → client)
+Emitido al room `user_${userId}` cuando una operación dentro de `executeWithRfidLock` excede `RFID_OPERATION_TIMEOUT_MS` (default 10s).
+
+```json
+{
+  "code": "RFID_LOCK_TIMEOUT",
+  "message": "La operación RFID tardó demasiado y se ha cancelado. Vuelve a intentarlo."
+}
+```
+
+El frontend ya tenía SOCKET_ERROR_MESSAGES con códigos similares (`RFID_MODE_INVALID`, `RFID_SENSOR_*`), por lo que añadir `RFID_LOCK_TIMEOUT` al diccionario es trivial. El comportamiento esperado del cliente: mostrar toast warning con `id='socket-error'` (dedupe automático) o banner si retryAfterMs estuviese presente (no aplica aquí — timeout es one-shot).
+
+### Métricas + alertas
+- `runtimeMetrics.websocket.rfidLockTimeouts` incrementa por cada timeout.
+- `securityLogger.RFID_LOCK_TIMEOUT` con threshold Sentry 3/min — alerta tras 3 incidentes en una ventana de 60s. Ver `documentation/SECURITY.md §13.5` para el pipeline completo.
+
+### Tests adversariales
+Para validar el flujo manualmente sin sensor físico:
+```js
+// En consola del browser durante una partida
+window.__rfidSim?.detect('AABBCCDD'); // scan normal
+// Para forzar el timeout (solo si el simulador soporta retrasos):
+// (requiere modificar test/script o usar Playwright para inyectar setTimeout en operation)
+```
+
+---
+
+## Pre-v1.0.0 — Bloque C (cambios WebSocket performance / robustness)
+
+Sesión de performance end-to-end pre-corte v1.0.0. Ver ADR-172.
+
+### C.1 — `perMessageDeflate` global threshold=1024 B
+
+`backend/src/server.js` `new Server(...)` ahora incluye:
+```js
+perMessageDeflate: {
+  threshold: 1024,
+  zlibDeflateOptions: { level: 3 }
+}
+```
+
+- Eventos >1KB se comprimen (`game_over` 2-3KB → ~600-900B; `sequence_round_result` 1-2KB → ~400-700B). Reducción ~70% bytes egress.
+- Eventos pequeños (`validation_result` <500B) NO se comprimen (no compensa CPU).
+- Level 3 = sweet spot CPU/ratio para JSON.
+
+**Verificable en handshake**: `Sec-WebSocket-Extensions: permessage-deflate` en response 101 WebSocket Upgrade.
+
+### C.2 — `pingTimeout` 60s → 30s
+
+`backend/src/server.js`: `pingInterval: 25_000`, `pingTimeout: 30_000`. Liberación más rápida de sockets zombies tras cierre brusco de pestaña. Cliente con `reconnectionAttempts: 15` × 5s max delay cubre redes flaky.
+
+**Verificable en handshake polling**: `pingInterval: 25000, pingTimeout: 30000` en response JSON.
+
+### C.3 — `volatile.emit` selectivo con fallback graceful
+
+Aplicado a los 3 callsites de `scan_ignored` (GameEngine.js × 2 + sequenceFlow.js × 1):
+
+```js
+const target = this.io.to(`play_${playId}`);
+const channel = target.volatile || target;
+channel.emit('scan_ignored', { uid, reason: ... });
+```
+
+El fallback `target.volatile || target` resuelve la incompatibilidad con mocks legacy de tests (`{ to: () => ({ emit: () => {} }) }` no expone `.volatile`) — en tests cae a `emit` estándar, en producción real (socket.io 4.x) usa `.volatile.emit`.
+
+**Beneficio**: bajo backpressure cliente (red flaky escolar, pestaña inactiva), el servidor descarta `scan_ignored` en vez de encolar. El cliente sigue viendo el siguiente scan correcto — `scan_ignored` es feedback informativo, no afecta correctness.
+
+**Riesgo**: cero — el peor caso es perder feedback de UI de "scan ignorado" en condiciones de degradación.
+
+**NO aplicar volatile** a `game_over`, `validation_result`, `play_paused`, `play_resumed`, `sequence_round_result`, `new_round` — críticos para correctness del state cliente.
+
+### C.4 — Multi-tab single-cast (infraestructura preparada)
+
+`backend/src/realtime/socketHandlers.js`:
+- Map `socketIdsByUserId: Map<userId, Set<socketId>>` mantiene los socketIds activos por usuario.
+- Helper `getPrimarySocketId(userId)` devuelve el primer socketId del set (orden inserción).
+- `incrementConnectionCount(userId, socketId)` y `decrementConnectionCount(userId, socketId)` actualizan el set.
+
+Las emisiones existentes NO se modifican (sería breaking para tests UI actuales). El helper queda disponible para eventos futuros que requieran single-cast (`game_over` con animation score en un usuario con 2 tabs, etc.).
+
+### C.5 — Cleanup `play:init` lock en disconnect
+
+`backend/src/realtime/socketHandlers.js` disconnect handler del namespace `/game`:
+- Si el usuario era el último socket activo (`socketIdsByUserId.get(userId).size === 0`) y tenía partidas en estado `'created'` (no started), libera proactivamente `play:init:{playId}` lock.
+- Sin esto, el lock quedaba hasta TTL 60s impidiendo idempotencia de un reintento legítimo tras cerrar pestaña.
+
+### Validación multi-instancia
+
+Ver sección anterior. Test `scripts/test-socket-multiinstance.js` ejecutado con 2 instancias (container :5000 + host :5001) ambas contra mismo Redis Docker. clientA emite ping → clientB recibe via Redis adapter. Bidireccional confirmado.
+
+## Auditoría de partidas — fuga de respuesta al reanudar y comandos socket con await (ADR-228)
+
+### Redacción de `displayData` en `play_resumed` (WS-4)
+`getPlayState` (usado en `play_state`/`PLAY_STATE_SYNC`) ya redactaba la respuesta de la mecánica, pero `resumePlayInternal` emitía `challenge.displayData` **sin redactar** en el evento `play_resumed` → en Secuencia reproducing ese objeto contenía la `sequence` ordenada completa (la respuesta), inspeccionable en los frames WS al pausar/reanudar. Fix: helper único `redactChallengeDisplayData(playState, displayData)` en `stateHelpers.js` (para Secuencia reproducing elimina `sequence` y conserva solo `length`), reutilizado por `getPlayState` **y** por `resumePlayInternal`. Evita que la redacción viva duplicada y diverja entre ambos caminos.
+
+### Helpers RFID con `await` en los comandos socket (WS-12)
+Los comandos `JoinPlay`, `PausePlay`, `ResumePlay`, `LeavePlay` y `JoinCardAssignment` invocaban `setRfidModeState`/`clearRfidModeState` **sin `await`** (fire-and-forget). El pipeline `executeSocketCommand` envuelve cada comando en un try/catch; sin el `await`, una rejection de esos helpers **escapaba** del try/catch como `unhandledRejection`. Fix: `await` en todos. Además `JoinPlay` ahora activa el modo GAMEPLAY **antes** de emitir `play_state`, evitando que un scan inmediato al unirse sea rechazado con `RFID_MODE_INVALID` por una carrera de orden.
+
+### Re-anclaje de relojes al reanudar (WS-5)
+Pausar no re-anclaba los relojes por-carta de Secuencia (`lastSequenceScanAt`, `currentRoundStartedAt`) ni el `roundStartTime` del grupo abierto de Memoria (Asociación ya lo hacía) → una pausa de varios minutos entraba como `timeElapsed` de la siguiente carta e inflaba `averageResponseTime` del alumno. Fix: `_reanchorClocksOnResume(playState, pauseDurationMs)` desplaza esos anclas por la duración de la pausa antes de rearmar los timers.

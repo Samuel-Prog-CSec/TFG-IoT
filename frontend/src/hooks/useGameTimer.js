@@ -33,7 +33,15 @@ export function useGameTimer({
    * "TimerBar vacia en bucle" que aparecia cuando el `playEndsAt` del
    * backend aun era null (ver GameEngine.confirmBoardReady).
    */
-  memoryTimerArmed = false
+  memoryTimerArmed = false,
+  /**
+   * Si el canal en tiempo real está conectado. Cuando el socket cae a media
+   * partida (`realtimeStatus` reconnecting/disconnected) CONGELAMOS la barra
+   * visual: si siguiera decrementando, el niño vería el tiempo agotarse solo
+   * durante la reconexión y "gastaría" la ronda. El backend re-sincroniza
+   * `remainingTimeMs` al reconectar, así que la barra reanuda con el valor real.
+   */
+  isRealtimeConnected = true
 }) {
   const [timeLeft, setTimeLeft] = useState(roundTime);
   const announcedThresholdsRef = useRef(new Set());
@@ -60,7 +68,8 @@ export function useGameTimer({
   useEffect(() => {
     const inActivePhase = isMemoryMode ? !memoryFeedbackActive : isAwaitingResponse;
     const memoryGatePasses = !isMemoryMode || memoryTimerArmed;
-    const shouldRunVisualTimer = gameState === 'playing' && inActivePhase && memoryGatePasses;
+    const shouldRunVisualTimer =
+      gameState === 'playing' && inActivePhase && memoryGatePasses && isRealtimeConnected;
 
     if (!shouldRunVisualTimer) {
       return undefined;
@@ -75,7 +84,11 @@ export function useGameTimer({
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [gameState, isAwaitingResponse, isMemoryMode, memoryFeedbackActive, memoryTimerArmed, playTick, roundTime]);
+    // `roundTime` NO va en deps: el callback usa setTimeLeft funcional (no lo lee),
+    // y su re-sincronización la maneja el effect separado de arriba. Incluirlo aquí
+    // limpiaba/recreaba el intervalo al cambiar de fase (p.ej. reproducing de
+    // Secuencia), perdiendo hasta ~1s de tick acumulado.
+  }, [gameState, isAwaitingResponse, isMemoryMode, memoryFeedbackActive, memoryTimerArmed, isRealtimeConnected, playTick]);
 
   /**
    * Comprueba si el tiempo restante actual debe generar un anuncio de accesibilidad.

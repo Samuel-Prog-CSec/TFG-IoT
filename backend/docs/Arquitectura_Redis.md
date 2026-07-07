@@ -20,6 +20,20 @@
 ---
 
 # Introducción
+
+> **Nota de coste free-tier (ADR-224, 01-07-2026).** Bajo el invariante `scale=1`
+> (ADR-223) sobre Upstash free-tier (10k comandos/día), se recortaron consumidores
+> de comandos sin cambiar el comportamiento funcional: (1) el **pub/sub** entre
+> instancias (`rfid-mode-changes` en `persistRfidModeToRedis` y `cache:invalidate`
+> en `invalidateUserCache`) y sus subscribers ahora **se auto-gatean** tras
+> `SOCKET_ADAPTER_ENABLED` (`config/scaling.js` → `isMultiInstanceEnabled()`), igual
+> que el adapter Socket.IO — en single-instance el propio proceso descartaba sus
+> mensajes (`from===self`) = coste puro; el `notificationEmitSubscriber` (puente
+> worker→HTTP) NO se gatea. (2) La **L1 en memoria** `mechanicCache`/`contextCache`
+> (`utils/inMemoryCache.js`), antes código muerto, se cableó en `cacheGet` como capa
+> previa a Redis (TTL 60s + limpieza en toda invalidación). (3) El `ZREMRANGEBYRANK`
+> no-op de los leaderboards pasa a muestreo ~2% por partida.
+
 Redis es una base de datos **en memoria** (in-memory) de tipo **clave-valor** que utilizamos como complemento a MongoDB. Mientras MongoDB almacena datos persistentes y estructurados (usuarios, sesiones de juego, historial), Redis almacena datos **efímeros** y de **alta velocidad** que requieren:
 - **Baja latencia** (<1ms típicamente)
 - **Expiración automática** (TTL nativo)
@@ -502,7 +516,8 @@ prefijo     tipo      identificador
 ## Política de evicción (`maxmemory-policy: noeviction`)
 
 Redis se configura con `maxmemory 256mb` (dev) / `512mb` (prod) y `maxmemory-policy noeviction`
-(ver `docker-compose.yml` y `docker-compose.prod.yml`). Esto significa que cuando la memoria llega
+(ver `docker-compose.yml` y, para el modo de testing local pre-deploy, `docker/archive/docker-compose.prod.yml`).
+Esto significa que cuando la memoria llega
 al límite, las **escrituras nuevas fallan con error** (`OOM command not allowed when used memory > 'maxmemory'`)
 en lugar de expulsar claves existentes.
 
@@ -1223,9 +1238,230 @@ Para más detalles, ver **ADR-066** en `Architecture_Decisions.md`.
 
 ---
 
+# Telemetría de comandos por categoría (T-907 / ADR-158)
+
+Desde el 2026-05-17, `redisService` registra cada comando ejecutado contra Upstash en un contador in-process agrupado por **categoría funcional**. Sirve para:
+
+- Anticipar si el ritmo actual rompería el budget de 10K cmds/día del free tier antes de tocarlo.
+- Identificar qué namespace consume más en un endpoint problemático.
+- Verificar el impacto de optimizaciones (LRU memoria, pipelines, caches Redis).
+
+## Categorías mapeadas
+
+| Categoría        | Namespaces / origen                          | Comentarios |
+|------------------|----------------------------------------------|-------------|
+| `auth`           | `auth:user`, `auth:fail`, `auth:lock`        | Slim user, lockout, failed attempts |
+| `blacklist`      | `blacklist`                                  | Tokens revocados |
+| `refresh`        | `refresh`, `used`, `tokenfamily`             | Rotación de refresh tokens |
+| `security`       | `security`                                   | Logout forzado (revokeAll) |
+| `cache-mechanic` | `cache:mechanic`                             | Mecánicas de juego cacheadas |
+| `cache-context`  | `cache:context`                              | Contextos temáticos cacheados |
+| `cache-analytics`| `cache:analytics`                            | KPIs y agregaciones analytics |
+| `play`           | `play`, `play:init`                          | Estado de partida activa, idempotencia |
+| `card`           | `card`                                       | Mapeo card→play (lock distribuido) |
+| `ratelimit`      | `rl:*`                                       | rate-limit-redis distribuido |
+| `ws`             | `rl:ws:*`, `rfid:mode`, `rfid:sensor`        | Rate-limit WebSocket + estado RFID |
+| `bullmq`         | `bull:*`                                     | Colas BullMQ |
+| `lua`            | `reserveCards`, `releaseCards`, `renewLease` | EVAL/EVALSHA |
+| `pipeline`       | `runPipeline()` explícito                    | Lecturas heterogéneas agrupadas |
+| `other`          | resto / desconocido                          |  |
+
+## Salida en `/api/metrics`
+
+```json
+{
+  "redis": {
+    "commandsTotal": 1234,
+    "commandsByCategory": {
+      "auth": 567,
+      "blacklist": 123,
+      "ratelimit": 234,
+      "cache-analytics": 45,
+      "lua": 12
+    },
+    "commandsEstimatedDaily": 17856,
+    "inMemoryCache": { "authUser": {...}, "mechanic": {...}, "context": {...} }
+  }
+}
+```
+
+`commandsEstimatedDaily` es una extrapolación lineal desde `uptimeSeconds`. Cuando esté >8K, alertar (margen 2K para reaccionar antes de tocar 10K).
+
+## Reset y overhead
+
+- `redisCommandTracker.reset()` reinicia contadores (usado en tests). En producción no se resetea automáticamente — el snapshot extrapola desde uptime.
+- Overhead despreciable: 1 acceso a Map + `Number.isFinite` + try/catch silencioso por comando.
+
+# LRU memoria complementaria al cache Redis (T-907 / ADR-158)
+
+Antes el cache `auth:user` Redis (TTL 60s) ahorraba queries Mongo pero seguía consumiendo 1 GET Upstash por request autenticada. Tras T-907 se añade una capa LRU en memoria del proceso encima del cache Redis para absorber microbursts (varios requests del mismo usuario en pocos segundos).
+
+## Instancias singleton
+
+`backend/src/utils/inMemoryCache.js` expone tres instancias preconfiguradas:
+
+| Instancia       | Namespace cubierto | TTL    | Max entries |
+|-----------------|--------------------|--------|-------------|
+| `authUserCache` | `auth:user:<id>`   | 30s    | 500         |
+| `mechanicCache` | `cache:mechanic:*` | 60s    | 50          |
+| `contextCache`  | `cache:context:*`  | 60s    | 100         |
+
+TTLs y tamaños override via env (`IN_MEMORY_AUTH_USER_TTL_MS`, `IN_MEMORY_AUTH_USER_MAX`, etc.).
+
+## Lookup order
+
+`fetchUserForAuth` ejemplifica el patrón estándar:
+
+```
+1. authUserCache.get(userId)
+   └─ HIT  → return inmediato (0 cmds Redis)
+   └─ MISS → continuar
+
+2. redisService.get('auth:user', userId)
+   └─ HIT  → set en authUserCache + return (1 cmd Redis)
+   └─ MISS → continuar
+
+3. userRepository.findById(userId)
+   └─ set en authUserCache (sync)
+   └─ setWithTTL 'auth:user' en Redis (fire-and-forget, 1 cmd Redis)
+   └─ return (1 query Mongo + 1 cmd Redis)
+```
+
+## Invalidación
+
+`invalidateUserCache(userId)` limpia primero el LRU local y luego invalida la entrada Redis. Cross-instance la consistencia depende del TTL local (30s en `authUser`). Si en el futuro se escala a 2+ instancias del backend, se documenta como deuda añadir pub/sub `cache:invalidate` para propagar la invalidación.
+
+## Métricas
+
+`inMemoryCache.getAllStats()` se expone en `/api/metrics → redis.inMemoryCache` con `hits`, `misses`, `evictions`, `hitRatePercent`, `size`, `max`, `ttlMs` por instancia. Hit rate >70% indica que la capa local está absorbiendo microbursts y bajando el budget Redis.
+
+# Pipeline helper para lecturas heterogéneas (T-907)
+
+`redisService.runPipeline(buildFn, namespace = 'pipeline')` permite a callers agrupar lecturas heterogéneas en 1 round-trip Upstash. Caso típico (no aplicado todavía, queda como follow-up): el middleware `authenticate` podría combinar `EXISTS blacklist:<jti> + GET security:<userId> + GET auth:user:<userId>` en un solo viaje.
+
+```js
+const results = await redisService.runPipeline((p) => {
+  p.exists(`blacklist:${jti}`);
+  p.get(`security:${userId}`);
+  p.get(`auth:user:${userId}`);
+}, 'auth');
+// results = [[null, 0|1], [null, value|null], [null, value|null]]
+```
+
+Cada operación añadida al pipeline contabiliza como 1 comando en la categoría indicada (default `pipeline`). Si Redis no está disponible devuelve `null` y el caller decide fallback.
+
+---
+
 # Recursos Adicionales
 - [Documentación oficial de Redis](https://redis.io/docs/)
 - [Documentación de ioredis](https://github.com/redis/ioredis)
 - [Upstash Docs](https://docs.upstash.com/redis)
 - [Redis Data Types Tutorial](https://redis.io/docs/data-types/tutorial/)
 - [Redis Best Practices](https://redis.io/docs/management/optimization/)
+
+---
+
+# T-907 INT5 — Canal pub/sub `cache:invalidate` (cross-instance LRU)
+
+Tras introducir el LRU memoria por proceso (T-907 D / ADR-158) surgió la necesidad de invalidar **caches en memoria de las otras instancias del backend** cuando una de ellas cambia un slim-user (role, status, currentSessionId, consent), una mecánica o un contexto. Sin esto, la ventana de inconsistencia es el TTL local (30-60 s).
+
+## Canal
+
+- **Nombre:** `cache:invalidate`.
+- **Mensaje:** JSON `{ namespace, key, from: instanceId, ts }`.
+- **Namespaces aceptados:** `auth:user`, `cache:mechanic`, `cache:context`. Otros se ignoran silenciosamente.
+- **Identificador de instancia (`from`):** `HOSTNAME` o `INSTANCE_NAME` o `pid-<pid>`. Los subscribers ignoran sus propios mensajes (la instancia origen ya limpió su LRU localmente).
+
+## Publisher
+
+`backend/src/middlewares/auth.js → invalidateUserCache(userId)`:
+
+1. Limpia `authUserCache` local (síncrono).
+2. Publica `{ namespace: 'auth:user', key: userId, from: instanceId }` en `cache:invalidate` (fire-and-forget).
+3. Invalida Redis (`cacheInvalidate('auth:user', userId)`).
+
+El publisher para invalidaciones de `cache:mechanic` y `cache:context` queda preparado pero no se conecta hoy (esos caches se invalidan vía mutaciones admin en `mechanicController` y `contextController`, no por flujos de usuario). Cuando se conecten, basta con `require('../realtime/cacheInvalidateSubscriber').publishInvalidate('cache:mechanic', mechanicId)`.
+
+## Subscriber
+
+`backend/src/realtime/cacheInvalidateSubscriber.js` se arranca desde `server.js` después de `connectRedis()` (junto al `rfidModeSubscriber`) y se cierra en `gracefulShutdown`. Si Redis no está disponible, queda en no-op y el TTL local (30-60 s) sigue actuando como fallback.
+
+## Comportamiento por entorno
+
+| Entorno | Comportamiento |
+|---------|----------------|
+| Single-instance (caso típico Koyeb free tier) | Publish al canal sin oyentes (coste despreciable). El LRU local se sigue limpiando síncronamente. |
+| Multi-instance (paid tier o autoscaling futuro) | Cada instancia recibe los mensajes de las otras y limpia su LRU. Latencia de propagación <100 ms (round-trip Redis pub/sub). |
+
+## Diferencia con `RFID_MODE_PUBSUB_CHANNEL`
+
+Ambos canales siguen el mismo patrón (cliente Redis dedicado en modo SUBSCRIBE, ignora mensajes propios via instance ID). La diferencia es de dominio:
+
+- `rfid-mode-changes` (ADR-077): sincroniza estado RFID transitorio entre instancias.
+- `cache:invalidate` (T-907 INT5): invalida caches en memoria tras mutaciones de datos persistentes.
+
+No interfieren entre sí. La instancia mantiene dos clientes subscriber adicionales (3 conexiones Redis totales por instancia: principal + rfidMode-sub + cacheInvalidate-sub).
+
+---
+
+# T-907 INT1 — Pipeline auth (3 GETs Redis → 1 round-trip)
+
+`backend/src/middlewares/auth.js → fetchUserForAuthWithChecks(decoded, req)` agrupa en una sola pipeline:
+
+- `EXISTS blacklist:<jti>` (revocación de token)
+- `GET security:<userId>` (logout forzado / revokeAllUserTokens)
+- `GET auth:user:<userId>` (slim-user cache; solo si el LRU local hizo miss)
+
+`verifyAccessToken(token, req, { skipRedisChecks: true })` permite a `authenticate`/`optionalAuth` saltarse los checks Redis internos del verify y hacerlos agrupados en pipeline. El resto de consumers (handshake Socket.IO, `revalidateSocketAuth`) siguen pasando `skipRedisChecks: false` y mantienen el flujo secuencial.
+
+**Efecto neto:** mismo número de comandos Upstash pero agrupados en 1 round-trip en lugar de 3. La latencia auth percibida en miss caliente baja ~50%. El budget commands/día no cambia significativamente.
+
+---
+
+# T-907 OP2 — Validación multi-instancia ejecutada (2026-05-17)
+
+El test `npm run test:multi-instance` validó empíricamente que `@socket.io/redis-adapter` cumple su contrato: una emisión `gameNsp.to(room).emit(...)` desde la instancia A llega a un cliente conectado a la instancia B (y viceversa). Ver `WebSockets-ExtendedUsage.md` sección "Validación ejecutada" para el log completo.
+
+---
+
+# T-941 / ADR-161 — Cache `cache:alerts` y queue `alert-detection`
+
+T-941 introduce dos elementos Redis nuevos:
+
+## Namespace `cache:alerts`
+
+Sirve respuestas del endpoint `GET /api/analytics/alerts` y derivados (`/summary`, `/effectiveness`). Estructura:
+
+```
+cache:alerts:teacher:<teacherId>:status:<status>:sev:<severity>:type:<type>:student:<sid>:lim:<n>:cursor:<id>
+cache:alerts:teacher:<teacherId>:summary
+cache:alerts:teacher:<teacherId>:effectiveness:<days>
+```
+
+TTL por defecto **60 segundos** (env `ALERT_CACHE_TTL_SEC`). Invalidación granular por docente tras cualquier acción lifecycle (dismiss/resolve/snooze/pin/unpin) y tras cada corrida del worker:
+
+```js
+cacheInvalidatePattern('cache:alerts', `teacher:${teacherId}:*`);
+```
+
+La utilidad `cacheInvalidatePattern` se añadió a `utils/cacheHelper.js` y reutiliza `redisService.scanByNamespace` + `delMany` para hacer SCAN incremental + DEL en batch (evita SCAN + GETs uno a uno).
+
+## Queue `alert-detection` (BullMQ)
+
+Cuarta queue registrada en `queues/index.js` junto a `data-retention`, `gdpr-exports` y `notifications`. Mismo prefijo `${KEY_PREFIX}bull`. Cron `*/15 * * * *` programado por `scheduleAlertDetectionCron` (env `ALERT_DETECTION_CRON`) con `jobId: 'alert-detection-cron'` para garantizar idempotencia ante reinicios. El worker `alertDetectionWorker.js` se arranca en el proceso `worker.js` separado.
+
+Esto confirma que las 3 conexiones Redis por instancia (principal de datos + pub/sub adapter Socket.IO + subscribers `rfidMode` y `cacheInvalidate`) coexisten sin interferencias en una misma instancia Upstash.
+
+## TTLs en materialización analytics (2026-06-05, ADR-196)
+
+Cierre de dos keys que crecían sin cota (riesgo en Upstash free-tier 256 MB):
+- **`student:metrics:<id>` (Hash, T-931)**: las escrituras `HINCRBY`/`HSET` de cada `endPlay` no fijaban EXPIRE → una key viva indefinidamente por cada alumno que jugara alguna vez. Se añade `EXPIRE` 90 d (`STUDENT_METRICS_TTL_SECONDS`) en la escritura en vivo y el mismo TTL en el `HSET` del reconciliador nocturno, que así renueva la ventana de los alumnos activos; los inactivos caen solos (Mongo es la fuente de verdad y el Hash es caché reconstruible).
+- **`system:meta:lastRetentionRun`**: el worker de retención usaba `set` sin TTL → `setWithTTL` 30 d. Se refresca a diario; solo expira si el job deja de correr, que es justo lo que el detector `data_retention_lag` debe señalar (lee null → lag).
+
+## Conexión Upstash: TLS, reconexión y adapter (2026-06-30, ADR-223)
+
+Endurecimiento de la conexión Redis de cara al despliegue en **Upstash** (Redis serverless, TLS obligatorio en el puerto 6379):
+
+- **TLS para `rediss://`.** `getRedisConfig()` (y `buildBullConnection()` de BullMQ) construían un objeto de opciones a partir de la URL parseada, perdiendo el esquema → ioredis **no** activaba TLS (solo lo hace si se le pasa la *cadena* `rediss://`, no un objeto). Contra Upstash el handshake fallaría o el tráfico viajaría en claro. Fix: si `url.protocol === 'rediss:'`, propagar `tls: { servername: url.hostname }`.
+- **Reconexión resiliente.** `retryStrategy` abandonaba la conexión para siempre tras ~11s (`return null`); ante un blip/idle-timeout/failover de Upstash el backend quedaba sin Redis hasta reiniciar y, como los rate-limiters de login son *fail-closed*, **bloqueaba todos los logins**. Ahora reintenta indefinidamente con backoff cap (3s) + `reconnectOnError` (READONLY/ECONNRESET de failover).
+- **Socket.IO Redis adapter tras flag `SOCKET_ADAPTER_ENABLED` (off por defecto).** En single-instance (invariante `scale=1`) el adapter publicaba en Redis cada broadcast de sala sin consumidor = coste puro de comandos. Activar solo con `scale>1`.

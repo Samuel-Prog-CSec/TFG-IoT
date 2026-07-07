@@ -5,7 +5,7 @@
  */
 
 const { z } = require('zod');
-const { objectIdSchema, userFiltersSchema } = require('./commonValidator');
+const { objectIdSchema, userFiltersSchema, sanitizedString } = require('./commonValidator');
 const { ROLES, USER_STATUS, CONSENT_PURPOSES } = require('../constants/enums');
 
 /**
@@ -32,11 +32,7 @@ const passwordSchema = z
  */
 const createUserSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres'),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }),
 
     email: emailSchema.optional(),
 
@@ -44,7 +40,10 @@ const createUserSchema = z
 
     role: z
       .enum([...ROLES], {
-        errorMap: () => ({ message: 'El rol debe ser super_admin, teacher o student' })
+        // Zod 4: el mensaje custom va en `error` (string o fn). El antiguo
+        // `errorMap` se ignora silenciosamente y caía al mensaje por defecto
+        // en inglés ("Invalid option: ...").
+        error: () => 'El rol debe ser super_admin, teacher o student'
       })
       .default('student'),
 
@@ -61,14 +60,9 @@ const createUserSchema = z
           .string()
           .trim()
           .max(50, 'El nombre de la clase no puede exceder 50 caracteres')
-          .optional(),
-        birthdate: z
-          .string()
-          .datetime({ message: 'Fecha de nacimiento inválida' })
-          .or(z.date())
           .optional()
-        // Nota: birthdate solo se mantiene como opcional para profesores.
-        // Para alumnos, el modelo User.js lo rechaza en pre-save (Art. 5.1.c RGPD)
+        // `birthdate` ELIMINADO del schema y del validador (Art. 5.1.c RGPD, ADR-197):
+        // no se acepta; Zod lo descarta y Mongoose (strict) no lo persiste.
       })
       .optional(),
 
@@ -113,11 +107,7 @@ const createUserSchema = z
  */
 const createStudentSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres'),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }),
 
     profile: z.object({
       avatar: z.string().url('URL de avatar inválida').optional(),
@@ -141,16 +131,12 @@ const createStudentSchema = z
     // Consentimiento parental — Art. 8 RGPD + Art. 7 LOPDGDD
     consent: z.object({
       granted: z.literal(true, {
-        errorMap: () => ({
-          message:
-            'El consentimiento parental debe ser otorgado para crear un alumno (Art. 8 RGPD + Art. 7 LOPDGDD)'
-        })
+        // Zod 4: usar `error` en lugar del antiguo `errorMap` (ignorado → mensaje
+        // por defecto en inglés). Mantiene el copy legal en español.
+        error: () =>
+          'El consentimiento parental debe ser otorgado para crear un alumno (Art. 8 RGPD + Art. 7 LOPDGDD)'
       }),
-      grantedBy: z
-        .string()
-        .trim()
-        .min(2, 'El nombre del tutor debe tener al menos 2 caracteres')
-        .max(100, 'El nombre del tutor no puede exceder 100 caracteres'),
+      grantedBy: sanitizedString({ min: 2, max: 100, label: 'El nombre del tutor' }),
       purposes: z.array(z.enum([...CONSENT_PURPOSES])).optional(),
       policyVersion: z.string().trim().optional()
     })
@@ -163,11 +149,7 @@ const createStudentSchema = z
  */
 const registerTeacherSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres'),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }),
 
     email: emailSchema,
 
@@ -191,17 +173,14 @@ const registerTeacherSchema = z
  */
 const updateUserSchema = z
   .object({
-    name: z
-      .string()
-      .trim()
-      .min(2, 'El nombre debe tener al menos 2 caracteres')
-      .max(100, 'El nombre no puede exceder 100 caracteres')
-      .optional(),
+    name: sanitizedString({ min: 2, max: 100, label: 'El nombre' }).optional(),
 
-    email: emailSchema.optional(),
-
-    password: passwordSchema.optional(),
-
+    // email/password NO se actualizan por este endpoint: el controller solo
+    // aplica name/profile/status (ver updateMutableUserFields). Aceptarlos en el
+    // schema era un vector latente de mass-assignment — un futuro wiring los
+    // persistiría sin auditoría ni reentrada de currentPassword. Con `.strict()`
+    // ahora se rechazan explícitamente; el cambio de contraseña tiene su flujo
+    // dedicado (PUT /api/auth/change-password con currentPassword).
     profile: z
       .object({
         avatar: z.string().url('URL de avatar inválida').optional(),
@@ -221,7 +200,10 @@ const updateUserSchema = z
 const loginSchema = z
   .object({
     email: emailSchema,
-    password: z.string().min(1, 'La contraseña es requerida')
+    password: z.string().min(1, 'La contraseña es requerida'),
+    // T-905 B6: opcional, Turnstile siteverify lo procesa el middleware turnstileGuard.
+    // Frontend lo adjunta cuando el widget Turnstile genera un token (≥3 fallos).
+    captchaToken: z.string().max(2048).optional()
   })
   .strict();
 
@@ -238,12 +220,8 @@ const userQuerySchema = userFiltersSchema.extend({
 const transferStudentSchema = z
   .object({
     newTeacherId: objectIdSchema,
-    newClassroom: z
-      .string()
-      .trim()
-      .min(1, 'newClassroom es requerido')
-      .max(50, 'newClassroom no puede exceder 50 caracteres'),
-    reason: z.string().trim().max(200, 'reason no puede exceder 200 caracteres').optional()
+    newClassroom: sanitizedString({ min: 1, max: 50, label: 'newClassroom' }),
+    reason: sanitizedString({ min: 0, max: 200, label: 'reason', allowMultiline: true }).optional()
   })
   .strict();
 
@@ -280,12 +258,7 @@ const teacherStudentsQuerySchema = z
 const updateConsentSchema = z
   .object({
     granted: z.boolean(),
-    grantedBy: z
-      .string()
-      .trim()
-      .min(2, 'El nombre del tutor debe tener al menos 2 caracteres')
-      .max(100, 'El nombre del tutor no puede exceder 100 caracteres')
-      .optional(),
+    grantedBy: sanitizedString({ min: 2, max: 100, label: 'El nombre del tutor' }).optional(),
     purposes: z.array(z.enum([...CONSENT_PURPOSES])).optional(),
     policyVersion: z.string().trim().optional()
   })
@@ -302,12 +275,44 @@ const updateConsentSchema = z
 const hardDeleteSchema = z
   .object({
     confirmDeletion: z.literal(true, {
-      errorMap: () => ({
-        message: 'Debe confirmar la eliminación permanente con confirmDeletion: true'
-      })
+      // Zod 4: `error` reemplaza al antiguo `errorMap` (que se ignoraba → mensaje
+      // por defecto en inglés).
+      error: () => 'Debe confirmar la eliminación permanente con confirmDeletion: true'
     })
   })
   .strict();
+
+/**
+ * Schema para actualizar el progreso del onboarding interactivo
+ * (PATCH /api/users/me/onboarding — T-951 PROP-13).
+ *
+ * El cliente puede enviar cualquier subset: paso actual, marca de
+ * completado, o reset (currentStep=0 + completed=false). Usamos `partial`
+ * sobre los campos editables, refinando que al menos uno esté presente.
+ */
+const updateOnboardingSchema = z
+  .object({
+    currentStep: z
+      .number()
+      .int('El paso actual debe ser un número entero')
+      .min(0, 'El paso actual no puede ser negativo')
+      .max(50, 'El paso actual excede el rango razonable')
+      .optional(),
+    currentTrack: z
+      .enum(['teacher', 'super_admin'], {
+        // Zod 4: `error` reemplaza al antiguo `errorMap` (ignorado → mensaje por
+        // defecto en inglés).
+        error: () => 'El track del onboarding debe ser teacher o super_admin'
+      })
+      .nullable()
+      .optional(),
+    teacherCompleted: z.boolean().optional(),
+    superAdminCompleted: z.boolean().optional()
+  })
+  .strict()
+  .refine(data => Object.keys(data).length > 0, {
+    message: 'Debes incluir al menos un campo a actualizar'
+  });
 
 module.exports = {
   createUserSchema,
@@ -322,6 +327,7 @@ module.exports = {
   teacherStudentsQuerySchema,
   updateConsentSchema,
   hardDeleteSchema,
+  updateOnboardingSchema,
   emailSchema,
   passwordSchema,
   objectIdSchema

@@ -336,3 +336,87 @@ Variable de entorno `ROUND_GRACE_PERIOD_MS` (default `150`).
 ### Frontend complementario
 
 `FallbackTouchPanel` muestra un overlay sutil "Procesando…" durante 200 ms tras cada tap del jugador para confirmar visualmente que el scan se ha registrado, evitando dobles taps por ansiedad.
+
+## Graceful shutdown e impacto en partidas RFID (ADR-142)
+
+Cuando Koyeb manda `SIGTERM` (rolling deploy, scale down, restart) el backend ejecuta una secuencia ordenada en `gracefulShutdown` (`backend/src/server.js`). Para partidas RFID en curso:
+
+1. **`isReady = false` inmediato** — `/health/ready` empieza a devolver 503 y Koyeb deja de enrutar conexiones nuevas a esta instancia. Los clientes ya conectados siguen.
+2. **`server_shutdown` emit por Socket.IO** — todos los sockets (default y `/game`) reciben el evento con razón y timestamp. El frontend lo recibe pero no lo trata explícitamente (TODO mejora futura: mostrar UI "Conectando con nueva versión…").
+3. **Drain de 5s** — Tiempo para que los requests HTTP en vuelo terminen y los eventos Socket.IO se entreguen.
+4. **`gameEngine.shutdown()`** — Cancela timers de ronda, persiste `GamePlay` con `status='paused'` para los plays activos (recovery posterior en el próximo boot).
+5. **`rfidService.stop()`** — Cierra la conexión Web Serial (en el navegador cliente esto se traduce en pérdida del puerto; el frontend abrirá un nuevo prompt al reconectar).
+6. **`rfidModeSubscriber` stop + BullMQ queues close**.
+7. **`io.close()`** — Espera a que todos los sockets cierren.
+8. **Mongo + Redis disconnect**.
+9. **Sentry flush 2s** — para no perder eventos del último minuto.
+
+Si la secuencia tarda más de 25s (`SHUTDOWN_TIMEOUT_MS`), un timeout duro fuerza `exit(1)` antes de que Koyeb envíe SIGKILL a los 30s.
+
+**Impacto observable para el jugador:**
+- Una partida activa pasa a `paused` automáticamente.
+- Tras el deploy (~30-60s en Koyeb), el frontend reconecta y emite `play_state_sync`.
+- `gameEngine.recoverActivePlays()` en el boot del nuevo proceso restaura los plays pausados.
+- El docente ve "Partida reanudada" sin pérdida de progreso (excepto el último scan in-flight).
+
+## 14. RFID mode lock con timeout duro (ADR-164, Sprint 0 pre-v1.0.0)
+
+`executeWithRfidLock(userId, operation)` en `realtime/socketHandlers.js` ya serializaba operaciones RFID por usuario para evitar race conditions, pero sin timeout una operación colgada bloqueaba la cola del usuario indefinidamente.
+
+**Pipeline actualizado:**
+
+```
+operation = setRfidModeState(userId, 'gameplay', socketId, metadata)
+           ▼
+     prevLock (Promise de la operación anterior, si existe)
+           ▼
+     await prevLock
+           ▼
+     Promise.race([
+       operation(),                              // → resolución normal
+       timeoutPromise(RFID_OPERATION_TIMEOUT_MS) // → reject con sentinel
+     ])
+           │
+           ├─ resolved → emit rfid_mode_changed + libera lock
+           │
+           └─ rejected (sentinel) →
+                runtimeMetrics.recordRfidLockTimeout()
+                logger.error({alert:true, userId, timeoutMs}, 'lock timeout')
+                logSecurityEvent('RFID_LOCK_TIMEOUT', {userId, timeoutMs})
+                socketServerRef.to(`user_${userId}`).emit('rfid_mode_error', {
+                  code: 'RFID_LOCK_TIMEOUT',
+                  message: 'La operación RFID tardó demasiado y se ha cancelado. Vuelve a intentarlo.'
+                })
+                throw Error{code:'RFID_LOCK_TIMEOUT'}
+                libera lock (siguiente operación arranca)
+```
+
+**Calibración:**
+- `RFID_OPERATION_TIMEOUT_MS=10000` por defecto. Cubre con holgura la operación realista más cara: write Mongo (`gameSessionRepository.updateOne`) + Redis SET con TTL (`rfid:mode:<userId>`) + emit a room. Suele tardar <500ms en local con Atlas + Upstash.
+- En QA permite simular timeouts más cortos (`RFID_OPERATION_TIMEOUT_MS=200`) para validar el flujo de error sin esperar 10s.
+
+**Observabilidad:**
+- Métrica `runtimeMetrics.websocket.rfidLockTimeouts` (snapshot vía `GET /api/metrics`).
+- Evento `RFID_LOCK_TIMEOUT` en `securityLogger` con Sentry threshold 3/min (`SECURITY_EVENTS.RFID_LOCK_TIMEOUT.sentry`). Si la espiga es genuina (Mongo/Redis lentos), Sentry alerta tras 3 incidentes en una ventana de 60s.
+
+**Sentinel pattern:**
+La promise de timeout rechaza con un `Symbol` (`RFID_LOCK_TIMEOUT_SENTINEL`) en lugar de un `Error` con mensaje. Esto evita falsos positivos en el `catch` interno si la propia `operation()` lanza un `Error` cuyo mensaje contenga la palabra "timeout". Solo distingue por identidad exacta del símbolo.
+
+**Tests E2E (QA Sprint 0):**
+Para verificar el camino feliz vs el camino de timeout en el simulador RFID, inyectar `__rfidSim.delayMs=15000` antes de un `__rfidSim.detect()` y verificar:
+1. `rfid_mode_error` llega al cliente con `code='RFID_LOCK_TIMEOUT'` y mensaje en español.
+2. `GET /api/metrics` muestra `runtimeMetrics.websocket.rfidLockTimeouts >= 1`.
+3. Una siguiente operación normal del mismo usuario no queda bloqueada por la fallida.
+
+## 15. Robustez del flujo de scan ante fallos de Atlas/Redis (ADR-228)
+
+Auditoría de la vertical de partidas. Endurecimiento de los caminos donde un blip de Atlas M0 o Upstash dejaba al niño sin feedback o colgaba la partida hasta el cron de 1h.
+
+### 15.1 Paridad de try/catch en el scan de Secuencia (WS-1)
+El `addEventAtomic` del scan y del cierre de ronda de **Secuencia** (`sequenceFlow`) NO estaba envuelto en try/catch, a diferencia de Asociación y Memoria. `handleCardScan` se invoca **sin `await`** desde el handler socket, así que una rejection subía como `unhandledRejection`: el alumno se quedaba sin ningún feedback y, si era la última carta, la ronda **colgada**. Fix: try/catch con `engine._emitFatalScanError(playId, playState, err, 'sequenceFlow.processScan')` en el scan (misma red que las otras mecánicas) y try/catch **que no cuelga** en la telemetría de cierre de ronda (los eventos de timeout + `round_end` son 0 puntos → ante fallo se registra en Sentry pero se CONTINÚA a `scheduleSequenceAdvance`).
+
+### 15.2 Watchdog de `board_ready` (WS-2)
+Si el evento `board_ready` del cliente se pierde (corte de red tras EMPEZAR, drop del rate limiter, crash del frontend en la transición), `awaitingBoardReady` quedaba `true` para siempre y **ninguna** mecánica armaba su timer → partida congelada. Fix: `_armBoardReadyWatchdog(playId)` en `startPlay` auto-confirma `board_ready` a los `BOARD_READY_FALLBACK_MS` (45s por defecto, configurable) registrando el caso anómalo; se cancela al llegar el evento real (`confirmBoardReady`) o al limpiar timers (pausa/fin). `GameEngine.js`, `timerManager.js`.
+
+### 15.3 Volteo instantáneo del primer par de Memoria (WS-9)
+El primer volteo de Memoria hacía `await addEvent('card_scanned')` (telemetría, 0 puntos) **antes** de emitir `memory_turn_state` → el niño esperaba el RTT de Atlas para ver su propia carta, y si ese write fallaba `_emitFatalScanError` mataba TODA la partida por un evento sin impacto en el score. Fix: emitir `memory_turn_state` primero (volteo inmediato) y degradar el fallo del write a `logger.warn` + Sentry sin cerrar la partida. La suite `gameEngineRfidErrorPaths` cubre el nuevo contrato (el fallo del first_pick NO interrumpe la partida y la carta se voltea).

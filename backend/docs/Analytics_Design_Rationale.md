@@ -206,7 +206,9 @@ El **plateau point** (`plateauAt`) indica el número de partida tras el cual la 
 
 ---
 
-### 2.5. Sistema de Alertas Inteligentes (Endpoints E15-E16)
+### 2.5. Sistema de Alertas Inteligentes (T-941, ADR-161)
+
+> **Actualizado en T-941**: el motor pasa de cálculo on-the-fly a **persistencia con ciclo de vida formal** (`SmartAlert`). Se mantienen los detectores originales y se añaden 7 más (incluido `plateau_detected` que en versiones anteriores estaba declarado pero no implementado). Catálogo de tipos: ver `backend/src/config/alerts.js`.
 
 #### Fundamento pedagógico
 
@@ -220,28 +222,115 @@ Los profesores **no tienen tiempo** de revisar gráficos a diario para cada alum
 
 | Tipo | Umbral | Severidad | Justificación |
 |------|--------|-----------|---------------|
-| `declining_performance` | Bajada >10% en 7 días | warning (10-20%), critical (>20%) | <10% es fluctuación normal día a día. >10% sostenido en 7 días indica tendencia real, no ruido |
+| `declining_performance` | Bajada >10% en 7 días | warning (10-20%), critical (>20%) | <10% es fluctuación normal día a día. >10% sostenido en 7 días indica tendencia real, no ruido. **Filtra `previousAvg > 0` para evitar Infinity %** (BUG-T941-1) |
 | `inactivity` | >7 días sin jugar | info (7-14d), warning (>14d) | 7 días = más de una semana lectiva completa. Si un alumno no juega en todo ese tiempo, algo ha cambiado |
-| `sudden_score_drop` | Score >30 puntos bajo la media del alumno | warning | 30 puntos en una escala de 0-100 es una desviación de ~2σ. Indica una partida anómala que merece revisión |
+| `sudden_score_drop` | Score >30 puntos bajo la media del alumno | warning | 30 puntos en una escala 0-100 es una desviación de ~2σ. Indica una partida anómala que merece revisión |
 | `consistent_timeout` | Tasa de timeout >30% en últimas 5 partidas | warning | Los timeouts no son errores de conocimiento, son señales de confusión o desatención. 30% sostenido en 5 partidas no es accidental |
 | `improving_fast` | Mejora >15% en 7 días | info (positiva) | Alerta positiva para que el profesor refuerce el progreso del alumno. El reconocimiento es crucial en educación infantil |
-| `plateau_detected` | Sin mejora significativa en periodo configurable | info | Reutiliza la lógica de E03. El profesor puede decidir cambiar de estímulo |
-| `high_abandonment` | Tasa de abandono >25% en 7 días | warning | 1 de cada 4 juegos abandonados indica un problema sistemático, no un incidente aislado |
+| `plateau_detected` | stdDev(score) ≤ 5 en ≥ 5 partidas | info | T-941 cierra el TODO histórico. Indica contenido demasiado fácil o difícil; el profesor decide cambiar de estímulo |
+| `high_abandonment` | Tasa de abandono >25% en 7 días | warning | 1 de cada 4 juegos abandonados indica un problema sistemático |
+| `engagement_drop` | Caída >25% en `engagementScore` (30d vs 60-30d) | warning | Reusa cache de `engagementService` (TTL 600s). Detecta desmotivación antes que `inactivity` |
+| `recovery_after_drop` | `sudden_score_drop`/`declining_performance` resuelta en los últimos 30 días | info (positiva) | Refuerzo positivo durante 7 días tras la recuperación. Convierte el sistema en algo que el docente *quiere* abrir |
+| `mastery_milestone` | ≥80% accuracy sostenido en ≥5 partidas en un contexto | info (positiva) | Hito celebratorio por contexto temático. Dedup nivel detector por `data.contextId` (no encaja en el unique index BD) |
+| `mechanic_specific_struggle` | Gap ≥30 puntos entre mecánica fuerte y débil, débil <50, ≥3 partidas en cada mecánica | warning | Lectura pedagógica única en el proyecto. Sugiere intervención específica por mecánica |
+| `sequence_stagnation` | `maxSequenceLengthAchieved` no supera el mismo valor en 5 partidas Secuencia | warning | T-923 lo dejó pendiente "post-T-941". Identifica techo cognitivo en Secuencia |
+| `sequence_order_errors` | `partialRounds / roundsPlayed ≥ 0.4` (clamp ≤1) en últimas partidas Secuencia | warning | T-923 lo dejó pendiente "post-T-941". Distingue problema de orden vs memoria pura. **ADR-217:** antes dividía `partialReproductions / totalAttempts` (cartas ÷ intentos), magnitudes incompatibles que daban %>100 imposibles (p.ej. 384%) |
 
-#### Decisión técnica: computación on-the-fly vs almacenamiento
+Todos los umbrales viven en `backend/src/config/alerts.js` (única fuente de verdad). Aplicables por env vars para tuning sin redeploy.
 
-Las alertas se **computan en tiempo real** (con cache de 10 minutos) en vez de almacenarse en base de datos:
+#### Persistencia y ciclo de vida (T-941)
 
-- **Ventaja**: los datos siempre están frescos y no hay riesgo de inconsistencia
-- **Ventaja**: no requiere migraciones ni modelo de datos nuevo
-- **Trade-off**: cada consulta ejecuta múltiples queries en paralelo (6-7 queries ligeras)
-- **Mitigación**: cache de 600 segundos + queries optimizadas que usan `User.studentMetrics` (datos pre-agregados) cuando es posible
+Las alertas viven en MongoDB (`smartalerts`) con estados `active | resolved | dismissed | snoozed`:
 
-Se genera un ID estable para cada alerta (`hash(type + studentId + fecha)`) para que el frontend pueda trackear el estado de "leído/no leído" en localStorage sin necesidad de persistencia server-side.
+- **Insert** cuando un detector retorna finding nuevo (sin alerta activa para `(studentId, type)`).
+- **Update** `lastSeenAt + occurrencesCount + severity` cuando el finding se re-detecta. Severity escalation automática: `warning` con `daysActive ≥ 7` y `occurrencesCount ≥ 3` → `critical`. Trazado en `severityHistory[]`.
+- **Auto-resolve** tras 2 corridas consecutivas sin reaparecer (`autoResolveAfterMissedRuns`).
+- **Dismiss/Resolve/Snooze** manuales por el docente vía endpoints `PATCH /api/analytics/alerts/:id/{dismiss|resolve|snooze}`. Dismiss soporta `reason` (`false_positive | already_addressed | irrelevant | other`).
+- **Pinning** (máx 3 por docente).
+- **Auto-reapertura** de dismissed críticas que reaparecen tras 60 días (configurable, evita el caso "descarté hace 4 meses, ahora el alumno está mucho peor").
+- **Hard-delete** de resolved/dismissed > 365 días vía cron `data-retention` (integrado, sin queue nueva).
+
+#### Worker BullMQ
+
+Cron `*/15 * * * *` (env `ALERT_DETECTION_CRON`) ejecuta `alertDetectionService.runForAllTeachers()`. Worker en proceso separado `worker.js` (no acopla al HTTP backend). Idempotente vía `jobId` fijo.
+
+#### Notificación realtime
+
+Cuando aparece una alerta `critical` nueva o una existente se promueve a `critical` por escalation, el servicio emite `notificationService.notify({ type: 'student_at_risk', priority: 'critical' })`. Reusa la infraestructura T-955 (dedup window 60s, room `user_${teacherId}`). El frontend dispara `window.dispatchEvent(new CustomEvent('smartalert:created'))` para refrescar el Dashboard sin reload.
+
+#### RGPD
+
+- `loadActiveStudentsForTeacher` excluye estudiantes con `consent.withdrawnAt` (Art. 7 RGPD). Defensa en profundidad: el orquestador también descarta findings cuyo `studentId` no esté en el conjunto cargado.
+- Cada SmartAlert lleva `studentPseudoId` (sha256 truncado, determinista). Los logs Pino solo usan pseudo IDs — nunca `studentId` plano.
+
+#### Cache
+
+Namespace dedicado `cache:alerts` con TTL 60 s, invalidación granular por teacher vía `cacheInvalidatePattern('cache:alerts', 'teacher:{tid}:*')` (utilidad nueva en `cacheHelper.js`). Cada acción lifecycle invalida.
 
 ---
 
-### 2.6. Datos para Reportes y Exportación (Endpoints E17-E19)
+### 2.6. Sistema de Alertas Operativas para super_admin (T-942, ADR-162)
+
+Espejo conceptual del § 2.5 para alertas operacionales (Redis, MongoDB, colas BullMQ, seguridad, moderación, compliance) gestionadas por la dirección del centro.
+
+#### Diferencias clave frente a SmartAlert
+
+| Dimensión | SmartAlert (teacher) | SystemAlert (super_admin) |
+|---|---|---|
+| Dueño | `teacherId` obligatorio | Sin dueño: alerta global por incidente |
+| Dedup unique | `(studentId, type, status='active')` | `(type, status='active')` |
+| Audiencia notificación | Teacher dueño (`student_at_risk`) | Todos los super_admins (`system_alert_critical`) |
+| Cron detección | `*/15 * * * *` | `*/5 * * * *` (más frecuente) |
+| Escalation warning→critical | 7 días + 3 ocurrencias | 2 horas + 3 ocurrencias |
+| Reopen tras dismiss | 60 días | 12 horas |
+| Hard-delete | 365 días | 90 días |
+| Snooze presets | 1/7/14/30 días | 1/6/24/72 horas |
+| Cache TTL | 60 s | 30 s |
+| Cache namespace | `cache:alerts:teacher:*` | `cache:system-alerts:*` |
+
+#### Catálogo de detectores
+
+> Catálogo canónico en `config/systemAlerts.js` (`SYSTEM_ALERT_TYPES`). Se documentan aquí los detectores núcleo por categoría; los detectores de cuota free-tier (T-910) viven en `Free_Tier_Budget.md`.
+
+**Sistema/Operación (4):**
+- `redis_high_latency`: ≥3 muestras consecutivas con avgLatency superior al umbral (100ms warning / 500ms critical).
+- `mongo_disconnected`: `mongoose.connection.readyState ≠ 1` durante 2 muestras consecutivas → critical inmediato.
+- `memory_pressure`: heap percent usado >85% (warning) / >95% (critical).
+- `queue_backlog`: cualquier queue BullMQ con jobs pending > umbral o failed > 0.
+
+**Seguridad (4):**
+- `account_lockout_spike`: ≥5/h warning, ≥20/h critical. Lee `securityCounters.account_locked` (sliding 1 h en Redis).
+- `auth_failed_spike`: ≥50/h warning, ≥200/h critical. Lee `securityCounters.auth_failed`.
+- `token_theft_detected`: cualquier ocurrencia → critical inmediato. Lee `securityCounters.token_theft`.
+- `rfid_hmac_spike` (ADR-206 addendum): ≥10/h warning, ≥30/h critical sobre el **total** de rechazos del enforcement HMAC RFID. Suma dos contadores: `securityCounters.rfid_hmac_invalid` (firma no cuadra, `HMAC_INVALID`) + `securityCounters.rfid_replay` (counter no creciente, `COUNTER_REPLAY`), ambos incrementados desde `rfidHmacValidator` al rechazar en modo enforce. El finding desglosa `invalidLastHour` vs `replayLastHour`: predominio de replay → posible reproducción/sensor clonado; predominio de invalid → firmware en actualización o secret desincronizado. Playbook: `Runbook_Operacional.md` (alerta `rfid_hmac_spike`).
+
+**Moderación (3):**
+- `pending_teachers_aging`: warning si oldest pending ≥48h, critical ≥7 días. Lookup en `User` por `accountStatus:'pending_approval'`.
+- `inactive_teachers`: info ≥30 días, warning ≥90 días sin login. Agregado: el finding cita el count y un ejemplo.
+- `context_without_assets`: warning si hay contextos con `assets:[]` creados hace >24h.
+
+**Compliance (2):**
+- `data_retention_lag`: warning si última ejecución del job de retención RGPD >48h, critical >7d. Lee timestamp escrito por `dataRetentionWorker` en Redis (`system:meta:lastRetentionRun`).
+- `consent_withdrawal_spike`: info ≥5/día, warning ≥20/día. Agregado sobre `consent.history` por action='withdrawn'.
+
+#### `securityCountersService`
+
+Servicio nuevo en `services/security/securityCountersService.js`. Para cada evento auth importante (`AUTH_LOGIN_FAILED`, `AUTH_ACCOUNT_LOCKED`, `AUTH_TOKEN_THEFT_DETECTED`, `DATA_CONSENT_CHANGE` con action='withdrawn'), `securityLogger.logSecurityEvent` invoca `securityCounters.increment(eventType)` fire-and-forget. Implementación: `ZADD security:counter:<eventType> <timestamp> <member>` + `ZCOUNT` en ventana de 1 h. Fail-open: si Redis cae, no bloquea autenticación ni propaga errores. Limpieza perezosa cada 50 llamadas vía `ZREMRANGEBYSCORE`.
+
+#### Persistencia + lifecycle
+
+Mismo modelo que SmartAlert (active/resolved/dismissed/snoozed/snoozedUntil/severityHistory). Pero:
+- Sin `teacherId/studentId/studentPseudoId/gamePlayId`.
+- Con `title`, `source`, `component`, `data` (Mixed), `runbookUrl` (link a doc interna).
+- Audit `resolvedBy/dismissedBy/snoozedBy/pinnedBy` (`role: 'super_admin'`).
+
+#### Avisos a profesores (SystemAnnouncement)
+
+Mecanismo complementario manual: la dirección publica avisos (`title`, `body`, `severity: info/warning/urgent`, `linkUrl`, `expiresAt`) dirigidos a `all_teachers` o `all_users`. Persiste en `systemannouncements`. El backend expone `/api/announcements/active` (cualquier rol autenticado) y el frontend renderiza `<TeacherAnnouncementBanner />` en `AppLayout` (solo teacher) con stack máx. 3 visibles ordenados por severidad. Dismiss persistente en `localStorage` por usuario. Límite `SYSTEM_ANNOUNCEMENT_MAX_ACTIVE=3` por audience.
+
+---
+
+### 2.7. Datos para Reportes y Exportación (Endpoints E17-E19)
 
 #### Fundamento pedagógico
 
@@ -345,6 +434,15 @@ Los endpoints de reportes (E17, E18) estructuran sus respuestas en niveles jerá
 | Alertas y reportes | 600s (10 min) | Computación costosa (múltiples queries paralelas). 10 minutos es aceptable porque las alertas no necesitan ser instantáneas |
 | Engagement y contenido (classroom) | 300s (5 min) | Consultas que agregan datos de toda la clase. Cambian con cada partida pero el profesor no necesita datos al segundo |
 | Datos individuales de estudiante | 300s (5 min) | Pueden cambiar tras cada partida pero el impacto visual en un gráfico de semanas es mínimo |
+
+### 3.6. Alcance del filtro de contenido del Dashboard (contexto/mecánica)
+
+El Dashboard docente permite filtrar por contexto temático y mecánica. Qué vistas responden al filtro y cuáles permanecen globales es una decisión deliberada (ver ADR-190):
+
+- **Responden al filtro** (mismo subconjunto): KPIs (`summary`), distribución (`distribution`), tendencia diaria (`comparison`) y listado de alumnos (`students`). Todas resuelven sus `sessionIds` vía `resolveTeacherSessionIds`, que aísla el camino filtrado (query directa a `GameSession` por `{createdBy, contextId?, mechanicId?}`) del camino sin filtro (lista cacheada compartida), garantizando regresión cero cuando no hay filtro.
+- **Permanecen globales** (con rótulo de alcance honesto en la UI cuando hay filtro activo): el «Mapa de Calor de Dificultad» (es una comparación cruzada Contexto×Mecánica — filtrarlo por un contexto lo reduciría a una fila y perdería su propósito) y «Actividad Semanal» (patrón temporal de cuándo se juega, no específico de contenido).
+
+**Rango temporal `90d`:** los selectores de la UI ofrecen «Trimestre actual» / «Últimos 90 días» (→ `90d`). Todos los endpoints de aula y de alumno alcanzables desde esos selectores aceptan `7d/30d/90d` y centralizan el cálculo en `getDateRange`. ADR-190 cerró el desfase en `comparison`/`heatmap`/`student summary`, cuyos validators habían quedado en `7d/30d` pese a que la UI ya ofrecía `90d`.
 
 ---
 
@@ -488,3 +586,110 @@ Los umbrales de clasificación RAG (score ≥70 → green, ≥50 → amber, <50 
 ### 4.9. Cache ligero en Dashboard
 
 El Dashboard realiza 8 peticiones paralelas en cada carga. Para evitar re-fetches innecesarios (ej. al volver a la pestaña), se implementó un cache en memoria con `useRef` que almacena el timestamp del último fetch junto con la clave de filtros (`timeRange:contextId:mechanicId`). Si los datos tienen menos de 60 segundos y los filtros no han cambiado, se reutilizan los datos existentes sin hacer nuevas peticiones.
+
+---
+
+## 5. Mecánica Secuencia (T-921 / T-923)
+
+La tercera mecánica añade KPIs propios que no encajan en el esquema común de Asociación/Memoria. La filosofía de diseño es la misma: el alumno juega, el backend persiste métricas crudas en `GamePlay.metrics`, y el `analyticsService` agrega esas métricas en bloques específicos por mecánica que el frontend consume sin necesidad de filtros.
+
+### 5.1. KPIs específicos persistidos en `GamePlay.metrics`
+
+| Campo | Tipo | Significado |
+|---|---|---|
+| `sequencesCompleted` | int | Rondas terminadas con todas las cartas correctas. |
+| `sequencesBlocked` | int | Rondas con al menos una carta bloqueada por fallos. |
+| `sequencesTimedOut` | int | Rondas que no se completaron a tiempo. |
+| `maxSequenceLengthAchieved` | int | Longitud máxima reproducida correctamente. **Mejor indicador de la "memoria de trabajo" del alumno.** |
+| `partialReproductions` | int | Cartas correctas acumuladas en cada ronda (histórico/compat con datos antiguos). |
+| `partialRounds` | int | Rondas con ≥1 acierto pero sin completar la secuencia. Numerador del detector `sequence_order_errors` (ADR-217). |
+| `roundsPlayed` | int | Total de rondas jugadas en la partida. Denominador del detector `sequence_order_errors` (ADR-217). |
+| `averageReproductionTimeMs` | int | Tiempo medio de la fase reproducing (no incluye memorización). |
+| `blockedCardsTotal` | int | Total de cartas bloqueadas por fallos en la partida. |
+| `hintsUsed` | int | Pistas entregadas (sólo aplica en dificultad easy). |
+
+### 5.2. Agregación: `analyticsService.getStudentSummary().bySequence`
+
+Pipeline `$facet` con un nuevo branch `sequenceStats` que filtra por `mechanic.name === 'sequence'` y produce los mismos campos sumados/máximos sobre el rango temporal. `null` si no hay partidas Secuencia.
+
+### 5.3. Lectura pedagógica para el profesor
+
+- **`maxSequenceLengthAchieved` creciente en el tiempo** → el alumno está mejorando su capacidad de retención visoespacial.
+- **`partialReproductions` alto pero `sequencesCompleted` bajo** → "memoria de comienzo" buena pero pierde foco a mitad. Ajustar `displaySeconds` o reducir `maxSequenceLength`.
+- **`sequencesBlocked >> sequencesTimedOut`** → el problema es de identificación de carta, no de tiempo. Considerar revisar el orden mostrado o subir dificultad.
+- **`sequencesTimedOut >> sequencesBlocked`** → el alumno acierta cuando llega pero no llega. Subir `timeLimit`.
+- **`hintsUsed > 0` con dificultad ≠ easy** → no debería ocurrir; señal de bug.
+
+### 5.4. Matriz mecánica × KPI
+
+| KPI | Asociación | Memoria | Secuencia |
+|---|:---:|:---:|:---:|
+| `correctAttempts` | ✅ | ✅ | ✅ (cartas correctas) |
+| `errorAttempts` | ✅ | ✅ | ✅ (incluye blocked + timedOut individuales) |
+| `timeoutAttempts` | ✅ | — | ✅ (cartas timed out) |
+| `averageResponseTime` | ✅ | ✅ | ✅ |
+| `sequencesCompleted` | — | — | ✅ |
+| `maxSequenceLengthAchieved` | — | — | ✅ |
+| `partialReproductions` | — | — | ✅ |
+| `hintsUsed` | — | — | ✅ |
+
+Los `—` significan que el campo no aplica y queda `undefined` en el documento (no `0`); el DTO los omite del payload público.
+
+### 5.5. Exposición en `getClassroomStudents` y vista comparativa (ADR-163)
+
+Tras la auditoría post-cierre de Sprint 6 (P0-3 del plan), `analyticsService.getClassroomStudents` añade `studentMetrics.maxSequenceLengthAchieved` y `studentMetrics.sequencesCompleted` al payload de cada alumno. El frontend (`pages/StudentsAnalytics.jsx`) normaliza el primer campo al nivel raíz y lo expone como columna ordenable **"Mejor Secuencia"** con icono `ListOrdered` ámbar y tooltip explicativo. Empty state `—` cuando el alumno no ha jugado partidas Secuencia. La columna entra también en el export CSV.
+
+Esto cierra el criterio 7 de T-922 ("vista comparativa con columna Mejor Secuencia"): permite que el docente compare retención visoespacial entre alumnos del aula con un único barrido visual, complementando la vista granular de `StudentProfile` (que sigue mostrando el `SequenceProgressChart` con la evolución temporal).
+
+## Sprint 0 pre-v1.0.0 — Slow-query observability + materialización planificada (ADR-164, M1)
+
+### Observabilidad de pipelines
+`gamePlayRepository.aggregate` ahora mide tiempo de cada aggregation y dispara `logger.warn(alert:true)` si supera `SLOW_AGGREGATE_WARN_MS=5000` (configurable). El log incluye `firstStage` para identificar qué pipeline aporta latencia. Esto da visibilidad **antes** de que MongoDB aborte por `maxTimeMS=15s` y la UX se degrade.
+
+### Candidatos a materialización (diferido a Sprint 3)
+Los pipelines `getStudentDifficulties` y `getStudentSummary` realizan 3+ `$lookup` consecutivos (gameplays → sessions → contexts → mechanics). Con dataset de seed (~50 plays) el coste es bajo, pero a escala (10K+ plays) son candidatos a vista materializada nightly:
+
+- **Job BullMQ:** `studentMetricsAggregator` ejecuta el pipeline una vez por noche y persiste los resultados en `studentMetrics.{maxScoreByContext, errorRateByMechanic, slowestContextId}` del documento `User`.
+- **Lectura:** los endpoints `/api/analytics/students/:id/difficulties` y `/summary` consultan `studentMetrics.*` directamente con `findById().select(...)`, O(1) per request.
+- **Trade-off:** los datos quedan con `staleness` de hasta 24h. Para v1.0.0 no es crítico porque los profesores consultan analytics post-clase, no en tiempo real.
+
+Esto está documentado pero NO implementado en Sprint 0: el slow-query log da observabilidad inmediata; la materialización se aborda cuando los logs muestren que el umbral se supera con regularidad. ADR-164 lo marca como `diferido Sprint 3`.
+
+---
+
+## § 6 — Vista cruzada Mecánica × Contexto (T-942 Fase A, ADR-177)
+
+`getContentEffectiveness` aceptaba dos modos 1D (`groupBy: 'context'|'mechanic'`). Faltaba la pregunta cruzada del docente: «¿qué tal funciona Asociación en Geografía frente a Memoria en Geografía?». La extensión a `groupBy: 'cross'` añade un pipeline con doble `$lookup` (contextos y mecánicas) y `$group` por composite key `{mechanicId, contextId}`. La firma del item resultante añade `mechanicId`, `mechanicName`, `contextId`, `contextName`; el resto de métricas y enriquecimiento RAG (`scoreRag`, `learningRag`, `interpretation`) se mantiene idéntico para preservar la coherencia con las vistas 1D que el docente ya conoce. Flag opcional `includeEmpty` permite mostrar combinaciones sin partidas como celdas "Sin datos" cuando se quiere ver el espacio completo (off por defecto, alineado con el comportamiento de `ContentEffectivenessMatrix`).
+
+Helpers internos (`buildBaseStages`, `buildSharedAggregates`, `buildSingleDimensionPipeline`, `buildCrossPipeline`, `enrichWithLearningMetrics`) reorganizan el código para que las tres ramas compartan etapas y agregados; el switch entre modos queda limpio sin duplicación. Cache key extendida `contentEffectiveness:${teacherId}:${timeRange}:${groupBy}:${includeEmpty}` evita envenenamiento entre clientes con distintos flags.
+
+## § 7 — Agregación tenancy-wide para dirección del centro (T-942 Fase B, ADR-178)
+
+Las agregaciones de `analyticsService` se filtran siempre por `teacherId` (escope per-teacher). El rol super_admin necesita la mirada agregada del centro, sin ese filtro. `adminAnalyticsService.getCenterOverview({ timeRange })` ejecuta 7 sub-agregaciones en paralelo (`Promise.all`):
+
+- **`getUsersAggregate`** — totalStudents, totalTeachers (approved), pendingTeachers.
+- **`getActiveTeachersCount(startDate)`** — distinct count de `session.createdBy` con partidas completadas en el periodo. Definición operativa («profesor con partidas») en lugar de registral («profesor con login reciente»). Ver justificación en memoria §4.6.
+- **`getActivityAggregate(startDate)`** — totalPlaysInRange, avgScoreInRange, playsToday, playsByMechanic.
+- **`getContentAggregate`** — totalDecks, totalSessions, activeSessions, totalContexts, totalMechanics.
+- **`getAlertsAggregate`** — totalCriticalActive/WarningActive/InfoActive + top-5 profesores con más alertas (critical desc, warning desc) basado en `SmartAlert.status='active'` con `$lookup users` para resolver nombres.
+- **`getTopTeachers(startDate)`** / `getTopMechanics(startDate)` / `getTopContexts(startDate)` — pipelines limit-5 paralelos con `$lookup` para nombres y `$round` de `avgScore`.
+
+Cache 300s en clave `cache:analytics:admin:overview:${timeRange}` (consistente con el resto de analytics del docente). Endpoint `GET /api/admin/analytics/overview` protegido por `requireRole('super_admin')`.
+
+## § 8 — Persistencia de informes generados (T-942 Fase B, ADR-179)
+
+Modelos Mongoose `ReportTemplate` (3 plantillas system seeded: `end-of-term`, `parents`, `staff-meeting`) y `GeneratedReport` (TTL 30d via `expireAfterSeconds` + cap 100 por docente en hook `pre('save')` con drop oldest). Endpoints CRUD `/api/reports/*` exponen templates (lista pública para teacher+super_admin; create/delete solo super_admin para custom; system no se puede borrar), recent (paginado, sin payload), getById (con ownership check; super_admin puede abrir cualquier informe), save (POST con `payloadSize` calculado server-side), delete (owner-only).
+
+El TTL automatiza la limpieza sin cron y respeta `RGPD Art. 5.1.e` (limitación de plazo). El cap evita acumulación indefinida por docente. `payload` como `Mixed` permite cualquier shape pero requiere disciplina del frontend al renderizar (descarta campos desconocidos); shape lo controla `reportDataService`.
+
+## § 9 — Integridad de puntuación y métricas de las mecánicas (ADR-221)
+
+Auditoría de las tres mecánicas centrada en que la recogida de estadísticas sea veraz extremo a extremo. Correcciones clave:
+
+- **`averageScore` por alumno se corrompía a ~0% (bloqueante).** `GameEngine.endPlay` —el camino principal de finalización de TODA partida real— invocaba `updateStudentMetrics` **sin `maxScore`**, así que `scorePercent` salía 0 y el incremental arrastraba el `studentMetrics.averageScore` de cada alumno hacia 0% (todos "en riesgo"). La reconciliación nocturna además reconstruía el acumulador de Redis desde el valor corrupto de Mongo, propagando el 0. Los caminos hermanos (`completePlay` HTTP, materialización Redis) sí pasaban `maxScore`. Fix: añadirlo a la llamada.
+- **`score` persistido de Secuencia divergía por debajo del mostrado/analytics.** El floor por paso `Math.max(0,…)` no se persistía (lo limpia `$__reset()` de `addEventAtomic`), así que el valor en memoria (≥0) quedaba por encima del `$inc` crudo de BD (que podía ser negativo). Se elimina el floor: el modelo (`pre('validate')`/`complete()`) es la única autoridad de clamp a `[0,maxScore]`, igual que Memoria/Asociación; in-game = game_over = persistido. **(Adenda ADR-222):** se sospechó que esto NO bastaba —que el lower-floor de `pre('validate')` seguía flooreando el score en cada `save()` intermedio, "perdonando" penalizaciones (no determinismo)—, pero un test de regresión red-green lo DESCARTÓ: el código ya produce el score correcto. Tras `$__reset()` el path `score` no queda modificado, así que el `$set` flooreado de `pre('validate')` no se aplica en los saves intermedios; el único floor que SÍ persistía era el explícito de Secuencia, ya eliminado aquí. No se requirió ningún cambio adicional de modelo.
+- **`averageResponseTime` inflado.** `GamePlay.complete()` promediaba TODO evento con `timeElapsed` (incluido el `round_end` de Secuencia = ronda entera, el `card_scanned` de Memoria y el `timeout` de Asociación = límite). Se restringe a eventos `correct`/`error`. **(Adenda ADR-222 seguimiento):** persistía un residuo en Secuencia — el `timeElapsed` de cada carta `correct`/`error` se medía desde `roundStartTime` (fijo por ronda), no por carta → ACUMULADO (carta N incluía el tiempo de las N-1 previas), inflando el KPI ~(L+1)/2 sólo en sesiones con Secuencia. Asociación y Memoria ya anclaban el tiempo por carta. Fix: medir el delta desde la carta anterior (`lastSequenceScanAt`, reiniciado al entrar a reproducing). Regresión en `sequenceFlow.test.js`.
+- **`timeoutAttempts` de Secuencia en 0.** Los timeouts de Secuencia solo emitían `round_end`; ahora emiten un evento `timeout` por carta no reproducida (alimenta la métrica genérica como Memoria/Asociación; `timeElapsed:0`, excluido del promedio).
+- **`peakStreak` de Asociación inflado por timeouts.** Un timeout no rompía la racha; se añade `recordTimeout` invocado en `handleTimeout`.
+
+Las estrellas del GameOver, el badge de puntuación y la notificación al docente se unifican a `score/maxScore` (antes las estrellas usaban accuracy `correctAnswers/totalRounds`, divergente con penalización por error). Detalle completo y verificación en ADR-221.

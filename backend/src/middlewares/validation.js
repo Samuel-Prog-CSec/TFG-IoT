@@ -11,6 +11,32 @@ const { z } = require('zod');
 const { ValidationError } = require('../utils/errors');
 
 /**
+ * Escribe el valor validado en la request sombreando cualquier getter heredado.
+ *
+ * En Express 5 `req.query` es un getter SIN setter definido en el prototype de la
+ * request. Una asignación directa (`req.query = parsed`) es un NO-OP silencioso en
+ * modo sloppy (los módulos CommonJS no son strict por defecto): la validación de
+ * Zod se ejecuta y rechaza entradas inválidas, pero los `.default()`, las coerciones
+ * (`z.coerce.number()`) y el stripping de claves NUNCA llegaban al controller, que
+ * acababa leyendo el query crudo. `defineProperty` crea una propiedad de datos
+ * PROPIA en la request que sombrea el getter del prototype, de modo que el controller
+ * recibe el objeto ya validado y coaccionado. `req.body`/`req.params` son propiedades
+ * propias escribibles, pero usamos el mismo mecanismo por uniformidad e idempotencia.
+ *
+ * @param {import('express').Request} req
+ * @param {'body'|'query'|'params'} key
+ * @param {unknown} value - Valor validado por Zod
+ */
+const assignValidated = (req, key, value) => {
+  Object.defineProperty(req, key, {
+    value,
+    writable: true,
+    enumerable: true,
+    configurable: true
+  });
+};
+
+/**
  * Formatea los issues de Zod en un array de errores con campo y mensaje.
  *
  * @param {import('zod').ZodIssue[]} issues - Issues de validación de Zod
@@ -33,7 +59,7 @@ const formatZodErrors = issues =>
  */
 const validateBody = schema => (req, res, next) => {
   try {
-    req.body = schema.parse(req.body);
+    assignValidated(req, 'body', schema.parse(req.body));
     return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -54,7 +80,7 @@ const validateBody = schema => (req, res, next) => {
  */
 const validateQuery = schema => (req, res, next) => {
   try {
-    req.query = schema.parse(req.query);
+    assignValidated(req, 'query', schema.parse(req.query));
     return next();
   } catch (error) {
     if (error instanceof z.ZodError) {
@@ -78,7 +104,7 @@ const validateQuery = schema => (req, res, next) => {
  */
 const validateParams = schema => (req, res, next) => {
   try {
-    req.params = schema.parse(req.params);
+    assignValidated(req, 'params', schema.parse(req.params));
     return next();
   } catch (error) {
     if (error instanceof z.ZodError) {

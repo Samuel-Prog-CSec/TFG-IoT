@@ -115,4 +115,157 @@ describe('MemoryStrategy', () => {
     expect(board.find(slot => slot.uid === 'AA000001')?.isRevealed).toBe(false);
     expect(board.find(slot => slot.uid === 'AA000003')?.isRevealed).toBe(false);
   });
+
+  it('ignora un scan mientras hay un fallo pendiente de ocultar (no evalúa "grupo de 3") — regresión A-C2/ADR-222', () => {
+    const strategy = new MemoryStrategy();
+    const sessionDoc = buildSessionDoc();
+    const strategyState = strategy.initialize({ sessionDoc });
+
+    // Provocar un fallo: selectedUids = [A, C], grupo completo aún SIN ocultar.
+    strategy.processScan({
+      scannedCard: { uid: 'AA000001', assignedValue: 'A' },
+      sessionDoc,
+      strategyState
+    });
+    const mismatch = strategy.processScan({
+      scannedCard: { uid: 'AA000003', assignedValue: 'B' },
+      sessionDoc,
+      strategyState
+    });
+    expect(mismatch.isCorrect).toBe(false);
+    expect(strategyState.selectedUids).toEqual(['AA000001', 'AA000003']);
+
+    // Un 3er scan ANTES del concealSelected (sensor físico rápido, no respeta el
+    // gating de la UI) debe IGNORARSE. Sin el fix empujaba una 3ª carta → evaluaba
+    // "grupo de 3" como fallo + penalización espurios.
+    const thirdScan = strategy.processScan({
+      scannedCard: { uid: 'AA000004', assignedValue: 'B' },
+      sessionDoc,
+      strategyState
+    });
+    expect(thirdScan.type).toBe('ignored');
+    expect(strategyState.selectedUids).toEqual(['AA000001', 'AA000003']);
+  });
+
+  describe('recordScanResult bookkeeping (ADR-A/B)', () => {
+    it('initialize siembra los contadores running de finalSummary', () => {
+      const strategy = new MemoryStrategy();
+      const state = strategy.initialize({ sessionDoc: buildSessionDoc() });
+      expect(state.currentStreak).toBe(0);
+      expect(state.peakStreak).toBe(0);
+      expect(state.totalMatches).toBe(0);
+      expect(state.totalMatchTimeMs).toBe(0);
+      expect(state.firstMatchAtAttempt).toBeNull();
+    });
+
+    it('un acierto incrementa streak/peakStreak y registra firstMatchAtAttempt', () => {
+      const strategy = new MemoryStrategy();
+      const state = strategy.initialize({ sessionDoc: buildSessionDoc() });
+      // Simulamos 1er intento (processScan habría incrementado attempts a 1).
+      state.attempts = 1;
+      strategy.recordScanResult({ isCorrect: true, timeElapsed: 1500, strategyState: state });
+      expect(state.currentStreak).toBe(1);
+      expect(state.peakStreak).toBe(1);
+      expect(state.totalMatches).toBe(1);
+      expect(state.totalMatchTimeMs).toBe(1500);
+      expect(state.firstMatchAtAttempt).toBe(1);
+    });
+
+    it('una racha de 3 aciertos sin error mantiene peakStreak en 3', () => {
+      const strategy = new MemoryStrategy();
+      const state = strategy.initialize({ sessionDoc: buildSessionDoc() });
+      [800, 1100, 950].forEach((t, i) => {
+        state.attempts = i + 1;
+        strategy.recordScanResult({ isCorrect: true, timeElapsed: t, strategyState: state });
+      });
+      expect(state.currentStreak).toBe(3);
+      expect(state.peakStreak).toBe(3);
+      expect(state.totalMatchTimeMs).toBe(2850);
+    });
+
+    it('un fallo rompe currentStreak pero conserva peakStreak', () => {
+      const strategy = new MemoryStrategy();
+      const state = strategy.initialize({ sessionDoc: buildSessionDoc() });
+      state.attempts = 1;
+      strategy.recordScanResult({ isCorrect: true, timeElapsed: 900, strategyState: state });
+      state.attempts = 2;
+      strategy.recordScanResult({ isCorrect: true, timeElapsed: 800, strategyState: state });
+      state.attempts = 3;
+      strategy.recordScanResult({ isCorrect: false, timeElapsed: 1500, strategyState: state });
+      expect(state.currentStreak).toBe(0);
+      expect(state.peakStreak).toBe(2);
+    });
+
+    it('firstMatchAtAttempt sólo se registra una vez', () => {
+      const strategy = new MemoryStrategy();
+      const state = strategy.initialize({ sessionDoc: buildSessionDoc() });
+      // 2 fallos antes del primer acierto.
+      state.attempts = 1;
+      strategy.recordScanResult({ isCorrect: false, timeElapsed: 1500, strategyState: state });
+      state.attempts = 2;
+      strategy.recordScanResult({ isCorrect: false, timeElapsed: 1700, strategyState: state });
+      // Primer acierto (3er intento).
+      state.attempts = 3;
+      strategy.recordScanResult({ isCorrect: true, timeElapsed: 1100, strategyState: state });
+      // Segundo acierto.
+      state.attempts = 4;
+      strategy.recordScanResult({ isCorrect: true, timeElapsed: 900, strategyState: state });
+      expect(state.firstMatchAtAttempt).toBe(3);
+      expect(state.totalMatches).toBe(2);
+    });
+
+    it('ignora timeElapsed <= 0 al acumular totalMatchTimeMs', () => {
+      const strategy = new MemoryStrategy();
+      const state = strategy.initialize({ sessionDoc: buildSessionDoc() });
+      state.attempts = 1;
+      strategy.recordScanResult({ isCorrect: true, timeElapsed: 0, strategyState: state });
+      expect(state.totalMatches).toBe(1);
+      expect(state.totalMatchTimeMs).toBe(0);
+    });
+
+    it('es noop si strategyState es null', () => {
+      const strategy = new MemoryStrategy();
+      expect(() => strategy.recordScanResult({ isCorrect: true })).not.toThrow();
+    });
+  });
+
+  describe('buildBoardForClient no filtra la respuesta (MEM-1)', () => {
+    it('no expone assignedValue de cartas boca abajo (no reveladas ni emparejadas)', () => {
+      const strategy = new MemoryStrategy();
+      const sessionDoc = buildSessionDoc();
+      const state = strategy.initialize({ sessionDoc });
+
+      const board = strategy.buildBoardForClient(state);
+
+      // Recién iniciada la partida ninguna carta está revelada: el valor real
+      // ("A"/"B") NO debe viajar en el payload — sería una fuga inspeccionable.
+      board.forEach(slot => {
+        expect(slot.isRevealed).toBe(false);
+        expect(slot.assignedValue ?? null).toBeNull();
+        expect(slot.displayData).toBeNull();
+      });
+    });
+
+    it('sí expone assignedValue de una carta revelada', () => {
+      const strategy = new MemoryStrategy();
+      const sessionDoc = buildSessionDoc();
+      const state = strategy.initialize({ sessionDoc });
+
+      strategy.processScan({
+        scannedCard: { uid: 'AA000001', assignedValue: 'A' },
+        sessionDoc,
+        strategyState: state
+      });
+
+      const board = strategy.buildBoardForClient(state);
+      const revealed = board.find(s => s.uid === 'AA000001');
+      expect(revealed.isRevealed).toBe(true);
+      expect(revealed.assignedValue).toBe('A');
+
+      // La carta no seleccionada sigue boca abajo y sin filtrar su valor.
+      const hidden = board.find(s => s.uid === 'AA000002');
+      expect(hidden.isRevealed).toBe(false);
+      expect(hidden.assignedValue ?? null).toBeNull();
+    });
+  });
 });

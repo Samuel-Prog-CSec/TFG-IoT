@@ -10,9 +10,10 @@
 
 import { useState, useEffect, useCallback, useRef } from 'react';
 import PropTypes from 'prop-types';
-import { motion, AnimatePresence, useSpring, useTransform, useReducedMotion } from 'framer-motion';
+import { m as motion, AnimatePresence, useSpring, useTransform, useReducedMotion } from 'framer-motion';
 import { CreditCard, Wifi, WifiOff, Plus, Trash2, AlertCircle, Zap, LogOut } from 'lucide-react';
 import { cn } from '../../lib/utils';
+import { sameId } from '../../lib/entityId';
 import { useConfetti } from '../../hooks/useConfetti';
 import RFIDConnector from './RFIDConnector';
 import webSerialService from '../../services/webSerialService';
@@ -59,15 +60,18 @@ const generateMockUid = () => {
  * />
  * ```
  */
+const EMPTY_ARRAY = [];
+const noop = () => {};
+
 export default function RFIDScannerPanel({
-  scannedCards = [],
+  scannedCards = EMPTY_ARRAY,
   onCardScanned,
-  onCardRemoved,
+  onCardRemoved = noop,
   minCards = 2,
   maxCards = 20,
   allowDuplicates = false,
   showMockButton = true,
-  availableCards = [], // Cartas reales disponibles para simular
+  availableCards = EMPTY_ARRAY, // Cartas reales disponibles para simular
   className,
 }) {
   const [isScanning, setIsScanning] = useState(false);
@@ -79,6 +83,25 @@ export default function RFIDScannerPanel({
   const containerRef = useRef(null);
   const prefersReducedMotion = useReducedMotion();
   const { fireFromElement } = useConfetti();
+
+  // Timers transitorios (reset de estados efímeros tras 1.5–3 s). Se registran
+  // para cancelarlos al desmontar y evitar setState sobre componente desmontado
+  // si el usuario sale del paso de escaneo dentro de esa ventana.
+  const transientTimersRef = useRef(new Set());
+  const scheduleTransient = useCallback((fn, ms) => {
+    const id = setTimeout(() => {
+      transientTimersRef.current.delete(id);
+      fn();
+    }, ms);
+    transientTimersRef.current.add(id);
+  }, []);
+  useEffect(() => {
+    const timers = transientTimersRef.current;
+    return () => {
+      timers.forEach(clearTimeout);
+      timers.clear();
+    };
+  }, []);
 
   // Contador animado
   const countSpring = useSpring(scannedCards.length, { stiffness: 300, damping: 30 });
@@ -102,7 +125,7 @@ export default function RFIDScannerPanel({
     const handleCardRemoved = (payload) => {
       if (payload?.uid) {
         setCardRemovedUid(payload.uid);
-        setTimeout(() => setCardRemovedUid(null), 2000);
+        scheduleTransient(() => setCardRemovedUid(null), 2000);
       }
     };
 
@@ -115,7 +138,7 @@ export default function RFIDScannerPanel({
       webSerialService.off('device_state_change', handleDeviceStateChange);
       webSerialService.off('card_removed', handleCardRemoved);
     };
-  }, []);
+  }, [scheduleTransient]);
 
   const handleCardAdded = useCallback((newCard) => {
     setLastScanned(newCard);
@@ -130,8 +153,8 @@ export default function RFIDScannerPanel({
       });
     }
 
-    setTimeout(() => setLastScanned(null), 1500);
-  }, [onCardScanned, fireFromElement]);
+    scheduleTransient(() => setLastScanned(null), 1500);
+  }, [onCardScanned, fireFromElement, scheduleTransient]);
 
   const handleRealScan = useCallback((payload) => {
     if (!payload?.uid) {
@@ -140,13 +163,13 @@ export default function RFIDScannerPanel({
 
     if (scannedCards.length >= maxCards) {
       setError(`Máximo de ${maxCards} tarjetas alcanzado`);
-      setTimeout(() => setError(null), 3000);
+      scheduleTransient(() => setError(null), 3000);
       return;
     }
 
     if (!allowDuplicates && scannedCards.some(c => c.uid === payload.uid)) {
       setError('Esta tarjeta ya ha sido escaneada');
-      setTimeout(() => setError(null), 3000);
+      scheduleTransient(() => setError(null), 3000);
       return;
     }
 
@@ -156,7 +179,7 @@ export default function RFIDScannerPanel({
 
     if (availableCards?.length && !matchedCard) {
       setError('Tarjeta no registrada en el sistema');
-      setTimeout(() => setError(null), 3000);
+      scheduleTransient(() => setError(null), 3000);
       return;
     }
 
@@ -171,13 +194,13 @@ export default function RFIDScannerPanel({
       ...newCard,
       scannedAt: new Date()
     });
-  }, [allowDuplicates, availableCards, handleCardAdded, maxCards, scannedCards]);
+  }, [allowDuplicates, availableCards, handleCardAdded, maxCards, scannedCards, scheduleTransient]);
 
   // Simular escaneo (mock para desarrollo)
   const handleMockScan = useCallback(() => {
     if (scannedCards.length >= maxCards) {
       setError(`Máximo de ${maxCards} tarjetas alcanzado`);
-      setTimeout(() => setError(null), 3000);
+      scheduleTransient(() => setError(null), 3000);
       return;
     }
 
@@ -186,9 +209,14 @@ export default function RFIDScannerPanel({
     // Si tenemos cartas disponibles (pasadas desde el padre), usamos una de ellas
     if (availableCards && availableCards.length > 0) {
       // Filtrar las que ya están escaneadas
-      const availableToScan = availableCards.filter(
-        c => !scannedCards.some(sc => sc._id === c._id || sc.uid === c.uid)
-      );
+      const availableToScan = availableCards.filter((c) => {
+        // Deduplicar por UID (huella fisica de la tarjeta, siempre presente) o,
+        // en su defecto, por id de carta. `sameId` aporta las guardas de verdad
+        // que evitan el falso positivo `undefined === undefined` que marcaria
+        // TODAS las cartas como ya escaneadas si los DTO exponen `id` en lugar
+        // de `_id`.
+        return !scannedCards.some((sc) => sameId(sc, c) || (c.uid && sc.uid && c.uid === sc.uid));
+      });
 
       if (availableToScan.length > 0) {
         // Seleccionar aleatoria
@@ -208,7 +236,7 @@ export default function RFIDScannerPanel({
       // Verificar duplicados
       if (!allowDuplicates && scannedCards.some(c => c.uid === uid)) {
         setError('Esta tarjeta ya ha sido escaneada');
-        setTimeout(() => setError(null), 3000);
+        scheduleTransient(() => setError(null), 3000);
         return;
       }
 
@@ -221,7 +249,7 @@ export default function RFIDScannerPanel({
     }
 
     handleCardAdded(newCard);
-  }, [scannedCards, maxCards, allowDuplicates, availableCards, handleCardAdded]);
+  }, [scannedCards, maxCards, allowDuplicates, availableCards, handleCardAdded, scheduleTransient]);
 
   // Eliminar tarjeta
   const handleRemoveCard = (uid) => {
@@ -430,7 +458,7 @@ export default function RFIDScannerPanel({
               <Plus size={18} />
               Simular Escaneo (Dev)
             </motion.button>
-            <p className="text-[10px] text-text-disabled text-center mt-2">
+            <p className="text-nano text-text-muted text-center mt-2">
               Modo simulacion activo para pruebas locales
             </p>
           </div>
@@ -486,7 +514,7 @@ export default function RFIDScannerPanel({
                     <p className="text-xs font-mono text-text-primary truncate">
                       {card.uid}
                     </p>
-                    <p className="text-[10px] text-text-muted">
+                    <p className="text-nano text-text-muted">
                       {card.type || 'RFID'}
                     </p>
                   </div>
@@ -542,7 +570,7 @@ RFIDScannerPanel.propTypes = {
     })
   ),
   onCardScanned: PropTypes.func.isRequired,
-  onCardRemoved: PropTypes.func.isRequired,
+  onCardRemoved: PropTypes.func,
   minCards: PropTypes.number,
   maxCards: PropTypes.number,
   allowDuplicates: PropTypes.bool,

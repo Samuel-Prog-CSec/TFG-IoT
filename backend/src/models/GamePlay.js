@@ -12,6 +12,7 @@
 
 const mongoose = require('mongoose');
 const { PLAY_STATUS, EVENT_TYPE } = require('../constants/enums');
+const logger = require('../utils/logger').child({ component: 'GamePlayModel' });
 
 const MAX_EVENTS_PER_PLAY = 500;
 
@@ -199,7 +200,39 @@ const gamePlaySchema = new mongoose.Schema(
       completionTime: {
         type: Number,
         default: 0
-      }
+      },
+      // Métricas específicas de la mecánica Memoria (ADR-A, sesión 04/05/2026).
+      // Persisten como Mixed para evitar el comportamiento de Mongoose con
+      // sub-schemas typed + `default: undefined` que en QA 04/05/2026
+      // resultó en métricas no persistidas tras `playDoc.complete()`. El
+      // shape se documenta aquí para referencia y se valida en `dtos.js`.
+      // Forma: { groupsMatched, peakStreak, averageMatchTimeMs,
+      //          attemptsToFirstMatch, groupSize }.
+      memory: { type: mongoose.Schema.Types.Mixed, default: undefined },
+      // Métricas específicas de la mecánica Asociación (ADR-A). Mixed por
+      // la misma razón que `memory`. Forma:
+      //   { peakStreak, quickestCorrectMs, slowestCorrectMs,
+      //     byValueAccuracy: { '<slug>': { correct, total } },
+      //     categoryDominance }.
+      association: { type: mongoose.Schema.Types.Mixed, default: undefined },
+      // Métricas específicas de la mecánica Secuencia (T-921). Sólo se
+      // persisten cuando la partida es de tipo 'sequence'; para Asociación
+      // y Memoria quedan undefined y el DTO las omite del payload público.
+      sequencesCompleted: { type: Number, default: undefined },
+      sequencesBlocked: { type: Number, default: undefined },
+      sequencesTimedOut: { type: Number, default: undefined },
+      maxSequenceLengthAchieved: { type: Number, default: undefined },
+      partialReproductions: { type: Number, default: undefined },
+      // Rondas con al menos un acierto pero sin completar la secuencia
+      // (T-921 QA 03/05/2026). Sustituye en el UI a `partialReproductions`,
+      // que duplicaba el total de "Cartas acertadas" del bloque superior.
+      partialRounds: { type: Number, default: undefined },
+      // Total de rondas jugadas en la partida de Secuencia. Denominador correcto
+      // del detector `sequence_order_errors` (partialRounds/roundsPlayed ≤ 1).
+      roundsPlayed: { type: Number, default: undefined },
+      averageReproductionTimeMs: { type: Number, default: undefined },
+      blockedCardsTotal: { type: Number, default: undefined },
+      hintsUsed: { type: Number, default: undefined }
     },
     status: {
       type: String,
@@ -258,7 +291,21 @@ const gamePlaySchema = new mongoose.Schema(
 gamePlaySchema.methods.addEventAtomic = async function (eventData, options = {}) {
   const { update, normalizedEventData } = buildEventUpdateOperators(eventData, options);
 
-  await this.constructor.updateOne({ _id: this._id }, update);
+  // DB-3: guard de estado ATÓMICO en el propio filtro. Antes el write no filtraba
+  // por `status`, y el check `isInProgress()` vivía separado en el service (TOCTOU):
+  // un evento tardío (scan duplicado, carrera con un timeout/endPlay concurrente por
+  // el path HTTP `addEventToPlay`, que NO pasa por el lock del motor) podía aplicar
+  // su `$push`/`$inc` DESPUÉS de que `complete()` calculara métricas y consolidara
+  // `updateStudentMetrics` → descuadre silencioso play vs studentMetrics. Con el
+  // filtro `status: 'in-progress'`, si la partida ya se finalizó el write no hace
+  // match y NO mutamos el estado en memoria (el `$inc` no ocurrió en BD; aplicarlo
+  // divergiría). `matchedCount` es undefined si un test mockea `updateOne` sin
+  // devolver resultado → en ese caso seguimos el path normal (los tests validan el
+  // camino feliz).
+  const result = await this.constructor.updateOne({ _id: this._id, status: 'in-progress' }, update);
+  if (result && result.matchedCount === 0) {
+    return this;
+  }
   applyEventToDocState(this, normalizedEventData, options);
 
   // El `$push` de events y los `$inc` de metrics/score/currentRound ya están
@@ -304,13 +351,21 @@ gamePlaySchema.methods.isInProgress = function () {
  * @example
  * await gamePlay.complete();
  */
-gamePlaySchema.methods.complete = function () {
+gamePlaySchema.methods.complete = function (options = {}) {
   this.status = 'completed';
   this.completedAt = new Date();
   this.metrics.completionTime = this.completedAt - this.startedAt;
 
-  // Calcular el tiempo medio de respuesta a partir de los eventos
-  const responseTimes = this.events.filter(e => e.timeElapsed).map(e => e.timeElapsed);
+  // Calcular el tiempo medio de respuesta SOLO sobre eventos de respuesta real
+  // (acierto/error). Antes promediaba cualquier evento con `timeElapsed`,
+  // mezclando el `round_end` de Secuencia (duración de la ronda ENTERA, ~60s),
+  // el `card_scanned` de la 1ª carta de Memoria, y el `timeout` de Asociación
+  // (= límite de tiempo completo). Eso inflaba/distorsionaba el KPI "T. medio de
+  // respuesta" y las métricas del alumno. Un timeout no es una respuesta.
+  const ANSWER_EVENT_TYPES = new Set(['correct', 'error']);
+  const responseTimes = this.events
+    .filter(e => ANSWER_EVENT_TYPES.has(e.eventType) && e.timeElapsed)
+    .map(e => e.timeElapsed);
 
   // Evitar división por cero
   if (responseTimes.length > 0) {
@@ -325,7 +380,9 @@ gamePlaySchema.methods.complete = function () {
     this.score = this.maxScore;
   }
 
-  return this.save();
+  // `options` permite pasar `{ session }` cuando el caller envuelve esta
+  // escritura en una transacción (H1). Por defecto `{}` → sin cambios.
+  return this.save(options);
 };
 
 /**
@@ -341,9 +398,12 @@ gamePlaySchema.methods.complete = function () {
  */
 gamePlaySchema.pre('validate', function () {
   if (typeof this.maxScore === 'number' && this.maxScore > 0 && this.score > this.maxScore) {
-    // eslint-disable-next-line no-console -- hook Mongoose sin acceso al logger Pino
-    console.warn(
-      `[GamePlay] Score ${this.score} excede maxScore ${this.maxScore} en partida ${this._id}. Clampeado.`
+    // T-907: cambio de console.warn → logger.warn para cumplir CLAUDE.md (Pino
+    // structured logging obligatorio en producción). El logger child añade el
+    // contexto 'GamePlayModel' al evento para facilitar filtrado en agregadores.
+    logger.warn(
+      { playId: this._id, score: this.score, maxScore: this.maxScore },
+      `Score excede maxScore en partida ${this._id}. Clampeado.`
     );
     this.score = this.maxScore;
   }
@@ -360,21 +420,52 @@ gamePlaySchema.pre('validate', function () {
 gamePlaySchema.index({ sessionId: 1, playerId: 1, status: 1 });
 
 /**
- * Índice para listar todas las partidas de un jugador.
- * Útil para ver el historial de partidas de un estudiante.
+ * (A2) Índice ÚNICO PARCIAL: garantiza a nivel de BD que un alumno tenga a lo
+ * sumo UNA partida ACTIVA (in-progress | paused) por sesión.
+ *
+ * `validatePlayer` ya comprueba esto con un findOne previo, pero era un TOCTOU:
+ * dos POST /api/plays concurrentes (doble clic, reintento por 429/timeout) podían
+ * pasar ambos el findOne antes de que cualquiera insertara y crear DOS partidas
+ * activas del mismo alumno, estado que el gameEngine stateful y
+ * recalculateSessionStatusFromPlays no esperan. Con este índice la unicidad la
+ * impone Mongo atómicamente; `createPlay` traduce el error 11000 a un
+ * ValidationError de dominio. Las partidas completed/abandoned salen del filtro
+ * parcial, así que "Jugar de nuevo" tras terminar sigue permitido.
+ *
+ * NOTA: si una BD desplegada ya tuviera duplicados por la race previa, la
+ * creación del índice fallaría; `npm run migrate:enforce-active-play-unique`
+ * limpia los duplicados (conserva la partida activa más reciente) antes de crearlo.
  */
-gamePlaySchema.index({ playerId: 1 });
+gamePlaySchema.index(
+  { sessionId: 1, playerId: 1 },
+  {
+    unique: true,
+    partialFilterExpression: { status: { $in: ['in-progress', 'paused'] } },
+    name: 'uniq_active_play_per_session_player'
+  }
+);
 
-/**
- * Índice para listar todas las partidas de una sesión (Dashboard del profesor).
- */
-gamePlaySchema.index({ sessionId: 1 });
+// Índices monocampo { playerId: 1 } y { sessionId: 1 } ELIMINADOS: son prefijo
+// exacto de los compuestos de abajo ({ playerId, status, completedAt } y
+// { sessionId, playerId, status }), que ya sirven esas consultas. Mantenerlos solo
+// añadía coste de escritura (gameplays se escribe por cada evento RFID) y storage
+// en Atlas M0 (512MB). Drop en BD existente: `npm run migrate:drop-redundant-indexes`.
 
 /**
  * Índice compuesto para analytics: historial de un jugador ordenado por fecha.
  * Caso de uso: GET /api/analytics/student/:id/summary (últimas N partidas).
  */
 gamePlaySchema.index({ playerId: 1, completedAt: -1 });
+
+/**
+ * Índice ESR (Equality→Sort→Range) para analytics por alumno acotadas a partidas
+ * completadas: la inmensa mayoría de queries por jugador filtran `status:'completed'`
+ * y ordenan/acotan por `completedAt`. Sin él resolvían por {playerId,completedAt}
+ * (no cubre el filtro status) o {playerId,status,startedAt} (ordena por startedAt →
+ * sort en memoria al pedir completedAt). Cubre detectores SmartAlert (secuencia/
+ * timeout) y getStudentSummary/trajectory tras añadirles la cota temporal.
+ */
+gamePlaySchema.index({ playerId: 1, status: 1, completedAt: -1 });
 
 /**
  * Índice compuesto para analytics: partidas completadas ordenadas por fecha.

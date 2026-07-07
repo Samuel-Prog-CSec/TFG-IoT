@@ -6,7 +6,7 @@
  */
 
 import PropTypes from 'prop-types';
-import { motion } from 'framer-motion';
+import { m as motion } from 'framer-motion';
 import {
   Check,
   Clock,
@@ -17,7 +17,7 @@ import {
 } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import GlassCard from '../ui/GlassCard';
-import { DIFFICULTY_VARIANT_STYLES } from './sessionHelpers';
+import { DIFFICULTY_VARIANT_STYLES, getRangeFillPercent } from './sessionHelpers';
 import { configShape } from './sessionPropTypes';
 
 const DIFFICULTIES = [
@@ -126,6 +126,7 @@ export default function StepMemoryRules({
                 max={300}
                 step={5}
                 value={config.timeLimit}
+                aria-valuetext={`${config.timeLimit} segundos`}
                 onChange={(e) => onConfigChange('timeLimit', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-brand-base"
               />
@@ -135,6 +136,7 @@ export default function StepMemoryRules({
             </div>
           </div>
 
+          {/* Puntos por pareja — rango unificado 5-15 (ADR-114) */}
           <div>
             <label htmlFor="memory-points-correct" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <Zap size={14} className="text-success-base" />
@@ -145,9 +147,10 @@ export default function StepMemoryRules({
                 id="memory-points-correct"
                 type="range"
                 min={5}
-                max={30}
+                max={15}
                 step={5}
                 value={config.pointsPerCorrect}
+                aria-valuetext={`+${config.pointsPerCorrect} puntos por pareja correcta`}
                 onChange={(e) => onConfigChange('pointsPerCorrect', Number.parseInt(e.target.value, 10))}
                 className="flex-1 accent-success-base"
               />
@@ -157,6 +160,7 @@ export default function StepMemoryRules({
             </div>
           </div>
 
+          {/* Penalización por error — rango unificado -5..0 (ADR-114) */}
           <div>
             <label htmlFor="memory-penalty-error" className="flex items-center gap-2 text-sm text-text-secondary mb-2">
               <AlertTriangle size={14} className="text-error-base" />
@@ -166,24 +170,25 @@ export default function StepMemoryRules({
               <input
                 id="memory-penalty-error"
                 type="range"
-                min={-15}
-                max={0}
+                // El slider trabaja en MAGNITUD (0..5) y guarda el valor en
+                // negativo. Con min=0 el thumb se posiciona en value/5 y el
+                // fill pintado a mano (getRangeFillPercent) coincide EXACTO
+                // con el thumb ("más a la derecha = más penalización = más
+                // relleno"). Antes el input iba en negativo (min=-5..0) y el
+                // fill |value|/5 quedaba invertido respecto al thumb.
+                min={0}
+                max={5}
                 step={1}
-                value={config.penaltyPerError}
-                onChange={(e) => onConfigChange('penaltyPerError', Number.parseInt(e.target.value, 10))}
+                value={Math.abs(config.penaltyPerError)}
+                aria-valuetext={config.penaltyPerError === 0 ? 'Sin penalización' : `${config.penaltyPerError} puntos por pareja incorrecta`}
+                onChange={(e) => onConfigChange('penaltyPerError', -Number.parseInt(e.target.value, 10))}
                 className="flex-1 penalty-range"
-                // El accent-color nativo pinta desde min hacia value. Con rango
-                // [-15..0] eso deja la barra mas llena cuanto menor es la
-                // penalizacion (valor cercano a 0), al reves de la intuicion
-                // del profe ("mas fill = mas penalizacion"). Ocultamos el
-                // accent-color con transparent y pintamos un gradient
-                // explicito proporcional a |value| / 15 desde la izquierda.
                 style={{
                   accentColor: 'transparent',
                   background: `linear-gradient(to right, var(--color-error-base) 0%, var(--color-error-base) ${
-                    (Math.abs(config.penaltyPerError) / 15) * 100
+                    getRangeFillPercent(Math.abs(config.penaltyPerError), 0, 5)
                   }%, var(--color-background-elevated) ${
-                    (Math.abs(config.penaltyPerError) / 15) * 100
+                    getRangeFillPercent(Math.abs(config.penaltyPerError), 0, 5)
                   }%, var(--color-background-elevated) 100%)`
                 }}
               />

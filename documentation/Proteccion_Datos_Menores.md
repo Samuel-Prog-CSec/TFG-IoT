@@ -569,6 +569,8 @@ Esta seccion describe las medidas tecnicas implementadas en la plataforma para g
 
 **Que se consigue:** Los datos de rendimiento educativo pueden procesarse y analizarse sin necesidad de acceder a la identidad real del menor. En caso de una brecha limitada al subsistema de analytics o a los logs, los datos expuestos no contienen informacion directamente identificativa. La decision de utilizar seudonimizacion en lugar de anonimizacion completa para datos operativos responde a una necesidad funcional: el profesor debe poder identificar a sus alumnos para intervenir pedagogicamente, lo cual requiere que la seudonimizacion sea reversible con la tabla de correspondencia adecuada (accesible solo al profesor autorizado).
 
+**Extension T-941 — alertas inteligentes persistidas (ADR-161):** Cada documento `SmartAlert` lleva un campo obligatorio `studentPseudoId` calculado como `pseudonymize(studentId|teacherId)` (hash SHA-256 truncado a 8 caracteres). El servicio `alertDetectionService` registra eventos lifecycle (`alertLifecycle.dismissed`, `alertLifecycle.resolvedManually`, `alertDetection.runForTeacher.completed`) usando exclusivamente `studentPseudoId` y nunca `studentId` plano. El `teacherId` sí se registra porque es necesario para correlacion operativa y los profesores no son menores. Adicionalmente, el servicio filtra automaticamente a los estudiantes con `consent.withdrawnAt` antes de invocar a los detectores, y aplica defensa en profundidad descartando findings de alumnos fuera del conjunto autorizado — esto cubre tanto la retirada de consentimiento (Art. 7 RGPD) como una proteccion adicional ante posibles bugs en los propios detectores.
+
 ### 6.5 k-anonimidad en aulas pequenas
 
 **Fundamentacion legal:** Art. 25 RGPD — Proteccion de datos desde el diseno. Guia basica de anonimizacion de la AEPD (2019) — Recomienda valores de k de al menos 5 para conjuntos de datos sensibles.
@@ -604,6 +606,8 @@ Esta seccion describe las medidas tecnicas implementadas en la plataforma para g
 5. **Mantenimiento del soft delete como operacion separada:** El soft delete (cambio de estado a inactivo) se mantiene como mecanismo de desactivacion reversible. El borrado efectivo es una operacion distinta, explicita e irreversible. Esta dualidad permite gestionar la desactivacion temporal de cuentas (por ejemplo, durante vacaciones) sin confundirla con el ejercicio del derecho de supresion.
 
 **Que se consigue:** Cumplimiento pleno del Art. 17 RGPD, incluyendo la especial relevancia del derecho de supresion para datos recogidos de menores (Considerando 65). La cascada completa garantiza que no quedan datos residuales del estudiante en ningun almacen del sistema.
+
+> **Endurecimiento de atomicidad (ADR-224, 01-07-2026).** La cascada en Mongo (documento de usuario, partidas, informes generados y alertas del alumno) se ejecuta ahora dentro de una **transaccion** (`withTransaction`), de modo que un fallo intermedio no puede dejar una supresion parcial con PII huerfana potencialmente re-identificable; o se borra todo o no se borra nada. En el despliegue cloud sobre MongoDB Atlas (replica set) la atomicidad es real; en entornos standalone sin replica set (algunos tests) la utilidad degrada a ejecucion secuencial sin sesion de forma transparente. Las operaciones dentro de la transaccion se ejecutan de forma secuencial porque una sesion transaccional de MongoDB no admite operaciones concurrentes.
 
 ### 6.7 Politica de retencion
 
@@ -945,3 +949,29 @@ La integracion de un eje completo de proteccion de datos en el desarrollo de la 
 ---
 
 *Documento elaborado como parte del Trabajo de Fin de Grado «Plataforma de Juegos Educativos con RFID» para fundamentar las medidas tecnicas y organizativas de proteccion de datos de menores implementadas en la plataforma Eduplay, en cumplimiento del Reglamento (UE) 2016/679 (RGPD) y la Ley Organica 3/2018 (LOPDGDD).*
+
+---
+
+## Anexo Sprint 0 pre-v1.0.0 — Sanitización Unicode en nombres de menores (ADR-164)
+
+Tras la auditoría pre-v1.0.0, el helper `sanitizedString({min,max,label,allowMultiline})` en `backend/src/validators/commonValidator.js` se aplica a TODOS los campos user-facing donde puede aparecer el nombre de un menor o información que se renderice en listados visibles para profesores/super_admin:
+
+- **`User.name`** (`createStudentSchema`, `createUserSchema`, `updateUserSchema`, `registerTeacherSchema`).
+- **`consent.grantedBy`** (nombre del padre/tutor en `createStudentSchema` y `updateConsentSchema`).
+- **`profile.classroom`** (nombre del aula — quasi-identificador en aulas pequeñas, ver §6 Riesgo de re-identificación).
+- **`displayName` de contextos/mazos** que pueden mencionar al alumno o referirse a su material.
+
+**Caracteres rechazados** y motivación:
+
+| Categoría | Codepoints | Riesgo |
+|---|---|---|
+| Zero-width | `U+200B`–`U+200D`, `U+FEFF`, `U+2060`–`U+2064` | Falsificar nombres ("Mar­ia" con ZWSP se renderiza como "Maria" pero indexa distinto en BD; spoofing en listados de tutores). |
+| Direccionales RTL/LTR | `U+200E`, `U+200F`, `U+202A`–`U+202E`, `U+2066`–`U+2069` | RLO ("Right-to-Left Override") puede invertir el orden visible de caracteres: "Maria<U+202E>evad" se ve como "MariadaveU+202E" en listados de profesor — falsificación visual del nombre del menor. |
+| Separadores invisibles | `U+2028` (LS), `U+2029` (PS) | Inserción de saltos de línea no detectables que rompen layout o inyectan contenido oculto en exports CSV/JSON. |
+| Caracteres de control ASCII | `\x00`–`\x1F`, `\x7F` | Caracteres no imprimibles que pueden interferir con consoles, exports, o herramientas de visualización del docente. |
+
+**Validación al ingreso**: el helper aplica `.trim()` + `.min()`/`.max()` + `superRefine` con `containsInvisibleUnicode(value)` + `CONTROL_CHARS_REGEX.test(value)`. Cualquier input que contenga estos caracteres recibe respuesta 400 con mensaje en español: "El nombre contiene caracteres invisibles o direccionales no permitidos".
+
+**Impacto en compliance RGPD Art. 5.1.d (exactitud)**: aumenta la garantía de que los nombres almacenados son exactamente los visibles para el profesor — previene escenarios donde un atacante crea un alumno con nombre aparente "Maria" pero codificación distinta para evadir comprobaciones, o donde el listado de profesores muestra nombres falsificados por RLO override.
+
+**Compatibilidad retro**: la validación solo aplica a input nuevo. Datos existentes no se tocan. Si en producción se detectan registros legacy con caracteres invisibles, un job de migración los puede sanitizar individualmente con consentimiento del tutor (Art. 16 RGPD — rectificación).

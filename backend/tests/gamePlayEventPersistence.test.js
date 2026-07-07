@@ -153,6 +153,46 @@ describe('GamePlay atomic event persistence', () => {
     expect(persisted.events[0].eventType).toBe('correct');
   });
 
+  it('el score refleja la suma REAL de penalizaciones y aciertos a través de saves intermedios (invariante de scoring)', async () => {
+    play.maxScore = 100;
+    await play.save();
+
+    // 6 fallos seguidos → -12 acumulado (penaltyPerError -2).
+    for (let i = 0; i < 6; i += 1) {
+      await play.addEventAtomic({
+        eventType: 'error',
+        cardUid: 'DD110001',
+        pointsAwarded: -2,
+        timeElapsed: 800,
+        roundNumber: 1
+      });
+    }
+
+    // Save intermedio con un campo modificado (simula el cierre de ronda de
+    // `advanceSequence`: incrementa currentRound y guarda).
+    play.currentRound = 2;
+    await play.save();
+
+    // 3 aciertos → +30.
+    for (let i = 0; i < 3; i += 1) {
+      await play.addEventAtomic({
+        eventType: 'correct',
+        cardUid: 'DD110001',
+        pointsAwarded: 10,
+        timeElapsed: 800,
+        roundNumber: 1
+      });
+    }
+
+    await play.complete();
+
+    const persisted = await GamePlay.findById(play._id);
+    // -12 + 30 = 18: el score acumula la suma real; las penalizaciones NO se
+    // "perdonan" por los saves intermedios (el clamp a [0,maxScore] es defensivo,
+    // solo aplica si la suma final cae fuera de rango).
+    expect(persisted.score).toBe(18);
+  });
+
   it('does not increment totalAttempts for non-answer events', async () => {
     await play.addEvent({
       eventType: 'round_start',

@@ -5,6 +5,7 @@
  */
 
 const gameContextRepository = require('../repositories/gameContextRepository.js');
+const cardDeckRepository = require('../repositories/cardDeckRepository');
 const storageService = require('../services/storageService.js');
 const imageProcessingService = require('../services/imageProcessingService.js');
 const audioValidationService = require('../services/audioValidationService.js');
@@ -306,6 +307,59 @@ const uploadAudio = async (req, res) => {
 };
 
 /**
+ * Comprueba que ningún mazo ACTIVO del contexto referencie el valor del asset
+ * que se va a borrar. Los mazos copian las URLs del asset en `cardMappings[]`
+ * como snapshot; borrar el asset dejaría esas URLs muertas (404 en partida, sin
+ * aviso). Bloqueamos con 409 para que el docente/admin edite o archive esos
+ * mazos primero (AS-1). Solo mazos ACTIVOS: los archivados/historial no deben
+ * impedir la limpieza de assets.
+ *
+ * @param {import('mongoose').Types.ObjectId} contextMongoId
+ * @param {string} assetValue
+ * @throws {ConflictError} si hay mazos activos que lo usan.
+ */
+async function assertAssetNotInUseByActiveDecks(contextMongoId, assetValue) {
+  const count = await cardDeckRepository.count({
+    contextId: contextMongoId,
+    status: 'active',
+    'cardMappings.assignedValue': assetValue
+  });
+  if (count > 0) {
+    throw new ConflictError(
+      `No se puede eliminar: ${count} mazo(s) activo(s) usan este recurso. ` +
+        'Edita o archiva esos mazos antes de borrarlo para no dejar tarjetas sin imagen.'
+    );
+  }
+}
+
+/**
+ * Borra los ficheros de un asset en Storage best-effort (nunca lanza). Se llama
+ * DESPUÉS de persistir Mongo (patrón H2): si un borrado de Storage falla, el
+ * fichero queda huérfano y purgable, pero el estado en BD ya es consistente.
+ * El orden inverso (Storage strict primero) dejaba el asset en Mongo con URLs
+ * muertas si el `save()` posterior fallaba.
+ *
+ * @param {Array<string|undefined>} urls
+ * @param {Object} logContext
+ */
+async function deleteStorageFilesBestEffort(urls, logContext) {
+  for (const url of urls) {
+    if (!url) {
+      continue;
+    }
+    try {
+      await storageService.deleteFile(url);
+    } catch (error) {
+      logger.warn('Fichero de Storage huérfano tras borrado de asset (purgable)', {
+        ...logContext,
+        url,
+        message: error.message
+      });
+    }
+  }
+}
+
+/**
  * Elimina una imagen de un contexto, borrando archivos de Supabase y registro en MongoDB.
  *
  * DELETE /api/contexts/:id/images/:assetKey
@@ -339,22 +393,25 @@ const deleteImage = async (req, res) => {
   // Politica de ownership: solo el creador o super_admin puede borrar
   assertCanManageAsset(asset, req.user);
 
-  // Eliminar archivos de Supabase (imagen + thumbnail + audio si existe)
-  if (asset.imageUrl) {
-    await storageService.deleteFile(asset.imageUrl, { strict: true });
-  }
-  if (asset.thumbnailUrl) {
-    await storageService.deleteFile(asset.thumbnailUrl, { strict: true });
-  }
-  if (asset.audioUrl) {
-    await storageService.deleteFile(asset.audioUrl, { strict: true });
-  }
+  // AS-1: no borrar si mazos activos lo usan (evita URLs muertas en partidas).
+  await assertAssetNotInUseByActiveDecks(context._id, asset.value);
 
-  // Eliminar asset del array (completo: imagen + audio)
+  // Snapshot de URLs antes de mutar el documento.
+  const urlsToDelete = [asset.imageUrl, asset.thumbnailUrl, asset.audioUrl];
+
+  // AS-4 (patrón H2): persistir Mongo PRIMERO; Storage después best-effort. Antes
+  // se borraba Storage (strict) primero y luego se guardaba Mongo — si el save
+  // fallaba, los ficheros ya no existían pero el asset seguía en el contexto
+  // (URLs muertas para todos los profesores).
   context.assets.splice(assetIndex, 1);
   await context.save();
 
   await invalidateContextCaches(context._id.toString(), context.contextId);
+
+  await deleteStorageFilesBestEffort(urlsToDelete, {
+    contextId: context.contextId,
+    assetKey
+  });
 
   logger.info('Asset eliminado exitosamente (imagen + audio)', {
     contextId: context.contextId,
@@ -400,18 +457,22 @@ const deleteAudio = async (req, res) => {
   // Politica de ownership: solo el creador del asset o super_admin pueden borrar el audio
   assertCanManageAsset(asset, req.user);
 
-  // Eliminar archivo de audio de Supabase
-  await storageService.deleteFile(asset.audioUrl, { strict: true });
-
   // Smart delete: si el asset tiene imagen, solo eliminar audioUrl (conservar asset)
   // Si el asset NO tiene imagen, eliminar el asset completo del array
   const hasImage = Boolean(asset.imageUrl || asset.thumbnailUrl);
+  const audioUrlToDelete = asset.audioUrl;
 
   if (hasImage) {
+    // AS-4 (patrón H2): persistir Mongo primero, luego Storage best-effort.
     asset.audioUrl = undefined;
     await context.save();
 
     await invalidateContextCaches(context._id.toString(), context.contextId);
+
+    await deleteStorageFilesBestEffort([audioUrlToDelete], {
+      contextId: context.contextId,
+      assetKey
+    });
 
     logger.info('Audio desvinculado de asset (imagen conservada)', {
       contextId: context.contextId,
@@ -421,10 +482,19 @@ const deleteAudio = async (req, res) => {
 
     sendSuccess(res, { asset: toAssetDTOV1(asset) }, 'Audio eliminado del asset');
   } else {
+    // Se elimina el asset COMPLETO (solo tenía audio): mismo guard AS-1 que
+    // deleteImage — un mazo activo podría referenciar su value.
+    await assertAssetNotInUseByActiveDecks(context._id, asset.value);
+
     context.assets.splice(assetIndex, 1);
     await context.save();
 
     await invalidateContextCaches(context._id.toString(), context.contextId);
+
+    await deleteStorageFilesBestEffort([audioUrlToDelete], {
+      contextId: context.contextId,
+      assetKey
+    });
 
     logger.info('Asset de solo-audio eliminado', {
       contextId: context.contextId,

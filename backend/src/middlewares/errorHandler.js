@@ -10,6 +10,26 @@ const { AppError } = require('../utils/errors');
 const logger = require('../utils/logger');
 
 /**
+ * Mensaje seguro para el cliente. No filtrar el mensaje crudo de errores
+ * inesperados (5xx no operacionales) en producción: puede revelar internals
+ * (rutas, nombres de campo, detalles del driver Mongo/Redis). El mensaje real ya
+ * queda en los logs. Los errores operacionales (AppError) y los 4xx tipados
+ * llevan un mensaje intencional y seguro.
+ *
+ * @param {number} statusCode
+ * @param {boolean} isOperational
+ * @param {string} message
+ * @returns {string}
+ */
+const resolveClientMessage = (statusCode, isOperational, message) => {
+  const isUnexpectedServerError = statusCode >= 500 && !isOperational;
+  if (isUnexpectedServerError && process.env.NODE_ENV === 'production') {
+    return 'Error interno del servidor';
+  }
+  return message;
+};
+
+/**
  * Middleware de manejo de errores centralizado.
  * Debe ser el ÚLTIMO middleware en server.js.
  *
@@ -75,6 +95,18 @@ const errorHandler = (err, req, res, _next) => {
     code = 'TOKEN_EXPIRED';
   }
 
+  // 6. Multer (subida de archivos): son errores del CLIENTE, no del servidor.
+  // Sin esta rama caían al 500 por defecto (con stack en dev). LIMIT_FILE_SIZE → 413;
+  // el resto de límites/archivo inesperado → 400. Mensaje genérico sin internals.
+  else if (err.name === 'MulterError') {
+    statusCode = err.code === 'LIMIT_FILE_SIZE' ? 413 : 400;
+    code = err.code;
+    message =
+      err.code === 'LIMIT_FILE_SIZE'
+        ? 'El archivo supera el tamaño máximo permitido'
+        : 'Archivo no válido en la subida';
+  }
+
   // --- Logging estructurado con Pino ---
   if (statusCode >= 500) {
     logger.error('Error interno del servidor', {
@@ -100,7 +132,7 @@ const errorHandler = (err, req, res, _next) => {
   // --- Respuesta al cliente ---
   res.status(statusCode).json({
     success: false,
-    message,
+    message: resolveClientMessage(statusCode, err.isOperational, message),
     ...(code && { code }),
     ...(errors && errors.length > 0 && { errors }),
     ...(data && { data }),

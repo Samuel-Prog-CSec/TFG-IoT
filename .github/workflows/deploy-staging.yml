@@ -1,0 +1,103 @@
+name: Deploy Staging
+
+# Dispara el redeploy del stack "eduplay-staging" en la VPS Contabo cuando el
+# workflow CI (build.yml) finaliza con éxito en la rama Maintenance. Se
+# ejecuta en el runner self-hosted registrado en la propia VPS — por eso el
+# trigger sigue siendo `workflow_run` (nunca `pull_request`): así un fork no
+# puede colar un workflow que ejecute código en la VPS. Ver
+# documentation/SECURITY.md#runner-self-hosted.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [Maintenance]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    name: Redeploy en VPS (staging)
+    runs-on: [self-hosted, linux, contabo-vps]
+    timeout-minutes: 15
+
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.head_branch == 'Maintenance')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          # Sin `ref` explícito, `actions/checkout` en un trigger `workflow_run`
+          # haría checkout de la rama por defecto (main), NO de la rama
+          # (Maintenance) cuyo run de CI disparó este workflow. El fallback
+          # `|| github.ref` cubre el trigger manual (`workflow_dispatch`), donde
+          # `github.event.workflow_run` no existe.
+          ref: ${{ github.event.workflow_run.head_sha || github.ref }}
+
+      - name: Copiar el .env persistente del entorno
+        run: cp /opt/eduplay/secrets/staging.env .env
+
+      - name: Levantar el stack (build + up)
+        run: |
+          set -e
+          docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+            -p eduplay-staging up -d --build
+
+      - name: Smoke test /api/health/ready (8 intentos × 15s, directo por loopback)
+        id: smoke
+        run: |
+          set +e
+          OK=0
+          PORT=$(grep -oP 'FRONTEND_PORT_BINDING=127\.0\.0\.1:\K[0-9]+' .env)
+          for i in $(seq 1 8); do
+            sleep 15
+            HTTP_CODE=$(curl -sS -o /tmp/health.json -w "%{http_code}" "http://127.0.0.1:${PORT}/api/health/ready" || echo "000")
+            echo "Intento $i: HTTP $HTTP_CODE"
+            [ "$HTTP_CODE" = "200" ] && OK=$((OK + 1))
+            cat /tmp/health.json || true
+            echo ""
+          done
+          echo "ok_count=$OK" >> "$GITHUB_OUTPUT"
+          if [ "$OK" -lt 3 ]; then
+            echo "::error::Smoke test falló: sólo $OK/8 intentos devolvieron 200"
+            exit 1
+          fi
+          echo "Smoke test OK: $OK/8 intentos verdes"
+
+      - name: Rollback al commit anterior si el smoke test falla
+        if: failure() && steps.smoke.outcome == 'failure'
+        run: |
+          set +e
+          echo "::warning::Smoke test falló — volviendo al commit desplegado previamente"
+          PREV_SHA=$(cat /opt/eduplay/secrets/staging.last-good-sha 2>/dev/null || echo "")
+          if [ -n "$PREV_SHA" ]; then
+            git fetch origin "$PREV_SHA"
+            git checkout "$PREV_SHA"
+            docker compose -f docker-compose.yml -f docker-compose.prod.yml \
+              -p eduplay-staging up -d --build
+          else
+            echo "::error::No hay SHA anterior registrado — rollback manual requerido"
+          fi
+
+      - name: Registrar este SHA como "último bueno" si el smoke test pasa
+        if: success()
+        run: echo "${{ github.sha }}" > /opt/eduplay/secrets/staging.last-good-sha
+
+      - name: Resumen del despliegue
+        if: always()
+        run: |
+          {
+            echo "## Deploy a staging (VPS)"
+            echo "- SHA: ${{ github.sha }}"
+            echo "- /api/health/ready 200 hits: ${{ steps.smoke.outputs.ok_count }}/8"
+            echo "- Outcome smoke test: ${{ steps.smoke.outcome }}"
+          } >> "$GITHUB_STEP_SUMMARY"

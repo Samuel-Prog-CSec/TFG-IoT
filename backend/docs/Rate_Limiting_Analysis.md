@@ -445,3 +445,47 @@ El frontend (`useGameSocket.js`) aplica el mismo mapa **y envía explícitamente
 ### Tests
 
 `backend/tests/socketRateLimiter.test.js` cubre los 5 escenarios principales (cooldown corto que permite, cooldown corto que bloquea, hardware mantiene su cooldown largo, fuente ausente cae en default, sources distintos no se ahogan entre sí).
+
+## Admin approval limiter — defensa-en-profundidad (ADR-164, M7)
+
+`adminApprovalRateLimiter` aplicado a `POST /api/admin/users/:id/approve` y `/api/admin/users/:id/reject` en `backend/src/routes/admin.js`.
+
+| Característica | Valor |
+|---|---|
+| Window | 1 hora |
+| Max prod | 100 |
+| Max dev | 1000 |
+| Env var | `RATE_LIMIT_ADMIN_APPROVAL_MAX` |
+| keyGenerator | `userOrIpKeyGenerator` (post-auth: userId; pre-auth: IP normalizada) |
+| Store | Redis distribuido (con fallback MemoryStore + métrica) |
+| Mensaje 429 | "Demasiadas acciones administrativas, espera un momento" |
+
+**Justificación:**
+1. **No molestar al super_admin legítimo:** 100 aprobaciones por hora cubren incluso el caso de bulk approval tras un fin de semana de registros (un centro típico tiene 1-5 super_admins y aprueba 10-30 docentes/mes). Headroom 3× sobre el peor caso realista.
+2. **Romper escenarios de abuso:** un super_admin comprometido o un bug de UI que dispare bucles infinitos quedan limitados a 100/h, no a la capacidad teórica del endpoint.
+3. **Limiter específico, no compartir con `authLooseRateLimiter`:** evita que un super_admin agote el límite compartido con sus refreshes de token o consultas a `/me`.
+
+**Endpoints relacionados sin rate limit específico:**
+- `POST /api/admin/lockouts/unlock` — heredaba `authLooseRateLimiter` y requiere `requireMfa` reciente (T-905 B7), por lo que el rate limiting natural es la fricción del MFA. Si se observa abuso en producción, se puede añadir `adminApprovalRateLimiter` aquí también sin coste adicional.
+
+**Tests:** sanity check manual en QA — 101 llamadas a `/approve` desde el mismo super_admin en 1h → la 101ª devuelve 429 con `Retry-After`. Cubierto E2E con Playwright.
+
+## Escaneos: 120/min, `soft-limit` y auto-gate a in-memory en `scale=1` (Auditoría de partidas 2026-07-02, ADR-225)
+
+Tres cambios sobre `rfid_scan_from_client`, el evento de socket más frecuente, tras jugar las 3 mecánicas en vivo:
+
+1. **Límite 60 → 120/min.** En modo táctil un niño de 4-8 años puede «mashear» el tablero de Memoria/Asociación (dedupe táctil de 250 ms → hasta 4 taps/s) y superar los 60/min, **perdiendo respuestas legítimas**. 120/min sigue filtrando abuso real y el dedupe cubre el chattering del sensor hardware. `socketRateLimits.rfid_scan_from_client.max = 120`.
+
+2. **Evento `soft-limit` (nuevo `socketSoftLimitEvents`).** Antes, al superar la ventana, las violaciones se acumulaban en un contador **compartido por usuario** que, tras 5, activaba un **bloqueo de 15 s sobre TODOS los eventos** — incluidos `pause_play`/`resume_play`/`next_round` del PROFESOR: la partida quedaba tomada por un niño tocando rápido. Ahora `rfid_scan_from_client` es soft-limit: al excederse **descarta la lectura sobrante SIN acumular violaciones ni activar el bloqueo compartido**. Un exceso de escaneos es comportamiento infantil normal, no abuso. Implementado en el path in-memory (`checkRateLimit`); el path Lua distribuido es multi-instancia (ver punto 3).
+
+3. **Auto-gate a in-memory en `scale=1`.** El limiter se instanciaba con `useRedis = NODE_ENV!=='test'` (→ true en producción), ejecutando un `EVALSHA` contra Upstash por CADA evento de socket (scans, heartbeats, control) **sin beneficio en single-instance**. Ahora `createSocketRateLimiter({ useRedis: isMultiInstanceEnabled() })` (misma señal `SOCKET_ADAPTER_ENABLED` que el adapter Socket.IO y el pub/sub de ADR-223/224). En `scale=1` → 0 comandos Upstash de rate-limiting (~1.800/día ahorrados); al escalar a >1 instancia, la misma flag reactiva el ZSET distribuido. `server.js`, `middlewares/socketRateLimiter.js`.
+
+**Tests:** `tests/security/rateLimitConfigs.test.js` fija el valor 120/min; `tests/socketRateLimiter.test.js` cubre el comportamiento del limiter.
+
+## HTTP rate-limit: MemoryStore en `scale=1` y `trust proxy` tras Nginx (Auditoría production-ready 2026-07-04, ADR-229)
+
+Dos ajustes que extienden el patrón de `scale=1` al rate-limit **HTTP** (el de socket ya se gateó en ADR-225, punto 3 arriba):
+
+1. **Store HTTP → MemoryStore en single-instance (H-013).** `createRedisStore` instanciaba un `RedisStore` para los limiters HTTP, ejecutando **un comando Upstash por request** en todas las `/api/*` — sin beneficio en `scale=1`, donde una sola instancia cuenta igual con MemoryStore. Ahora retorna `undefined` (→ MemoryStore) cuando `!isMultiInstanceEnabled()`, **antes** de tocar Redis y **sin** llamar a `recordRateLimitStoreFallback()`: la elección es deliberada, no una pérdida de Redis, así que **no** contamina el contador ni dispara el detector `rate_limit_store_fallback` (§8), que sigue vigilando fallos reales en multi-instancia. El gating va **después** del `isTestEnv()`, así que los tests conservan su MemoryStore sin depender del flag. Al activar `SOCKET_ADAPTER_ENABLED` se reactiva el store distribuido junto al resto de la coordinación entre instancias. Ahorro estimado ~6-12K comandos Upstash/día bajo carga de aula. `config/security.js`.
+
+2. **`trust proxy` en el stack Docker (H-001).** `app.set('trust proxy', 1)` solo se activaba con `NODE_ENV=production` o `TRUST_PROXY=true`; el contenedor corre `development` **tras Nginx**, de modo que Express tomaba la IP de Nginx como `req.ip` → todos los clientes compartían cubo de rate-limit y express-rate-limit emitía `ERR_ERL_UNEXPECTED_X_FORWARDED_FOR` por request (defensa por IP inservible + ruido). Fix: `TRUST_PROXY=true` en el servicio backend de `docker-compose.yml` (el compose declara que sirve tras proxy). Un único salto (`trust proxy=1`): Nginx en local, LB de Koyeb en cloud. En producción ya funcionaba vía `NODE_ENV=production`. `docker-compose.yml`, `server.js`.

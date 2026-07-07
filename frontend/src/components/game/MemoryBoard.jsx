@@ -4,37 +4,21 @@
  * feedback visual de acierto/error y accesibilidad.
  */
 
-import { useState, useEffect, useMemo } from 'react';
-import { motion } from 'framer-motion';
+import { useEffect, useMemo, useRef } from 'react';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { Heart, Sparkle } from 'lucide-react';
 import { cn } from '../../lib/utils';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
 import FloatingPointsBadge from './FloatingPointsBadge';
 import CardAssetPreview from '../ui/CardAssetPreview';
-
-/**
- * Determina el numero de columnas segun la cantidad total de cartas.
- * Limitamos a 4 columnas maximo para que las cartas mantengan tamaño
- * suficiente en pantalla tablet (motricidad infantil).
- */
-function resolveMemoryColumns(totalCards) {
-  if (totalCards <= 6) {
-    return 3;
-  }
-  return 4;
-}
-
-/** Estilos de cuadrícula predefinidos por número de columnas */
-const GRID_STYLES = {
-  3: { gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' },
-  4: { gridTemplateColumns: 'repeat(4, minmax(0, 1fr))' }
-};
+import { useSquareGridColumns } from '../../hooks/useSquareGridColumns';
 
 /** Clases CSS para cada estado de una celda del tablero */
 function getMemorySlotClasses(isMatched, isOpen) {
   if (isMatched) {
     // Emparejada: no se atenua, se celebra — borde success intenso + glow sutil
-    return 'border-success-base bg-success-base/15 shadow-[0_0_18px_rgba(34,197,94,0.25)]';
+    return 'border-success-base bg-success-base/15 shadow-[0_0_18px_var(--color-success-glow)]';
   }
 
   if (isOpen) {
@@ -46,17 +30,27 @@ function getMemorySlotClasses(isMatched, isOpen) {
 
 export default function MemoryBoard({ board, feedbackState, feedbackPoints, feedbackMessage, onCardTap }) {
   const { shouldReduceMotion } = useReducedMotion();
-  const safeBoard = Array.isArray(board) ? [...board].sort((a, b) => a.slotIndex - b.slotIndex) : [];
+  const safeBoard = Array.isArray(board) ? board.toSorted((a, b) => a.slotIndex - b.slotIndex) : [];
   const total = safeBoard.length;
-  const columns = resolveMemoryColumns(total);
-  const gridStyle = GRID_STYLES[columns] || GRID_STYLES[3];
-  const [prevBoard, setPrevBoard] = useState([]);
+  // Columnas adaptativas por aspect-ratio de la región (ADR-207 addendum): el
+  // hook mide el grid y elige el nº de columnas que MAXIMIZA el lado de carta.
+  // Un mazo de 12 a 720p (región ancha-baja) usa más columnas/menos filas; a 4K
+  // (región más cuadrada con el cap de altura) vuelve a ~4 (4×3) con cartas
+  // grandes. Cap 6 columnas para no aplastar la motricidad infantil.
+  const [gridRef, columns] = useSquareGridColumns(total, { maxCols: 6 });
+  const gridStyle = { gridTemplateColumns: `repeat(${columns}, minmax(0, 1fr))` };
+  // Snapshot del tablero anterior en un ref (no en estado): calcular
+  // `feedbackSlots` necesita comparar con el board previo, pero derivarlo a estado
+  // vía useEffect+setState provocaba un render EXTRA por cada cambio de tablero.
+  // El ref se actualiza tras el render (effect de abajo), sin re-render.
+  const prevBoardRef = useRef([]);
 
   // Detectar qué celdas acaban de cambiar (recién emparejadas o reveladas para feedback)
   const feedbackSlots = new Set();
   if (feedbackState !== 'idle') {
+    const prevBySlotIndex = new Map(prevBoardRef.current.map(p => [p.slotIndex, p]));
     for (const slot of safeBoard) {
-      const prev = prevBoard.find(p => p.slotIndex === slot.slotIndex);
+      const prev = prevBySlotIndex.get(slot.slotIndex);
       if (!prev) continue;
       // Recién emparejada
       if (slot.isMatched && !prev.isMatched) {
@@ -69,12 +63,15 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
     }
   }
 
-  // Actualizar snapshot del board anterior tras cada cambio de board
+  // Actualizar el snapshot del board anterior tras cada cambio de board. Al vivir
+  // en un ref, esto NO dispara re-render (a diferencia del antiguo setPrevBoard).
   useEffect(() => {
-    setPrevBoard(safeBoard.map(s => ({ slotIndex: s.slotIndex, isMatched: s.isMatched, isRevealed: s.isRevealed })));
+    prevBoardRef.current = safeBoard.map(s => ({
+      slotIndex: s.slotIndex,
+      isMatched: s.isMatched,
+      isRevealed: s.isRevealed
+    }));
   }, [board]); // eslint-disable-line react-hooks/exhaustive-deps
-
-  const isSuccess = feedbackState === 'success';
 
   const pairsFound = safeBoard.filter(s => s.isMatched).length / 2;
   const pairsTotal = total > 0 ? total / 2 : 0;
@@ -88,7 +85,7 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
   );
 
   return (
-    <div className="w-full h-full max-w-5xl mx-auto rounded-2xl border border-border-default bg-background-base/30 p-3 sm:p-4 relative flex flex-col">
+    <div className="w-full h-full max-w-[clamp(64rem,120vh,90rem)] mx-auto rounded-2xl border border-border-default bg-background-base/30 p-3 sm:p-4 relative flex flex-col">
       {/* Indicador visual de progreso de parejas: corazones que se iluminan al
           encontrar cada pareja. Sustituye al texto "Tablero de Memoria" (que era
           redundante) y da un goalpost visible sin ocupar espacio extra. */}
@@ -102,9 +99,13 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
             return (
               <motion.span
                 key={marker.id}
+                // Sustituye emoji 🤍/💚 por Lucide Heart con tinte (QA 04/05):
+                // los emojis dependen del SO/font del navegador y se ven feos
+                // en Windows (heart blanco vs verde lima saturado), aparte de
+                // contrar el patrón "no emoji como icono" del proyecto.
                 className={cn(
-                  'inline-block text-lg sm:text-xl transition-[transform,opacity,filter]',
-                  isFound ? 'opacity-100' : 'opacity-30 grayscale'
+                  'inline-flex items-center justify-center transition-[transform,opacity]',
+                  isFound ? 'text-success-base' : 'text-text-disabled/50'
                 )}
                 animate={
                   isFound && !shouldReduceMotion
@@ -114,23 +115,34 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                 transition={{ duration: 0.5, ease: 'easeOut' }}
                 aria-hidden="true"
               >
-                {isFound ? '💚' : '🤍'}
+                <Heart
+                  size={20}
+                  strokeWidth={2}
+                  className={cn(
+                    'transition-[fill,color]',
+                    isFound && 'fill-success-base'
+                  )}
+                />
               </motion.span>
             );
           })}
         </output>
       )}
 
-      {/* Badge flotante para acierto */}
-      {isSuccess && (
-        <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
-          <FloatingPointsBadge
-            type="success"
-            points={feedbackPoints}
-            message={feedbackMessage}
-          />
-        </div>
-      )}
+      {/* Badge flotante de puntos: acierto (verde, +N) y penalización por
+          pareja incorrecta (rojo, −N). Antes solo se mostraba en acierto
+          (`isSuccess`), por eso Memoria nunca enseñaba la resta de puntos. */}
+      <div className="absolute -top-5 left-1/2 -translate-x-1/2 z-30">
+        <AnimatePresence>
+          {feedbackState !== 'idle' && (
+            <FloatingPointsBadge
+              type={feedbackState}
+              points={feedbackPoints}
+              message={feedbackMessage}
+            />
+          )}
+        </AnimatePresence>
+      </div>
 
       {/*
         Grid ocupa el resto del alto disponible (flex-1 min-h-0). Las cards usan
@@ -140,6 +152,7 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
         se escalen al alto disponible sin desbordar.
       */}
       <div
+        ref={gridRef}
         className="grid gap-2 sm:gap-3 flex-1 min-h-0 auto-rows-fr content-center justify-center mx-auto w-full"
         style={gridStyle}
         role="grid"
@@ -155,34 +168,61 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
           const isInFeedback = feedbackSlots.has(slot.slotIndex);
           const isMatchFeedback = isInFeedback && feedbackState === 'success';
           const isMismatchFeedback = isInFeedback && feedbackState === 'error';
+          // Carta "tapeable": hay handler y no está resuelta ni ya boca arriba.
+          // Reutilizado por el cursor y el feedback táctil local (FE-3).
+          const isTappable = Boolean(onCardTap) && !slot.isMatched && !slot.isRevealed;
 
           return (
             <motion.div
               key={`memory-slot-${slot.slotIndex}`}
               className={cn(
-                // aspect-square mantiene cartas cuadradas, max-h-full evita overflow
-                // vertical cuando el grid tiene filas comprimidas (auto-rows-fr),
-                // mx-auto las centra dentro de su celda.
-                'aspect-square max-h-full mx-auto rounded-xl border transition-[box-shadow,border-color] memory-card-flip',
+                // aspect-square mantiene cartas cuadradas; max-h-full Y max-w-full
+                // acotan la carta a la celda (alto Y ancho) — sin max-w-full, a
+                // viewports altos (1440/4K) la carta se dimensiona por la fila y
+                // desborda la columna, solapándose con las vecinas. mx-auto centra.
+                'aspect-square max-h-full max-w-full mx-auto rounded-xl border transition-[box-shadow,border-color] memory-card-flip',
                 slotClasses,
                 isMatchFeedback && 'shadow-[0_0_20px] shadow-success-glow',
                 isMismatchFeedback && 'border-error-base/60',
-                onCardTap && !slot.isMatched && !slot.isRevealed && 'cursor-pointer'
+                isTappable && 'cursor-pointer'
               )}
               animate={(() => {
                 if (shouldReduceMotion) return {};
                 if (isMatchFeedback) return { scale: [1, 1.12, 1], transition: { duration: 0.4 } };
                 if (isMismatchFeedback) return { x: [-3, 3, -2, 2, 0], transition: { duration: 0.4 } };
-                // Cartas emparejadas: respiracion sutil (scale loop) en lugar
-                // de atenuar. Celebra el logro en vez de "apagarla".
+                // Cartas emparejadas: signature "peeking" — respiración
+                // sutil (scale 1→1.02) + wobble de 0.6° con jitter por
+                // slotIndex (ADR-D, sesión 04/05/2026). Cada carta tiene
+                // duración ligeramente distinta (2.6–4.4s) para que el
+                // tablero no respire al unísono. El peeking se acota a 3
+                // ciclos y para (antes `repeat: Infinity` mantenía hasta 12
+                // cartas animándose indefinidamente, gasto de GPU constante);
+                // tras celebrar la pareja, la carta reposa en su estado final.
                 if (slot.isMatched) {
+                  const idx = Number(slot.slotIndex || 0);
+                  const period = 2.6 + (idx % 5) * 0.45;
+                  const phase = (idx % 4) * 0.4;
                   return {
                     scale: [1, 1.02, 1],
-                    transition: { duration: 2.4, repeat: Infinity, ease: 'easeInOut' }
+                    rotate: [0, 0.6, -0.6, 0],
+                    transition: {
+                      duration: period,
+                      delay: phase,
+                      repeat: 3,
+                      ease: 'easeInOut'
+                    }
                   };
                 }
                 return {};
               })()}
+              // FE-3: feedback táctil LOCAL inmediato. El único cambio visual del tap
+              // era el volteo, que depende de que vuelva `memory_turn_state` del backend
+              // (100-300ms+ en aula con wifi + Koyeb) → el niño no sabía si su toque
+              // registró y re-tapeaba (el dedupe de 250ms los traga, pero la sensación
+              // de "no funciona" ya ocurría). Un `scale 0.95` al pulsar confirma el
+              // toque al instante, sin esperar la confirmación del servidor. Solo en
+              // cartas tapeables (no emparejadas, no reveladas) y con motion activo.
+              whileTap={!shouldReduceMotion && isTappable ? { scale: 0.95 } : undefined}
               role="gridcell"
               aria-label={slotLabel}
               onClick={() => onCardTap && !slot.isMatched && onCardTap(slot)}
@@ -219,13 +259,15 @@ export default function MemoryBoard({ board, feedbackState, feedbackPoints, feed
                   />
                   {/* Marco interno decorativo */}
                   <div className="absolute inset-1.5 rounded-md border border-white/20" aria-hidden="true" />
-                  {/* Marca central sutil */}
-                  <span
-                    className="relative text-2xl font-display font-bold text-white/80 drop-shadow-[0_1px_3px_rgba(0,0,0,0.4)]"
+                  {/* Marca central sutil — Lucide Sparkle (antes Unicode ✦
+                      que dependía de la fuente del SO). El fill+stroke white
+                      con drop-shadow le da peso de "logo de baraja". */}
+                  <Sparkle
+                    size={28}
+                    strokeWidth={1.5}
+                    className="relative text-white/85 drop-shadow-[var(--shadow-card-sparkle)] fill-white/30"
                     aria-hidden="true"
-                  >
-                    ✦
-                  </span>
+                  />
                 </div>
                 {/* Cara frontal (contenido).
                     aria-hidden cuando la carta NO esta abierta para evitar que el

@@ -5,32 +5,37 @@
  * @module components/session/sessionHelpers
  */
 
-// Configuracion del wizard
+import { getId } from '../../lib/entityId';
+
+// Configuracion del wizard. Los titulos siguen el patron verbo+sustantivo
+// para coherencia visual del stepper (la mezcla "Seleccionar Mazo" / "Mecanica"
+// / "Reglas" / "Crear" hacia que el primer paso pareciera de distinto tipo
+// que los demas — auditoria UI/UX 24/05/2026).
 export const WIZARD_STEPS = [
   {
     id: 'deck',
     title: 'Seleccionar Mazo',
     subtitle: 'Elige las cartas',
     icon: 'CreditCard',
-    description: 'El mazo define las tarjetas y assets que usarán los estudiantes'
+    description: 'El mazo define las tarjetas y los recursos que usarán los estudiantes'
   },
   {
     id: 'mechanic',
-    title: 'Mecánica',
+    title: 'Elegir Mecánica',
     subtitle: 'Tipo de juego',
     icon: 'Layers',
     description: 'Elige cómo interactuarán los estudiantes con las tarjetas'
   },
   {
     id: 'rules',
-    title: 'Reglas',
+    title: 'Definir Reglas',
     subtitle: 'Configura parámetros',
     icon: 'Settings',
     description: 'Define tiempo, puntos y número de rondas'
   },
   {
     id: 'review',
-    title: 'Crear',
+    title: 'Crear Sesión',
     subtitle: 'Revisa y lanza',
     icon: 'Save',
     description: 'Revisa la configuración antes de crear la sesión'
@@ -51,6 +56,25 @@ export const getStepDescription = (stepId, mechanicKey) => {
     return 'Define tiempo total de partida, puntos y penalización';
   }
   return WIZARD_STEPS.find(s => s.id === stepId)?.description || '';
+};
+
+/**
+ * Porcentaje de relleno (0-100) de un slider proporcional a la posicion del
+ * thumb: `(value - min) / (max - min) * 100`. Imprescindible para que el fill
+ * pintado a mano coincida EXACTAMENTE con donde el navegador coloca el thumb.
+ * El slider de penalizacion trabaja en magnitud (min=0), asi que "mas relleno
+ * = mas penalizacion" y el fill sigue al punto sin invertirse.
+ *
+ * @param {number} value
+ * @param {number} min
+ * @param {number} max
+ * @returns {number} porcentaje acotado a [0, 100]
+ */
+export const getRangeFillPercent = (value, min, max) => {
+  const span = max - min;
+  if (!Number.isFinite(span) || span === 0) return 0;
+  const pct = ((Number(value) - min) / span) * 100;
+  return Math.min(100, Math.max(0, pct));
 };
 
 // Configuraciones por defecto segun dificultad
@@ -116,7 +140,7 @@ export const DIFFICULTY_VARIANT_STYLES = {
   }
 };
 
-const DEFAULT_ENABLED_MECHANICS = ['association', 'memory'];
+const DEFAULT_ENABLED_MECHANICS = ['association', 'memory', 'sequence'];
 
 const parseEnabledMechanics = () => {
   const raw = import.meta.env.VITE_ENABLED_SESSION_MECHANICS;
@@ -124,10 +148,10 @@ const parseEnabledMechanics = () => {
     return new Set(DEFAULT_ENABLED_MECHANICS);
   }
 
-  const parsed = raw
-    .split(',')
-    .map(item => item.trim().toLowerCase())
-    .filter(Boolean);
+  const parsed = raw.split(',').flatMap(item => {
+    const trimmed = item.trim().toLowerCase();
+    return trimmed ? [trimmed] : [];
+  });
 
   return new Set(parsed.length > 0 ? parsed : DEFAULT_ENABLED_MECHANICS);
 };
@@ -147,7 +171,7 @@ export const isMechanicSelectable = mechanic => {
   return ENABLED_SESSION_MECHANICS.has(normalizedName);
 };
 
-export const resolveMechanicId = mechanic => mechanic?.id || mechanic?._id;
+export const resolveMechanicId = mechanic => getId(mechanic);
 export const resolveMechanicName = mechanic => normalizeMechanicName(mechanic);
 
 export const findMechanicById = (mechanics, mechanicId) => {

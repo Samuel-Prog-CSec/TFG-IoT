@@ -75,6 +75,12 @@ const INITIAL_STATE = {
 export default function useDeckWizardDraft() {
   const [state, setStateInternal] = useState(INITIAL_STATE);
   const [hasDraft, setHasDraft] = useState(false);
+  // `hadDraftOnMount`: TRUE solo si al montar el wizard ya existía un borrador
+  // previo en localStorage. A diferencia de `hasDraft` (que `saveDraft` vuelve
+  // a poner true en cada autosave), este flag NO se toca durante la sesión, así
+  // que el modal "Borrador encontrado" no rebrota al crear un mazo nuevo
+  // (QA 2026-06-04).
+  const [hadDraftOnMount, setHadDraftOnMount] = useState(false);
   const [draftDate, setDraftDate] = useState(null);
   const [isRestored, setIsRestored] = useState(false);
   
@@ -94,6 +100,7 @@ export default function useDeckWizardDraft() {
         const sevenDaysAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
         if (parsed.lastUpdated && parsed.lastUpdated > sevenDaysAgo) {
           setHasDraft(true);
+          setHadDraftOnMount(true);
           setDraftDate(new Date(parsed.lastUpdated));
         } else {
           // Borrador muy antiguo, eliminar
@@ -236,6 +243,7 @@ export default function useDeckWizardDraft() {
     setState,
     updateField,
     hasDraft,
+    hadDraftOnMount,
     draftDate,
     draftTimestamp: draftDate,
     isRestored,
