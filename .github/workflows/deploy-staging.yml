@@ -34,7 +34,7 @@ jobs:
 
     steps:
       - name: Checkout
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
         with:
           # Sin `ref` explícito, `actions/checkout` en un trigger `workflow_run`
           # haría checkout de la rama por defecto (main), NO de la rama
