@@ -47,6 +47,12 @@ jobs:
           # cualquier licencia no listada aquí — incluidas las copyleft fuertes
           # como GPL-2.0/3.0, AGPL-*, LGPL-3.0, EUPL-1.2 y MPL-2.0 — falla el PR.
           allow-licenses: MIT, Apache-2.0, BSD-2-Clause, BSD-3-Clause, ISC, 0BSD, CC0-1.0, Unlicense, Python-2.0, BlueOak-1.0.0
+          # Excepciones puntuales por paquete: el detector de licencias de esta
+          # action confunde archivos auxiliares del repo con la licencia real.
+          # Verificado contra el campo `license` publicado en npm (autoritativo):
+          # - @apidevtools/json-schema-ref-parser@14.2.1 → MIT (detector reporta "JSON AND MIT")
+          # - glob@7.1.6 (transitivo de swagger-jsdoc) → ISC (detector reporta "CC-BY-SA-4.0 AND ISC")
+          allow-dependencies-licenses: pkg:npm/%40apidevtools/json-schema-ref-parser@14.2.1, pkg:npm/glob@7.1.6
           # Comentar el resumen en el PR para visibilidad rápida.
           comment-summary-in-pr: on-failure
           # Permitir advisories ya documentados como no alcanzables en build.yml
