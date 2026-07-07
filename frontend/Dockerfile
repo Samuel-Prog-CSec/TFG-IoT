@@ -7,7 +7,7 @@
 # STAGE 1: Build
 # Compila la aplicación con Vite
 # ============================================
-FROM node:24-alpine AS builder
+FROM node:26-alpine AS builder
 
 WORKDIR /app
 
