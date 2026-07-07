@@ -16,6 +16,11 @@ WORKDIR /app
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
 
+# URL del servidor Socket.IO. Vacía (no ausente) señaliza "mismo origen que la
+# página" a socket.js — ver comentario en docker-compose.yml.
+ARG VITE_SOCKET_URL
+ENV VITE_SOCKET_URL=$VITE_SOCKET_URL
+
 # Modo de build de Vite. Por defecto `production` (bundle real de despliegue).
 # Para sesiones de QA con sensor simulado se puede construir con
 # `docker compose build --build-arg VITE_BUILD_MODE=development frontend`,
