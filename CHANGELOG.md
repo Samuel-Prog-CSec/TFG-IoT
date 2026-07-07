@@ -5,6 +5,92 @@ Todas las notas notables de cambios en este proyecto serán documentadas en este
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.0](https://github.com/Samuel-Prog-CSec/TFG-IoT/compare/v0.5.1...v1.0.0) (2026-07-07)
+
+
+### Features
+
+* auditoría integral pre-v1.0.0 — endurecimiento, perf, a11y y limpieza ([653c558](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/653c558a01268d0d8d1cc78effc928d37c4fc805))
+* borrado de contextos en cascada, sesiones como historial y audio en pistas de Secuencia ([3743e6e](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/3743e6ebad7dc4d99da29e1a21c0831bfc2ab8b9))
+* dashboards y BI — matriz cruzada, vista de centro e informes persistidos ([5b66237](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/5b6623718ab6fb7fd8b48f1bc34376f259eaeb75))
+* escala canónica de estrellas de 5 niveles, optimizaciones de analytics y limpieza ([80c10f5](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/80c10f54000d9e04a2891a879e9d60819f873d73))
+* **game:** banner de errores de sensor y mejoras de UI en la partida ([a32f731](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/a32f7319bf0cc51babdaeb952bcb9cc892021194))
+* **game:** completar y robustecer la mascota Otto ([821fd88](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/821fd889f0eafdc0043d510d324a61ffdc94c581))
+* **game:** guía de Otto en el onboarding, saludo en login y rig pulido ([d98406b](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/d98406b79def2268a34e82a6c00d66eac34d5c0e))
+* mecanica Secuencia + pulido de las 3 mecánicas ([#315](https://github.com/Samuel-Prog-CSec/TFG-IoT/issues/315)) ([ff91ae6](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/ff91ae6738a186453abb7a0b469f96850017ab8b))
+* migrar el despliegue de Koyeb a una VPS Contabo autoalojada ([6435d62](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/6435d6283d61fb4c75febb7227f219866efd374c))
+* paquete UI/UX Sprint 6 — tema, atmósferas, motion, logout undo ([#319](https://github.com/Samuel-Prog-CSec/TFG-IoT/issues/319)) ([00d7aa0](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/00d7aa0e9ed2647233d39c9eb278d9138581d389))
+* pulido de las 3 mecánicas, reglas canónicas puntuación y SessionDetail mecánica-aware ([ba023d5](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/ba023d5366797aabee493dccdcfd6f2c56fc0756))
+* pulido UI/UX, accesibilidad AA, filtros de analytics y rendimiento ([1b58f11](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/1b58f1183e0e3b44f6529432cab7d4eeb177f588))
+* **rfid:** activar enforcement HMAC end-to-end consciente del origen ([3ea6eb4](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/3ea6eb4667e2414288aff91c71b1b6345663cabc))
+* **rfid:** integrar firma HMAC anti-replay en el firmware del sensor ([22b4d4e](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/22b4d4e394e090f195f65df1e4c6bc219f3c9515))
+* **rfid:** observabilidad de seguridad HMAC con metricas y alerta de anomalias ([08a96ca](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/08a96ca44e9407e29b98c76228cb98047d8e6ae6))
+* robustez de partidas, mascota coherente y locución configurable de la consigna ([5cf7f3b](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/5cf7f3b9d5a3cb8dcc9daa69a3528d25ada0452b))
+* Sprint 6 cloud foundation + CD + security/observability/performance v1.0.0 ([#320](https://github.com/Samuel-Prog-CSec/TFG-IoT/issues/320)) ([c9470bf](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/c9470bf63f2f5ebc74a400122268b05777b16fc3))
+* **ui:** pulir UI y diseño estético ([44b933d](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/44b933ddd2b73cf69e979e9ccfd41d6b046172c2))
+
+
+### Bug Fixes
+
+* accesibilidad WCAG, microcopy y bugs de score, GameOver y socket ([68a3a5f](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/68a3a5fa69d4a1053751f8fc0f0229ea7eeb1206))
+* alinear el fallback del refresh token a 7d y el minimo de Node a 24.14.0 ([e5e4edb](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/e5e4edbbd6ac853b6f2f2142f2c99602ccd9f732))
+* bugs corregidos de renndimiento y filtros ([63eb15c](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/63eb15c16301650a8d0a39fc9012dc1134564c78))
+* excepcion de licencia para dos falsos positivos en Dependency Review ([6aa5f6a](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/6aa5f6a056b1b8bae4de625a1b7aeb8362465ba5))
+* **firmware:** inyectar el secret HMAC vía pre-script de PlatformIO ([dc4809d](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/dc4809d04d1cc203933557edb7474c988e308e20))
+* **game:** fit-to-viewport y columnas adaptativas en pantallas de partida ([07051f0](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/07051f010ba3af1bb50479389e6b78e0e1763738))
+* **game:** robustez y corrección de las 3 mecánicas de juego ([7053fb9](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/7053fb9c26914789ed689fea1cb83113e67269db))
+* integridad de analytics, robustez de graficos y seeders deterministas ([314fb16](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/314fb16c655be284d7437e23a16682436b566d8a))
+* integridad de datos analytics, Nginx y subsistema de notificaciones ([c10e1a6](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/c10e1a6d4f62533c7888c5cbdb3f7132c50c9672))
+* mantener el onboarding completado al salir de una partida ([f83b35c](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/f83b35c5cc6bd3a26f5f2dcd9c1fa3ef5ee2b1a2))
+* **microcopy:** de-jergar etiquetas, alertas y mensajes de error para docentes ([9a0f8fc](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/9a0f8fc63bef7b84b760f607cc82a208ec7395c2))
+* pulido pre-release de analytics, gameplay y detalle de sesión ([4d188b1](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/4d188b1c8e3f149cda6d5508b97bc039318aac1c))
+* pulido UI/UX de mascota, cartas físicas blancas y juego sin filtrar la respuesta ([879c5ea](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/879c5ea3dab0942e13e6812f40de776d1929daf0))
+* refuerzo de seguridad/RGPD, leaderboard en porcentaje y estados de UI ([0cb1519](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/0cb1519b546e241a47750af3b2b0f289bae5cbc3))
+* resolver vulnerabilidades de dependencias y OOM del CI en Backend Tests ([30a6694](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/30a66944082e8b67a217dd772c4df13b4cdf837e))
+* robustez de producción de las partidas en las 3 mecánicas ([6e74d3c](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/6e74d3cd6b8c607c4402762c22a9aab817fe1b9c))
+* robustez de producción en coste Redis, notificaciones, observabilidad y estados de error ([fc83494](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/fc8349441c99f0bedd87a4d7f2b37d7c6dfeac23))
+* robustez de producción en UI, Redis/Upstash, transacciones e índices ([ca9c3ac](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/ca9c3ac8163d3e3eba033213398ef886fbeb0536))
+* robustez y seguridad de producción en realtime, partidas, analytics y UI ([6dea966](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/6dea966c5207ee72314ce96c0f0fd8e119a952af))
+* **router:** corregir enrutado y estadísticas ([44b933d](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/44b933ddd2b73cf69e979e9ccfd41d6b046172c2))
+* **session:** corregir slider de penalización — relleno proporcional al thumb ([62585ea](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/62585eaf6b8f5c9ca5cf86638f9ce656e1333f98))
+* subida de assets, audio de partida, trust proxy y rate-limit free-tier ([fd33b9d](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/fd33b9dcd526c0e81e8fd9219495dbdf2abb6ae9))
+* subir timeout del job SonarCloud para no cancelar el CI completo ([1eb04b6](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/1eb04b613fb1501021d6c897abfa60575b5a1e95))
+* unificar el limite de tarjetas a 2-20 en mazos y partidas ([d71588c](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/d71588cf9ae6429f37107ad29d89305d21732321))
+
+
+### Performance
+
+* memoización frontend y lean/proyección en agregaciones backend ([f173aff](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/f173aff28047efb31dbdc8a6d19171022a078046))
+* optimización end-to-end pre-release v1.0.0 ([6c9790a](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/6c9790aaf442864b4892b63157b386a4ebfe4f16))
+
+
+### Refactor
+
+* **game:** métricas de partida veraces, ScoreDisplay bidireccional y eliminar FeedbackOverlay ([ab5c66c](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/ab5c66c29c7c77bf0cf9aa9e22310312c9fd087a))
+* mejora de accesibilidad y optimización de la UI en varias páginas ([b5c966f](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/b5c966f680d82552c3d171a6b6563917febc62e9))
+
+
+### Documentation
+
+* actualizar documentación de UI/UX y gameplay, y limpiar planes de diseño ([452fdf8](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/452fdf89aa195315b8aeccfa41b9de59baf4f5d9))
+* actualizar READMEs y OpenAPI tras la migracion a VPS ([6f7e2d1](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/6f7e2d158a405aba06c470b4c6657059255b14db))
+* limpieza de documentos temporales ([626d6f9](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/626d6f9eed42401c07226d5eac016c6fadef2dbd))
+* registrar decision de arquitectura del HMAC RFID activado ([2016a4e](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/2016a4e253378cd8a05dadd7e1089298ebda5242))
+* **rfid:** documentar HMAC activado, observabilidad y errores de sensor ([f4f8c02](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/f4f8c02e9102b529145435e076d2aee4edfe095a))
+
+
+### Mantenimiento
+
+* alinear el manifest de release-please con el ultimo tag real ([bc6135e](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/bc6135e058a3e7744e48d7093e2f2f379711f067))
+* **ci:** step Security report (completo) no bloquea el job ([33f1a78](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/33f1a78a71f62ae129d9f28eab74fc98352b6ce0))
+* **deps:** actualizar deps frontend y desactivar regla de React Compiler ([#314](https://github.com/Samuel-Prog-CSec/TFG-IoT/issues/314)) ([0d8cecd](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/0d8cecdff7ed4dcc809c6c38427afd0c64ebcbc5))
+* eliminar errores y warnings de ESLint en backend y frontend ([3b79d94](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/3b79d94ac22bee228a09e9305550f1a75123b0cc))
+* forzar version 1.0.0 en la proxima release ([2050cec](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/2050cec3ccf4ebbce5062dddf7774bdf85645bd5))
+* forzar version 1.0.0 en la release ([4f9146b](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/4f9146b94ff1fdfa69f74e6f4595cc16dab1e49d))
+* fusionar preparativos de version 1.0.0 desde Maintenance ([b72afea](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/b72afeaf5d8288f7d0bc05780356c4ecef07455b))
+* preparar version 1.0.0 para la release ([f8274b9](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/f8274b9a244ba6abe79583e98861774f35733520))
+* **security:** limpiar audit y workflows tras CI rojo del Sprint 6 ([6f25fc0](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/6f25fc0fb503539a87e19d9237659cd251f76581))
+
 ## [Unreleased] - Sprint 6
 
 ### Motion signature ampliada (T-954) + Notificaciones tiempo real (T-955)
