@@ -20,7 +20,7 @@ on:
         type: string
 
 permissions:
-  contents: write
+  contents: read
   actions: read
 
 concurrency:
@@ -112,19 +112,6 @@ jobs:
       - name: Registrar este tag como "último bueno" si el smoke test pasa
         if: success()
         run: echo "${{ github.event.inputs.tag || github.ref_name }}" > /opt/eduplay/secrets/prod.last-good-tag
-
-      - name: Crear GitHub Release
-        if: success()
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            echo "Release $TAG ya existe — actualizando con notas de despliegue"
-            gh release edit "$TAG" --notes-append $'\n\n**Desplegado a producción:** '$(date -u +"%Y-%m-%dT%H:%M:%SZ")
-          else
-            gh release create "$TAG" --title "$TAG" --generate-notes
-          fi
 
       - name: Resumen del despliegue
         if: always()
