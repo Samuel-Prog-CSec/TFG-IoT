@@ -5,6 +5,14 @@ Todas las notas notables de cambios en este proyecto serán documentadas en este
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.0.1](https://github.com/Samuel-Prog-CSec/TFG-IoT/compare/v1.0.0...v1.0.1) (2026-07-07)
+
+
+### Bug Fixes
+
+* URLs de API y WebSocket del frontend quedaban fijas a localhost en Docker ([8947d0c](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/8947d0cdcebde3551ba8b7f63f8656300b0ec934))
+* URLs de API y WebSocket del frontend quedaban fijas a localhost en Docker ([e65b946](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/e65b946d7df2860c54aaf11c3f9c619c098b8fb2))
+
 ## [1.0.0](https://github.com/Samuel-Prog-CSec/TFG-IoT/compare/v0.5.1...v1.0.0) (2026-07-07)
 
 
