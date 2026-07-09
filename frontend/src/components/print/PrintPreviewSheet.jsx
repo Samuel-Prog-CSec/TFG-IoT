@@ -18,8 +18,9 @@ const pct = (value, total) => `${(value / total) * 100}%`;
  * @param {Object|null} props.layout - Resultado de computeGridLayout (o null si el tamaño es inválido)
  * @param {Array} props.selectedCards - Cartas seleccionadas (con displayData)
  * @param {number} props.pages - Número total de páginas
+ * @param {boolean} [props.showLabel] - Reservar y pintar la etiqueta bajo cada imagen (como el PDF)
  */
-export default function PrintPreviewSheet({ layout, selectedCards, pages }) {
+export default function PrintPreviewSheet({ layout, selectedCards, pages, showLabel = false }) {
   const invalid = !layout || layout.perPage < 1;
   const isEmpty = selectedCards.length === 0;
 
@@ -38,6 +39,8 @@ export default function PrintPreviewSheet({ layout, selectedCards, pages }) {
   const rects = computeCellRects(layout);
   const firstPageCards = selectedCards.slice(0, layout.perPage);
   const orientationLabel = layout.orientation === 'portrait' ? 'vertical' : 'horizontal';
+  // Fracción de la celda reservada para la etiqueta (espejo del PDF: min(6mm, 18% del alto)).
+  const labelFrac = showLabel ? Math.min(6 / layout.cardHeightMm, 0.18) : 0;
 
   return (
     <div className="flex flex-col items-center gap-3">
@@ -56,7 +59,7 @@ export default function PrintPreviewSheet({ layout, selectedCards, pages }) {
               key={card.uid}
               layout
               transition={{ type: 'spring', stiffness: 400, damping: 34 }}
-              className="absolute flex items-center justify-center border border-dashed border-black/25"
+              className="absolute flex flex-col overflow-hidden border border-dashed border-black/25"
               style={{
                 left: pct(rect.xMm, layout.pageWidthMm),
                 top: pct(rect.yMm, layout.pageHeightMm),
@@ -64,13 +67,25 @@ export default function PrintPreviewSheet({ layout, selectedCards, pages }) {
                 height: pct(rect.hMm, layout.pageHeightMm)
               }}
             >
-              {imageUrl && (
-                <img
-                  src={imageUrl}
-                  alt=""
-                  loading="lazy"
-                  className="max-h-full max-w-full object-contain p-[3%]"
-                />
+              <div className="flex min-h-0 flex-1 items-center justify-center">
+                {imageUrl && (
+                  <img
+                    src={imageUrl}
+                    alt=""
+                    loading="lazy"
+                    className="max-h-full max-w-full object-contain p-[4%]"
+                  />
+                )}
+              </div>
+              {showLabel && card.assignedValue && (
+                <div
+                  className="flex items-center justify-center overflow-hidden px-1"
+                  style={{ height: `${labelFrac * 100}%` }}
+                >
+                  <span className="truncate text-[7px] leading-none text-black/70">
+                    {card.assignedValue}
+                  </span>
+                </div>
               )}
             </motion.div>
           );

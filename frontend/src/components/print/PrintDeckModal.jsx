@@ -100,6 +100,7 @@ function PrintDeckContent({ deckId, deckName, cards, newUids, onClose }) {
               layout={print.layout}
               selectedCards={print.selectedCards}
               pages={print.pages}
+              showLabel={print.showLabel}
             />
           </motion.div>
         </div>
