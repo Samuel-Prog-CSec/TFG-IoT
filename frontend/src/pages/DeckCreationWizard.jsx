@@ -30,10 +30,12 @@ import {
   Sparkles,
   Hash,
   Wand2,
-  Eye
+  Eye,
+  Printer
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getId } from '../lib/entityId';
+import { setPrintHint } from '../lib/printHint';
 import { buildCardMappingsPayload } from '../lib/cardMapping';
 import { validateAssignmentCardinality } from '../lib/deckCardinality';
 import WizardStepper from '../components/ui/WizardStepper';
@@ -42,6 +44,8 @@ import AssetSelector from '../components/ui/AssetSelector';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import PrintDeckModal from '../components/print/PrintDeckModal';
+import CharacterMascot from '../components/game/CharacterMascot';
 import InlineSuccessBadge from '../components/ui/InlineSuccessBadge';
 import useInlineSuccess from '../hooks/useInlineSuccess';
 import GlassCard from '../components/ui/GlassCard';
@@ -127,6 +131,9 @@ export default function DeckCreationWizard() {
   const [currentStep, setCurrentStep] = useState(0);
   const [stepDirection, setStepDirection] = useState(1);
   const [isSubmitting, setIsSubmitting] = useState(false);
+  // Pantalla de éxito tras crear (con CTA de imprimir) y estado del modal.
+  const [createdDeck, setCreatedDeck] = useState(null);
+  const [printOpen, setPrintOpen] = useState(false);
   
   // Datos del mazo
   const [selectedCards, setSelectedCards] = useState([]);
@@ -399,17 +406,36 @@ export default function DeckCreationWizard() {
         toast.info('Tarjetas reorganizadas', { description, duration: 6000 });
       }
       
-      // Redirigir después de un momento para que se vea el confetti
-      setTimeout(() => {
-        navigate(ROUTES.CARD_DECKS);
-      }, shouldReduceMotion ? 400 : 1500);
-      
+      // En vez de navegar directamente, mostramos la pantalla de éxito con el
+      // CTA de imprimir (el profesor debe entender que hay que imprimir las
+      // cartas). Limpiamos el formulario para desactivar el guard de cambios
+      // sin guardar antes de salir del wizard.
+      setCreatedDeck({
+        id: getId(responseData),
+        name: deckName.trim(),
+        cards: responseData?.cardMappings || []
+      });
+      setSelectedCards([]);
+      setSelectedContext(null);
+      setCardAssignments({});
+      setDeckName('');
+      setIsSubmitting(false);
+
     } catch (err) {
       toast.error('No pudimos crear el mazo', {
         description: extractErrorMessage(err)
       });
       setIsSubmitting(false);
     }
+  };
+
+  const handleGoToDecks = () => {
+    // Parte "Ambos": deja marcada la pista para resaltar el botón de imprimir
+    // la primera vez que se abra el detalle de este mazo.
+    if (createdDeck?.id) {
+      setPrintHint(createdDeck.id);
+    }
+    navigate(ROUTES.CARD_DECKS);
   };
 
   // Renderizar paso actual
@@ -629,6 +655,75 @@ export default function DeckCreationWizard() {
 
       {/* T-957: modal de confirmación al descartar borrador. */}
       <ConfirmationModal {...discardConfirmation.modalProps} />
+
+      {/* Pantalla de éxito: remarca el CTA de imprimir tras crear el mazo. */}
+      <AnimatePresence>
+        {createdDeck && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.2 }}
+            className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-backdrop backdrop-blur-sm"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="deck-created-title"
+          >
+            <motion.div
+              initial={{ scale: 0.9, opacity: 0, y: 20 }}
+              animate={{ scale: 1, opacity: 1, y: 0 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ type: 'spring', damping: 24, stiffness: 300 }}
+              className="relative flex w-full max-w-[min(480px,92vw)] flex-col items-center gap-4 rounded-2xl border border-border-default bg-background-base p-8 text-center shadow-2xl"
+            >
+              <CharacterMascot mood="celebrating" size="md" noBubble />
+              <div className="space-y-1.5">
+                <h2
+                  id="deck-created-title"
+                  className="font-display text-xl font-bold text-text-primary"
+                >
+                  ¡Mazo creado!
+                </h2>
+                <p className="text-text-secondary">
+                  Ya casi está. Imprime las imágenes para recortarlas y pegarlas en tus tarjetas:
+                  sin las cartas físicas no podrás jugar.
+                </p>
+              </div>
+              <div className="flex w-full flex-col gap-2 sm:flex-row sm:justify-center">
+                <div className="relative">
+                  {!shouldReduceMotion && (
+                    <motion.span
+                      aria-hidden="true"
+                      className="pointer-events-none absolute -inset-1 rounded-2xl ring-2 ring-brand-base"
+                      animate={{ opacity: [0.6, 0, 0.6], scale: [1, 1.08, 1] }}
+                      transition={{ duration: 2, repeat: Infinity, ease: 'easeInOut' }}
+                    />
+                  )}
+                  <ButtonPremium
+                    variant="primary"
+                    size="lg"
+                    icon={<Printer size={18} />}
+                    onClick={() => setPrintOpen(true)}
+                  >
+                    Imprimir cartas
+                  </ButtonPremium>
+                </div>
+                <ButtonPremium variant="ghost" size="lg" onClick={handleGoToDecks}>
+                  Ir a mis mazos
+                </ButtonPremium>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <PrintDeckModal
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        deckId={createdDeck?.id}
+        deckName={createdDeck?.name || 'Mazo'}
+        cards={createdDeck?.cards || []}
+      />
     </div>
   );
 }

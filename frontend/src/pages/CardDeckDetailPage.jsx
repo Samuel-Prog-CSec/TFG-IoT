@@ -8,11 +8,13 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { m as motion } from 'framer-motion';
-import { ArrowLeft, Pencil, Layers, CreditCard, Calendar, Archive, Lock } from 'lucide-react';
+import { ArrowLeft, Pencil, Printer, Layers, CreditCard, Calendar, Archive, Lock } from 'lucide-react';
 import { decksAPI, extractData, extractErrorMessage, isAbortError } from '../services/api';
 import { ROUTES } from '../constants/routes';
 import { getId } from '../lib/entityId';
+import { consumePrintHint } from '../lib/printHint';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import PrintDeckModal from '../components/print/PrintDeckModal';
 import CardAssetPreview from '../components/ui/CardAssetPreview';
 import AudioPlayBadge from '../components/ui/AudioPlayBadge';
 import EmptyState from '../components/ui/EmptyState';
@@ -150,6 +152,20 @@ export default function CardDeckDetailPage() {
   const contextName = getContextName(deck);
   const currentDeckId = getId(deck);
 
+  const [printOpen, setPrintOpen] = useState(false);
+  const [highlightPrint, setHighlightPrint] = useState(false);
+
+  // Parte "Ambos": si venimos de crear/editar el mazo, resaltar el botón de
+  // imprimir la primera vez que se abre su detalle.
+  useEffect(() => {
+    if (!currentDeckId || !consumePrintHint(currentDeckId)) {
+      return undefined;
+    }
+    setHighlightPrint(true);
+    const timer = setTimeout(() => setHighlightPrint(false), 4500);
+    return () => clearTimeout(timer);
+  }, [currentDeckId]);
+
   if (loading && !deck) {
     return (
       <div className="page-container py-[var(--space-fluid-section)] space-y-6">
@@ -227,6 +243,21 @@ export default function CardDeckDetailPage() {
             <StatusBadge status={archived ? 'inactive' : 'active'} pulse={!archived}>
               {statusLabel}
             </StatusBadge>
+            <div className="relative">
+              {highlightPrint && (
+                <motion.span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -inset-1 rounded-2xl ring-2 ring-brand-base"
+                  initial={{ opacity: 0.7, scale: 1 }}
+                  animate={{ opacity: 0, scale: 1.12 }}
+                  transition={{ duration: 1.1, repeat: 3, ease: 'easeOut' }}
+                />
+              )}
+              <ButtonPremium variant="primary" onClick={() => setPrintOpen(true)}>
+                <Printer size={16} />
+                Imprimir cartas
+              </ButtonPremium>
+            </div>
             <ButtonPremium
               variant="secondary"
               onClick={() => currentDeckId && navigate(ROUTES.CARD_DECKS_EDIT(currentDeckId))}
@@ -348,6 +379,14 @@ export default function CardDeckDetailPage() {
           )}
         </GlassCard>
       </div>
+
+      <PrintDeckModal
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        deckId={currentDeckId}
+        deckName={deck.name || 'Mazo'}
+        cards={cards}
+      />
     </motion.div>
   );
 }
