@@ -293,3 +293,33 @@ const DRAFT_EXPIRY = 7 * 24 * 60 * 60 * 1000; // 7 días
 - `src/models/CardDeck.js`
 - `src/controllers/cardDeckController.js` (límite 50)
 - `src/routes/cardDeckRoutes.js`
+
+---
+
+## Impresión de cartas (PDF)
+
+El profesor genera un PDF con las imágenes del mazo para recortarlas y pegarlas en
+las tarjetas físicas. La generación es **server-side** (`pdf-lib` + `sharp`); ver
+`backend/docs/Deck_Print_PDF.md` y **ADR-234**.
+
+**Componentes** (`src/components/print/`):
+- `PrintDeckModal.jsx` — orquesta; shell de modal (backdrop, focus trap, Escape,
+  scroll lock), dos columnas (controles / previsualización), footer con descarga y
+  estado vacío con mascota.
+- `PrintSizeControls.jsx` — presets (estándar 5,5×8,5 cm / personalizado), inputs
+  en cm con guards inline y toggle de etiqueta.
+- `PrintCardSelector.jsx` — rejilla de miniaturas seleccionables (todo / ninguno /
+  "solo las nuevas" en edición).
+- `PrintPreviewSheet.jsx` — hoja A4 escalada con la rejilla real (espejo de la
+  geometría del backend).
+
+**Lógica**:
+- `src/lib/printLayout.js` — geometría pura (rejilla, `fitInside`, conteo de
+  páginas, validación de tamaño); espejo del backend para la preview en vivo.
+- `src/hooks/usePrintDeck.js` — estado (tamaño, selección, opciones) + generación y
+  descarga (`decksAPI.printDeck` con `responseType: 'blob'` → `downloadBlob`).
+- `src/lib/printHint.js` — pista `localStorage` para resaltar el botón de imprimir
+  en el detalle tras crear/editar.
+
+**Puntos de entrada**: botón en `CardDeckDetailPage`, pantalla de éxito en
+`DeckCreationWizard` y botón + resaltado en `DeckEditPage`.
