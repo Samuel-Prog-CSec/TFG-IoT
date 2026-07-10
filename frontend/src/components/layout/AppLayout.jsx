@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo, useRef } from 'react';
 import PropTypes from 'prop-types';
 import { Outlet, NavLink, useLocation, useNavigate } from 'react-router-dom';
-import { m as motion, AnimatePresence, useScroll, useTransform } from 'framer-motion';
+import { m as motion, AnimatePresence } from 'framer-motion';
 import { toast } from 'sonner';
 import { NAV_ROUTES, ADMIN_NAV_ROUTES, ROUTES } from '../../constants/routes';
 import {
@@ -79,16 +79,13 @@ export default function AppLayout() {
   // `<html data-atmosphere>`. El hook resuelve el contexto del recurso de
   // la URL (deck/session/context) y empuja la atmósfera al provider.
   useRouteAtmosphere();
-  // T-954 Fase D: scroll parallax sobre el aurora. Cada orbe se desplaza
-  // verticalmente a una velocidad distinta cuando el scroll avanza,
-  // generando profundidad sin animar layout (sólo transform). En
-  // reduced-motion el desplazamiento queda anclado a 0. El scroll vive en
-  // body/html (PROP-100), por eso `useScroll()` sin container hace lo
-  // correcto: lee `window.scrollY` directamente.
-  const { scrollY } = useScroll();
-  const auroraOffset1 = useTransform(scrollY, [0, 800], [0, -60]);
-  const auroraOffset2 = useTransform(scrollY, [0, 800], [0, -40]);
-  const auroraOffset3 = useTransform(scrollY, [0, 800], [0, -90]);
+  // El parallax de scroll sobre el aurora (T-954 Fase D) se retiró: `useScroll()`
+  // remedía la geometría del viewport tras cada mutación del DOM y provocaba un
+  // forced reflow (`measureScroll`) medido en ~134 ms durante los cambios de ruta
+  // (traza Chrome DevTools, 2026-07-10). El desplazamiento vertical de los orbes
+  // (≤90px) era un efecto de profundidad apenas perceptible; eliminarlo quita el
+  // mayor reflow por transición sin coste visual. Los orbes quedan estáticos y
+  // conservan color de atmósfera, blur y mix-blend.
 
   // Onboarding interactivo (T-951 Fase 4). El track se selecciona por
   // rol — devuelve null para roles sin tour disponible (ej. estudiante).
@@ -272,25 +269,22 @@ export default function AppLayout() {
           mantiene 0 violaciones en SessionDetail (mecánica Secuencia amber
           es el peor caso) — la firma de atmósfera se nota más sin romper AA. */}
       <div className="aurora-layer fixed inset-0 pointer-events-none overflow-hidden">
-        <motion.div
+        <div
           className="absolute top-0 left-1/4 size-96 rounded-full blur-[128px]"
           style={{
             backgroundColor: 'color-mix(in oklab, var(--color-atmosphere-aurora-1) 18%, var(--color-background-base))',
-            y: shouldReduceMotion ? 0 : auroraOffset1
           }}
         />
-        <motion.div
+        <div
           className="absolute bottom-0 right-1/4 size-96 rounded-full blur-[128px]"
           style={{
             backgroundColor: 'color-mix(in oklab, var(--color-atmosphere-aurora-2) 15%, var(--color-background-base))',
-            y: shouldReduceMotion ? 0 : auroraOffset2
           }}
         />
-        <motion.div
+        <div
           className="absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 rounded-full blur-[150px] size-[clamp(320px,40vw,600px)]"
           style={{
             backgroundColor: 'color-mix(in oklab, var(--color-atmosphere-aurora-3) 15%, var(--color-background-base))',
-            y: shouldReduceMotion ? 0 : auroraOffset3
           }}
         />
       </div>

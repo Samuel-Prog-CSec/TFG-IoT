@@ -298,3 +298,35 @@ Tras la build, comprobar:
 - Lint frontend (`npm run lint`): 0 errores.
 - Sin cambios en componentes o animaciones — solo carga diferida.
 - Compatible con Cloudflare Pages (sirve `.br`/`.gz` automáticamente por `Accept-Encoding`).
+
+---
+
+## 12. Iteración F — pase de "jank" de transiciones + entrega (2026-07-10)
+
+Ver **ADR-235** para el diagnóstico completo (traza Chrome DevTools sobre el build de producción del VPS, con throttling de CPU 4× para el peor caso 1366×768). Resumen: el jank de cambio de pantalla es **coste de render en el navegador**, no de recursos del VPS (que estaba ocioso: load ~0,2 sobre 6 vCPU). Se atacaron los sospechosos medidos con cambios de bajo riesgo.
+
+> ⚠️ **Corrección de una asunción de §11.1-B/§11.4.** Aquella nota daba por hecho que **Cloudflare Pages** servía las variantes `.br`/`.gz` pre-generadas "automáticamente por `Accept-Encoding`". Tras la migración a VPS autoalojada (ADR-233) **eso dejó de ser cierto**: ya no hay CDN por delante y el Nginx del contenedor (`frontend/nginx.conf`) solo tenía `gzip on` (recompresión al vuelo, nivel 6), **ignorando** los `.br`/`.gz` que Vite genera. La variante F.1 corrige exactamente ese hueco.
+
+### 12.1 Entrega — `gzip_static on` en el Nginx del contenedor
+
+`frontend/nginx.conf` añade `gzip_static on;` para servir el `.gz` pre-generado por `vite-plugin-compression2` (mejor ratio que el nivel 6 al vuelo y **cero CPU** en runtime; si falta el `.gz`, cae al `gzip on` de siempre). El módulo `ngx_http_gzip_static_module` está compilado en la imagen oficial (verificado en el contenedor real: `nginx -V` → `--with-http_gzip_static_module`; y hay 86 `.gz` en `dist/assets`). **Brotli (`.br`) queda pendiente**: `nginx:alpine` no trae `ngx_brotli`; servir el `.br` (mejor ratio aún) requeriría una imagen con ese módulo compilado.
+
+### 12.2 Entrega — HTTP/2 en el Nginx del host (VPS)
+
+El sitio se servía por **HTTP/1.1** (`nextHopProtocol` confirmado en la sonda; Certbot dejó `listen 443 ssl;` sin `http2`). Con muchos chunks en la carga inicial, la falta de multiplexado serializa descargas. Se pasa a `listen 443 ssl http2;` en los server blocks del host (nginx 1.24, módulo `--with-http_v2_module` ya presente). Es config **fuera del repo** (vive en la VPS), aplicada por el operador — ver `documentation/Deploy_VPS.md`.
+
+### 12.3 Prefetch en idle de los chunks con gráficos
+
+`charts` (Recharts) pesa **420 KB / 118 KB gzip** y no se precargaba (`index.html` solo emite `modulepreload` de los chunks de entrada, sin `prefetch` de rutas), así que la primera navegación a Dashboard/Análisis pagaba descarga+parseo en frío durante la animación de entrada. `AppContent` (`src/App.jsx`) calienta ahora `Dashboard` (arrastra `charts`) e `Insights` en `requestIdleCallback` tras el primer paint (con `setTimeout` de respaldo). No compite con el render inicial y, con `cache-control immutable`, se paga una vez. Nota: esto ataca el coste de **carga** del chunk; el coste de **montaje** de Recharts (SVG + `ResponsiveContainer` remidiendo al montar) es un problema aparte y **mayor**, pendiente de un rework de diseño (ADR-235, "qué NO se toca").
+
+### 12.4 Movimiento — menos trabajo siempre-activo en el shell
+
+- **Parallax de la aurora retirado** (`AppLayout.jsx`): `useScroll()` remedía la geometría del viewport tras cada mutación del DOM → forced reflow `measureScroll` de **134 ms** por transición (el mayor de la traza), para un desplazamiento de orbes ≤90px imperceptible. Orbes ahora estáticos (conservan color de atmósfera, `blur`, `mix-blend`).
+- **Anillos "radar" del widget RFID gateados con `reduced-motion`** (`RFIDModeHandler.jsx`): eran dos `motion.span` con `repeat: Infinity` montados globalmente sin gate, un bucle rAF permanente. Ahora solo con animaciones activas.
+
+### 12.5 Verificación
+
+- **698/698 tests Vitest** (`npm --prefix frontend test`), **lint 0/0**, build de producción correcto.
+- El reflow `measureScroll` se elimina **por construcción** (el hook `useScroll` ya no existe).
+- Módulo `gzip_static` y flag `--with-http_v2_module` verificados por SSH sobre contenedor y host.
+- Re-traza empírica sobre staging tras el próximo deploy: pendiente.

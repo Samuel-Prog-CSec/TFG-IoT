@@ -187,6 +187,22 @@ stack correspondiente (`127.0.0.1:8090` prod / `127.0.0.1:8080` staging), que a 
 resuelve internamente `/api` y `/socket.io/` contra el servicio `backend` — front y back
 comparten origen público, sin CORS entre ellos.
 
+> **HTTP/2 (ADR-235).** Los server blocks de arriba pasan de `listen 443 ssl;` a
+> `listen 443 ssl http2;` para habilitar multiplexado (sin él, la carga inicial de muchos
+> chunks del SPA se serializa por el límite de conexiones por origen). El nginx 1.24 del host
+> trae `--with-http_v2_module`; en 1.24 el flag `http2` va **en la directiva `listen`**, no
+> como `http2 on;` (eso es nginx ≥1.25.1). Aplicar con backup + gate `nginx -t`:
+>
+> ```bash
+> ts=$(date +%Y%m%d-%H%M%S)
+> for f in eduplay-prod eduplay-staging; do
+>   sudo cp /etc/nginx/sites-available/$f /etc/nginx/sites-available/$f.bak.$ts
+>   sudo sed -i 's/listen 443 ssl;/listen 443 ssl http2;/' /etc/nginx/sites-available/$f
+> done
+> sudo nginx -t && sudo systemctl reload nginx
+> curl -s -o /dev/null -w "%{http_version}\n" https://eduplay-tfg.duckdns.org/   # esperado: 2
+> ```
+
 ### 4.3 Certbot (Let's Encrypt)
 
 ```bash
@@ -321,6 +337,56 @@ fuera-de-sitio ante fallo total del disco/proveedor).
 
 Redis no se respalda — estado efímero/recuperable (rate-limit, blacklist JWT, locks BullMQ),
 mismo criterio que el invariante `scale=1` de ADR-223.
+
+---
+
+## 8. Ciclo de vida de staging — auto-stop nocturno (ADR-236)
+
+Staging es un entorno de **validación** (smoke test, QA, ZAP), no un servicio con uptime:
+corría 24/7 gastando ~415 MB de RAM (sobre todo los dos Mongo ociosos con su heartbeat de
+replica set) sin necesidad la mayor parte del tiempo. Un `systemd timer` lo para cada noche;
+los datos persisten (usa `stop`, **no** `down -v`) y vuelve solo en el siguiente deploy a
+`Maintenance` (`deploy-staging.yml`) o al levantarlo a mano. No se añade auto-start: staging
+se levanta cuando se despliega o se necesita.
+
+Servicio (`/etc/systemd/system/eduplay-staging-stop.service`):
+
+```ini
+[Unit]
+Description=Parar el stack eduplay-staging (auto-stop nocturno)
+After=docker.service
+Requires=docker.service
+
+[Service]
+Type=oneshot
+# Para los contenedores por label de Compose — robusto: no depende de la ruta del checkout
+# efímero del runner self-hosted. No usa `down -v`: los volúmenes con nombre persisten.
+ExecStart=/bin/sh -c 'docker ps --filter "label=com.docker.compose.project=eduplay-staging" -q | xargs -r docker stop'
+```
+
+Timer (`/etc/systemd/system/eduplay-staging-stop.timer`):
+
+```ini
+[Unit]
+Description=Auto-stop nocturno de eduplay-staging
+
+[Timer]
+OnCalendar=*-*-* 22:00:00
+Persistent=true
+
+[Install]
+WantedBy=timers.target
+```
+
+Instalar y activar (el `enable --now` solo **programa** el timer, no para staging de inmediato):
+
+```bash
+sudo systemctl daemon-reload
+sudo systemctl enable --now eduplay-staging-stop.timer
+systemctl list-timers | grep eduplay-staging-stop   # confirmar el próximo disparo
+```
+
+Operativa día a día (levantar/parar a mano, desactivar) → `Runbook_Operacional.md` playbook 1b.
 
 ---
 

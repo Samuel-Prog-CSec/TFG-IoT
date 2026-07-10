@@ -19,6 +19,7 @@ import { cn } from '../../lib/utils';
 import { webSerialService } from '../../services/webSerialService';
 import GlassCard from '../ui/GlassCard';
 import { useRfidMode } from '../../context/RfidModeContext';
+import { useReducedMotion } from '../../hooks/useReducedMotion';
 
 const MODES_CONFIG = {
   idle: {
@@ -60,6 +61,7 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
   const [deviceState, setDeviceState] = useState(webSerialService.deviceState || 'unknown');
   const [deviceHealth, setDeviceHealth] = useState(null);
   const [expanded, setExpanded] = useState(false);
+  const { shouldReduceMotion } = useReducedMotion();
   const effectiveMode = mode || currentMode;
   // QA 2026-05-06 (BUG-G4): sin esta resolución contextual, un sensor
   // conectado en stand-by mostraba "Inactivo" como descripción — daba
@@ -201,18 +203,27 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
                 sensor estuviera listo, porque el widget no podía colapsarse estando
                 conectado). */}
             <span className="relative flex items-center justify-center size-5" aria-hidden="true">
-              <motion.span
-                className={cn('absolute inset-0 rounded-full ring-2', isConnected ? 'ring-success-base/60' : 'ring-error-base/60')}
-                initial={{ scale: 0.6, opacity: 0.6 }}
-                animate={{ scale: [0.6, 1.6], opacity: [0.6, 0] }}
-                transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
-              />
-              <motion.span
-                className={cn('absolute inset-0 rounded-full ring-2', isConnected ? 'ring-success-base/40' : 'ring-error-base/40')}
-                initial={{ scale: 0.6, opacity: 0.35 }}
-                animate={{ scale: [0.6, 2.1], opacity: [0.35, 0] }}
-                transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut', delay: 0.55 }}
-              />
+              {/* Anillos "radar" con loop infinito: solo cuando el usuario NO ha
+                  reducido las animaciones. En reduced-motion se omiten (queda el
+                  punto central estático) para no mantener un rAF permanente en
+                  este widget global, que compite con las transiciones de pantalla
+                  al estar montado en todas las vistas del docente. */}
+              {!shouldReduceMotion && (
+                <>
+                  <motion.span
+                    className={cn('absolute inset-0 rounded-full ring-2', isConnected ? 'ring-success-base/60' : 'ring-error-base/60')}
+                    initial={{ scale: 0.6, opacity: 0.6 }}
+                    animate={{ scale: [0.6, 1.6], opacity: [0.6, 0] }}
+                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut' }}
+                  />
+                  <motion.span
+                    className={cn('absolute inset-0 rounded-full ring-2', isConnected ? 'ring-success-base/40' : 'ring-error-base/40')}
+                    initial={{ scale: 0.6, opacity: 0.35 }}
+                    animate={{ scale: [0.6, 2.1], opacity: [0.35, 0] }}
+                    transition={{ duration: 1.6, repeat: Infinity, ease: 'easeOut', delay: 0.55 }}
+                  />
+                </>
+              )}
               <span className={cn('relative size-2 rounded-full', isConnected ? 'bg-success-base shadow-[0_0_8px_var(--color-success-glow)]' : 'bg-error-base shadow-[0_0_8px_var(--color-error-glow)]')} />
             </span>
             <span className="text-nano uppercase tracking-[0.15em] font-bold text-text-secondary group-hover:text-text-primary transition-colors">RFID</span>
