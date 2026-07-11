@@ -33,6 +33,7 @@ import { useGameSocket } from '../hooks/useGameSocket';
 import { useGameSessionState } from '../hooks/useGameSessionState';
 import { useStartupGuard } from '../hooks/useStartupGuard';
 import { normalizeFinalSummary } from '../lib/finalSummary';
+import { mergeSequenceRehydration } from '../lib/sequenceRehydration';
 import { saveSnapshot, loadSnapshot, clearSnapshot, purgeExpiredSnapshots } from '../lib/sessionSnapshot';
 
 // (D-07-A6) Code-split de los paneles por mecánica: una sesión solo carga el
@@ -531,7 +532,11 @@ export default function GameSession() {
     // de reconstrucción en `buildSequenceStateFromSnapshot`, fuera del componente.)
     const rehydratedSequence = buildSequenceStateFromSnapshot(payload?.sequenceState);
     if (rehydratedSequence) {
-      setSequenceState(rehydratedSequence);
+      // El snapshot llega REDACTADO (sin displayData en las cartas ya jugadas):
+      // sobrescribir a secas repintaba los assets como UID crudo tras una
+      // reconexión (issue 6a). Fusionamos preservando los assets del tablero en
+      // vivo; el snapshot sigue mandando en el progreso (cursor/estados/fase).
+      setSequenceState(prev => mergeSequenceRehydration(prev, rehydratedSequence));
     }
   }, [normalizeChallenge, setTimeLeft, dispatch]);
 
@@ -1404,9 +1409,13 @@ export default function GameSession() {
       // hasta el siguiente scan rechazado (confuso para un usuario no técnico).
       clearRfidBlocked();
     } catch (reconnectError) {
-      toast.error(
-        reconnectError?.message || 'No se pudo reconectar el lector. Inténtalo de nuevo.'
-      );
+      // Cancelar el selector del navegador (NotFoundError) no es un fallo: el
+      // banner de reconexión sigue visible para reintentar, sin molestar con un toast.
+      if (!reconnectError?.cancelled) {
+        toast.error(
+          reconnectError?.message || 'No se pudo reconectar el lector. Inténtalo de nuevo.'
+        );
+      }
     }
   }, [clearRfidBlocked]);
 
