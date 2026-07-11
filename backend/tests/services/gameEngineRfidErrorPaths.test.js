@@ -197,4 +197,23 @@ describe('GameEngine — error paths fatales', () => {
       expect(engine.endPlay).toHaveBeenCalledWith('p-mem-res');
     });
   });
+
+  describe('handleCardScan — feedback de tarjeta desconocida (uid_unknown)', () => {
+    it('emite scan_ignored uid_unknown al room de la partida cuando el UID no pertenece a ninguna partida activa', async () => {
+      // cardUidToPlayId vacío → rama !playId. Con expectedPlayId (modo gameplay)
+      // damos feedback inmediato en vez de dejar que el cliente espere el timeout.
+      await engine.handleCardScan('DEADBEEF', 'p-expected');
+
+      expect(ioMock.to).toHaveBeenCalledWith('play_p-expected');
+      expect(ioMock.emit).toHaveBeenCalledWith(
+        'scan_ignored',
+        expect.objectContaining({ uid: 'DEADBEEF', reason: 'uid_unknown' })
+      );
+    });
+
+    it('no emite nada si no hay expectedPlayId (idle / sin partida asociada)', async () => {
+      await engine.handleCardScan('DEADBEEF', null);
+      expect(ioMock.to).not.toHaveBeenCalled();
+    });
+  });
 });
