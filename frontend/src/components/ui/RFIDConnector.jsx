@@ -11,6 +11,7 @@ import { Wifi, WifiOff, Usb, AlertTriangle, Loader2, Activity, XCircle } from 'l
 import { cn } from '../../lib/utils';
 import webSerialService from '../../services/webSerialService';
 import { socketService } from '../../services/socket';
+import useWebSerialDeviceState from '../../hooks/useWebSerialDeviceState';
 
 /**
  * Configuración visual por estado del dispositivo RC522.
@@ -81,25 +82,15 @@ export default function RFIDConnector({
   // explícitamente (QA 2026-06-04; GameSession ya lo ocultaba).
   showSensorId = false
 }) {
-  const [status, setStatus] = useState(webSerialService.status);
-  const [deviceState, setDeviceState] = useState(webSerialService.deviceState || 'unknown');
-  const [fwVersion, setFwVersion] = useState(webSerialService.firmwareVersion);
+  // Estado del lector desde la fuente única de verdad (issue 4).
+  const { status, deviceState, firmwareVersion: fwVersion } = useWebSerialDeviceState();
   const [error, setError] = useState(null);
+  const [readHint, setReadHint] = useState(null);
   const [isSupported, setIsSupported] = useState(() => webSerialService.isSupported());
   const [hasAttempted, setHasAttempted] = useState(false);
   const [portInfo, setPortInfo] = useState({ usbVendorId: null, usbProductId: null });
   const errorTimeoutRef = useRef(null);
-
-  const handleStatus = useCallback((payload) => {
-    setStatus(payload?.status || 'disconnected');
-  }, []);
-
-  const handleDeviceStateChange = useCallback((payload) => {
-    setDeviceState(payload?.state || 'unknown');
-    if (payload?.firmwareVersion) {
-      setFwVersion(payload.firmwareVersion);
-    }
-  }, []);
+  const readHintTimeoutRef = useRef(null);
 
   const handleScan = useCallback((payload) => {
     if (onScan) {
@@ -129,25 +120,54 @@ export default function RFIDConnector({
     );
   }, [showError]);
 
+  // Pista sutil (ámbar) ante fallos de lectura SOSTENIDOS del RC522 clon. No es
+  // un error: se autodescarta y se limpia en cuanto llega una lectura válida
+  // (issue 3). El rojo queda reservado a fallos reales (init_failure).
+  const clearReadHint = useCallback(() => {
+    if (readHintTimeoutRef.current) {
+      globalThis.clearTimeout(readHintTimeoutRef.current);
+      readHintTimeoutRef.current = null;
+    }
+    setReadHint(null);
+  }, []);
+
+  const handleReadHint = useCallback((payload) => {
+    if (!payload?.active) {
+      clearReadHint();
+      return;
+    }
+    if (readHintTimeoutRef.current) {
+      globalThis.clearTimeout(readHintTimeoutRef.current);
+    }
+    setReadHint(payload.message || 'Acerca la tarjeta al lector y mantenla un momento.');
+    // Autodescarte por si el docente deja de intentarlo sin llegar a leer (el
+    // firmware no emite card_removed si la tarjeta nunca llegó a leerse).
+    readHintTimeoutRef.current = globalThis.setTimeout(() => {
+      setReadHint(null);
+      readHintTimeoutRef.current = null;
+    }, 3000);
+  }, [clearReadHint]);
+
   useEffect(() => {
     setIsSupported(webSerialService.isSupported());
-    webSerialService.on('status', handleStatus);
-    webSerialService.on('device_state_change', handleDeviceStateChange);
     webSerialService.on('scan', handleScan);
     webSerialService.on('error', handleError);
     webSerialService.on('device_error', handleDeviceError);
+    webSerialService.on('device_read_hint', handleReadHint);
 
     return () => {
-      webSerialService.off('status', handleStatus);
-      webSerialService.off('device_state_change', handleDeviceStateChange);
       webSerialService.off('scan', handleScan);
       webSerialService.off('error', handleError);
       webSerialService.off('device_error', handleDeviceError);
+      webSerialService.off('device_read_hint', handleReadHint);
       if (errorTimeoutRef.current) {
         globalThis.clearTimeout(errorTimeoutRef.current);
       }
+      if (readHintTimeoutRef.current) {
+        globalThis.clearTimeout(readHintTimeoutRef.current);
+      }
     };
-  }, [handleStatus, handleDeviceStateChange, handleScan, handleError, handleDeviceError]);
+  }, [handleScan, handleError, handleDeviceError, handleReadHint]);
 
   const handleConnect = async () => {
     setHasAttempted(true);
@@ -166,7 +186,11 @@ export default function RFIDConnector({
       setPortInfo(readPortInfo(webSerialService.port));
       await webSerialService.startReading();
     } catch (connectError) {
-      showError(connectError?.message || 'No se pudo conectar al sensor');
+      // Cancelar el selector del navegador (NotFoundError) no es un fallo: no
+      // molestamos al docente con un error si simplemente cerró el diálogo.
+      if (!connectError?.cancelled) {
+        showError(connectError?.message || 'No se pudo conectar al sensor');
+      }
     }
   };
 
@@ -271,6 +295,16 @@ export default function RFIDConnector({
           className="mt-3 rounded-lg border border-error-base/30 bg-error-base/10 px-3 py-2 text-xs text-error-base"
         >
           {error}
+        </div>
+      )}
+
+      {!error && readHint && (
+        <div
+          aria-live="polite"
+          className="mt-3 flex items-center gap-2 rounded-lg border border-warning-base/30 bg-warning-base/10 px-3 py-2 text-xs text-warning-base"
+        >
+          <AlertTriangle size={14} className="shrink-0" />
+          {readHint}
         </div>
       )}
     </div>

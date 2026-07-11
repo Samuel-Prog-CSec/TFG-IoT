@@ -43,6 +43,13 @@ const LINE_TIMEOUT_MS = 2000;
 const LINE_TIMEOUT_CHECK_INTERVAL_MS = 500;
 
 /**
+ * Nº de read_failure consecutivos (sin lectura válida intercalada) antes de
+ * mostrar una pista sutil al docente. Por debajo se consideran ruido normal
+ * del RC522 clon (tarjeta en el borde del campo) y se silencian.
+ */
+const READ_FAILURE_HINT_THRESHOLD = 3;
+
+/**
  * UIDs válidos: hex mayúsculas de 8 (4 bytes) o 14 (7 bytes) caracteres.
  * Compensa la falta de validación CRC en el firmware de fallback
  * anticollision crudo (rfid_scanner/src/main.cpp:96-107).
@@ -91,6 +98,38 @@ const normalizeCardType = rawType => {
   if (normalized.includes('4K') && normalized.includes('MIFARE')) return 'MIFARE_4KB';
   if (normalized.includes('NTAG')) return 'NTAG';
   return 'UNKNOWN';
+};
+
+/**
+ * Traduce las DOMException del navegador (en inglés) a errores con mensaje en
+ * español, marcando las cancelaciones del usuario para que la UI no las trate
+ * como fallo. Nunca expone el `.message` crudo del navegador al docente.
+ *
+ * @param {unknown} rawError
+ * @returns {Error & { cancelled: boolean }}
+ */
+const buildConnectError = (rawError) => {
+  let message;
+  let cancelled = false;
+  switch (rawError?.name) {
+    case 'NotFoundError':
+      // El usuario cerró el selector sin elegir puerto: no es un error real.
+      message = 'Conexión cancelada: no se seleccionó ningún sensor.';
+      cancelled = true;
+      break;
+    case 'SecurityError':
+      message = 'El navegador bloqueó el acceso al puerto serie. Requiere HTTPS y una acción directa del usuario.';
+      break;
+    case 'NetworkError':
+      message = 'No se pudo abrir el lector. Puede estar en uso por otra pestaña o programa; ciérralo e inténtalo de nuevo.';
+      break;
+    default:
+      message = 'No se pudo conectar al sensor. Revisa el cable USB e inténtalo de nuevo.';
+  }
+  const error = new Error(message);
+  error.cancelled = cancelled;
+  error.cause = rawError;
+  return error;
 };
 
 class WebSerialService {
@@ -143,6 +182,14 @@ class WebSerialService {
      * conexión activa tras una desconexión explícita del usuario.
      */
     this._reconnectAborted = false;
+    /**
+     * Racha de read_failure consecutivos (sin lectura válida intercalada). Se
+     * usa para decidir cuándo mostrar la pista "acerca la tarjeta" (issue 3).
+     */
+    this.consecutiveReadFailures = 0;
+    this._readHintActive = false;
+    this._pageHideBound = false;
+    this._bindPageHideCleanup();
   }
 
   isSupported() {
@@ -253,6 +300,57 @@ class WebSerialService {
     }, INIT_TIMEOUT_MS);
   }
 
+  /**
+   * Cierra el puerto (best-effort) al abandonar la página para no dejarlo
+   * retenido a nivel de SO, lo que provocaría un "puerto ya abierto" en la
+   * siguiente sesión. Combinado con la reutilización vía getPorts(), permite
+   * reconectar tras un F5 sin selector ni error (issue 1).
+   * @private
+   */
+  _bindPageHideCleanup() {
+    if (this._pageHideBound || typeof window === 'undefined' || !window.addEventListener) {
+      return;
+    }
+    this._pageHideBound = true;
+    window.addEventListener('pagehide', () => {
+      this.autoReconnectEnabled = false;
+      try { this.reader?.cancel?.(); } catch { /* best-effort */ }
+      try { this.port?.close?.(); } catch { /* best-effort */ }
+    });
+  }
+
+  /**
+   * Confirma que el lector está operativo: promueve deviceState→ready (si no
+   * lo estaba) y rearma el watchdog de heartbeat. Se invoca tanto desde el
+   * init:success como desde señales que prueban de facto que el firmware está
+   * vivo y leyendo (card_detected, heartbeat), de modo que si el init:success
+   * se perdió (ESP ya encendido al abrir el puerto) la UI no se quede clavada
+   * en "esperando sensor" (issue 2).
+   * @private
+   */
+  _markDeviceReady() {
+    if (this.initTimeoutId) {
+      clearTimeout(this.initTimeoutId);
+      this.initTimeoutId = null;
+    }
+    if (this.deviceState !== 'ready') {
+      this.setDeviceState('ready');
+    }
+    this._armHeartbeatWatchdog();
+  }
+
+  /**
+   * Reinicia la racha de fallos de lectura y limpia la pista visible. Se llama
+   * ante cualquier lectura válida: un éxito demuestra que el ruido previo era
+   * transitorio (issue 3).
+   * @private
+   */
+  _resetReadFailureHint() {
+    this.consecutiveReadFailures = 0;
+    this._readHintActive = false;
+    this.emit('device_read_hint', { active: false });
+  }
+
   async connect() {
     if (!this.isSupported()) {
       this.setStatus('unsupported');
@@ -268,8 +366,18 @@ class WebSerialService {
       this.autoReconnectEnabled = true;
 
       this.setStatus('connecting');
-      this.port = await navigator.serial.requestPort();
-      await this.port.open({ baudRate: DEFAULT_BAUD_RATE });
+
+      // Reutilizar un puerto ya autorizado (sin abrir el selector del navegador
+      // en cada arranque). Solo pedimos selección explícita si no hay ninguno
+      // reutilizable: así el docente elige el sensor UNA vez, no en cada mazo.
+      let port = await this._pickAuthorizedPort();
+      if (!port) {
+        port = await navigator.serial.requestPort();
+      }
+      this.port = port;
+
+      await this._openPort(port);
+
       this.setStatus('connected');
       this.reconnectAttempts = 0;
       this.reconnecting = false;
@@ -278,11 +386,63 @@ class WebSerialService {
         navigator.serial.addEventListener('disconnect', this.handleDisconnect);
         this.hasSerialDisconnectListener = true;
       }
+    } catch (rawError) {
+      // Nunca propagamos el mensaje crudo del navegador (inglés) al docente.
+      this.port = null;
+      this.setStatus('disconnected');
+      throw buildConnectError(rawError);
     } finally {
       this._connectInProgress = false;
     }
     // Tras conectar, recuperar scans pendientes de sesiones previas (F5 / cierre).
     this.hydratePendingScansFromStorage().catch(() => {});
+  }
+
+  /**
+   * Devuelve un puerto ya autorizado por el origen (sin abrir el selector del
+   * navegador) o `null` si conviene pedir selección explícita. Prefiere el
+   * último puerto usado; si solo hay uno autorizado, es inequívocamente el
+   * sensor del docente; si hay varios y no hay "último", deja que el selector
+   * desambigüe.
+   *
+   * @returns {Promise<SerialPort|null>}
+   * @private
+   */
+  async _pickAuthorizedPort() {
+    let ports;
+    try {
+      ports = await navigator.serial.getPorts();
+    } catch {
+      return null;
+    }
+    if (!ports || ports.length === 0) {
+      return null;
+    }
+    if (this.lastPort && ports.includes(this.lastPort)) {
+      return this.lastPort;
+    }
+    return ports.length === 1 ? ports[0] : null;
+  }
+
+  /**
+   * Abre el puerto tolerando que ya estuviera abierto en este contexto
+   * (InvalidStateError): en ese caso la conexión es reutilizable y seguimos
+   * adelante en vez de fallar. Cualquier otro error se propaga para que
+   * `connect()` lo traduzca al español.
+   *
+   * @param {SerialPort} port
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _openPort(port) {
+    try {
+      await port.open({ baudRate: DEFAULT_BAUD_RATE });
+    } catch (error) {
+      if (error?.name === 'InvalidStateError') {
+        return;
+      }
+      throw error;
+    }
   }
 
   handleDisconnect = () => {
@@ -619,8 +779,7 @@ class WebSerialService {
         }
         if (event.status === 'success') {
           this.firmwareVersion = event.version || null;
-          this.setDeviceState('ready');
-          this._armHeartbeatWatchdog();
+          this._markDeviceReady();
         } else if (event.status === 'starting') {
           // El firmware (v1.1) emite un init "starting" antes del "success".
           // Es arranque normal, no un fallo: estado de inicialización + re-armar timeout.
@@ -631,13 +790,7 @@ class WebSerialService {
         }
         break;
       case 'error':
-        this.emit('device_error', {
-          type: event.type,
-          message: event.message
-        });
-        if (event.type === 'init_failure') {
-          this.setDeviceState('error');
-        }
+        this._handleDeviceErrorEvent(event);
         break;
       case 'status':
         this.emit('device_status', {
@@ -645,9 +798,16 @@ class WebSerialService {
           cardsDetected: event.cards_detected,
           freeHeap: event.free_heap
         });
-        if (this.deviceState === 'ready' || this.deviceState === 'stale') {
-          this.setDeviceState('ready');
-          this._armHeartbeatWatchdog();
+        // Un heartbeat prueba que el firmware sigue vivo: promueve
+        // initializing→ready (rescata el caso "init:success perdido") y
+        // reafirma ready/stale. No toca 'error' (init_failure real) ni
+        // 'unknown' (aún sin bucle de lectura).
+        if (
+          this.deviceState === 'ready' ||
+          this.deviceState === 'stale' ||
+          this.deviceState === 'initializing'
+        ) {
+          this._markDeviceReady();
         }
         break;
       default:
@@ -657,6 +817,50 @@ class WebSerialService {
         });
         break;
     }
+  }
+
+  /**
+   * Clasifica los eventos `error` del firmware según su severidad real:
+   *  - `read_failure` (incluye "Anticollision failed"/"BCC mismatch"): ruido
+   *    transitorio del RC522 clon cuando la tarjeta está en el borde del campo.
+   *    NO es un error de usuario — no se pinta en rojo ni cambia deviceState.
+   *    Solo si los fallos son SOSTENIDOS emitimos una pista sutil (issue 3).
+   *  - `init_failure`: fallo real de inicialización del sensor, accionable.
+   *  - resto: mensaje neutro en español (nunca el crudo del firmware).
+   *
+   * @param {{ type?: string, message?: string }} event
+   * @private
+   */
+  _handleDeviceErrorEvent(event) {
+    const type = event?.type;
+
+    if (type === 'read_failure') {
+      this.consecutiveReadFailures += 1;
+      if (this.consecutiveReadFailures >= READ_FAILURE_HINT_THRESHOLD) {
+        this._readHintActive = true;
+        this.emit('device_read_hint', {
+          active: true,
+          message: 'Acerca la tarjeta al lector y mantenla un momento.'
+        });
+      }
+      return;
+    }
+
+    if (type === 'init_failure') {
+      this.emit('device_error', {
+        type,
+        message: 'El lector RFID no responde. Revisa que el sensor esté bien conectado por USB.',
+        details: event?.message
+      });
+      this.setDeviceState('error');
+      return;
+    }
+
+    this.emit('device_error', {
+      type: type || 'unknown',
+      message: 'Incidencia del lector RFID. Si persiste, reconecta el sensor.',
+      details: event?.message
+    });
   }
 
   _handleCardDetected(event) {
@@ -674,6 +878,18 @@ class WebSerialService {
       });
       return;
     }
+
+    // Una lectura válida es la prueba definitiva de que el lector funciona:
+    // promueve deviceState→ready aunque se perdiera el init:success (issue 2)
+    // y corta cualquier racha de fallos transitorios (issue 3). El HMAC de la
+    // trama nos permite además reflejar "Firma activa" aunque no viéramos el init.
+    const hasSignature =
+      Number.isInteger(event.counter) && /^[0-9a-f]{64}$/i.test(event.hmac || '');
+    if (hasSignature && !this.hmacEnabled) {
+      this.hmacEnabled = true;
+    }
+    this._markDeviceReady();
+    this._resetReadFailureHint();
 
     const now = Date.now();
     const last = this.lastScanByUid.get(uid);
@@ -699,7 +915,7 @@ class WebSerialService {
     // Solo si AMBOS campos llegan bien formados — el backend rechazaría un parcial.
     // El UID ya va canónico en mayúsculas (igual que el firmware firma), así que
     // el HMAC recalculado en el servidor coincide.
-    if (Number.isInteger(event.counter) && /^[0-9a-f]{64}$/i.test(event.hmac || '')) {
+    if (hasSignature) {
       payload.counter = event.counter;
       payload.hmac = String(event.hmac).toLowerCase();
     }

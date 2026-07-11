@@ -20,6 +20,7 @@ import { webSerialService } from '../../services/webSerialService';
 import GlassCard from '../ui/GlassCard';
 import { useRfidMode } from '../../context/RfidModeContext';
 import { useReducedMotion } from '../../hooks/useReducedMotion';
+import useWebSerialDeviceState from '../../hooks/useWebSerialDeviceState';
 
 const MODES_CONFIG = {
   idle: {
@@ -57,8 +58,7 @@ const MODES_CONFIG = {
 
 export default function RFIDModeHandler({ currentMode = 'idle', className }) {
   const { mode } = useRfidMode();
-  const [, setStatus] = useState(webSerialService.status);
-  const [deviceState, setDeviceState] = useState(webSerialService.deviceState || 'unknown');
+  const { deviceState } = useWebSerialDeviceState();
   const [deviceHealth, setDeviceHealth] = useState(null);
   const [expanded, setExpanded] = useState(false);
   const { shouldReduceMotion } = useReducedMotion();
@@ -72,18 +72,12 @@ export default function RFIDModeHandler({ currentMode = 'idle', className }) {
   const modeInfo = MODES_CONFIG[resolvedMode] || MODES_CONFIG.idle;
   const Icon = modeInfo.icon;
 
+  // El estado de conexión (deviceState) lo aporta useWebSerialDeviceState. Aquí
+  // solo escuchamos el heartbeat de salud (uptime/heap) para el detalle expandido.
   useEffect(() => {
-    const handleStatus = ({ status }) => setStatus(status);
-    const handleDeviceStateChange = (payload) => setDeviceState(payload?.state || 'unknown');
     const handleDeviceStatus = (payload) => setDeviceHealth(payload);
-
-    webSerialService.on('status', handleStatus);
-    webSerialService.on('device_state_change', handleDeviceStateChange);
     webSerialService.on('device_status', handleDeviceStatus);
-
     return () => {
-      webSerialService.off('status', handleStatus);
-      webSerialService.off('device_state_change', handleDeviceStateChange);
       webSerialService.off('device_status', handleDeviceStatus);
     };
   }, []);
