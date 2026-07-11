@@ -420,3 +420,17 @@ Si el evento `board_ready` del cliente se pierde (corte de red tras EMPEZAR, dro
 
 ### 15.3 Volteo instantáneo del primer par de Memoria (WS-9)
 El primer volteo de Memoria hacía `await addEvent('card_scanned')` (telemetría, 0 puntos) **antes** de emitir `memory_turn_state` → el niño esperaba el RTT de Atlas para ver su propia carta, y si ese write fallaba `_emitFatalScanError` mataba TODA la partida por un evento sin impacto en el score. Fix: emitir `memory_turn_state` primero (volteo inmediato) y degradar el fallo del write a `logger.warn` + Sentry sin cerrar la partida. La suite `gameEngineRfidErrorPaths` cubre el nuevo contrato (el fallo del first_pick NO interrumpe la partida y la carta se voltea).
+
+## 16. Reconexión de `/game` y feedback de UID desconocido (ADR-237)
+
+Dos ajustes tras probar el sensor físico real, ambos del lado que corresponde sin tocar el firmware inmutable.
+
+### 16.1 Feedback inmediato de `uid_unknown`
+
+Cuando un UID no pertenece a ninguna partida activa (lectura corrupta del fallback, tarjeta ajena), `GameEngine.handleCardScan` lo descartaba **en silencio** en la rama `!playId` y el cliente esperaba un timeout genérico de 3 s. Ahora, si el escaneo procede de una partida activa, emite `scan_ignored:{reason:'uid_unknown'}` al room `play_${expectedPlayId}`, activando de inmediato el mensaje "tarjeta no registrada" que el frontend ya tenía. Es seguro ante reconexión: `cardUidToPlayId` sigue poblado durante un reconnect, así que una tarjeta válida no cae en esta rama.
+
+### 16.2 Flush diferido de escaneos encolados al reconectar `/game`
+
+Tras una reconexión del namespace `/game`, el reenvío de los escaneos encolados se **difiere** hasta el primer `play_state` posterior a `JOIN_PLAY` (modo RFID ya restaurado), en vez de reenviarlos de inmediato. El reenvío inmediato asumía un FIFO estricto y llegaba con el modo aún en `idle`, siendo rechazado con `RFID_MODE_INVALID`.
+
+> **El backend ya era correcto.** `JoinPlayCommand` restablece el modo `gameplay` **antes** de emitir `play_state` (WS-12), y `clearRfidModeState` protege por `socketId` (el clear del socket viejo no pisa el modo del nuevo). El defecto era de **ordenación en el frontend**; el fix determinista y de menor riesgo es esperar el `play_state`, no tocar la concurrencia crítica del backend. Residual asumido: un escaneo *fresco* (no encolado) en la ventana exacta de reconexión aún podría rechazarse, aceptable frente al coste de debilitar el check anti-inyección por room-membership.

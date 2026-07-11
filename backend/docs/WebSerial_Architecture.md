@@ -167,3 +167,23 @@ El estado se comunica al frontend via el evento local `device_state_change`, que
 | Deshabilitación | `autoReconnectEnabled = false` |
 
 La reconexión automática se activa cuando el puerto se cierra inesperadamente (no por acción del usuario). Las desconexiones físicas (USB) requieren intervención manual del usuario debido a restricciones de seguridad del navegador (Web Serial API no permite re-abrir puertos sin gesto del usuario).
+
+## Endurecimiento app-side del lector clon (ADR-237)
+
+Correcciones defensivas tras probar el sensor físico real (RC522 clon barato, firmware **inmutable** aportado por el tutor). No se toca el firmware: se absorbe su ruido y sus lagunas de protocolo desde el navegador.
+
+### Reutilización del puerto ya autorizado (`connect()`)
+
+`connect()` intenta primero `navigator.serial.getPorts()` (puertos ya autorizados, **sin** abrir el selector del navegador) y solo cae a `requestPort()` si no hay ninguno reutilizable: el docente elige el sensor UNA vez, no en cada mazo. La apertura tolera `InvalidStateError` (puerto ya abierto → se reutiliza) y un handler `pagehide` cierra el puerto al abandonar la página para no retenerlo a nivel de SO. Las `DOMException` crudas del navegador (inglés) se traducen a mensajes en español; la cancelación del usuario (`NotFoundError`) se marca aparte para que la UI **no** la trate como error.
+
+### `deviceState` gobernado por la actividad, no solo por `init`
+
+El handshake `init:success` del firmware es un evento de **un solo disparo** por arranque físico; si el ESP ya estaba encendido al abrir el puerto se perdía y la UI quedaba clavada en "esperando sensor" aunque las tarjetas ya se leyeran. Ahora una lectura válida (`card_detected`) o un heartbeat (`status`) también promueven `deviceState → ready`, además del `init:success`: la evidencia de que el lector funciona manda sobre un handshake que pudo perderse.
+
+### `read_failure` como pista transitoria, no error
+
+Los `read_failure` del firmware ("Anticollision failed", "BCC mismatch") son ruido transitorio de un lector marginal. Ya **no** se emiten como `device_error` (rojo) ni cambian `deviceState`. Solo tras fallos **sostenidos** se emite un evento local nuevo `device_read_hint` (pista ámbar sutil, "Acerca la tarjeta y mantenla un momento") que se limpia con la primera lectura válida. El rojo (`device_error`) queda reservado a `init_failure`.
+
+### Fuente única de verdad del estado del lector (`useWebSerialDeviceState`)
+
+El estado se comunica al frontend por el evento local `device_state_change`, que es *edge-triggered*: si el sensor ya estaba `ready` antes de montar un componente, el evento nunca llegaba y el indicador quedaba en "desconectado" permanente. El hook `frontend/src/hooks/useWebSerialDeviceState.js` lo corrige **inicializando con el valor ACTUAL del singleton `webSerialService`** y suscribiéndose después a `device_state_change`/`status`. Es la fuente única para sus cuatro consumidores: `RFIDConnector`, `RFIDModeHandler`, `RFIDScannerPanel` y `useGameSocket`.

@@ -299,6 +299,9 @@ Emitido cuando ocurre un error en el sensor.
 | `init_failure` | Comunicación SPI falló | Verificar conexiones y alimentación 3.3V |
 | `read_failure` | Anticollision falló    | Acercar tarjeta, verificar módulo        |
 
+> [!NOTE]
+> **Reclasificación cliente de `read_failure` (ADR-237).** El navegador trata los `read_failure` ("Anticollision failed", "BCC mismatch") como **ruido transitorio** propio de un lector clon marginal: ya **no** los emite como `device_error` (rojo) ni cambian `deviceState`. Solo tras fallos **sostenidos** muestra una pista ámbar sutil (evento local `device_read_hint`, "Acerca la tarjeta y mantenla un momento") que se limpia con la primera lectura válida. El rojo (`device_error`) queda reservado a `init_failure` (sensor que no responde de verdad), ahora también traducido al español. Ver [WebSerial_Architecture.md](WebSerial_Architecture.md).
+
 ---
 
 ### 4.3 Ejemplo de Sesión Típica
@@ -769,7 +772,10 @@ Valores que viajan en el campo `reason` del evento `scan_ignored`:
 | `PLAY_PAUSED`       | `play_paused`          | Partida pausada; el scan se descarta sin penalizar.              |
 | `NOT_AWAITING`      | `not_awaiting_response`| Scan llegó entre rondas, sin respuesta esperada.                 |
 | `CARD_NOT_IN_PLAY`  | `card_not_in_play`     | UID mapeado a la partida pero no encontrado en `uidToMapping`.   |
-| `UID_UNKNOWN`       | `uid_unknown`          | UID no asociado a ninguna partida activa (tarjeta desconocida).  |
+| `UID_UNKNOWN`       | `uid_unknown`          | UID no asociado a ninguna partida activa. **Emitido** por `GameEngine.handleCardScan` (rama `!playId`) al room `play_${expectedPlayId}` cuando el escaneo procede de una partida activa (ADR-237). |
+
+> [!NOTE]
+> **`uid_unknown` sí se emite (ADR-237).** Antes, un UID no mapeado a ninguna partida activa se descartaba en silencio y el cliente esperaba un timeout genérico de 3 s. Ahora, si el escaneo procede de una partida activa, `handleCardScan` emite `scan_ignored:{reason:'uid_unknown'}` al room `play_${expectedPlayId}` para dar feedback inmediato ("tarjeta no registrada"). Seguro ante reconexión: `cardUidToPlayId` sigue poblado durante un reconnect, así que una tarjeta válida no cae en esta rama. Ver [RFID_Runtime_Flows.md](RFID_Runtime_Flows.md) §16.1.
 
 ### `PLAY_INTERRUPTED_REASONS`
 
