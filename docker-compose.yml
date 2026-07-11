@@ -24,7 +24,14 @@ services:
     build:
       context: ./frontend
       args:
-        - VITE_API_URL=http://localhost/api
+        # Rutas relativas al propio origen: el Nginx del contenedor frontend
+        # (nginx.conf) ya proxea /api y /socket.io/ al backend, así que el
+        # navegador siempre las resuelve contra el dominio real desde el que
+        # se sirvió la página (localhost en dev, el dominio real en la VPS)
+        # sin necesitar un build-arg distinto por entorno. VITE_SOCKET_URL
+        # vacía (no ausente) le indica a socket.js que use el mismo origen.
+        - VITE_API_URL=/api
+        - VITE_SOCKET_URL=
     restart: unless-stopped
     read_only: true
     tmpfs:

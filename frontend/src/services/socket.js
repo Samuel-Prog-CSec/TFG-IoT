@@ -12,7 +12,14 @@ import { getAccessToken, AUTH_EVENTS } from './api';
 // CONFIGURACIÓN
 // ============================================
 
-const SOCKET_URL = import.meta.env.VITE_SOCKET_URL || 'http://localhost:5000';
+// `npm run dev` (Vite en :5173, backend en :5000, origen distinto) no define
+// la variable -> fallback absoluto a localhost:5000. En builds Docker (local,
+// staging, producción) el build-arg siempre está definido, aunque sea vacío,
+// para indicar "mismo origen que la página" -> `undefined` hace que
+// socket.io-client conecte al host real que sirvió el bundle, sin necesitar
+// conocer el dominio en tiempo de build (igual que VITE_API_URL=/api).
+const rawSocketUrl = import.meta.env.VITE_SOCKET_URL;
+const SOCKET_URL = rawSocketUrl === undefined ? 'http://localhost:5000' : rawSocketUrl || undefined;
 const RECONNECTION_ATTEMPTS = 15;
 const RECONNECTION_DELAY = 1000;
 // Tope del backoff: bajado de 15s a 5s para reaccionar antes a redeploys cloud.
@@ -291,7 +298,11 @@ class SocketService {
     const systemPromise = this._connectNamespace('system', SOCKET_URL, opts);
 
     // --- Socket de juego (namespace /game) ---
-    const gamePromise = this._connectNamespace('game', `${SOCKET_URL  }/game`, opts);
+    // Con SOCKET_URL undefined (mismo origen), concatenar `${SOCKET_URL}/game`
+    // daría el string literal "undefined/game". Pasando solo "/game",
+    // socket.io-client conecta ese namespace al mismo origen que la página.
+    const gameNamespaceUrl = SOCKET_URL === undefined ? '/game' : `${SOCKET_URL}/game`;
+    const gamePromise = this._connectNamespace('game', gameNamespaceUrl, opts);
 
     this._connectPromise = Promise.all([systemPromise, gamePromise])
       .then(() => undefined)
