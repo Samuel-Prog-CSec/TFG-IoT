@@ -346,7 +346,7 @@ Correcciones tras jugar las 3 mecánicas en vivo (táctil + sensor simulado), ce
 - **`board_ready` para las 3 mecánicas.** El efecto que emite `board_ready` en `GameSession.jsx` cubre ahora también **Asociación** (antes solo Memoria/Secuencia). Sin él, el backend armaba el `roundTimer` de la ronda 1 de Asociación en el bootstrap y el niño perdía 1-3s de reloj mientras el frontend cargaba. El backend difiere el timer hasta `confirmBoardReady` (simétrico con Memoria); el frontend emite `board_ready` al renderizar el reto (`gameState==='playing'`).
 - **Toast espurio «Tarjeta no reconocida» en Secuencia eliminado.** Los wrappers `wrappedOnSequenceCardResult`/`wrappedOnSequenceRoundResult` cancelan ahora el timeout client-side de 3s (como los de Memoria/Asociación). Antes, tras la última carta de cada ronda, saltaba el toast ~3s después aunque la carta se había aceptado.
 - **Timeout de escaneo no se arma si el socket está caído.** `handleLocalScan` no programa el timeout de «Tarjeta no reconocida» cuando `!isGameSocketConnected()` (la lectura se encoló, no se perdió; el feedback correcto lo dan la cola + `scan_expired`).
-- **Flush de scans encolados al reconectar `/game`.** `handleGameSocketReconnected` hace `flushPendingScans()` tras re-emitir `JOIN_PLAY` (la reconexión independiente del namespace `/game` antes solo re-unía la sala, dejando los scans varados hasta el siguiente escaneo hardware).
+- **Flush de scans encolados al reconectar `/game`.** `handleGameSocketReconnected` hace `flushPendingScans()` tras re-emitir `JOIN_PLAY` (la reconexión independiente del namespace `/game` antes solo re-unía la sala, dejando los scans varados hasta el siguiente escaneo hardware). *(ADR-237 refina el timing: el reenvío se **difiere** hasta el primer `play_state` posterior a `JOIN_PLAY` —modo RFID ya restaurado—; el flush inmediato llegaba con el modo en `idle` y se rechazaba con `RFID_MODE_INVALID`. Ver sección "Estado único del lector y rehidratación de Secuencia".)*
 - **Dedupe reseteado al retirar la carta** (`webSerialService.js`): un `card_removed` invalida el cooldown del UID, de modo que reacercar la misma carta rápido (Secuencia con carta repetida) no se traga como chattering.
 
 ## Overlay de reconexión y timer congelado (ADR-225)
@@ -380,3 +380,13 @@ Regla de las 3 mecánicas: **el fallback táctil desaparece cuando el sensor est
 - **Asociación**: `{!rfidConnected && <FallbackTouchPanel/>}` (las cartas de respuesta táctiles solo con el sensor perdido).
 - **Secuencia**: `{!rfidConnected && phase === REPRODUCING && <FallbackTouchPanelSequence/>}`. El `SequenceBoard` es siempre solo-visualización (`onCardTap={null}`) para no filtrar el orden de la secuencia.
 - **Memoria**: el tablero está SIEMPRE visible (es el juego), pero su interacción se gatea: `onCardTap={rfidConnected ? undefined : handleMemoryCardTap}`. Con el sensor activo las cartas no son tappables (sin cursor/tabIndex/click); al perder el RFID el tap se reactiva como fallback. (Antes el tap era incondicional — única mecánica inconsistente.)
+
+## Estado único del lector y rehidratación de Secuencia (ADR-237)
+
+### Fuente única de verdad del estado del lector (`useWebSerialDeviceState`)
+
+`rfidConnected` (`deviceState === 'ready'`) proviene ahora del hook `frontend/src/hooks/useWebSerialDeviceState.js`, que **inicializa leyendo el valor ACTUAL del singleton `webSerialService`** y luego se suscribe a `device_state_change`/`status`. Corrige el indicador de "lector desconectado" permanente cuando el sensor ya estaba conectado antes de montar el componente (el evento `device_state_change` es *edge-triggered* y no reemite el estado ya vigente). Es la fuente única para sus cuatro consumidores: `RFIDConnector`, `RFIDModeHandler`, `RFIDScannerPanel` y `useGameSocket`.
+
+### `mergeSequenceRehydration` en la reconexión de Secuencia
+
+El backend **redacta** el snapshot de rehidratación por anti-fuga: las cartas ya jugadas llegan sin `displayData`. Aplicarlo a secas tras una reconexión repintaba esos assets del tablero como UID crudo. `frontend/src/lib/sequenceRehydration.js` (`mergeSequenceRehydration`) fusiona el snapshot con el tablero en vivo: el snapshot manda en el progreso (cursor/estados) y el estado en vivo conserva los assets ya revelados (solo posiciones con `uid` coincidente, evitando injertos entre rondas). Complementariamente, el reenvío de escaneos encolados tras una reconexión de `/game` se difiere hasta el primer `play_state` posterior a `JOIN_PLAY` (modo RFID ya restaurado) para no chocar con `RFID_MODE_INVALID`.

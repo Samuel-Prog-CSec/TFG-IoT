@@ -7,7 +7,13 @@
 const cardDeckRepository = require('../repositories/cardDeckRepository');
 const gameContextRepository = require('../repositories/gameContextRepository');
 const cardDeckService = require('../services/cardDeckService');
-const { NotFoundError, ConflictError, ValidationError } = require('../utils/errors');
+const deckPrintService = require('../services/deckPrintService');
+const {
+  NotFoundError,
+  ConflictError,
+  ValidationError,
+  UnprocessableEntityError
+} = require('../utils/errors');
 const logger = require('../utils/logger');
 const { toCardDeckDetailDTOV1, toCardDeckListDTOV1 } = require('../utils/dtos');
 const { sendSuccess, sendCreated, sendPaginated } = require('../utils/responseHelper');
@@ -444,11 +450,92 @@ const deleteDeck = async (req, res) => {
   sendSuccess(res, null, 'Mazo eliminado (archivado) exitosamente');
 };
 
+/**
+ * Deriva un nombre de fichero ASCII-safe para el PDF a partir del nombre del mazo.
+ * Quita diacríticos y colapsa lo no alfanumérico en guiones (Content-Disposition).
+ * @param {string} deckName
+ * @returns {string}
+ */
+const buildPdfFilename = deckName => {
+  const slug = String(deckName || 'mazo')
+    .normalize('NFD')
+    // Elimina diacríticos combinantes para dejar un slug ASCII (Content-Disposition).
+    .replace(/\p{Diacritic}/gu, '')
+    .toLowerCase()
+    // Trocea en tokens alfanuméricos y une con guiones: sin dobles ni extremos.
+    .split(/[^a-z0-9]+/)
+    .filter(Boolean)
+    .join('-')
+    .slice(0, 60)
+    .replace(/-$/, '');
+  return `${slug || 'mazo'}-cartas.pdf`;
+};
+
+/**
+ * POST /api/decks/:id/print
+ * Genera el PDF imprimible con las imágenes de las cartas del mazo.
+ * Excluye cartas sin imagen (p. ej. solo-audio) y admite un subconjunto (cardUids).
+ */
+const printDeck = async (req, res) => {
+  const { id } = req.params;
+  const { cardWidthMm, cardHeightMm, cardUids, showLabel, cropMarks, orientation } = req.body;
+
+  const deck = await cardDeckRepository.findById(id);
+
+  if (!deck) {
+    throw new NotFoundError('Mazo');
+  }
+
+  ensureResourceOwnership(deck, req.user._id, 'mazo');
+
+  const selectedUids = cardUids ? new Set(cardUids) : null;
+  const printableCards = deck.cardMappings
+    .filter(m => m.displayData && m.displayData.imageUrl)
+    .filter(m => !selectedUids || selectedUids.has(m.uid))
+    .map(m => ({
+      uid: m.uid,
+      assignedValue: m.assignedValue,
+      imageUrl: m.displayData.imageUrl,
+      dominantColor: m.displayData.dominantColor
+    }));
+
+  if (printableCards.length === 0) {
+    throw new UnprocessableEntityError(
+      selectedUids
+        ? 'Ninguna de las cartas seleccionadas tiene una imagen para imprimir'
+        : 'Este mazo no tiene cartas con imagen para imprimir'
+    );
+  }
+
+  const pdfBuffer = await deckPrintService.generateDeckPdf(printableCards, {
+    cardWidthMm,
+    cardHeightMm,
+    orientation,
+    showLabel,
+    cropMarks,
+    deckName: deck.name
+  });
+
+  logger.info('PDF de mazo generado', {
+    deckId: deck._id,
+    requestedBy: req.user._id,
+    cards: printableCards.length,
+    cardWidthMm,
+    cardHeightMm
+  });
+
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${buildPdfFilename(deck.name)}"`);
+  res.setHeader('Content-Length', pdfBuffer.length);
+  res.send(pdfBuffer);
+};
+
 module.exports = {
   getDecks,
   getDeckById,
   checkCard,
   createDeck,
   updateDeck,
-  deleteDeck
+  deleteDeck,
+  printDeck
 };

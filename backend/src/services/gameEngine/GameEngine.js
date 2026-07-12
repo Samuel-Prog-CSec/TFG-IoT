@@ -1977,6 +1977,18 @@ class GameEngine {
       } else {
         existing.count++;
       }
+      // Feedback inmediato al docente si el escaneo viene de una partida activa
+      // (modo gameplay, con expectedPlayId): avisamos de que la tarjeta no está
+      // registrada en vez de dejar que el cliente espere el timeout genérico de
+      // 3s (issue 5). Es seguro respecto a la reconexión: `cardUidToPlayId` sigue
+      // poblado durante un reconnect, así que una tarjeta válida NO cae en esta
+      // rama — solo los UIDs realmente desconocidos (p. ej. una tarjeta ajena o
+      // una lectura corrupta del fallback anticolisión).
+      if (expectedPlayId) {
+        this.io
+          .to(`play_${expectedPlayId}`)
+          .emit('scan_ignored', { uid, reason: SCAN_IGNORED_REASONS.UID_UNKNOWN });
+      }
       return;
     }
 

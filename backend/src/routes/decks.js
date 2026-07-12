@@ -13,7 +13,8 @@ const {
   checkCard,
   createDeck,
   updateDeck,
-  deleteDeck
+  deleteDeck,
+  printDeck
 } = require('../controllers/cardDeckController');
 
 const { authenticate, requireRole } = require('../middlewares/auth');
@@ -24,7 +25,8 @@ const {
   updateCardDeckSchema,
   cardDeckQuerySchema,
   cardDeckParamsSchema,
-  checkCardQuerySchema
+  checkCardQuerySchema,
+  printDeckSchema
 } = require('../validators/cardDeckValidator');
 const { emptyObjectSchema } = require('../validators/commonValidator');
 const asyncHandler = require('../utils/asyncHandler');
@@ -236,6 +238,63 @@ router.delete(
   validateParams(cardDeckParamsSchema),
   validateQuery(emptyObjectSchema),
   asyncHandler(deleteDeck)
+);
+
+/**
+ * @route   POST /api/decks/:id/print
+ * @desc    Generar el PDF imprimible de las cartas (imágenes) del mazo
+ * @access  Private (Teacher)
+ * @validation params: cardDeckParamsSchema | body: printDeckSchema | query: emptyObjectSchema
+ */
+
+/**
+ * @openapi
+ * /decks/{id}/print:
+ *   post:
+ *     tags: [Decks]
+ *     summary: Generar el PDF imprimible de las cartas del mazo
+ *     description: |
+ *       Devuelve un PDF (A4) con las imágenes del mazo maquetadas al tamaño físico
+ *       indicado (máximo por tarjeta; la imagen se escala sin deformarse). Excluye
+ *       cartas sin imagen. `cardUids` permite imprimir solo un subconjunto.
+ *     security: [{ bearerAuth: [] }, { cookieAuth: [] }]
+ *     parameters:
+ *       - in: path
+ *         name: id
+ *         required: true
+ *         schema: { type: string }
+ *     requestBody:
+ *       content:
+ *         application/json:
+ *           schema:
+ *             type: object
+ *             properties:
+ *               cardWidthMm: { type: number }
+ *               cardHeightMm: { type: number }
+ *               cardUids: { type: array, items: { type: string } }
+ *               showLabel: { type: boolean }
+ *               cropMarks: { type: boolean }
+ *               orientation: { type: string, enum: [auto, portrait, landscape] }
+ *     responses:
+ *       200:
+ *         description: PDF generado
+ *         content:
+ *           application/pdf:
+ *             schema: { type: string, format: binary }
+ *       400: { $ref: '#/components/responses/ValidationError' }
+ *       403: { $ref: '#/components/responses/ForbiddenError' }
+ *       404: { $ref: '#/components/responses/NotFoundError' }
+ *       422: { $ref: '#/components/responses/ValidationError' }
+ */
+router.post(
+  '/:id/print',
+  authenticate,
+  createResourceRateLimiter,
+  requireRole('teacher'),
+  validateParams(cardDeckParamsSchema),
+  validateQuery(emptyObjectSchema),
+  validateBody(printDeckSchema),
+  asyncHandler(printDeck)
 );
 
 module.exports = router;

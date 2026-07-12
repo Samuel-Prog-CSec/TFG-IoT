@@ -5,7 +5,7 @@
  * @module pages/DeckEditPage
  */
 
-import { useState, useEffect, useCallback, useMemo, useReducer } from 'react';
+import { useState, useEffect, useCallback, useMemo, useReducer, useRef } from 'react';
 import { useNavigate, useParams } from 'react-router-dom';
 import { m as motion, AnimatePresence } from 'framer-motion';
 import { useConfetti } from '../hooks/useConfetti';
@@ -22,16 +22,19 @@ import {
   X,
   RefreshCw,
   Wand2,
-  Check
+  Check,
+  Printer
 } from 'lucide-react';
 import { cn } from '../lib/utils';
 import { getId } from '../lib/entityId';
+import { setPrintHint } from '../lib/printHint';
 import { validateAssignmentCardinality } from '../lib/deckCardinality';
 import {
   buildCardMappingsPayload,
   normalizeCardMappingsFromDeck
 } from '../lib/cardMapping';
 import ButtonPremium from '../components/ui/ButtonPremium';
+import PrintDeckModal from '../components/print/PrintDeckModal';
 import GlassCard from '../components/ui/GlassCard';
 import InputPremium from '../components/ui/InputPremium';
 import AssetSelector from '../components/ui/AssetSelector';
@@ -114,7 +117,12 @@ export default function DeckEditPage() {
   // Entrada manual de UID en el modal "Añadir cartas" (paridad con el wizard de
   // creación, QA 2026-06-04): permite añadir tarjetas sin lector físico.
   const [manualUid, setManualUid] = useState('');
-  
+  // Impresión de cartas: estado del modal, resaltado post-guardado y snapshot de
+  // los UIDs originales (base para "solo las nuevas").
+  const [printOpen, setPrintOpen] = useState(false);
+  const [highlightPrint, setHighlightPrint] = useState(false);
+  const originalUidsRef = useRef(null);
+
   // Hook de contextos
   const { contexts, loading: contextsLoading, findContextById } = useContexts({ 
     autoLoad: true, 
@@ -155,6 +163,11 @@ export default function DeckEditPage() {
       setDeckName(deckData.name);
 
       const normalizedMappings = normalizeCardMappingsFromDeck(deckData);
+
+      // Snapshot de los UIDs al abrir el editor: base para "solo las nuevas".
+      if (originalUidsRef.current === null) {
+        originalUidsRef.current = new Set(normalizedMappings.map(m => m.uid));
+      }
 
       if (normalizedMappings.length > 0) {
         // Build card objects from mappings using uid
@@ -436,7 +449,13 @@ export default function DeckEditPage() {
         contextId: getId(effectiveContext),
         cardMappings: updatedCardMappings
       }));
-      
+
+      // Parte "Ambos": tras guardar, resalta el botón de imprimir (recordatorio
+      // de reimprimir si añadió cartas) y deja la pista para el detalle.
+      setPrintHint(deckId);
+      setHighlightPrint(true);
+      setTimeout(() => setHighlightPrint(false), 4500);
+
     } catch (err) {
       toast.error('No pudimos guardar los cambios', {
         description: extractErrorMessage(err)
@@ -539,6 +558,24 @@ export default function DeckEditPage() {
           </div>
 
           <div className="flex items-center gap-3">
+            <div className="relative">
+              {highlightPrint && (
+                <motion.span
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -inset-1 rounded-2xl ring-2 ring-brand-base"
+                  initial={{ opacity: 0.7, scale: 1 }}
+                  animate={{ opacity: 0, scale: 1.12 }}
+                  transition={{ duration: 1.1, repeat: 3, ease: 'easeOut' }}
+                />
+              )}
+              <ButtonPremium
+                variant="secondary"
+                onClick={() => setPrintOpen(true)}
+                icon={<Printer size={16} />}
+              >
+                Imprimir cartas
+              </ButtonPremium>
+            </div>
             <ButtonPremium
               variant="secondary"
               onClick={() =>
@@ -987,6 +1024,21 @@ export default function DeckEditPage() {
           otros navigate() del wizard; los <Link> de breadcrumb/sidebar
           siguen sin bloquearse hasta migrar a Data Router. */}
       <ConfirmationModal {...confirmExitModalProps} />
+
+      <PrintDeckModal
+        open={printOpen}
+        onClose={() => setPrintOpen(false)}
+        deckId={deckId}
+        deckName={deck?.name || 'Mazo'}
+        cards={deck?.cardMappings || []}
+        newUids={
+          originalUidsRef.current
+            ? (deck?.cardMappings || [])
+                .map(m => m.uid)
+                .filter(uid => !originalUidsRef.current.has(uid))
+            : []
+        }
+      />
     </div>
   );
 }

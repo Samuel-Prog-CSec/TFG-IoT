@@ -17,6 +17,7 @@ import { sameId } from '../../lib/entityId';
 import { useConfetti } from '../../hooks/useConfetti';
 import RFIDConnector from './RFIDConnector';
 import webSerialService from '../../services/webSerialService';
+import useWebSerialDeviceState from '../../hooks/useWebSerialDeviceState';
 
 // Generar UID aleatorio para mock
 const generateMockUid = () => {
@@ -74,9 +75,10 @@ export default function RFIDScannerPanel({
   availableCards = EMPTY_ARRAY, // Cartas reales disponibles para simular
   className,
 }) {
-  const [isScanning, setIsScanning] = useState(false);
-  const [, setRfidStatus] = useState('disconnected');
-  const [deviceState, setDeviceState] = useState('unknown');
+  // Estado del lector desde la fuente única de verdad (issue 4): inicializa
+  // leyendo el valor ACTUAL del singleton, no 'unknown'/'disconnected' fijos.
+  const { status, deviceState } = useWebSerialDeviceState();
+  const isScanning = status === 'reading';
   const [lastScanned, setLastScanned] = useState(null);
   const [cardRemovedUid, setCardRemovedUid] = useState(null);
   const [error, setError] = useState(null);
@@ -111,17 +113,9 @@ export default function RFIDScannerPanel({
     countSpring.set(scannedCards.length);
   }, [scannedCards.length, countSpring]);
 
+  // status/deviceState (e isScanning derivado) los aporta useWebSerialDeviceState.
+  // Aquí solo escuchamos card_removed para la animación de retirada de tarjeta.
   useEffect(() => {
-    const handleStatus = (payload) => {
-      const nextStatus = payload?.status || 'disconnected';
-      setRfidStatus(nextStatus);
-      setIsScanning(nextStatus === 'reading');
-    };
-
-    const handleDeviceStateChange = (payload) => {
-      setDeviceState(payload?.state || 'unknown');
-    };
-
     const handleCardRemoved = (payload) => {
       if (payload?.uid) {
         setCardRemovedUid(payload.uid);
@@ -129,13 +123,8 @@ export default function RFIDScannerPanel({
       }
     };
 
-    webSerialService.on('status', handleStatus);
-    webSerialService.on('device_state_change', handleDeviceStateChange);
     webSerialService.on('card_removed', handleCardRemoved);
-
     return () => {
-      webSerialService.off('status', handleStatus);
-      webSerialService.off('device_state_change', handleDeviceStateChange);
       webSerialService.off('card_removed', handleCardRemoved);
     };
   }, [scheduleTransient]);

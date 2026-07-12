@@ -971,6 +971,22 @@ export const decksAPI = {
       total: (activeRes.data?.pagination?.total || 0) + (archivedRes.data?.pagination?.total || 0),
     };
   },
+
+  /**
+   * Genera y descarga el PDF imprimible de las cartas (imágenes) del mazo.
+   * Devuelve la respuesta con el cuerpo como Blob (responseType: 'blob').
+   * @param {string} deckId - ID del mazo
+   * @param {Object} [options] - Opciones de impresión
+   * @param {number} [options.cardWidthMm] - Ancho máximo de tarjeta (mm)
+   * @param {number} [options.cardHeightMm] - Alto máximo de tarjeta (mm)
+   * @param {string[]} [options.cardUids] - Subconjunto de UIDs a imprimir (por defecto todas)
+   * @param {boolean} [options.showLabel] - Incluir el valor bajo cada imagen
+   * @param {boolean} [options.cropMarks] - Dibujar la guía de corte
+   * @param {'auto'|'portrait'|'landscape'} [options.orientation]
+   * @returns {Promise} Respuesta axios con { data: Blob }
+   */
+  printDeck: (deckId, options = {}) =>
+    api.post(`/decks/${deckId}/print`, options, { responseType: 'blob' }),
 };
 
 // ============================================

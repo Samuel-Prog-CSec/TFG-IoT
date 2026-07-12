@@ -164,6 +164,33 @@ AuthenticatedOnly.propTypes = {
  * Componente que envuelve el contenido de la aplicación para poder usar useLocation
  */
 function AppContent() {
+  // Prefetch en idle de los chunks pesados con gráficos (Recharts, ~110KB gzip)
+  // tras el primer paint. Sin esto, la PRIMERA navegación a Dashboard/Análisis
+  // pagaba la descarga+parseo del chunk `charts` en frío justo durante la
+  // animación de entrada de la página. En `requestIdleCallback` no compite con
+  // el render inicial y, como los assets llevan cache `immutable`, se paga una
+  // sola vez. Se calientan Dashboard (arrastra `charts`) e Insights (la ruta con
+  // más gráficos a la que salta el docente desde el Dashboard).
+  useEffect(() => {
+    let idleId;
+    let timeoutId;
+    const warm = () => {
+      import('./pages/Dashboard');
+      import('./pages/InsightsReports');
+    };
+    if (typeof window !== 'undefined' && window.requestIdleCallback) {
+      idleId = window.requestIdleCallback(warm, { timeout: 3000 });
+    } else {
+      timeoutId = setTimeout(warm, 1500);
+    }
+    return () => {
+      if (idleId && typeof window !== 'undefined' && window.cancelIdleCallback) {
+        window.cancelIdleCallback(idleId);
+      }
+      if (timeoutId) clearTimeout(timeoutId);
+    };
+  }, []);
+
   return (
     <>
       {/* Barra de progreso superior durante navegacion entre rutas (estilo NProgress) */}

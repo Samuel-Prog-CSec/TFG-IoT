@@ -11,6 +11,7 @@
 | Nº | Playbook | Severidad típica |
 |---|---|---|
 | 1 | [Desplegar a staging](#1-desplegar-a-staging) | Baja |
+| 1b | [Ciclo de vida de staging (auto-stop nocturno)](#1b-ciclo-de-vida-de-staging-auto-stop-nocturno) | Baja |
 | 2 | [Desplegar a producción](#2-desplegar-a-producción) | Baja |
 | 3 | [Rollback manual de producción](#3-rollback-manual-de-producción) | Alta |
 | 4 | [Reiniciar worker BullMQ](#4-reiniciar-worker-bullmq) | Media |
@@ -87,6 +88,44 @@ y backend comparten origen (sin CORS entre ellos), no hay una URL de frontend se
 **Rollback:** Automático si `/api/health/ready` falla ≥6/8 veces tras deploy (vuelve al SHA
 registrado en `/opt/eduplay/secrets/staging.last-good-sha`). Manual con [playbook
 3](#3-rollback-manual-de-producción) sustituyendo `prod` por `staging`.
+
+---
+
+## 1b. Ciclo de vida de staging (auto-stop nocturno)
+
+**Síntoma:** `https://eduplay-tfg-staging.duckdns.org` responde **502** (el timer nocturno paró
+staging), o quieres pararlo/levantarlo a mano. Ver ADR-236 / [`Deploy_VPS.md §8`](Deploy_VPS.md).
+
+**Diagnóstico:**
+
+```bash
+# ¿Cuántos contenedores de staging están corriendo? (0 = parado por el timer)
+docker ps --filter "label=com.docker.compose.project=eduplay-staging" -q | wc -l
+systemctl list-timers | grep eduplay-staging-stop   # próximo auto-stop programado
+```
+
+**Pasos:**
+
+```bash
+# Levantar staging (arranque rápido de los contenedores ya existentes, parados por el timer):
+docker start $(docker ps -aq --filter "label=com.docker.compose.project=eduplay-staging")
+#   — o push a Maintenance para un redeploy completo (playbook 1: deploy-staging.yml hace up -d --build).
+
+# Parar staging a mano (mismo efecto que el timer nocturno):
+sudo systemctl start eduplay-staging-stop.service
+#   — o directamente: docker stop $(docker ps -q --filter "label=com.docker.compose.project=eduplay-staging")
+```
+
+Los datos persisten (volúmenes con nombre; el auto-stop usa `stop`, nunca `down -v`).
+
+**Verificación:**
+
+```bash
+curl -i https://eduplay-tfg-staging.duckdns.org/api/health/ready   # 200 cuando está arriba
+```
+
+**Rollback:** Desactivar el auto-stop y volver a "siempre activo":
+`sudo systemctl disable --now eduplay-staging-stop.timer`.
 
 ---
 

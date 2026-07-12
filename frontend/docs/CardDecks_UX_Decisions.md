@@ -346,3 +346,24 @@ confetti({
 - **Iconos**: Lucide React
 - **Celebraciones**: canvas-confetti
 - **Toasts**: Sonner
+
+---
+
+## Impresión de cartas (UX)
+
+Flujo guiado para que un profesor no técnico imprima las imágenes del mazo (ADR-234).
+
+- **Previsualización en vivo** de la hoja A4: el profesor VE cuántas cartas caben,
+  cuántas páginas y en qué orientación antes de descargar. Es la ayuda principal.
+- **Tamaño como cota máxima**: la imagen se ajusta dentro sin deformarse; un tooltip
+  lo explica. Preset "Tarjeta estándar (5,5 × 8,5 cm)" por defecto.
+- **Guards amables**: inputs en cm con error inline (shake + `role="alert"`) y botón
+  de descarga deshabilitado hasta que el tamaño es válido.
+- **Ahorro de papel**: selección de cartas (todo / algunas) y, en edición, chip
+  "Solo las nuevas" (las añadidas en esta sesión).
+- **"Remarcado" del CTA (flujo "Ambos")**: al terminar la creación, pantalla de éxito
+  con el botón "Imprimir cartas" destacado; en edición, resaltado tras guardar; y una
+  pista para resaltar el botón la primera vez que se abre el detalle del mazo.
+- **Estado vacío**: mazo sin imágenes → mascota + explicación (los audios no se
+  imprimen).
+- **Auto-orientación**: se elige vertical/horizontal para maximizar cartas por hoja.

@@ -9,6 +9,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { socketService, SOCKET_EVENTS, GAME_EVENTS } from '../services/socket';
 import webSerialService from '../services/webSerialService';
+import useWebSerialDeviceState from './useWebSerialDeviceState';
 import {
   sessionsAPI,
   usersAPI,
@@ -160,7 +161,10 @@ export function useGameSocket({
   const [selectedPlayerId, setSelectedPlayerId] = useState(null);
   const [loadingSession, setLoadingSession] = useState(true);
   const [sessionError, setSessionError] = useState(null);
-  const [rfidConnected, setRfidConnected] = useState(false);
+  // Estado del lector Web Serial vía fuente única de verdad (issue 4): inicializa
+  // leyendo el valor ACTUAL del singleton, no `false` fijo — así el icono no se
+  // queda en rojo si el sensor ya estaba conectado antes de entrar a la partida.
+  const { isReady: rfidConnected } = useWebSerialDeviceState();
   const [bestScore, setBestScore] = useState(0);
   // Estado de "lector bloqueado": el sensor físico real está conectado pero el
   // backend rechaza sus escaneos (no autorizado, cambio de lector o firma HMAC
@@ -176,6 +180,10 @@ export function useGameSocket({
   const previousRealtimeStatusRef = useRef('connecting');
   const playIdRef = useRef(null);
   const gameStateRef = useRef('waiting');
+  // Armado tras una reconexión de /game: difiere el flush de escaneos encolados
+  // hasta recibir el play_state posterior a JOIN_PLAY (con el modo RFID ya
+  // restaurado), evitando que se rechacen con RFID_MODE_INVALID (issue 6b).
+  const reconnectFlushArmedRef = useRef(false);
   const pendingScanTimeoutRef = useRef(null);
 
   // Ref a los últimos callbacks de gameplay. Los listeners de socket se registran
@@ -670,36 +678,38 @@ export function useGameSocket({
         return;
       }
       socketService.sendGameCommand(GAME_EVENTS.JOIN_PLAY, { playId: currentPlayId });
-      // Reenviar los escaneos encolados durante la caída de /game. El socket de
-      // sistema (`onSocketConnect`) ya hace flush, pero /game es una conexión io()
-      // INDEPENDIENTE que puede caer y volver sola (blip de WiFi de aula) sin que
-      // el de sistema lo haga; sin este flush las respuestas del niño quedaban
-      // varadas hasta el siguiente escaneo hardware. Orden correcto: JOIN_PLAY re-
-      // registra el modo RFID ANTES de reenviar (mismo socket → FIFO).
+      // NO reenviamos aquí los escaneos encolados durante la caída de /game. El
+      // backend restablece el modo RFID gameplay DENTRO del handler de JOIN_PLAY
+      // (tras un `await` de ownership) y solo DESPUÉS emite `play_state`. El
+      // comentario previo asumía un FIFO estricto que ese await rompe: reenviar
+      // ya mismo hacía llegar los escaneos con el modo aún en `idle` y se
+      // rechazaban con RFID_MODE_INVALID, perdiendo la respuesta del niño (issue
+      // 6b). Los diferimos al primer `play_state` posterior (modo ya restaurado),
+      // vía `handleReconnectFlush`.
+      reconnectFlushArmedRef.current = true;
+      socketService.requestPlayStateSync(currentPlayId);
+    };
+
+    // Flush diferido: al recibir el primer play_state tras la reconexión (con el
+    // modo RFID ya restaurado por JOIN_PLAY en el backend), reenviamos los
+    // escaneos que quedaron encolados durante la caída (issue 6b).
+    const handleReconnectFlush = () => {
+      if (!reconnectFlushArmedRef.current) {
+        return;
+      }
+      reconnectFlushArmedRef.current = false;
       if (typeof webSerialService.flushPendingScans === 'function') {
         webSerialService.flushPendingScans();
       }
-      socketService.requestPlayStateSync(currentPlayId);
     };
 
     window.addEventListener('socket_reconnected', handleSocketReconnected);
     window.addEventListener('game_socket_reconnected', handleGameSocketReconnected);
+    socketService.onGame(GAME_EVENTS.PLAY_STATE, handleReconnectFlush);
     return () => {
       window.removeEventListener('socket_reconnected', handleSocketReconnected);
       window.removeEventListener('game_socket_reconnected', handleGameSocketReconnected);
-    };
-  }, []);
-
-  // Listener de estado del dispositivo RFID
-  useEffect(() => {
-    const handleDeviceStateChange = (payload) => {
-      setRfidConnected(payload?.state === 'ready');
-    };
-
-    webSerialService.on('device_state_change', handleDeviceStateChange);
-
-    return () => {
-      webSerialService.off('device_state_change', handleDeviceStateChange);
+      socketService.offGame(GAME_EVENTS.PLAY_STATE, handleReconnectFlush);
     };
   }, []);
 
