@@ -5,6 +5,37 @@ Todas las notas notables de cambios en este proyecto serán documentadas en este
 El formato está basado en [Keep a Changelog](https://keepachangelog.com/es-ES/1.0.0/),
 y este proyecto adhiere a [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.1.0](https://github.com/Samuel-Prog-CSec/TFG-IoT/compare/v1.0.1...v1.1.0) (2026-07-12)
+
+
+### Features
+
+* **decks:** abrir la impresion desde el detalle, la creacion y la edicion del mazo ([c86c2ca](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/c86c2ca383e6afd4bdc47764c8cd89e82991ae53))
+* **decks:** componer el PDF imprimible de las cartas de un mazo ([8958562](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/89585620ef0840d7403f3f6fe42f704c7f3e07e7))
+* **decks:** endpoint para descargar el PDF imprimible de un mazo ([cf409b9](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/cf409b9a7e3684ea1a9c0c78bac335966d11dddf))
+* **decks:** modal de impresión de cartas con previsualización ([113158c](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/113158c16756d1e10b43f0c5676b3618b01e71fa))
+
+
+### Bug Fixes
+
+* **decks:** reflejar la etiqueta en la vista previa de impresion ([53bfa6b](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/53bfa6bf6414a7efe0232f6ae0e6c52c86cab0cf))
+* **frontend:** conectar API y WebSocket al origen real en Docker (no a localhost) ([e1de474](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/e1de47415006e12efc8232d75cb4607f0121c8c1))
+* **partidas:** avisar de inmediato cuando la tarjeta escaneada no está registrada ([636aaa2](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/636aaa290215ba877e36d9a90a00320f53bc6126))
+* **partidas:** indicador de lector fiable, assets de Secuencia y reconexión ([f298d7f](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/f298d7f868b895e6c6f4db92d7400fbd811977e6))
+* quitar paso redundante de creación de GitHub Release en deploy-production ([b604109](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/b604109a5c9b79c84992b42eb35130aefcd3d5c6))
+* **rfid:** reforzar la conexión y el estado del lector por Web Serial ([df068b4](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/df068b4f6ab7a16cd77891416108fb53d232e387))
+
+
+### Performance
+
+* **frontend:** reducir el jank de transiciones de pantalla ([b138c73](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/b138c7373d4824c0feb6688070ed6225c1a37f38))
+
+
+### Documentation
+
+* **decks:** impresion de cartas a PDF (ADR-234) ([fb1df10](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/fb1df104233e2c166e3299c4deebcd665dfdd7a0))
+* **rfid:** documentar el endurecimiento de la lectura RFID y el realtime (ADR-237) ([68ec469](https://github.com/Samuel-Prog-CSec/TFG-IoT/commit/68ec46941f4982773d40f310fb550a3977f5b39e))
+
 ## [1.0.1](https://github.com/Samuel-Prog-CSec/TFG-IoT/compare/v1.0.0...v1.0.1) (2026-07-07)
 
 
