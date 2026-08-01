@@ -49,10 +49,10 @@
     "socket.io-parser": "^4.2.6"
   },
   "devDependencies": {
-    "@eslint/js": "^9.39.4",
+    "@eslint/js": "^10.0.1",
     "@sentry/vite-plugin": "^5.2.1",
     "@tailwindcss/vite": "^4.2.4",
-    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/jest-dom": "^7.0.0",
     "@testing-library/react": "^16.3.2",
     "@testing-library/user-event": "^14.6.1",
     "@vitejs/plugin-react-swc": "^4.3.0",
@@ -69,8 +69,8 @@
     "eslint-plugin-sonarjs": "^4.0.2",
     "fake-indexeddb": "^6.2.5",
     "globals": "^17.5.0",
-    "jest-axe": "^10.0.0",
-    "jsdom": "^29.1.1",
+    "jest-axe": "^11.0.0",
+    "jsdom": "^30.0.1",
     "rollup-plugin-visualizer": "^7.0.1",
     "vite": "^8.0.10",
     "vite-plugin-compression2": "^2.5.3",
